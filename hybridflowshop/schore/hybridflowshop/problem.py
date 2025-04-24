@@ -1,8 +1,7 @@
 from typing import TextIO
 
+from ..manager.processing_time_manager import JobStageProcessingTimeManager
 from ..util.text_data_parser import TextDataParser
-from .fixed_operation import HybridFlowShopFixedOperation
-from .job import HybridFlowShopJob
 
 
 class HybridFlowShopProblem:
@@ -13,77 +12,32 @@ class HybridFlowShopProblem:
     This class assumes all machines at a given stage are eligible for any operation at that stage.
     """  # noqa: E501
 
-    stage_names: list[str]
-    """List of stage names (e.g., ["S1", "S2", ...])."""
-    stage_2_machines_map: dict[str, list[str]]
-    """Mapping from stage names to machine names (e.g., {"S1": ["S1M1", "S1M2"]})."""
-    machine_names: list[str]
-    """List of all machine names (e.g., ["S1M1", "S1M2", "S2M1", ...])."""
-    jobs: list[HybridFlowShopJob]
-    """List of jobs in the problem instance."""
-
     num_jobs: int
     """Number of jobs in the problem instance."""
     num_stages: int
     """Number of stages in the problem instance."""
+    machines_per_stage: list[int]
+    """List of the number of parallel machines at each stage."""
+    p_manager: JobStageProcessingTimeManager
+    """Manager for processing times of jobs at each stage."""
 
     def __init__(
         self,
         num_jobs: int,
         num_stages: int,
         machines_per_stage: list[int],
-        processing_times: list[list[int]],
+        p_manager: JobStageProcessingTimeManager,
     ):
-        """
-        Initialize the problem instance.
-
-        Args:
-            num_jobs (int): Number of jobs.
-            num_stages (int): Number of stages.
-            machines_per_stage (list[int]): Number of parallel machines per stage.
-            processing_times (list[list[int]]): Matrix of shape [num_jobs][num_stages] representing
-                                                processing time of each job at each stage.
-        """  # noqa: E501
         self.num_jobs = num_jobs
         self.num_stages = num_stages
         self.machines_per_stage = machines_per_stage  # e.g., [2, 3, 2]
-
-        self.stage_names: list[str] = [f"S{i+1}" for i in range(num_stages)]
-        self.stage_2_machines_map: dict[str, list[str]] = {}
-        for stage, i in enumerate(self.stage_names):
-            self.stage_2_machines_map[i] = [
-                i + f"M{m+1}" for m in range(machines_per_stage[stage])
-            ]
-        self.machine_names: list[str] = [
-            k for i in self.stage_names for k in self.stage_2_machines_map[i]
-        ]
-
-        self.jobs: list[HybridFlowShopJob] = []
-
-        for j in range(num_jobs):
-            job_name = f"J{j}"
-            operations = []
-            for stage, i in enumerate(self.stage_names):
-                pt = processing_times[j][stage]
-                # Assume all machines at this stage are eligible: "M1", "M2", ...
-                eligible = self.stage_2_machines_map[i]
-                op_name = job_name + i
-                operation = HybridFlowShopFixedOperation(
-                    processing_time=pt, eligible_mc_set=eligible, name=op_name
-                )
-                operations.append(operation)
-
-            job = HybridFlowShopJob(operations, name=job_name)
-            self.jobs.append(job)
+        self.p_manager = p_manager
 
     def __repr__(self):
         return (
             f"HybridFlowShopProblem(num_jobs={self.num_jobs},"
             f" num_stages={self.num_stages})"
         )
-
-    def __str__(self):
-        return f"Hybrid Flow Shop with {self.num_jobs} jobs, {self.num_stages} stages"
 
     @classmethod
     def from_pra_data(cls, stream: TextIO) -> "HybridFlowShopProblem":
@@ -116,13 +70,34 @@ class HybridFlowShopProblem:
                 f" by machines_per_stage={len(machines_per_stage)}"
             )
 
-        processing_times = TextDataParser.strip_list_of_a_typed_list(
-            stream, int, num_jobs
+        processing_times = JobStageProcessingTimeManager.from_text_stream(
+            stream, num_jobs, dtype=int
         )
 
         return cls(
             num_jobs=num_jobs,
             num_stages=num_stages,
             machines_per_stage=machines_per_stage,
-            processing_times=processing_times,
+            p_manager=processing_times,
         )
+
+    def get_job_id_list(self) -> list[str]:
+        """Generate a list of job IDs with zero-padded numbers."""
+        num_digits = len(str(self.num_jobs - 1))
+        return [f"j{str(j).zfill(num_digits)}" for j in range(self.num_jobs)]
+
+    def get_stage_id_list(self) -> list[str]:
+        """Generate a list of stage IDs with zero-padded numbers."""
+        num_digits = len(str(self.num_stages - 1))
+        return [f"i{str(s).zfill(num_digits)}" for s in range(self.num_stages)]
+
+    def get_stage_2_machines_map(self) -> dict[str, list[str]]:
+        """Generate a mapping from stage IDs to lists of machine IDs."""
+        result: dict[str, list[str]] = {}
+        for stage_idx, stage_id in enumerate(self.get_stage_id_list()):
+            machine_ids = [
+                f"{stage_id}_{str(m).zfill(2)}"
+                for m in range(self.machines_per_stage[stage_idx])
+            ]
+            result[stage_id] = machine_ids
+        return result

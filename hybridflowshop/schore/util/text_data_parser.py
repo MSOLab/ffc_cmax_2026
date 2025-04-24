@@ -36,7 +36,7 @@ class TextDataParser:
 
     @staticmethod
     def strip_list_of_a_typed_list(
-        stream: TextIO, dtype: Type[T], num_lists: int, sep: str | None = None
+        stream: TextIO, num_lists: int, dtype: Type[T], sep: str | None = None
     ) -> list[list[T]]:
         try:
             return [
@@ -45,5 +45,6 @@ class TextDataParser:
             ]
         except EOFError:
             raise EOFError(
-                f"Unexpected end of file while reading {num_lists} lists of type {dtype.__name__}."
+                f"Unexpected end of file while reading {num_lists} lists "
+                f"of type {dtype.__name__}."
             )
