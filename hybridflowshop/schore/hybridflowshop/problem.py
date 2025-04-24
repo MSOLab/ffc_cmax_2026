@@ -1,5 +1,6 @@
 from typing import TextIO
 
+from ..util.text_data_parser import TextDataParser
 from .fixed_operation import HybridFlowShopFixedOperation
 from .job import HybridFlowShopJob
 
@@ -104,9 +105,9 @@ class HybridFlowShopProblem:
         Returns:
             HybridFlowShopProblem: Parsed problem instance.
         """  # noqa: E501
-        num_jobs = int(stream.readline().strip())
-        num_stages = int(stream.readline().strip())
-        machines_per_stage = [int(x) for x in stream.readline().strip().split()]
+        num_jobs = TextDataParser.strip_a_typed_value(stream, int)
+        num_stages = TextDataParser.strip_a_typed_value(stream, int)
+        machines_per_stage = TextDataParser.strip_a_typed_list(stream, int)
 
         # Validate the number of stages and machines
         if len(machines_per_stage) != num_stages:
@@ -115,14 +116,9 @@ class HybridFlowShopProblem:
                 f" by machines_per_stage={len(machines_per_stage)}"
             )
 
-        processing_times = []
-        for _ in range(num_jobs):
-            row = [int(x) for x in stream.readline().strip().split()]
-            if len(row) != num_stages:
-                raise ValueError(
-                    f"Expected {num_stages} processing times per job, got {len(row)}."
-                )
-            processing_times.append(row)
+        processing_times = TextDataParser.strip_list_of_a_typed_list(
+            stream, int, num_jobs
+        )
 
         return cls(
             num_jobs=num_jobs,
