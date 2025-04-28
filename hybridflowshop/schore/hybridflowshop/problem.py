@@ -63,16 +63,13 @@ class HybridFlowShopProblem:
         num_stages = TextDataParser.strip_a_typed_value(stream, int)
         machines_per_stage = TextDataParser.strip_a_typed_list(stream, int)
 
-        # Validate the number of stages and machines
-        if len(machines_per_stage) != num_stages:
-            raise ValueError(
-                f"Stage count mismatch; num_stages={num_stages};"
-                f" by machines_per_stage={len(machines_per_stage)}"
-            )
+        cls._validate_pra_structure(num_stages, machines_per_stage)
 
         processing_times = JobStageProcessingTimeManager.from_text_stream(
             stream, num_jobs, dtype=int
         )
+
+        cls._validate_processing_times(num_stages, processing_times)
 
         return cls(
             num_jobs=num_jobs,
@@ -80,6 +77,26 @@ class HybridFlowShopProblem:
             machines_per_stage=machines_per_stage,
             p_manager=processing_times,
         )
+
+    @staticmethod
+    def _validate_pra_structure(num_stages: int, machines_per_stage: list[int]):
+        if len(machines_per_stage) != num_stages:
+            raise ValueError(
+                f"Stage count mismatch; num_stages={num_stages};"
+                f" by machines_per_stage={len(machines_per_stage)}"
+            )
+
+    @staticmethod
+    def _validate_processing_times(
+        num_stages: int, processing_times: JobStageProcessingTimeManager
+    ):
+        if processing_times.col_count() != num_stages:
+            raise ValueError(
+                f"Expected {num_stages} processing times per job,"
+                f" got {processing_times.col_count()}."
+            )
+        if processing_times.df.isnull().values.any():
+            raise ValueError("Null value exists in the processing time data.")
 
     def get_job_id_list(self) -> list[str]:
         """Generate a list of job IDs with zero-padded numbers."""
@@ -95,8 +112,9 @@ class HybridFlowShopProblem:
         """Generate a mapping from stage IDs to lists of machine IDs."""
         result: dict[str, list[str]] = {}
         for stage_idx, stage_id in enumerate(self.get_stage_id_list()):
+            num_digits = len(str(self.machines_per_stage[stage_idx] - 1))
             machine_ids = [
-                f"{stage_id}_{str(m).zfill(2)}"
+                f"{stage_id}_{str(m).zfill(num_digits)}"
                 for m in range(self.machines_per_stage[stage_idx])
             ]
             result[stage_id] = machine_ids
