@@ -11,8 +11,8 @@ def main():
     benchmark_filenames = [str(i) + ".txt" for i in range(first, last + 1)]
     input_dir = "resources/pra/"
     output_dir = "../Outputs/pra/"
-    computational_time = 10
-    n_threads = 12
+    computational_time = 5
+    n_threads = 8
 
     input_dir_path = Path(input_dir)
     output_dir_path = Path(output_dir)
@@ -36,13 +36,28 @@ def main():
             n_threads=n_threads,
         )
 
-        from pure_cp_2023_naderi import PureCP2023Naderi
+        from hfs_cp_lns import HybridFlowShopCpLnsController
 
-        solver_ins = PureCP2023Naderi(hfs_instance)
-        solver_ins.solve(computational_time=computational_time, n_threads=n_threads)
-        summary = HFSSummary(inputs=input_summary, outputs=solver_ins.summary)
-        summary.outputs.report_status()
+        kwargs_dict_by_subroutine = {
+            "solve_pure_cp": {
+                "computational_time": computational_time,
+                "n_threads": n_threads,
+            }
+        }
+        cp_lns_ctrlr = HybridFlowShopCpLnsController(hfs_instance)
+        cp_lns_ctrlr.run(kwargs_dict_by_subroutine)
+        output_summary = cp_lns_ctrlr.get_result_summary()
+        output_summary.report_status()
+        summary = HFSSummary(inputs=input_summary, outputs=output_summary)
         summary.save(output_dir_path / benchmark_filename)
+
+        # from pure_cp_2023_naderi import PureCP2023Naderi
+
+        # solver_ins = PureCP2023Naderi(hfs_instance)
+        # solver_ins.solve(computational_time=computational_time, n_threads=n_threads)
+        # summary = HFSSummary(inputs=input_summary, outputs=solver_ins.summary)
+        # summary.outputs.report_status()
+        # summary.save(output_dir_path / benchmark_filename)
 
 
 if __name__ == "__main__":
