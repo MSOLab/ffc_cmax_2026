@@ -15,7 +15,7 @@ class HFSSummary:
     def comma_seperated_values(self) -> str:
         """Returns a string with comma-separated values of the summary."""
         return (
-            f"{self.inputs.comma_seperated_values()}"
+            f"\n{self.inputs.comma_seperated_values()}"
             f",{self.outputs.comma_seperated_values()}"
         )
 

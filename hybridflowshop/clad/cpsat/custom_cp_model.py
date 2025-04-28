@@ -1,13 +1,9 @@
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 from ortools.sat.cp_model_pb2 import ConstraintProto, CpSolverStatus
-from ortools.sat.python.cp_model import (
-    Constraint,
-    CpModel,
-    CpSolver,
-    IntVar,
-    LinearExpr,
-)
+from ortools.sat.python.cp_model import Constraint, CpModel, CpSolver, IntVar
 
+from ..elapsed_timer import ElapsedTimer
+from .solution_progress_logger import SolutionProgressLogger
 from .utils import Utils
 
 
@@ -16,6 +12,8 @@ class CustomCpModel(CpModel):
 
     solver: CpSolver
     """CpSolver object for solving the model."""
+    sol_prog_logger: SolutionProgressLogger
+    """(Optional) Logger for solution progress."""
 
     num_base_constraints: int
     """Number of base constraints in the model."""
@@ -51,7 +49,7 @@ class CustomCpModel(CpModel):
         """  # noqa: E501
         self.init_solver(computational_time, n_threads)
 
-        solver_status = self.solver.Solve(self)
+        solver_status = self.solver.solve(self)
         elapsed_time = self.solver.wall_time
 
         if Utils.found_feasible_solution(solver_status):
@@ -72,6 +70,28 @@ class CustomCpModel(CpModel):
         self.solver = CpSolver()
         self.solver.parameters.max_time_in_seconds = computational_time
         self.solver.parameters.num_workers = n_threads
+
+    def solve_with_prog_logger(
+        self, computational_time: float, n_threads: int, timer: ElapsedTimer
+    ) -> tuple[CpSolverStatus, float, float, float]:
+        self.init_solver(computational_time, n_threads)
+        self.init_callback(timer)
+
+        solver_status = self.solver.solve(self, solution_callback=self.sol_prog_logger)
+        elapsed_time = self.solver.wall_time
+
+        if Utils.found_feasible_solution(solver_status):
+            ub = self.solver.objective_value
+            lb = self.solver.best_objective_bound
+        else:
+            ub, lb = Utils.get_ub_and_lb_for_infeasible(self.is_maximize())
+
+        return solver_status, elapsed_time, ub, lb
+
+    def init_callback(self, timer: ElapsedTimer) -> None:
+        self.sol_prog_logger = SolutionProgressLogger(
+            timer, print_on_solution_callback=True
+        )
 
     # variable functions
 

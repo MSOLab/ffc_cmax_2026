@@ -1,4 +1,5 @@
 from clad.cpsat import CpModelWithOptionalInterval, Utils
+from clad.elapsed_timer import ElapsedTimer
 from clad.solver_output_summary import SolverOutputSummary
 from schore.hybridflowshop import HybridFlowShopProblem
 
@@ -34,24 +35,30 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         self.define_constraints()
         self.freeze_base_constraints()
 
-    def solve(self, computational_time: float, n_threads: int):
-        self.summary = self.run_and_summarize(computational_time, n_threads)
+    def solve(
+        self, computational_time: float, n_threads: int, timer: ElapsedTimer
+    ) -> None:
+        self.summary = self.run_and_summarize(computational_time, n_threads, timer)
 
     def run_and_summarize(
-        self, computational_time: float, n_threads: int
+        self, computational_time: float, n_threads: int, timer: ElapsedTimer
     ) -> SolverOutputSummary:
         """Solve the CP model with the specified computational time and number of threads.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
             n_threads (int): The number of threads to use for solving.
+            timer (ElapsedTimer): The timer to track elapsed time.
 
         Returns:
             SolverOutputSummary
         """  # noqa: E501
-        solver_status, elapsed_time, ub, lb = super().solve_and_get_status(
-            computational_time, n_threads
-        )
+        (
+            solver_status,
+            elapsed_time,
+            ub,
+            lb,
+        ) = super().solve_with_prog_logger(computational_time, n_threads, timer)
 
         return SolverOutputSummary(
             Utils.get_status_string(solver_status),

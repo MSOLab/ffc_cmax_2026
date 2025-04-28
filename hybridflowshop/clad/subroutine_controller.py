@@ -12,8 +12,7 @@ class SubroutineController(ABC):
     _stopping_criteria: DynamicDataObject
     _subroutine_flow: DynamicDataObject
 
-    _called_routines: list[dict[str, Any]]
-    _log_entries: list[dict[str, Any]]
+    _method_call_logs: list[dict[str, Any]]
 
     def __init__(
         self,
@@ -31,31 +30,31 @@ class SubroutineController(ABC):
         self._stopping_criteria = stopping_criteria
         self._subroutine_flow = subroutine_flow
 
-        self._called_routines = []
-        self._log_entries = []
+        self._method_call_logs = []
+
+    @property
+    def timer(self) -> ElapsedTimer:
+        return self._timer
 
     @abstractmethod
     def is_stopping_condition(self) -> bool:
         pass
 
-    def _add_called_routine(self, **kwargs):
-        self._called_routines.append(kwargs)
-
-    def _add_log_entry(self, **kwargs):
-        self._log_entries.append(kwargs)
+    def _add_method_call_log_entry(self, **kwargs):
+        self._method_call_logs.append(kwargs)
 
     def run(self):
         self.execute_routine(self._subroutine_flow)
-        self.print_logs()
+        self.print_method_exec_logs()
 
-    def print_logs(self):
-        print("\n==== Subroutine Execution Log ====")
-        for idx, entry in enumerate(self._log_entries, 1):
+    def print_method_exec_logs(self):
+        print("\n=== Method Execution Log ===")
+        for idx, entry in enumerate(self._method_call_logs, 1):
             print(
-                f"[{idx}] {entry['method_name']} | {entry['elapsed_sec']:.3f} sec"
-                f" | kwargs={entry['kwargs']}"
+                f"[{idx}] {entry['method_name']} | start @ {entry['start_sec']:.3f} sec"
+                f" | took {entry['elapsed_sec']:.3f} sec | kwargs={entry['kwargs']}"
             )
-        print("==================================\n")
+        print(28 * "=" + "\n")
 
     def execute_routine(self, routine_data: DynamicDataObject):
         if isinstance(routine_data, Sequence):  # is a list or tuple
@@ -66,23 +65,19 @@ class SubroutineController(ABC):
                 return
             kwargs_dict: dict = routine_data.to_obj()
             method_name = kwargs_dict.pop("method_name")
-            self.execute_method(method_name, **kwargs_dict)
+            self.call_method(method_name, **kwargs_dict)
 
-    def execute_method(self, method_name: str, **kwargs):
+    def call_method(self, method_name: str, **kwargs):
         if not hasattr(self, method_name):
             raise AttributeError(
                 f"{self.__class__.__name__} has no attribute {method_name}"
             )
-
-        method_timer = ElapsedTimer()
-        method_timer.set_start_time_as_now()
-
-        method = getattr(self, method_name)
-        method(**kwargs)
-
-        elapsed_sec = method_timer.get_elapsed_sec()
-        self._add_log_entry(
+        method_start_sec = self.timer.get_elapsed_sec()
+        getattr(self, method_name)(**kwargs)
+        elapsed_sec = self.timer.get_elapsed_sec() - method_start_sec
+        self._add_method_call_log_entry(
             method_name=method_name,
+            start_sec=method_start_sec,
             elapsed_sec=elapsed_sec,
             kwargs=kwargs,
         )

@@ -43,7 +43,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             f"Solving CP model with computational_time={computational_time}"
             f", n_threads={n_threads}"
         )
-        self.cp_model.solve(computational_time, n_threads)
+        self.cp_model.solve(computational_time, n_threads, self.timer)
         self.cp_model.delete_added_constraints()
 
     def apply_time_window_search(

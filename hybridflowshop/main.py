@@ -13,15 +13,16 @@ MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
 
 def main():
+    # Read the main metadata file
     main_metadata_dict = read_yaml(Path(MAIN_METADATA_FILENAME))
 
-    # metadata dictionaries
+    # Read common parameters for PRA benchmarks
     pra_common_params_rel_path = Path(main_metadata_dict["pra_common_params_rel_path"])
     pra_common_params_dict = read_yaml(pra_common_params_rel_path)
 
+    # Read the stopping criteria and subroutine flow
     stopping_criteria_rel_path = Path(main_metadata_dict["stopping_criteria_rel_path"])
     stopping_criteria_dict = read_yaml(stopping_criteria_rel_path)
-
     subroutine_flow_rel_path = Path(main_metadata_dict["subroutine_flow_rel_path"])
     subroutine_flow_obj = read_yaml(subroutine_flow_rel_path)
 
@@ -35,10 +36,6 @@ def main():
     input_dir_path = Path(main_metadata_dict["input_dir"])
     output_dir_path = Path(main_metadata_dict["output_dir"])
 
-    # Solver parameters
-    computational_time = 5
-    n_threads = 8
-
     # Subroutine controller arguments
     stopping_criteria = StoppingCriteria(stopping_criteria_dict)
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
@@ -51,8 +48,7 @@ def main():
             name=benchmark_filename,
             num_jobs=hfs_instance.num_jobs,
             num_stages=hfs_instance.num_stages,
-            computational_time=computational_time,
-            n_threads=n_threads,
+            timelimit=stopping_criteria.timelimit,
         )
 
         cp_lns_ctrlr = create_controller(
@@ -61,16 +57,9 @@ def main():
         cp_lns_ctrlr.run()
         output_summary = cp_lns_ctrlr.get_result_summary()
         output_summary.report_status()
+
         summary = HFSSummary(inputs=input_summary, outputs=output_summary)
         summary.save(output_dir_path / benchmark_filename)
-
-        # from pure_cp_2023_naderi import PureCP2023Naderi
-
-        # solver_ins = PureCP2023Naderi(hfs_instance)
-        # solver_ins.solve(computational_time=computational_time, n_threads=n_threads)
-        # summary = HFSSummary(inputs=input_summary, outputs=solver_ins.summary)
-        # summary.outputs.report_status()
-        # summary.save(output_dir_path / benchmark_filename)
 
 
 # Helper methods
