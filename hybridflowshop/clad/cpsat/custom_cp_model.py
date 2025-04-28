@@ -1,6 +1,14 @@
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
-from ortools.sat.cp_model_pb2 import ConstraintProto
-from ortools.sat.python.cp_model import Constraint, CpModel, IntVar, LinearExpr
+from ortools.sat.cp_model_pb2 import ConstraintProto, CpSolverStatus
+from ortools.sat.python.cp_model import (
+    Constraint,
+    CpModel,
+    CpSolver,
+    IntVar,
+    LinearExpr,
+)
+
+from .utils import Utils
 
 
 class CustomCpModel(CpModel):
@@ -16,6 +24,37 @@ class CustomCpModel(CpModel):
         self.added_constraints = []
         self.idx_added_constraints = []
 
+    def solve_and_get_status(
+        self, computational_time: float, n_threads: int
+    ) -> tuple[CpSolverStatus, float, float, float]:
+        """Solve the CP model with the specified computational time and number of threads.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            n_threads (int): The number of threads to use for solving.
+
+        Returns:
+            tuple[CpSolverStatus, float, float, float]: A tuple containing
+            - the solver status,
+            - elapsed time,
+            - the upper bound of the objective function, and
+            - the lower bound of the objective function.
+        """  # noqa: E501
+        solver = CpSolver()
+        solver.parameters.max_time_in_seconds = computational_time
+        solver.parameters.num_workers = n_threads
+
+        solver_status = solver.Solve(self)
+        elapsed_time = solver.wall_time
+
+        if Utils.found_feasible_solution(solver_status):
+            ub = solver.objective_value
+            lb = solver.best_objective_bound
+        else:
+            ub, lb = Utils.get_ub_and_lb_for_infeasible(self.is_maximize())
+
+        return solver_status, elapsed_time, ub, lb
+
     # variable functions
 
     def change_domain(self, var: IntVar, domain: list[int]) -> None:
@@ -30,6 +69,15 @@ class CustomCpModel(CpModel):
         ), f"Domain must be a list of two integers; {domain} given."
 
         var.Proto().domain[:] = domain
+
+    # objective functions
+
+    def is_maximize(self) -> bool:
+        """
+        Returns:
+            bool: True if the objective is maximize, False if minimize.
+        """
+        return self._CpModel__model.objective.maximize
 
     # constraint functions
 

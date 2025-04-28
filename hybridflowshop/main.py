@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from hfs_summary import HFSInputSummary, HFSSummary
+from hfs_input_summary import HFSInputSummary
+from hfs_summary import HFSSummary
 from schore.hybridflowshop import HybridFlowShopProblem
 
 
