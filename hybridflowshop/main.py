@@ -1,44 +1,47 @@
 from pathlib import Path
 from typing import Any
 
+import yaml
 from clad import DynamicDataObject
+from hfs_cp_lns import HybridFlowShopCpLnsController
 from hfs_input_summary import HFSInputSummary
 from hfs_summary import HFSSummary
 from schore.hybridflowshop import HybridFlowShopProblem
 from stopping_criteria import StoppingCriteria
 
+MAIN_METADATA_FILENAME = "main_metadata.yaml"
+
 
 def main():
+    main_metadata_dict = read_yaml(Path(MAIN_METADATA_FILENAME))
+
+    # metadata dictionaries
+    pra_common_params_rel_path = Path(main_metadata_dict["pra_common_params_rel_path"])
+    pra_common_params_dict = read_yaml(pra_common_params_rel_path)
+
+    stopping_criteria_rel_path = Path(main_metadata_dict["stopping_criteria_rel_path"])
+    stopping_criteria_dict = read_yaml(stopping_criteria_rel_path)
+
+    subroutine_flow_rel_path = Path(main_metadata_dict["subroutine_flow_rel_path"])
+    subroutine_flow_obj = read_yaml(subroutine_flow_rel_path)
+
     # I/O parameters
-    first = 0
-    last = 2
-    benchmark_filenames = [str(i) + ".txt" for i in range(first, last + 1)]
-    input_dir = "resources/pra/"
-    output_dir = "../Outputs/pra/"
-
-    # Problem parameter
-    horizon = 100000
-
-    # Stopping criteria
-    stopping_criteria_dict = {"timelimit": 20}
+    first: int = main_metadata_dict["first"]
+    last: int = main_metadata_dict["last"]
+    benchmark_filename_format: str = main_metadata_dict["benchmark_filename_format"]
+    benchmark_filenames = [
+        benchmark_filename_format.format(i) for i in range(first, last + 1)
+    ]
+    input_dir_path = Path(main_metadata_dict["input_dir"])
+    output_dir_path = Path(main_metadata_dict["output_dir"])
 
     # Solver parameters
     computational_time = 5
     n_threads = 8
 
-    input_dir_path = Path(input_dir)
-    output_dir_path = Path(output_dir)
     for benchmark_filename in benchmark_filenames:
         # Read the problem instance
-        try:
-            with open(input_dir_path / benchmark_filename, "r") as f:
-                hfs_instance = HybridFlowShopProblem.from_pra_data(f)
-        except FileNotFoundError:
-            print(f"File {benchmark_filename} not found in {input_dir}.")
-            continue
-        except Exception as e:
-            print(f"Error reading file {benchmark_filename}: {e}")
-            continue
+        hfs_instance = load_hfs_instance(input_dir_path / benchmark_filename)
 
         input_summary = HFSInputSummary(
             name=benchmark_filename,
@@ -48,28 +51,11 @@ def main():
             n_threads=n_threads,
         )
 
-        from hfs_cp_lns import HybridFlowShopCpLnsController
-
-        kwargs_dict_for_init: dict[str, Any] = {"horizon": horizon}
-        kwargs_list: list[dict[str, Any]] = [
-            {
-                "method_name": "solve_cp",
-                "computational_time": computational_time,
-                "n_threads": n_threads,
-            },
-            {
-                "method_name": "apply_time_window_search",
-                "rho": 0.2,
-                "computational_time": computational_time,
-                "n_threads": n_threads,
-            },
-        ]
-
         stopping_criteria = StoppingCriteria(stopping_criteria_dict)
-        subroutine_flow = DynamicDataObject.from_obj(kwargs_list)
+        subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
 
-        cp_lns_ctrlr = HybridFlowShopCpLnsController(
-            hfs_instance, stopping_criteria, subroutine_flow, **kwargs_dict_for_init
+        cp_lns_ctrlr = create_controller(
+            hfs_instance, stopping_criteria, subroutine_flow, pra_common_params_dict
         )
         cp_lns_ctrlr.run()
         output_summary = cp_lns_ctrlr.get_result_summary()
@@ -84,6 +70,34 @@ def main():
         # summary = HFSSummary(inputs=input_summary, outputs=solver_ins.summary)
         # summary.outputs.report_status()
         # summary.save(output_dir_path / benchmark_filename)
+
+
+# Helper methods
+
+
+def read_yaml(path: Path) -> Any:
+    try:
+        return yaml.safe_load(path.read_text())
+    except Exception as e:
+        raise RuntimeError(f"Error reading YAML from {path}: {e}")
+
+
+def load_hfs_instance(file_path: Path) -> HybridFlowShopProblem:
+    try:
+        with open(file_path, "r") as f:
+            return HybridFlowShopProblem.from_pra_data(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Benchmark file not found: {file_path}")
+    except Exception as e:
+        raise RuntimeError(f"Error reading benchmark file {file_path}: {e}")
+
+
+def create_controller(
+    hfs_instance, stopping_criteria, subroutine_flow, controller_init_kwargs
+):
+    return HybridFlowShopCpLnsController(
+        hfs_instance, stopping_criteria, subroutine_flow, **controller_init_kwargs
+    )
 
 
 if __name__ == "__main__":

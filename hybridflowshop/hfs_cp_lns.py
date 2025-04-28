@@ -24,8 +24,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
     def is_stopping_condition(self) -> bool:
         # If total elapsed time exceeds the stopping criteria
-        elapsed_time = self._timer.get_elapsed_time()
-        return elapsed_time >= self._stopping_criteria.timelimit
+        if self._timer.get_elapsed_time() >= self._stopping_criteria.timelimit:
+            print("Stop by timelimit")
+            return True
+        return False
 
     def get_result_summary(self):
         return self.cp_model.summary
