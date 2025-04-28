@@ -1,0 +1,3 @@
+- method_name: solve_cp
+  computational_time: 25
+  n_threads: 8
