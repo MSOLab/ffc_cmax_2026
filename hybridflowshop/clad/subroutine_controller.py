@@ -3,11 +3,11 @@ from abc import ABC, abstractmethod
 from typing import Any, Sequence
 
 from .dynamic_data_object import DynamicDataObject
-from .timer import Timer
+from .elapsed_timer import ElapsedTimer
 
 
 class SubroutineController(ABC):
-    _timer: Timer
+    _timer: ElapsedTimer
 
     _stopping_criteria: DynamicDataObject
     _subroutine_flow: DynamicDataObject
@@ -22,7 +22,7 @@ class SubroutineController(ABC):
         start_dt: dt.datetime | None = None,
     ):
         # Set the timer first
-        self._timer = Timer()
+        self._timer = ElapsedTimer()
         if start_dt is not None:
             self._timer.set_start_time(start_dt)
         else:
@@ -52,7 +52,8 @@ class SubroutineController(ABC):
         print("\n==== Subroutine Execution Log ====")
         for idx, entry in enumerate(self._log_entries, 1):
             print(
-                f"[{idx}] {entry['method_name']} | {entry['elapsed_sec']:.3f} sec | kwargs={entry['kwargs']}"
+                f"[{idx}] {entry['method_name']} | {entry['elapsed_sec']:.3f} sec"
+                f" | kwargs={entry['kwargs']}"
             )
         print("==================================\n")
 
@@ -73,7 +74,7 @@ class SubroutineController(ABC):
                 f"{self.__class__.__name__} has no attribute {method_name}"
             )
 
-        method_timer = Timer()
+        method_timer = ElapsedTimer()
         method_timer.set_start_time_as_now()
 
         method = getattr(self, method_name)

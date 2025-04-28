@@ -1,7 +1,7 @@
 import datetime as dt
 
 
-class Timer:
+class ElapsedTimer:
     # the date and time at which the handler was initiated
     _start_dt: dt.datetime
     _start_time_in_seconds: float
