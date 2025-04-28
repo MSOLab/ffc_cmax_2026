@@ -1,9 +1,11 @@
 from pathlib import Path
 from typing import Any
 
+from clad import DynamicDataObject
 from hfs_input_summary import HFSInputSummary
 from hfs_summary import HFSSummary
 from schore.hybridflowshop import HybridFlowShopProblem
+from stopping_criteria import StoppingCriteria
 
 
 def main():
@@ -16,6 +18,9 @@ def main():
 
     # Problem parameter
     horizon = 100000
+
+    # Stopping criteria
+    stopping_criteria_dict = {"timelimit": 20}
 
     # Solver parameters
     computational_time = 5
@@ -59,10 +64,14 @@ def main():
                 "n_threads": n_threads,
             },
         ]
+
+        stopping_criteria = StoppingCriteria(stopping_criteria_dict)
+        subroutine_flow = DynamicDataObject.from_obj(kwargs_list)
+
         cp_lns_ctrlr = HybridFlowShopCpLnsController(
-            hfs_instance, **kwargs_dict_for_init
+            hfs_instance, stopping_criteria, subroutine_flow, **kwargs_dict_for_init
         )
-        cp_lns_ctrlr.run(kwargs_list)
+        cp_lns_ctrlr.run()
         output_summary = cp_lns_ctrlr.get_result_summary()
         output_summary.report_status()
         summary = HFSSummary(inputs=input_summary, outputs=output_summary)

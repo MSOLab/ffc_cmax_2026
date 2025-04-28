@@ -1,41 +1,42 @@
 import random
 from collections import defaultdict
-from typing import Any
 
+from clad import DynamicDataObject, SubroutineController
 from pure_cp_2023_naderi import PureCP2023Naderi
 from schore.hybridflowshop.problem import HybridFlowShopProblem
+from stopping_criteria import StoppingCriteria
 
 
-class HybridFlowShopCpLnsController:
+class HybridFlowShopCpLnsController(SubroutineController):
+    _stopping_criteria: StoppingCriteria
+
     cp_model: PureCP2023Naderi
 
-    def __init__(self, hfs_instance: HybridFlowShopProblem, horizon: int):
+    def __init__(
+        self,
+        hfs_instance: HybridFlowShopProblem,
+        stopping_criteria: StoppingCriteria,
+        subroutine_flow: DynamicDataObject,
+        horizon: int,
+    ):
+        super().__init__(stopping_criteria, subroutine_flow)
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
+
+    def is_stopping_condition(self) -> bool:
+        # If total elapsed time exceeds the stopping criteria
+        elapsed_time = self._timer.get_elapsed_time()
+        return elapsed_time >= self._stopping_criteria.timelimit
 
     def get_result_summary(self):
         return self.cp_model.summary
 
-    def run(self, kwargs_list: list[dict[str, Any]]):
-        self.execute_subroutine_flow(kwargs_list)
-
-    def execute_subroutine_flow(self, kwargs_list: list[dict[str, Any]]):
-        for subroutine_kwargs in kwargs_list:
-            method_name = subroutine_kwargs.pop(
-                "method_name"
-            )  # method_name 꺼내고 제거
-            self.execute_subroutine(method_name, **subroutine_kwargs)
-
-    def execute_subroutine(self, method_name: str, **kwargs):
-        if hasattr(self, method_name):
-            method = getattr(self, method_name)
-            method(**kwargs)
-        else:
-            raise AttributeError(
-                f"Method {method_name} not in {self.__class__.__name__}"
-            )
-
     def solve_cp(self, computational_time: float, n_threads: int):
-        # Call the solve method to execute the solver
+        """Solve current CP model.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            n_threads (int): The number of threads to use for solving.
+        """
         print(
             f"Solving CP model with computational_time={computational_time}"
             f", n_threads={n_threads}"
@@ -45,11 +46,12 @@ class HybridFlowShopCpLnsController:
     def apply_time_window_search(
         self, rho: float, computational_time: float, n_threads: int
     ):
-        """
-        Apply the Time Window Operator to the incumbent solution.
+        """Time window search with incumbent solution
 
         Args:
             rho (float): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
+            computational_time (float): The maximum computational time in seconds.
+            n_threads (int): The number of threads to use for solving.
         """
         start_times, end_times = self.cp_model.extract_start_end_times()
         self.apply_time_window_operator(start_times, end_times, rho)

@@ -1,11 +1,12 @@
 import datetime as dt
+from abc import ABC, abstractmethod
 from typing import Any, Sequence
 
 from .dynamic_data_object import DynamicDataObject
 from .timer import Timer
 
 
-class SubroutineController:
+class SubroutineController(ABC):
     _timer: Timer
     _stopping_criteria: DynamicDataObject
     _subroutine_flow: DynamicDataObject
@@ -27,8 +28,9 @@ class SubroutineController:
         else:
             self._timer.set_start_time_as_now()
 
+    @abstractmethod
     def is_stopping_condition(self) -> bool:
-        raise NotImplementedError()
+        pass
 
     def _add_called_routine(self, **kwargs):
         self._called_routines.append(kwargs)
@@ -43,14 +45,15 @@ class SubroutineController:
         else:  # is an dict-like object
             if self.is_stopping_condition():
                 return
-            # if the object has a function with the name of subroutine_flow.name, call it
-            if hasattr(routine_data, "name"):
-                try:
-                    self._add_called_routine(**routine_data.to_obj())
-                    getattr(self, routine_data.name)(**routine_data.to_obj())
-                except AttributeError:
-                    raise AttributeError(
-                        f"SubroutineController has no attribute {routine_data.name}"
-                    )
-            else:
-                raise AttributeError("Subroutine data must have a 'name' attribute")
+            kwargs_dict: dict = routine_data.to_obj()
+            method_name = kwargs_dict.pop("method_name")
+            self.execute_method(method_name, **kwargs_dict)
+
+    def execute_method(self, method_name: str, **kwargs):
+        if hasattr(self, method_name):
+            method = getattr(self, method_name)
+            method(**kwargs)
+        else:
+            raise AttributeError(
+                f"{self.__class__.__name__} has no attribute {method_name}"
+            )
