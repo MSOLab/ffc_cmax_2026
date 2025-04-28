@@ -44,6 +44,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             f", n_threads={n_threads}"
         )
         self.cp_model.solve(computational_time, n_threads)
+        self.cp_model.delete_added_constraints()
 
     def apply_time_window_search(
         self, rho: float, computational_time: float, n_threads: int
