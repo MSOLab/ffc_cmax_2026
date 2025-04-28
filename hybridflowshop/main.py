@@ -6,12 +6,17 @@ from schore.hybridflowshop import HybridFlowShopProblem
 
 
 def main():
+    # I/O parameters
     first = 0
     last = 2
-
     benchmark_filenames = [str(i) + ".txt" for i in range(first, last + 1)]
     input_dir = "resources/pra/"
     output_dir = "../Outputs/pra/"
+
+    # Problem parameter
+    horizon = 100000
+
+    # Solver parameters
     computational_time = 5
     n_threads = 8
 
@@ -45,7 +50,7 @@ def main():
                 "n_threads": n_threads,
             }
         }
-        cp_lns_ctrlr = HybridFlowShopCpLnsController(hfs_instance)
+        cp_lns_ctrlr = HybridFlowShopCpLnsController(hfs_instance, horizon)
         cp_lns_ctrlr.run(kwargs_dict_by_subroutine)
         output_summary = cp_lns_ctrlr.get_result_summary()
         output_summary.report_status()

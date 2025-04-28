@@ -14,6 +14,8 @@ from .utils import Utils
 class CustomCpModel(CpModel):
     r"""A custom CpModel class that extends the ortools CpModel class."""
 
+    # Added constraints
+
     added_constraints: list[Constraint]
     """List of added constraints."""
     idx_added_constraints: list[tuple[int, int]]
@@ -114,6 +116,8 @@ class CustomCpModel(CpModel):
         model_ct.linear.vars.extend([var.Index() for var in var_list])
         model_ct.linear.coeffs.extend(coeff_list)
         model_ct.linear.domain.extend(domain)
+
+    # temporal constraints
 
     def add_temporal_linear_constraints(
         self, args_list: list[tuple[list[IntVar], list[int], tuple[int, int]]]

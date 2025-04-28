@@ -7,8 +7,8 @@ from schore.hybridflowshop.problem import HybridFlowShopProblem
 class HybridFlowShopCpLnsController:
     base_cp_model: PureCP2023Naderi
 
-    def __init__(self, hfs_instance: HybridFlowShopProblem):
-        self.base_cp_model = PureCP2023Naderi(hfs_instance)
+    def __init__(self, hfs_instance: HybridFlowShopProblem, horizon: int):
+        self.base_cp_model = PureCP2023Naderi(hfs_instance, horizon)
 
     def run(self, kwargs_dict_by_subroutine: dict[str, dict[str, Any]]):
         self.execute_subroutine_flow(kwargs_dict_by_subroutine)

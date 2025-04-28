@@ -1,65 +1,30 @@
-from collections import defaultdict
-
-from clad.cpsat import CustomCpModel, Utils
+from clad.cpsat import CpModelWithOptionalInterval, Utils
 from clad.solver_output_summary import SolverOutputSummary
-from ortools.sat.python.cp_model import IntervalVar, IntVar
 from schore.hybridflowshop import HybridFlowShopProblem
 
 
-class PureCP2023Naderi(CustomCpModel):
+class PureCP2023Naderi(CpModelWithOptionalInterval):
 
-    # Parameters
+    # Indices & Parameters
 
     j_list: list[str]
-    """$J$: job index list"""
+    """$J$: job index (j) list"""
 
     i_list: list[str]
-    """$I$: stage index list"""
+    """$I$: stage index (i) list"""
 
     M_of: dict[str, list[str]]
-    """$M_i$: machine index list for stage i"""
+    """$M_i$: machine index (k) list for stage i"""
 
     p: dict[str, dict[str, int]]
     """$P_{ji}$: processing time of job j at stage i"""
 
-    # Variables
-
-    var_op_start: dict[str, dict[str, dict[str, IntVar]]]
-    """
-    Dictionary to store start time variables for each operation in a job.
-    The keys are job names, stage names, and machine numbers.
-    """
-    var_op_end: dict[str, dict[str, dict[str, IntVar]]]
-    """
-    Dictionary to store end time variables for each operation in a job.
-    The keys are job names, stage names, and machine numbers.
-    """
-    var_op_is_present: dict[str, dict[str, dict[str, IntVar]]]
-    """
-    Dictionary to store presence indicator variables for each operation in a job.
-    The keys are job names, stage names, and machine numbers.
-    """
-    var_op_intvl: dict[str, dict[str, dict[str, IntervalVar]]]
-    """
-    Dictionary to store interval variables for each operation in a job.
-    The keys are job names, stage names, and machine numbers.
-    """
-    horizon: int
-    """
-    The horizon for the scheduling problem, which is the maximum time
-    that any operation can start or end.
-    This is used to define the domain of the start and end time variables.
-    """
-
-    # Objective function
-
-    obj_func: IntVar
-    """The objective function for the scheduling problem."""
+    # Result
 
     summary: SolverOutputSummary
 
-    def __init__(self, hfs_instance: HybridFlowShopProblem):
-        super().__init__()
+    def __init__(self, hfs_instance: HybridFlowShopProblem, horizon: int):
+        super().__init__(horizon)
         self.define_model(hfs_instance)
 
     def define_model(self, hfs_instance: HybridFlowShopProblem):
@@ -81,8 +46,8 @@ class PureCP2023Naderi(CustomCpModel):
             n_threads (int): The number of threads to use for solving.
 
         Returns:
-            SolverOutputSummary: _description_
-        """
+            SolverOutputSummary
+        """  # noqa: E501
         solver_status, elapsed_time, ub, lb = super().solve_and_get_status(
             computational_time, n_threads
         )
@@ -97,7 +62,6 @@ class PureCP2023Naderi(CustomCpModel):
     # Parameters
 
     def define_parameters(self, hfs_instance: HybridFlowShopProblem):
-        self.horizon = 100000
         self.j_list = hfs_instance.get_job_id_list()
         self.i_list = hfs_instance.get_stage_id_list()
         self.M_of = hfs_instance.get_stage_2_machines_map()
@@ -108,36 +72,11 @@ class PureCP2023Naderi(CustomCpModel):
     # Variables
 
     def define_variables(self):
-        # Initialize dictionaries to store variables
-        self.var_op_start = defaultdict(lambda: defaultdict(dict))
-        self.var_op_end = defaultdict(lambda: defaultdict(dict))
-        self.var_op_is_present = defaultdict(lambda: defaultdict(dict))
-        self.var_op_intvl = defaultdict(lambda: defaultdict(dict))
-
         # Define variables for each operation in each job
         for j in self.j_list:
             for i in self.i_list:
                 for k in self.M_of[i]:
                     self.define_optional_interval_var(j, i, k, self.p[j][i])
-
-    def define_optional_interval_var(
-        self, j: str, i: str, k: str, processing_time: int
-    ):
-        suffix = f"_{j}_{i}_{k}"
-        start_var = self.new_int_var(0, self.horizon, f"start{suffix}")
-        end_var = self.new_int_var(0, self.horizon, f"end{suffix}")
-        is_present_var = self.new_bool_var(f"is_present{suffix}")
-        interval_var = self.new_optional_interval_var(
-            start_var,
-            processing_time,
-            end_var,
-            is_present_var,
-            f"interval{suffix}",
-        )
-        self.var_op_start[j][i][k] = start_var
-        self.var_op_end[j][i][k] = end_var
-        self.var_op_is_present[j][i][k] = is_present_var
-        self.var_op_intvl[j][i][k] = interval_var
 
     # Objective
 
@@ -153,8 +92,7 @@ class PureCP2023Naderi(CustomCpModel):
             [self.var_op_end[j][i][k] for j in j_list for i in i_list for k in M_of[i]],
         )
 
-        self.obj_func = makespan
-        self.minimize(self.obj_func)
+        self.minimize(makespan)
 
     # Constraints
 
