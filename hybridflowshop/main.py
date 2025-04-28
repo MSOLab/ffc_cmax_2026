@@ -39,6 +39,10 @@ def main():
     computational_time = 5
     n_threads = 8
 
+    # Subroutine controller arguments
+    stopping_criteria = StoppingCriteria(stopping_criteria_dict)
+    subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
+
     for benchmark_filename in benchmark_filenames:
         # Read the problem instance
         hfs_instance = load_hfs_instance(input_dir_path / benchmark_filename)
@@ -50,9 +54,6 @@ def main():
             computational_time=computational_time,
             n_threads=n_threads,
         )
-
-        stopping_criteria = StoppingCriteria(stopping_criteria_dict)
-        subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
 
         cp_lns_ctrlr = create_controller(
             hfs_instance, stopping_criteria, subroutine_flow, pra_common_params_dict

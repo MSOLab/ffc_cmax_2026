@@ -57,3 +57,21 @@ class SubroutineController(ABC):
             raise AttributeError(
                 f"{self.__class__.__name__} has no attribute {method_name}"
             )
+
+    def repeat(self, n_repeats: int, routine_data: Any):
+        """
+        Repeat a subroutine flow n_repeats times.
+
+        Args:
+            n_repeats (int): Number of repetitions
+            routine_data (Any): A single subroutine or a list of subroutines
+        """
+        for i in range(n_repeats):
+            if self.is_stopping_condition():
+                print(
+                    f"[Repeat] Stopping condition met at iteration {i+1}/{n_repeats}."
+                )
+                break
+            print(f"[Repeat] Starting repeat {i+1}/{n_repeats}")
+            ddo = DynamicDataObject.from_obj(routine_data)
+            self.execute_routine(ddo)

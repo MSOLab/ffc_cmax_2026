@@ -1,6 +1,6 @@
 import json
 from pathlib import PurePath
-from typing import Any
+from typing import Any, Self, Sequence
 
 
 class DynamicDataObject(object):
@@ -34,6 +34,15 @@ class DynamicDataObject(object):
     """  # noqa: E501
 
     def __init__(self, param_dict: dict[str, Any]):
+        """Initializes the DynamicDataObject with attributes from a dictionary.
+
+        Args:
+            param_dict (dict[str, Any]): dictionary with valid identifier keys.
+
+        Raises:
+            ValueError: If a key is not a valid identifier.
+            ValueError: If a key conflicts with existing class attributes.
+        """
         for key, value in param_dict.items():
             # Validate that key is a valid identifier
             if not isinstance(key, str) or not key.isidentifier():
@@ -51,21 +60,32 @@ class DynamicDataObject(object):
         return f"{self.__class__.__name__}({str(self.to_obj())})"
 
     @classmethod
+    def from_sequence(cls, sequence: Sequence[Any]) -> list[Self]:
+        return [cls(item) for item in sequence]
+
+    @classmethod
+    def from_dict(cls, dict_of_obj: dict[str, Any]) -> Self:
+        return cls(
+            {
+                key: DynamicDataObject.from_obj(value)
+                for key, value in dict_of_obj.items()
+            }
+        )
+
+    @classmethod
     def from_obj(cls, obj: Any) -> Any:
-        """Recursively converts dictionaries and lists into DynamicDataObject instances.
+        """Recursively converts sequences and dictionaries into DynamicDataObject instances.
 
         Args:
             obj (Any): dictionary or list or any other object
 
         Returns:
             Any: a class instance
-        """
-        if isinstance(obj, dict):
-            return cls(
-                {key: DynamicDataObject.from_obj(value) for key, value in obj.items()}
-            )
-        if isinstance(obj, list):
-            return [DynamicDataObject.from_obj(item) for item in obj]
+        """  # noqa: E501
+        if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes)):
+            return cls.from_sequence(obj)
+        elif isinstance(obj, dict):
+            return cls.from_dict(obj)
         return obj
 
     def to_obj(self) -> Any:
