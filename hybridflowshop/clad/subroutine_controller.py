@@ -8,9 +8,12 @@ from .timer import Timer
 
 class SubroutineController(ABC):
     _timer: Timer
+
     _stopping_criteria: DynamicDataObject
     _subroutine_flow: DynamicDataObject
+
     _called_routines: list[dict[str, Any]]
+    _log_entries: list[dict[str, Any]]
 
     def __init__(
         self,
@@ -18,15 +21,18 @@ class SubroutineController(ABC):
         subroutine_flow: DynamicDataObject,
         start_dt: dt.datetime | None = None,
     ):
-        self._stopping_criteria = stopping_criteria
-        self._subroutine_flow = subroutine_flow
-
-        self._called_routines = []
+        # Set the timer first
         self._timer = Timer()
         if start_dt is not None:
             self._timer.set_start_time(start_dt)
         else:
             self._timer.set_start_time_as_now()
+
+        self._stopping_criteria = stopping_criteria
+        self._subroutine_flow = subroutine_flow
+
+        self._called_routines = []
+        self._log_entries = []
 
     @abstractmethod
     def is_stopping_condition(self) -> bool:
@@ -35,8 +41,20 @@ class SubroutineController(ABC):
     def _add_called_routine(self, **kwargs):
         self._called_routines.append(kwargs)
 
+    def _add_log_entry(self, **kwargs):
+        self._log_entries.append(kwargs)
+
     def run(self):
         self.execute_routine(self._subroutine_flow)
+        self.print_logs()
+
+    def print_logs(self):
+        print("\n==== Subroutine Execution Log ====")
+        for idx, entry in enumerate(self._log_entries, 1):
+            print(
+                f"[{idx}] {entry['method_name']} | {entry['elapsed_sec']:.3f} sec | kwargs={entry['kwargs']}"
+            )
+        print("==================================\n")
 
     def execute_routine(self, routine_data: DynamicDataObject):
         if isinstance(routine_data, Sequence):  # is a list or tuple
@@ -50,13 +68,23 @@ class SubroutineController(ABC):
             self.execute_method(method_name, **kwargs_dict)
 
     def execute_method(self, method_name: str, **kwargs):
-        if hasattr(self, method_name):
-            method = getattr(self, method_name)
-            method(**kwargs)
-        else:
+        if not hasattr(self, method_name):
             raise AttributeError(
                 f"{self.__class__.__name__} has no attribute {method_name}"
             )
+
+        method_timer = Timer()
+        method_timer.set_start_time_as_now()
+
+        method = getattr(self, method_name)
+        method(**kwargs)
+
+        elapsed_sec = method_timer.get_elapsed_sec()
+        self._add_log_entry(
+            method_name=method_name,
+            elapsed_sec=elapsed_sec,
+            kwargs=kwargs,
+        )
 
     def repeat(self, n_repeats: int, routine_data: Any):
         """

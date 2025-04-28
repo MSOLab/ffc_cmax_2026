@@ -26,7 +26,7 @@ class Timer:
     def get_current_time_in_seconds() -> float:
         return dt.datetime.now().timestamp()
 
-    def get_elapsed_time(self) -> float:
+    def get_elapsed_sec(self) -> float:
         """
         Returns:
             float: Seconds elapsed since the handler was initiated
