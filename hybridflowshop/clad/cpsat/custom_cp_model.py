@@ -14,6 +14,9 @@ from .utils import Utils
 class CustomCpModel(CpModel):
     r"""A custom CpModel class that extends the ortools CpModel class."""
 
+    solver: CpSolver
+    """CpSolver object for solving the model."""
+
     # Added constraints
 
     added_constraints: list[Constraint]
@@ -42,20 +45,29 @@ class CustomCpModel(CpModel):
             - the upper bound of the objective function, and
             - the lower bound of the objective function.
         """  # noqa: E501
-        solver = CpSolver()
-        solver.parameters.max_time_in_seconds = computational_time
-        solver.parameters.num_workers = n_threads
+        self.init_solver(computational_time, n_threads)
 
-        solver_status = solver.Solve(self)
-        elapsed_time = solver.wall_time
+        solver_status = self.solver.Solve(self)
+        elapsed_time = self.solver.wall_time
 
         if Utils.found_feasible_solution(solver_status):
-            ub = solver.objective_value
-            lb = solver.best_objective_bound
+            ub = self.solver.objective_value
+            lb = self.solver.best_objective_bound
         else:
             ub, lb = Utils.get_ub_and_lb_for_infeasible(self.is_maximize())
 
         return solver_status, elapsed_time, ub, lb
+
+    def init_solver(self, computational_time: float, n_threads: int) -> None:
+        """Initializes the solver with the given computational time and number of threads.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            n_threads (int): The number of threads to use for solving.
+        """  # noqa: E501
+        self.solver = CpSolver()
+        self.solver.parameters.max_time_in_seconds = computational_time
+        self.solver.parameters.num_workers = n_threads
 
     # variable functions
 

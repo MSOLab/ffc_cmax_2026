@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from hfs_input_summary import HFSInputSummary
 from hfs_summary import HFSSummary
@@ -44,14 +45,24 @@ def main():
 
         from hfs_cp_lns import HybridFlowShopCpLnsController
 
-        kwargs_dict_by_subroutine = {
-            "solve_pure_cp": {
+        kwargs_dict_for_init: dict[str, Any] = {"horizon": horizon}
+        kwargs_list: list[dict[str, Any]] = [
+            {
+                "method_name": "solve_cp",
                 "computational_time": computational_time,
                 "n_threads": n_threads,
-            }
-        }
-        cp_lns_ctrlr = HybridFlowShopCpLnsController(hfs_instance, horizon)
-        cp_lns_ctrlr.run(kwargs_dict_by_subroutine)
+            },
+            {
+                "method_name": "apply_time_window_search",
+                "rho": 0.2,
+                "computational_time": computational_time,
+                "n_threads": n_threads,
+            },
+        ]
+        cp_lns_ctrlr = HybridFlowShopCpLnsController(
+            hfs_instance, **kwargs_dict_for_init
+        )
+        cp_lns_ctrlr.run(kwargs_list)
         output_summary = cp_lns_ctrlr.get_result_summary()
         output_summary.report_status()
         summary = HFSSummary(inputs=input_summary, outputs=output_summary)

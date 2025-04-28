@@ -129,3 +129,79 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
                             self.var_op_end[j][i][k]
                             <= self.var_op_start[j][next_i][next_k]
                         )
+
+    # extraction methods for LNS
+
+    def extract_start_end_times(
+        self,
+    ) -> tuple[dict[tuple[str, str, str], int], dict[tuple[str, str, str], int]]:
+        """
+        Extracts start and end times from a solved CP model.
+
+        Args:
+            model (PureCP2023Naderi): The CP model containing variables.
+            solver (CpSolver): The solver after solving the CP model.
+
+        Returns:
+            tuple:
+                - start_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
+                - end_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> end time (int)
+        """  # noqa: E501
+        start_times: dict[tuple[str, str, str], int] = {}
+        end_times: dict[tuple[str, str, str], int] = {}
+
+        for j in self.j_list:
+            for i in self.i_list:
+                for k in self.M_of[i]:
+                    start_var = self.var_op_start[j][i][k]
+                    end_var = self.var_op_end[j][i][k]
+                    is_present_var = self.var_op_is_present[j][i][k]
+
+                    # Check if this operation is selected (is_present == 1)
+                    if self.solver.Value(is_present_var):
+                        start_value = self.solver.Value(start_var)
+                        end_value = self.solver.Value(end_var)
+                        start_times[(j, i, k)] = start_value
+                        end_times[(j, i, k)] = end_value
+
+        return start_times, end_times
+
+    # methods to add constraints for LNS
+
+    def add_fixed_machine_assignment_constraint(
+        self, j: str, i: str, k: str, ignore_integrity_check: bool = True
+    ) -> None:
+        """Adds a constraint to fix a specific job and to a stage's machine.
+
+        Args:
+            j (str): job index
+            i (str): stage index
+            k (str): machine index
+        """
+        if not ignore_integrity_check:
+            assert j in self.j_list, f"Job {j} not in job list."
+            assert i in self.i_list, f"Stage {i} not in stage list."
+            assert k in self.M_of[i], f"Machine {k} not in machine list for stage {i}."
+
+        self.add(self.var_op_is_present[j][i][k] == 1)
+
+    def add_fixed_operation_precedence_constraint(
+        self, j1: str, j2: str, i: str, k: str, ignore_integrity_check: bool = True
+    ) -> None:
+        """Adds a precedence constraint between two operations on the same machine.
+        The operation of job j1 must finish before the operation of job j2 starts.
+
+        Args:
+            j1 (str): preceding job index
+            j2 (str): succeeding job index
+            i (str): stage index
+            k (str): machine index
+            skip_assertion (bool, optional): Skip data integrity check. Defaults to True.
+        """  # noqa: E501
+        if not ignore_integrity_check:
+            assert j1 in self.j_list, f"Job {j1} not in job list."
+            assert j2 in self.j_list, f"Job {j2} not in job list."
+            assert i in self.i_list, f"Stage {i} not in stage list."
+            assert k in self.M_of[i], f"Machine {k} not in machine list for stage {i}."
+
+        self.add(self.var_op_end[j1][i][k] <= self.var_op_start[j2][i][k])

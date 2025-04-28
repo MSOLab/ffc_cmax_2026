@@ -1,3 +1,5 @@
+import random
+from collections import defaultdict
 from typing import Any
 
 from pure_cp_2023_naderi import PureCP2023Naderi
@@ -5,32 +7,115 @@ from schore.hybridflowshop.problem import HybridFlowShopProblem
 
 
 class HybridFlowShopCpLnsController:
-    base_cp_model: PureCP2023Naderi
+    cp_model: PureCP2023Naderi
 
     def __init__(self, hfs_instance: HybridFlowShopProblem, horizon: int):
-        self.base_cp_model = PureCP2023Naderi(hfs_instance, horizon)
-
-    def run(self, kwargs_dict_by_subroutine: dict[str, dict[str, Any]]):
-        self.execute_subroutine_flow(kwargs_dict_by_subroutine)
-
-    def execute_subroutine_flow(
-        self, args_dict_by_subroutine: dict[str, dict[str, Any]]
-    ):
-        self.solve_base_cp(args_dict_by_subroutine["solve_pure_cp"])
-
-    def solve_base_cp(self, kwargs_dict: dict[str, Any]):
-        try:
-            computational_time = float(kwargs_dict["computational_time"])
-            n_threads = int(kwargs_dict["n_threads"])
-        except KeyError as e:
-            raise ValueError(f"Missing required argument: {e}")
-        except ValueError as e:
-            raise ValueError(f"Invalid argument value: {e}")
-        # Call the solve method to execute the solver
-        print(
-            f"Solving base CP with computational_time={computational_time}, n_threads={n_threads}"
-        )
-        self.base_cp_model.solve(computational_time, n_threads)
+        self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
 
     def get_result_summary(self):
-        return self.base_cp_model.summary
+        return self.cp_model.summary
+
+    def run(self, kwargs_list: list[dict[str, Any]]):
+        self.execute_subroutine_flow(kwargs_list)
+
+    def execute_subroutine_flow(self, kwargs_list: list[dict[str, Any]]):
+        for subroutine_kwargs in kwargs_list:
+            method_name = subroutine_kwargs.pop(
+                "method_name"
+            )  # method_name 꺼내고 제거
+            self.execute_subroutine(method_name, **subroutine_kwargs)
+
+    def execute_subroutine(self, method_name: str, **kwargs):
+        if hasattr(self, method_name):
+            method = getattr(self, method_name)
+            method(**kwargs)
+        else:
+            raise AttributeError(
+                f"Method {method_name} not in {self.__class__.__name__}"
+            )
+
+    def solve_cp(self, computational_time: float, n_threads: int):
+        # Call the solve method to execute the solver
+        print(
+            f"Solving CP model with computational_time={computational_time}"
+            f", n_threads={n_threads}"
+        )
+        self.cp_model.solve(computational_time, n_threads)
+
+    def apply_time_window_search(
+        self, rho: float, computational_time: float, n_threads: int
+    ):
+        """
+        Apply the Time Window Operator to the incumbent solution.
+
+        Args:
+            rho (float): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
+        """
+        start_times, end_times = self.cp_model.extract_start_end_times()
+        self.apply_time_window_operator(start_times, end_times, rho)
+        self.solve_cp(computational_time, n_threads)
+
+    def apply_time_window_operator(
+        self,
+        current_start_times: dict[tuple[str, str, str], int],
+        current_end_times: dict[tuple[str, str, str], int],
+        rho: float,
+    ):
+        """
+        Apply the Time Window Operator to the current CP model.
+
+        Args:
+            current_start_times (dict[tuple[str, str, str], int]): (job_name, stage_name, machine_id) -> current start_time
+            current_end_times (dict[tuple[str, str, str], int]): (job_name, stage_name, machine_id) -> current end_time
+            rho (float, optional): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
+        """  # noqa: E501
+        print(f"Applying time window operator with rho={rho}")
+
+        # 1. Calculate makespan (C_max)
+        all_end_times = list(current_end_times.values())
+        if not all_end_times:
+            raise ValueError("No end times available for Time Window Operator.")
+        C_max = max(all_end_times)
+
+        # 2. Select random time window
+        window_length = int(rho * C_max)
+        if window_length <= 0:
+            raise ValueError("Window length must be positive.")
+
+        window_start = random.randint(0, max(0, C_max - window_length))
+        window_end = window_start + window_length
+
+        print(
+            f"[Time Window] Selected window: [{window_start}, {window_end}] (C_max={C_max})"
+        )
+
+        # 3. Classify operations
+        in_window_ops = set()
+        out_of_window_ops = set()
+
+        for key in current_start_times.keys():
+            s_time = current_start_times[key]
+            e_time = current_end_times[key]
+            if (window_start <= s_time <= window_end) or (
+                window_start <= e_time <= window_end
+            ):
+                in_window_ops.add(key)
+            else:
+                out_of_window_ops.add(key)
+
+        # 4. Fix machine assignment and precedence for out-of-window operations
+        stage_mc_to_jobs = defaultdict(list)
+
+        for j, i, k in out_of_window_ops:
+            self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
+            stage_mc_to_jobs[(i, k)].append(j)
+
+        for (i, k), jobs in stage_mc_to_jobs.items():
+            # Start time 기준 정렬
+            jobs_sorted = sorted(jobs, key=lambda j: current_start_times[(j, i, k)])
+            for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
+                self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+
+        print(
+            f"[Time Window] {len(out_of_window_ops)} operations fixed (assignment + precedence)."
+        )
