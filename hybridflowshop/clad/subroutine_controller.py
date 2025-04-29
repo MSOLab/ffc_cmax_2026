@@ -5,12 +5,15 @@ from typing import Any, Sequence
 
 from .dynamic_data_object import DynamicDataObject
 from .elapsed_timer import ElapsedTimer
+from .experiment_summary import ExperimentSummary
 
 
 class SubroutineController(ABC):
-    _timer: ElapsedTimer
+    timer: ElapsedTimer
 
-    _stopping_criteria: DynamicDataObject
+    experiment_summary: ExperimentSummary
+
+    stopping_criteria: DynamicDataObject
     _subroutine_flow: DynamicDataObject
 
     _working_dir_path: Path
@@ -19,25 +22,25 @@ class SubroutineController(ABC):
 
     def __init__(
         self,
+        name: str,
         stopping_criteria: DynamicDataObject,
         subroutine_flow: DynamicDataObject,
         start_dt: dt.datetime | None = None,
     ):
         # Set the timer first
-        self._timer = ElapsedTimer()
+        self.timer = ElapsedTimer()
         if start_dt is not None:
-            self._timer.set_start_time(start_dt)
+            self.timer.set_start_time(start_dt)
         else:
-            self._timer.set_start_time_as_now()
+            self.timer.set_start_time_as_now()
 
-        self._stopping_criteria = stopping_criteria
+        # Set summary
+        self.experiment_summary = ExperimentSummary(name)
+
+        self.stopping_criteria = stopping_criteria
         self._subroutine_flow = subroutine_flow
 
         self._method_call_logs = []
-
-    @property
-    def timer(self) -> ElapsedTimer:
-        return self._timer
 
     @abstractmethod
     def is_stopping_condition(self) -> bool:
@@ -51,16 +54,12 @@ class SubroutineController(ABC):
 
     def run(self):
         self.execute_routine(self._subroutine_flow)
-        self.print_method_exec_logs()
+        self.post_run_process()
 
-    def print_method_exec_logs(self):
-        print("\n=== Method Execution Log ===")
-        for idx, entry in enumerate(self._method_call_logs, 1):
-            print(
-                f"[{idx}] {entry['method_name']} | start @ {entry['start_sec']:.3f} sec"
-                f" | took {entry['elapsed_sec']:.3f} sec | kwargs={entry['kwargs']}"
-            )
-        print(28 * "=" + "\n")
+    @abstractmethod
+    def post_run_process(self):
+        """Post-process the results after running the subroutine flow."""
+        pass
 
     def execute_routine(self, routine_data: DynamicDataObject):
         if isinstance(routine_data, Sequence):  # is a list or tuple
@@ -89,6 +88,7 @@ class SubroutineController(ABC):
             )
         method_start_sec = self.timer.get_elapsed_sec()
 
+        self.experiment_summary.record_method_call(method_name)
         try:
             getattr(self, method_name)(**kwargs)
         except Exception as e:

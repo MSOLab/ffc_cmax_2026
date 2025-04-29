@@ -14,7 +14,7 @@ from stopping_criteria import StoppingCriteria
 
 
 class HybridFlowShopCpLnsController(SubroutineController):
-    _stopping_criteria: StoppingCriteria
+    stopping_criteria: StoppingCriteria
 
     hfs_instance: HybridFlowShopProblem
     cp_model: PureCP2023Naderi
@@ -35,14 +35,14 @@ class HybridFlowShopCpLnsController(SubroutineController):
         subroutine_flow: DynamicDataObject,
         horizon: int,
     ):
-        super().__init__(stopping_criteria, subroutine_flow)
+        super().__init__(hfs_instance.name, stopping_criteria, subroutine_flow)
         self.hfs_instance = hfs_instance
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
         self.cp_model.freeze_base_constraints()
 
     def is_stopping_condition(self) -> bool:
         # If total elapsed time exceeds the stopping criteria
-        if self._timer.get_elapsed_sec() >= self._stopping_criteria.timelimit:
+        if self.timer.get_elapsed_sec() >= self.stopping_criteria.timelimit:
             print("Stop by timelimit")
             return True
         return False
@@ -54,6 +54,12 @@ class HybridFlowShopCpLnsController(SubroutineController):
             self.end_times_latest_sol,
             self.summary_latest_sol,
         )
+        if self.experiment_summary.initial_obj is None:
+            # 최초 solve_cp일 경우, 기록
+            self.experiment_summary.record_initial_solution(
+                self.summary_latest_sol.objective_value,
+                self.summary_latest_sol.best_objective_bound,
+            )
 
     def update_incumbent_solution(self) -> None:
         if not hasattr(self, "solution_manager"):
@@ -228,3 +234,18 @@ class HybridFlowShopCpLnsController(SubroutineController):
             raise RuntimeError(f"Feasibility check failed: {e}")
 
         SolverStatus.raise_if_not_feasible(summary.status)
+
+    def post_run_process(self):
+        self.experiment_summary.record_final_solution(
+            self.incumbent_solution_manager.get_objective_value(),
+            self.incumbent_solution_manager.summary.best_objective_bound,
+        )
+        self.experiment_summary.record_total_elapsed_time(self.timer.get_elapsed_sec())
+        self.experiment_summary.record_feasibility(
+            True
+        )  # 현재는 항상 feasible이라고 가정
+        experiment_summary_path = (
+            self._working_dir_path
+            / f"{self.experiment_summary.name}_experiment_summary.yaml"
+        )
+        self.experiment_summary.save_as_yaml(experiment_summary_path)
