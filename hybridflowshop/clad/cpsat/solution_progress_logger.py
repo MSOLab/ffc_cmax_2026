@@ -21,7 +21,8 @@ class SolutionProgressLogger(cp_model.CpSolverSolutionCallback):
         self._log.append((elapsed, objective, best_bound))
         if self._print_on_solution_callback:
             print(
-                f"Time: {elapsed:.2f}s, Objective: {objective}, Best Bound: {best_bound}"
+                f"Time: {elapsed:.2f} sec"
+                f", Objective: {objective}, Best Bound: {best_bound}"
             )
 
     def get_log(self):

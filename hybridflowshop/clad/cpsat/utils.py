@@ -8,29 +8,31 @@ from ortools.sat.python.cp_model import (
     UNKNOWN,
 )
 
+from ..solver_status import SolverStatus
+
 
 class Utils:
-    status_dict = {
-        UNKNOWN: "UNKNOWN",
-        MODEL_INVALID: "MODEL_INVALID",
-        FEASIBLE: "FEASIBLE",
-        INFEASIBLE: "INFEASIBLE",
-        OPTIMAL: "OPTIMAL",
+    cpsat_status_dict = {
+        UNKNOWN: SolverStatus.UNKNOWN,
+        MODEL_INVALID: SolverStatus.MODEL_INVALID,
+        FEASIBLE: SolverStatus.FEASIBLE,
+        INFEASIBLE: SolverStatus.INFEASIBLE,
+        OPTIMAL: SolverStatus.OPTIMAL,
     }
     """Map: ortools.sat.python.cp_model status codes -> string"""
 
-    feasible_status_set = frozenset({FEASIBLE, OPTIMAL})
+    feasible_cpsat_status_set = frozenset({FEASIBLE, OPTIMAL})
     """Set of status codes indicating a feasible solution was found."""
 
     @staticmethod
-    def get_status_string(status: int) -> str:
+    def get_status_string(cpsat_status: int) -> str:
         """Returns the status string corresponding to the given status code."""
-        return Utils.status_dict.get(status, "UNKNOWN")
+        return Utils.cpsat_status_dict.get(cpsat_status, "UNKNOWN")
 
     @staticmethod
-    def found_feasible_solution(status: int) -> bool:
+    def found_feasible_solution(cpsat_status: int) -> bool:
         """Checks if a feasible solution was found based on the status code."""
-        return status in Utils.feasible_status_set
+        return cpsat_status in Utils.feasible_cpsat_status_set
 
     @staticmethod
     def get_ub_and_lb_for_infeasible_maximize() -> tuple[int, int]:

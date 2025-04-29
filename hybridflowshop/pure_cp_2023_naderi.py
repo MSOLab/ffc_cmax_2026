@@ -1,6 +1,5 @@
+from clad import ElapsedTimer, SolverOutputSummary
 from clad.cpsat import CpModelWithOptionalInterval, Utils
-from clad.elapsed_timer import ElapsedTimer
-from clad.solver_output_summary import SolverOutputSummary
 from schore.hybridflowshop import HybridFlowShopProblem
 
 

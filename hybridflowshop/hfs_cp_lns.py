@@ -1,7 +1,7 @@
 import random
 from collections import defaultdict
 
-from clad import DynamicDataObject, SubroutineController
+from clad import DynamicDataObject, SolverStatus, SubroutineController
 from pure_cp_2023_naderi import PureCP2023Naderi
 from schore.hybridflowshop.problem import HybridFlowShopProblem
 from stopping_criteria import StoppingCriteria
@@ -10,6 +10,7 @@ from stopping_criteria import StoppingCriteria
 class HybridFlowShopCpLnsController(SubroutineController):
     _stopping_criteria: StoppingCriteria
 
+    hfs_instance: HybridFlowShopProblem
     cp_model: PureCP2023Naderi
 
     def __init__(
@@ -20,6 +21,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         horizon: int,
     ):
         super().__init__(stopping_criteria, subroutine_flow)
+        self.hfs_instance = hfs_instance
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
 
     def is_stopping_condition(self) -> bool:
@@ -32,7 +34,9 @@ class HybridFlowShopCpLnsController(SubroutineController):
     def get_result_summary(self):
         return self.cp_model.summary
 
-    def solve_cp(self, computational_time: float, n_threads: int):
+    def solve_cp(
+        self, computational_time: float, n_threads: int, check_feasibility: bool = False
+    ):
         """Solve current CP model.
 
         Args:
@@ -45,6 +49,9 @@ class HybridFlowShopCpLnsController(SubroutineController):
         )
         self.cp_model.solve_with_summary(computational_time, n_threads, self.timer)
         self.cp_model.delete_added_constraints()
+        start_times, _ = self.cp_model.extract_start_end_times()
+        if check_feasibility:
+            self.check_feasibility(start_times)
 
     def apply_time_window_search(
         self, rho: float, computational_time: float, n_threads: int
@@ -95,17 +102,14 @@ class HybridFlowShopCpLnsController(SubroutineController):
         )
 
         # 3. Classify operations
-        in_window_ops = set()
         out_of_window_ops = set()
 
-        for key in current_start_times.keys():
+        for key in current_start_times:
             s_time = current_start_times[key]
             e_time = current_end_times[key]
-            if (window_start <= s_time <= window_end) or (
-                window_start <= e_time <= window_end
-            ):
-                in_window_ops.add(key)
-            else:
+            if not self.is_within_window(
+                s_time, window_start, window_end
+            ) and not self.is_within_window(e_time, window_start, window_end):
                 out_of_window_ops.add(key)
 
         # 4. Fix machine assignment and precedence for out-of-window operations
@@ -120,3 +124,37 @@ class HybridFlowShopCpLnsController(SubroutineController):
             jobs_sorted = sorted(jobs, key=lambda j: current_start_times[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
                 self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+
+    def is_within_window(self, time: int, window_start: int, window_end: int) -> bool:
+        """Check if a given time is within the specified window."""
+        return window_start <= time <= window_end
+
+    def check_feasibility(self, start_times: dict[tuple[str, str, str], int]) -> None:
+        """check feasibility of the given solution.
+
+        Args:
+            start_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
+
+        Raises:
+            RuntimeError: If error occurred during feasibility check CP solving.
+            ValueError: If given schedule is not feasible.
+        """
+        feasibility_cp = PureCP2023Naderi(self.hfs_instance, self.cp_model.horizon)
+
+        # Freeze operation start times and machine assignments
+        for (j, i, k), start_time in start_times.items():
+            feasibility_cp.add(self.cp_model.var_op_is_present[j][i][k] == 1)
+            feasibility_cp.add(self.cp_model.var_op_start[j][i][k] == start_time)
+
+        # Solve with tight time limit
+        try:
+            summary = feasibility_cp.solve_with_summary(
+                computational_time=1.0, n_threads=1, timer=self.timer
+            )
+        except Exception as e:
+            raise RuntimeError(f"Feasibility check failed: {e}")
+
+        if not SolverStatus.found_feasible_solution(summary.status):
+            raise ValueError(
+                "Feasibility check failed: Given schedule is not feasible."
+            )

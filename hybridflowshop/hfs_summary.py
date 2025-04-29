@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from clad.solver_output_summary import SolverOutputSummary
+from clad import SolverOutputSummary
 from hfs_input_summary import HFSInputSummary
 
 
