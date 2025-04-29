@@ -29,8 +29,11 @@ class SolutionManager:
         """
         return self.summary
 
-    def get_objective_value(self) -> float:
+    def get_obj_value(self) -> float:
         return self.summary.objective_value
+
+    def get_obj_bound(self) -> float:
+        return self.summary.best_objective_bound
 
     def apply_hint_to(self, target_model: PureCP2023Naderi) -> None:
         """

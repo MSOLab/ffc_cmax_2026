@@ -56,7 +56,7 @@ class CustomCpModel(CpModel):
             ub = self.solver.objective_value
             lb = self.solver.best_objective_bound
         else:
-            ub, lb = Utils.get_ub_and_lb_for_infeasible(self.is_maximize())
+            ub, lb = Utils.get_obj_value_and_bound_for_infeasible(self.is_maximize())
 
         return solver_status, elapsed_time, ub, lb
 
@@ -81,12 +81,14 @@ class CustomCpModel(CpModel):
         elapsed_time = self.solver.wall_time
 
         if Utils.found_feasible_solution(solver_status):
-            ub = self.solver.objective_value
-            lb = self.solver.best_objective_bound
+            obj_value = self.solver.objective_value
+            obj_bound = self.solver.best_objective_bound
         else:
-            ub, lb = Utils.get_ub_and_lb_for_infeasible(self.is_maximize())
+            obj_value, obj_bound = Utils.get_obj_value_and_bound_for_infeasible(
+                self.is_maximize()
+            )
 
-        return solver_status, elapsed_time, ub, lb
+        return solver_status, elapsed_time, obj_value, obj_bound
 
     def init_callback(self, timer: ElapsedTimer) -> None:
         self.sol_prog_logger = SolutionProgressLogger(

@@ -35,19 +35,19 @@ class Utils:
         return cpsat_status in Utils.feasible_cpsat_status_set
 
     @staticmethod
-    def get_ub_and_lb_for_infeasible_maximize() -> tuple[int, int]:
+    def get_obj_value_and_bound_for_infeasible_maximize() -> tuple[int, int]:
         """Returns the upper and lower bounds for maximization problems."""
         return INT_MIN, INT_MIN
 
     @staticmethod
-    def get_ub_and_lb_for_infeasible_minimize() -> tuple[int, int]:
+    def get_obj_value_and_bound_for_infeasible_minimize() -> tuple[int, int]:
         """Returns the upper and lower bounds for minimization problems."""
         return INT_MAX, INT_MAX
 
     @staticmethod
-    def get_ub_and_lb_for_infeasible(is_maximize: bool) -> tuple[int, int]:
+    def get_obj_value_and_bound_for_infeasible(is_maximize: bool) -> tuple[int, int]:
         """Returns the upper and lower bounds for infeasible problems."""
         if is_maximize:
-            return Utils.get_ub_and_lb_for_infeasible_maximize()
+            return Utils.get_obj_value_and_bound_for_infeasible_maximize()
         else:
-            return Utils.get_ub_and_lb_for_infeasible_minimize()
+            return Utils.get_obj_value_and_bound_for_infeasible_minimize()

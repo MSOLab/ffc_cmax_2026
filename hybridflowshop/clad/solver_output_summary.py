@@ -1,29 +1,28 @@
 from dataclasses import dataclass
+from typing import Optional
+
+from .solver_status import SolverStatus
 
 
 @dataclass
 class SolverOutputSummary:
     status: str
-    objective_value: int | None
-    best_objective_bound: int | None
     elapsed_time: float
+    objective_value: Optional[int]
+    best_objective_bound: Optional[int]
+    progress_log: Optional[list[tuple[float, float, float]]]
 
     def report_objective_value(self):
-        print(f"LB: {self.best_objective_bound}, UB: {self.objective_value}")
+        print(f"Obj. value: {self.objective_value}, bound: {self.best_objective_bound}")
 
     def report_status(self):
-        if self.status == "OPTIMAL":
-            print("Optimal solution found.")
+        print(f"Solver status: {self.status}")
+        if SolverStatus.found_feasible_solution(self.status):
             self.report_objective_value()
-        elif self.status == "FEASIBLE":
-            print("Feasible solution found.")
-            self.report_objective_value()
-        else:
-            print("No feasible solution found.")
 
-    def comma_seperated_values(self) -> str:
+    def comma_separated_values(self) -> str:
         """Returns a string with comma-separated values of the summary."""
         return (
-            f"{self.status},{self.objective_value},"
-            f"{self.best_objective_bound},{self.elapsed_time}"
+            f"{self.status},{self.elapsed_time}"
+            f",{self.objective_value},{self.best_objective_bound}"
         )

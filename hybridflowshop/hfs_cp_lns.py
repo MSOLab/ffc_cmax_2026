@@ -7,6 +7,7 @@ from clad import (
     SolverStatus,
     SubroutineController,
 )
+from plotter import ObjectiveProgressPlotter
 from pure_cp_2023_naderi import PureCP2023Naderi
 from schore.hybridflowshop.problem import HybridFlowShopProblem
 from solution_manager import SolutionManager
@@ -28,6 +29,9 @@ class HybridFlowShopCpLnsController(SubroutineController):
     summary_latest_sol: SolverOutputSummary
     """summary object from the last call of solve_cp"""
 
+    progress_log: list[tuple[float, float, float]]
+    """List of tuples (elapsed_time, objective_value, best_objective_bound)"""
+
     def __init__(
         self,
         hfs_instance: HybridFlowShopProblem,
@@ -39,6 +43,8 @@ class HybridFlowShopCpLnsController(SubroutineController):
         self.hfs_instance = hfs_instance
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
         self.cp_model.freeze_base_constraints()
+
+        self.progress_log = []
 
     def is_stopping_condition(self) -> bool:
         # If total elapsed time exceeds the stopping criteria
@@ -112,8 +118,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
             self.check_feasibility(self.start_times_latest_sol)
         if set_incumbent_solution:
             self.set_incumbent_solution()
+            self.progress_log.extend(self.summary_latest_sol.progress_log)
         elif update_incumbent_solution:
             self.update_incumbent_solution()
+            self.progress_log.extend(self.summary_latest_sol.progress_log)
 
     def apply_time_window_search(
         self,
@@ -236,16 +244,25 @@ class HybridFlowShopCpLnsController(SubroutineController):
         SolverStatus.raise_if_not_feasible(summary.status)
 
     def post_run_process(self):
+        # Check feasibility of the incumbent solution
+        self.check_feasibility(self.incumbent_solution_manager.start_times)
+
+        # Experiment summary -> YAML file
         self.experiment_summary.record_final_solution(
-            self.incumbent_solution_manager.get_objective_value(),
-            self.incumbent_solution_manager.summary.best_objective_bound,
+            self.incumbent_solution_manager.get_obj_value(),
+            self.incumbent_solution_manager.get_obj_bound(),
         )
         self.experiment_summary.record_total_elapsed_time(self.timer.get_elapsed_sec())
-        self.experiment_summary.record_feasibility(
-            True
-        )  # 현재는 항상 feasible이라고 가정
+        self.experiment_summary.record_feasibility(True)  # assume checked already
         experiment_summary_path = (
             self._working_dir_path
             / f"{self.experiment_summary.name}_experiment_summary.yaml"
         )
         self.experiment_summary.save_as_yaml(experiment_summary_path)
+
+        # Plot solution progress
+        ObjectiveProgressPlotter.plot_solution_progress(
+            self.progress_log,
+            save_path=self._working_dir_path
+            / f"{self.experiment_summary.name}_solution_progress.png",
+        )

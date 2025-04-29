@@ -6,6 +6,7 @@ from ..elapsed_timer import ElapsedTimer
 class SolutionProgressLogger(cp_model.CpSolverSolutionCallback):
     _timer: ElapsedTimer
     _log: list[tuple[float, float, float]]
+    """List of tuples containing (elapsed time, objective value, best bound)"""
     _print_on_solution_callback: bool
 
     def __init__(self, timer: ElapsedTimer, print_on_solution_callback: bool = False):

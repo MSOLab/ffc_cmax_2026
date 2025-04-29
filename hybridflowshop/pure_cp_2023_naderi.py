@@ -49,15 +49,17 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         (
             solver_status,
             elapsed_time,
-            ub,
-            lb,
+            obj_value,
+            obj_bound,
         ) = super().solve_with_prog_logger(computational_time, n_threads, timer)
+        progress_log = self.sol_prog_logger.get_log()
 
         self.summary = SolverOutputSummary(
             Utils.get_status_string(solver_status),
-            ub,
-            lb,
             elapsed_time,
+            obj_value,
+            obj_bound,
+            progress_log,
         )
         return self.summary
 
