@@ -35,6 +35,7 @@ def main():
     ]
     input_dir_path = Path(main_metadata_dict["input_dir"])
     output_dir_path = Path(main_metadata_dict["output_dir"])
+    result_gantt_filename_format = main_metadata_dict["result_gantt_filename_format"]
 
     # Subroutine controller arguments
     stopping_criteria = StoppingCriteria(stopping_criteria_dict)
@@ -54,7 +55,11 @@ def main():
         cp_lns_ctrlr = create_controller(
             hfs_instance, stopping_criteria, subroutine_flow, pra_common_params_dict
         )
+        cp_lns_ctrlr.set_working_dir(output_dir_path)
         cp_lns_ctrlr.run()
+
+        # Save the result
+        cp_lns_ctrlr.save_incumbent_gantt_as_png(result_gantt_filename_format)
         output_summary = cp_lns_ctrlr.get_result_summary()
         output_summary.report_status()
 
@@ -74,8 +79,9 @@ def read_yaml(path: Path) -> Any:
 
 def load_hfs_instance(file_path: Path) -> HybridFlowShopProblem:
     try:
+        ins_name = file_path.stem
         with open(file_path, "r") as f:
-            return HybridFlowShopProblem.from_pra_data(f)
+            return HybridFlowShopProblem.from_pra_data(ins_name, f)
     except FileNotFoundError:
         raise FileNotFoundError(f"Benchmark file not found: {file_path}")
     except Exception as e:

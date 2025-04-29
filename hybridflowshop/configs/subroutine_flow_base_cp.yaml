@@ -1,3 +1,6 @@
 - method_name: solve_cp
   computational_time: 25
   n_threads: 8
+- method_name: check_incumbent_feasibility
+- method_name: save_incumbent_gantt_as_png
+  filename_format: "{ins_name}_1_schedule_base_cp.png"

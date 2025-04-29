@@ -1,5 +1,6 @@
 import datetime as dt
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Sequence
 
 from .dynamic_data_object import DynamicDataObject
@@ -11,6 +12,8 @@ class SubroutineController(ABC):
 
     _stopping_criteria: DynamicDataObject
     _subroutine_flow: DynamicDataObject
+
+    _working_dir_path: Path
 
     _method_call_logs: list[dict[str, Any]]
 
@@ -42,6 +45,9 @@ class SubroutineController(ABC):
 
     def _add_method_call_log_entry(self, **kwargs):
         self._method_call_logs.append(kwargs)
+
+    def set_working_dir(self, dir_path: str):
+        self._working_dir_path = Path(dir_path)
 
     def run(self):
         self.execute_routine(self._subroutine_flow)

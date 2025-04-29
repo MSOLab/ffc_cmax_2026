@@ -32,7 +32,6 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         self.define_variables()
         self.define_makespan_objective()
         self.define_constraints()
-        self.freeze_base_constraints()
 
     def solve_with_summary(
         self, computational_time: float, n_threads: int, timer: ElapsedTimer

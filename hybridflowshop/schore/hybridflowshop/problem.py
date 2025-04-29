@@ -1,4 +1,4 @@
-from typing import TextIO
+from typing import Any, TextIO
 
 from ..manager.processing_time_manager import JobStageProcessingTimeManager
 from ..util.text_data_parser import TextDataParser
@@ -12,6 +12,9 @@ class HybridFlowShopProblem:
     This class assumes all machines at a given stage are eligible for any operation at that stage.
     """  # noqa: E501
 
+    name: str
+    """Name of the problem instance."""
+
     num_jobs: int
     """Number of jobs in the problem instance."""
     num_stages: int
@@ -23,11 +26,13 @@ class HybridFlowShopProblem:
 
     def __init__(
         self,
+        name: Any,
         num_jobs: int,
         num_stages: int,
         machines_per_stage: list[int],
         p_manager: JobStageProcessingTimeManager,
     ):
+        self.name = name
         self.num_jobs = num_jobs
         self.num_stages = num_stages
         self.machines_per_stage = machines_per_stage  # e.g., [2, 3, 2]
@@ -40,7 +45,7 @@ class HybridFlowShopProblem:
         )
 
     @classmethod
-    def from_pra_data(cls, stream: TextIO) -> "HybridFlowShopProblem":
+    def from_pra_data(cls, name: str, stream: TextIO) -> "HybridFlowShopProblem":
         """
         Parse hybrid flow shop problem instance from a text stream in PRA-style format.
 
@@ -54,6 +59,7 @@ class HybridFlowShopProblem:
             <processing_time_row_n-1>
 
         Args:
+            name (str): Name of the problem instance.
             stream (TextIO): Input stream (e.g., open file or StringIO) containing instance data.
 
         Returns:
@@ -72,6 +78,7 @@ class HybridFlowShopProblem:
         cls._validate_processing_times(num_stages, processing_times)
 
         return cls(
+            name=name,
             num_jobs=num_jobs,
             num_stages=num_stages,
             machines_per_stage=machines_per_stage,

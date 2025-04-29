@@ -2,6 +2,7 @@ import random
 from collections import defaultdict
 
 from clad import DynamicDataObject, SolverStatus, SubroutineController
+from plotter.gantt import GanttPlotter
 from pure_cp_2023_naderi import PureCP2023Naderi
 from schore.hybridflowshop.problem import HybridFlowShopProblem
 from stopping_criteria import StoppingCriteria
@@ -13,6 +14,12 @@ class HybridFlowShopCpLnsController(SubroutineController):
     hfs_instance: HybridFlowShopProblem
     cp_model: PureCP2023Naderi
 
+    # incumbent solution
+    start_times: dict[tuple[str, str, str], int]
+    """(job, stage, machine) -> start time (int)"""
+    end_times: dict[tuple[str, str, str], int]
+    """(job, stage, machine) -> end time (int)"""
+
     def __init__(
         self,
         hfs_instance: HybridFlowShopProblem,
@@ -23,6 +30,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         super().__init__(stopping_criteria, subroutine_flow)
         self.hfs_instance = hfs_instance
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
+        self.cp_model.freeze_base_constraints()
 
     def is_stopping_condition(self) -> bool:
         # If total elapsed time exceeds the stopping criteria
@@ -34,9 +42,17 @@ class HybridFlowShopCpLnsController(SubroutineController):
     def get_result_summary(self):
         return self.cp_model.summary
 
-    def solve_cp(
-        self, computational_time: float, n_threads: int, check_feasibility: bool = False
-    ):
+    def save_incumbent_gantt_as_png(self, filename_format: str):
+        filename = filename_format.format(ins_name=self.hfs_instance.name)
+        png_path = self._working_dir_path / filename
+        gantt = GanttPlotter()
+        gantt.export_hybrid_flowshop_plot(
+            png_path,
+            self.start_times,
+            self.end_times,
+        )
+
+    def solve_cp(self, computational_time: float, n_threads: int):
         """Solve current CP model.
 
         Args:
@@ -49,9 +65,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         )
         self.cp_model.solve_with_summary(computational_time, n_threads, self.timer)
         self.cp_model.delete_added_constraints()
-        start_times, _ = self.cp_model.extract_start_end_times()
-        if check_feasibility:
-            self.check_feasibility(start_times)
+        self.start_times, self.end_times = self.cp_model.extract_start_end_times()
 
     def apply_time_window_search(
         self, rho: float, computational_time: float, n_threads: int
@@ -128,6 +142,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
     def is_within_window(self, time: int, window_start: int, window_end: int) -> bool:
         """Check if a given time is within the specified window."""
         return window_start <= time <= window_end
+
+    def check_incumbent_feasibility(self) -> None:
+        """Check feasibility of the incumbent solution."""
+        self.check_feasibility(self.start_times)
 
     def check_feasibility(self, start_times: dict[tuple[str, str, str], int]) -> None:
         """check feasibility of the given solution.
