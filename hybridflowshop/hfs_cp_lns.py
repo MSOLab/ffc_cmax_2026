@@ -68,7 +68,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             )
 
     def update_incumbent_solution(self) -> None:
-        if not hasattr(self, "solution_manager"):
+        if not hasattr(self, "incumbent_solution_manager"):
             raise ValueError("No incumbent solution available to update.")
         new_solution_manager = SolutionManager(
             self.start_times_latest_sol,
