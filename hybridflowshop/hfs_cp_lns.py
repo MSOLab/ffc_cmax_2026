@@ -43,7 +43,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             f"Solving CP model with computational_time={computational_time}"
             f", n_threads={n_threads}"
         )
-        self.cp_model.solve(computational_time, n_threads, self.timer)
+        self.cp_model.solve_with_summary(computational_time, n_threads, self.timer)
         self.cp_model.delete_added_constraints()
 
     def apply_time_window_search(
@@ -120,7 +120,3 @@ class HybridFlowShopCpLnsController(SubroutineController):
             jobs_sorted = sorted(jobs, key=lambda j: current_start_times[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
                 self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
-
-        print(
-            f"[Time Window] {len(out_of_window_ops)} operations fixed (assignment + precedence)."
-        )

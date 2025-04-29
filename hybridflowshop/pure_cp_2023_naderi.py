@@ -35,12 +35,7 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         self.define_constraints()
         self.freeze_base_constraints()
 
-    def solve(
-        self, computational_time: float, n_threads: int, timer: ElapsedTimer
-    ) -> None:
-        self.summary = self.run_and_summarize(computational_time, n_threads, timer)
-
-    def run_and_summarize(
+    def solve_with_summary(
         self, computational_time: float, n_threads: int, timer: ElapsedTimer
     ) -> SolverOutputSummary:
         """Solve the CP model with the specified computational time and number of threads.
@@ -60,12 +55,13 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
             lb,
         ) = super().solve_with_prog_logger(computational_time, n_threads, timer)
 
-        return SolverOutputSummary(
+        self.summary = SolverOutputSummary(
             Utils.get_status_string(solver_status),
             ub,
             lb,
             elapsed_time,
         )
+        return self.summary
 
     # Parameters
 
