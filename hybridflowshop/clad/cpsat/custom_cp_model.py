@@ -115,6 +115,8 @@ class CustomCpModel(CpModel):
         Returns:
             bool: True if the objective is maximize, False if minimize.
         """
+        if not hasattr(self._CpModel__model.objective, "maximize"):
+            raise RuntimeError("Objective function has not been set.")
         return self._CpModel__model.objective.maximize
 
     # constraint functions

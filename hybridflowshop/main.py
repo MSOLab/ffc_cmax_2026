@@ -37,6 +37,9 @@ def main():
     output_dir_path = Path(main_metadata_dict["output_dir"])
     result_gantt_filename_format = main_metadata_dict["result_gantt_filename_format"]
 
+    # Initialize output directory
+    output_dir_path.mkdir(parents=True, exist_ok=True)
+
     # Subroutine controller arguments
     stopping_criteria = StoppingCriteria(stopping_criteria_dict)
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)

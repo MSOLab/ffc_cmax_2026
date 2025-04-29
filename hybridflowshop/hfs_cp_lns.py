@@ -1,10 +1,15 @@
 import random
 from collections import defaultdict
 
-from clad import DynamicDataObject, SolverStatus, SubroutineController
-from plotter.gantt import GanttPlotter
+from clad import (
+    DynamicDataObject,
+    SolverOutputSummary,
+    SolverStatus,
+    SubroutineController,
+)
 from pure_cp_2023_naderi import PureCP2023Naderi
 from schore.hybridflowshop.problem import HybridFlowShopProblem
+from solution_manager import SolutionManager
 from stopping_criteria import StoppingCriteria
 
 
@@ -13,12 +18,15 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
     hfs_instance: HybridFlowShopProblem
     cp_model: PureCP2023Naderi
+    incumbent_solution_manager: SolutionManager
 
-    # incumbent solution
-    start_times: dict[tuple[str, str, str], int]
+    # the latest solution by solve_cp
+    start_times_latest_sol: dict[tuple[str, str, str], int]
     """(job, stage, machine) -> start time (int)"""
-    end_times: dict[tuple[str, str, str], int]
+    end_times_latest_sol: dict[tuple[str, str, str], int]
     """(job, stage, machine) -> end time (int)"""
+    summary_latest_sol: SolverOutputSummary
+    """summary object from the last call of solve_cp"""
 
     def __init__(
         self,
@@ -39,54 +47,98 @@ class HybridFlowShopCpLnsController(SubroutineController):
             return True
         return False
 
+    def set_incumbent_solution(self) -> None:
+        """Set the incumbent solution."""
+        self.incumbent_solution_manager = SolutionManager(
+            self.start_times_latest_sol,
+            self.end_times_latest_sol,
+            self.summary_latest_sol,
+        )
+
+    def update_incumbent_solution(self) -> None:
+        if not hasattr(self, "solution_manager"):
+            raise ValueError("No incumbent solution available to update.")
+        new_solution_manager = SolutionManager(
+            self.start_times_latest_sol,
+            self.end_times_latest_sol,
+            self.summary_latest_sol,
+        )
+        if (
+            self.incumbent_solution_manager.summary.objective_value
+            >= self.summary_latest_sol.objective_value
+        ):
+            self.incumbent_solution_manager = new_solution_manager
+
     def get_result_summary(self):
-        return self.cp_model.summary
+        return self.incumbent_solution_manager.get_result_summary()
 
     def save_incumbent_gantt_as_png(self, filename_format: str):
         filename = filename_format.format(ins_name=self.hfs_instance.name)
-        png_path = self._working_dir_path / filename
-        gantt = GanttPlotter()
-        gantt.export_hybrid_flowshop_plot(
-            png_path,
-            self.start_times,
-            self.end_times,
+        self.incumbent_solution_manager.save_gantt_as_png(
+            filename, self._working_dir_path
         )
 
-    def solve_cp(self, computational_time: float, n_threads: int):
+    def solve_cp(
+        self,
+        computational_time: float,
+        n_threads: int,
+        check_feasibility=False,
+        set_incumbent_solution=False,
+        update_incumbent_solution=False,
+    ):
         """Solve current CP model.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
             n_threads (int): The number of threads to use for solving.
-        """
-        print(
-            f"Solving CP model with computational_time={computational_time}"
-            f", n_threads={n_threads}"
+            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
+            set_incumbent_solution (bool, optional): If True, set the solution as the incumbent. Defaults to False.
+            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+        """  # noqa: E501
+
+        self.summary_latest_sol = self.cp_model.solve_with_summary(
+            computational_time, n_threads, self.timer
         )
-        self.cp_model.solve_with_summary(computational_time, n_threads, self.timer)
-        self.cp_model.delete_added_constraints()
-        self.start_times, self.end_times = self.cp_model.extract_start_end_times()
+        self.start_times_latest_sol, self.end_times_latest_sol = (
+            self.cp_model.extract_start_end_times()
+        )
+        if check_feasibility:
+            self.check_feasibility(self.start_times_latest_sol)
+        if set_incumbent_solution:
+            self.set_incumbent_solution()
+        elif update_incumbent_solution:
+            self.update_incumbent_solution()
 
     def apply_time_window_search(
-        self, rho: float, computational_time: float, n_threads: int
+        self,
+        rho: float,
+        computational_time: float,
+        n_threads: int,
+        check_feasibility=False,
+        update_incumbent_solution=False,
     ):
-        """Time window search with incumbent solution
+        """Time window search with incumbent solution as the hint.
 
         Args:
             rho (float): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
             computational_time (float): The maximum computational time in seconds.
             n_threads (int): The number of threads to use for solving.
-        """
-        start_times, end_times = self.cp_model.extract_start_end_times()
-        self.apply_time_window_operator(start_times, end_times, rho)
-        self.solve_cp(computational_time, n_threads)
+            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
+            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+        """  # noqa: E501
 
-    def apply_time_window_operator(
-        self,
-        current_start_times: dict[tuple[str, str, str], int],
-        current_end_times: dict[tuple[str, str, str], int],
-        rho: float,
-    ):
+        self.apply_time_window_operator(rho)
+        self.incumbent_solution_manager.apply_hint_to(self.cp_model)
+        self.solve_cp(
+            computational_time,
+            n_threads,
+            check_feasibility=check_feasibility,
+            update_incumbent_solution=update_incumbent_solution,
+        )
+        # Remove added constraints
+        self.cp_model.delete_added_constraints()
+
+    def apply_time_window_operator(self, rho: float):
         """
         Apply the Time Window Operator to the current CP model.
 
@@ -97,8 +149,11 @@ class HybridFlowShopCpLnsController(SubroutineController):
         """  # noqa: E501
         print(f"Applying time window operator with rho={rho}")
 
+        start_times = self.incumbent_solution_manager.start_times
+        end_times = self.incumbent_solution_manager.end_times
+
         # 1. Calculate makespan (C_max)
-        all_end_times = list(current_end_times.values())
+        all_end_times = list(end_times.values())
         if not all_end_times:
             raise ValueError("No end times available for Time Window Operator.")
         C_max = max(all_end_times)
@@ -118,9 +173,9 @@ class HybridFlowShopCpLnsController(SubroutineController):
         # 3. Classify operations
         out_of_window_ops = set()
 
-        for key in current_start_times:
-            s_time = current_start_times[key]
-            e_time = current_end_times[key]
+        for key in start_times:
+            s_time = start_times[key]
+            e_time = end_times[key]
             if not self.is_within_window(
                 s_time, window_start, window_end
             ) and not self.is_within_window(e_time, window_start, window_end):
@@ -135,7 +190,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
         for (i, k), jobs in stage_mc_to_jobs.items():
             # Start time 기준 정렬
-            jobs_sorted = sorted(jobs, key=lambda j: current_start_times[(j, i, k)])
+            jobs_sorted = sorted(jobs, key=lambda j: start_times[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
                 self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
 
@@ -143,9 +198,9 @@ class HybridFlowShopCpLnsController(SubroutineController):
         """Check if a given time is within the specified window."""
         return window_start <= time <= window_end
 
-    def check_incumbent_feasibility(self) -> None:
-        """Check feasibility of the incumbent solution."""
-        self.check_feasibility(self.start_times)
+    def check_latest_feasibility(self) -> None:
+        """Check feasibility of the latest solution."""
+        self.check_feasibility(self.start_times_latest_sol)
 
     def check_feasibility(self, start_times: dict[tuple[str, str, str], int]) -> None:
         """check feasibility of the given solution.
@@ -172,7 +227,4 @@ class HybridFlowShopCpLnsController(SubroutineController):
         except Exception as e:
             raise RuntimeError(f"Feasibility check failed: {e}")
 
-        if not SolverStatus.found_feasible_solution(summary.status):
-            raise ValueError(
-                "Feasibility check failed: Given schedule is not feasible."
-            )
+        SolverStatus.raise_if_not_feasible(summary.status)
