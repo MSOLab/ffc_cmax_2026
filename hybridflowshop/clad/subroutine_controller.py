@@ -68,12 +68,34 @@ class SubroutineController(ABC):
             self.call_method(method_name, **kwargs_dict)
 
     def call_method(self, method_name: str, **kwargs):
+        """Call a method by its name and log the execution time.
+
+        Args:
+            method_name (str): The name of the method to call.
+            **kwargs: Any: Additional keyword arguments to pass to the method.
+
+        Raises:
+            AttributeError: If the method does not exist in the class.
+        """
         if not hasattr(self, method_name):
             raise AttributeError(
                 f"{self.__class__.__name__} has no attribute {method_name}"
             )
         method_start_sec = self.timer.get_elapsed_sec()
-        getattr(self, method_name)(**kwargs)
+
+        try:
+            getattr(self, method_name)(**kwargs)
+        except Exception as e:
+            print(f"[Error] Method {method_name} failed: {e}")
+            self._add_method_call_log_entry(
+                method_name=method_name,
+                start_sec=method_start_sec,
+                elapsed_sec=0,
+                kwargs=kwargs,
+                error=str(e),
+            )
+            raise
+
         elapsed_sec = self.timer.get_elapsed_sec() - method_start_sec
         self._add_method_call_log_entry(
             method_name=method_name,
