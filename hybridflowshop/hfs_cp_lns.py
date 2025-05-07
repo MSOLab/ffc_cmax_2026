@@ -7,11 +7,12 @@ from clad import (
     SolverStatus,
     SubroutineController,
 )
-from plotter import ObjectiveProgressPlotter
-from pure_cp_2023_naderi import PureCP2023Naderi
 from schore.hybridflowshop.problem import HybridFlowShopProblem
-from solution_manager import SolutionManager
-from stopping_criteria import StoppingCriteria
+
+from .plotter import ObjectiveProgressPlotter
+from .pure_cp_2023_naderi import PureCP2023Naderi
+from .solution_manager import SolutionManager
+from .stopping_criteria import StoppingCriteria
 
 
 class HybridFlowShopCpLnsController(SubroutineController):

@@ -7,5 +7,5 @@
 "last": 2
 "benchmark_filename_format": "{}.txt"
 "input_dir" : "resources/pra"
-"output_dir" : "../Outputs/pra_pure_cp"
+"output_dir" : "Outputs/pra_pure_cp"
 "result_gantt_filename_format": "{ins_name}_result_gantt.png"

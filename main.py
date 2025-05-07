@@ -3,11 +3,12 @@ from typing import Any
 
 import yaml
 from clad import DynamicDataObject
-from hfs_cp_lns import HybridFlowShopCpLnsController
-from hfs_input_summary import HFSInputSummary
-from hfs_summary import HFSSummary
 from schore.hybridflowshop import HybridFlowShopProblem
-from stopping_criteria import StoppingCriteria
+
+from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
+from hybridflowshop.hfs_input_summary import HFSInputSummary
+from hybridflowshop.hfs_summary import HFSSummary
+from hybridflowshop.stopping_criteria import StoppingCriteria
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
 

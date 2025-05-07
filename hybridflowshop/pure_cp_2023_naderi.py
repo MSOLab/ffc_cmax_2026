@@ -1,10 +1,9 @@
 from clad import ElapsedTimer, SolverOutputSummary
-from clad.cpsat import CpModelWithOptionalInterval, Utils
+from clad.cpsat import CpModelWithOptionalInterval, CpSatStatus
 from schore.hybridflowshop import HybridFlowShopProblem
 
 
 class PureCP2023Naderi(CpModelWithOptionalInterval):
-
     # Indices & Parameters
 
     j_list: list[str]
@@ -55,7 +54,7 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         progress_log = self.sol_prog_logger.get_log()
 
         self.summary = SolverOutputSummary(
-            Utils.get_status_string(solver_status),
+            CpSatStatus.get_status_string(solver_status),
             elapsed_time,
             obj_value,
             obj_bound,

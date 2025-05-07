@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from clad import SolverOutputSummary
-from hfs_input_summary import HFSInputSummary
+
+from .hfs_input_summary import HFSInputSummary
 
 
 class HFSSummary:

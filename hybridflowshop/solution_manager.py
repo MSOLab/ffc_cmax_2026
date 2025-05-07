@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from clad.solver_output_summary import SolverOutputSummary
-from pure_cp_2023_naderi import PureCP2023Naderi
+
+from .pure_cp_2023_naderi import PureCP2023Naderi
 
 
 class SolutionManager:
@@ -55,7 +56,7 @@ class SolutionManager:
             filename (str): Filename to save the Gantt chart (relative to output_dir)
             figsize (tuple): Size of the matplotlib figure
         """
-        from plotter import GanttPlotter
+        from .plotter import GanttPlotter
 
         plotter = GanttPlotter()
         plotter.export_hybrid_flowshop_plot(
