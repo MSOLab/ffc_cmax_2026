@@ -3,7 +3,7 @@ from collections import defaultdict
 
 from clad import (
     DynamicDataObject,
-    SolverOutputSummary,
+    ExperimentSummary,
     SolverStatus,
     SubroutineController,
 )
@@ -22,17 +22,6 @@ class HybridFlowShopCpLnsController(SubroutineController):
     cp_model: PureCP2023Naderi
     incumbent_solution_manager: SolutionManager
 
-    # the latest solution by solve_cp
-    start_times_latest_sol: dict[tuple[str, str, str], int]
-    """(job, stage, machine) -> start time (int)"""
-    end_times_latest_sol: dict[tuple[str, str, str], int]
-    """(job, stage, machine) -> end time (int)"""
-    summary_latest_sol: SolverOutputSummary
-    """summary object from the last call of solve_cp"""
-
-    progress_log: list[tuple[float, float, float]]
-    """List of tuples (elapsed_time, objective_value, best_objective_bound)"""
-
     def __init__(
         self,
         hfs_instance: HybridFlowShopProblem,
@@ -44,8 +33,6 @@ class HybridFlowShopCpLnsController(SubroutineController):
         self.hfs_instance = hfs_instance
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
         self.cp_model.freeze_base_constraints()
-
-        self.progress_log = []
 
     def is_stopping_condition(self) -> bool:
         # If total elapsed time exceeds the stopping criteria
@@ -61,12 +48,6 @@ class HybridFlowShopCpLnsController(SubroutineController):
             self.end_times_latest_sol,
             self.summary_latest_sol,
         )
-        if self.experiment_summary.initial_obj is None:
-            # 최초 solve_cp일 경우, 기록
-            self.experiment_summary.record_initial_solution(
-                self.summary_latest_sol.objective_value,
-                self.summary_latest_sol.best_objective_bound,
-            )
 
     def update_incumbent_solution(self) -> None:
         if not hasattr(self, "incumbent_solution_manager"):
@@ -82,8 +63,13 @@ class HybridFlowShopCpLnsController(SubroutineController):
         ):
             self.incumbent_solution_manager = new_solution_manager
 
-    def get_result_summary(self):
-        return self.incumbent_solution_manager.get_result_summary()
+    def get_experiment_summary(self) -> ExperimentSummary:
+        """Get the experiment summary.
+
+        Returns:
+            ExperimentSummary: The experiment summary object.
+        """
+        return self.experiment_summary
 
     def save_incumbent_gantt_as_png(self, filename_format: str):
         filename = filename_format.format(ins_name=self.hfs_instance.name)
@@ -115,14 +101,13 @@ class HybridFlowShopCpLnsController(SubroutineController):
         self.start_times_latest_sol, self.end_times_latest_sol = (
             self.cp_model.extract_start_end_times()
         )
+        self.experiment_summary.add_run_summary(self.summary_latest_sol)
         if check_feasibility:
             self.check_feasibility(self.start_times_latest_sol)
         if set_incumbent_solution:
             self.set_incumbent_solution()
-            self.progress_log.extend(self.summary_latest_sol.progress_log)
         elif update_incumbent_solution:
             self.update_incumbent_solution()
-            self.progress_log.extend(self.summary_latest_sol.progress_log)
 
     def apply_time_window_search(
         self,
@@ -249,12 +234,6 @@ class HybridFlowShopCpLnsController(SubroutineController):
         self.check_feasibility(self.incumbent_solution_manager.start_times)
 
         # Experiment summary -> YAML file
-        self.experiment_summary.record_final_solution(
-            self.incumbent_solution_manager.get_obj_value(),
-            self.incumbent_solution_manager.get_obj_bound(),
-        )
-        self.experiment_summary.record_total_elapsed_time(self.timer.get_elapsed_sec())
-        self.experiment_summary.record_feasibility(True)  # assume checked already
         experiment_summary_path = (
             self._working_dir_path
             / f"{self.experiment_summary.name}_experiment_summary.yaml"
@@ -263,7 +242,14 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
         # Plot solution progress
         ObjectiveProgressPlotter.plot_solution_progress(
-            self.progress_log,
+            self.get_log(),
             save_path=self._working_dir_path
             / f"{self.experiment_summary.name}_solution_progress.png",
         )
+
+    def get_log(self) -> list[tuple[float, float, float]]:
+        return_list: list[tuple[float, float, float]] = []
+        for run in self.experiment_summary.runs:
+            if run.progress_log:
+                return_list.extend(run.progress_log)
+        return return_list

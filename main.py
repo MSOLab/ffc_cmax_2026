@@ -47,6 +47,7 @@ def main():
 
     for benchmark_filename in benchmark_filenames:
         # Read the problem instance
+        input_file_path = input_dir_path / benchmark_filename
         hfs_instance = load_hfs_instance(input_dir_path / benchmark_filename)
 
         input_summary = HFSInputSummary(
@@ -64,11 +65,11 @@ def main():
 
         # Save the result
         cp_lns_ctrlr.save_incumbent_gantt_as_png(result_gantt_filename_format)
-        output_summary = cp_lns_ctrlr.get_result_summary()
-        output_summary.report_status()
+        expr_summary = cp_lns_ctrlr.get_experiment_summary()
 
-        summary = HFSSummary(inputs=input_summary, outputs=output_summary)
-        summary.save(output_dir_path / benchmark_filename)
+        summary = HFSSummary(inputs=input_summary, outputs=expr_summary)
+        summary_filename = input_file_path.stem + ".csv"
+        summary.save(output_dir_path / summary_filename)
 
 
 # Helper methods

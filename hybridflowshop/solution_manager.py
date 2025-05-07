@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 from clad.solver_output_summary import SolverOutputSummary
 
@@ -30,10 +31,10 @@ class SolutionManager:
         """
         return self.summary
 
-    def get_obj_value(self) -> float:
+    def get_obj_value(self) -> Optional[float]:
         return self.summary.objective_value
 
-    def get_obj_bound(self) -> float:
+    def get_obj_bound(self) -> Optional[float]:
         return self.summary.best_objective_bound
 
     def apply_hint_to(self, target_model: PureCP2023Naderi) -> None:

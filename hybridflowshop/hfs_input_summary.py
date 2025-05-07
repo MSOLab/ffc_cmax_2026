@@ -11,3 +11,8 @@ class HFSInputSummary:
     def comma_separated_values(self) -> str:
         """Returns a string with comma-separated values of the summary."""
         return f"{self.name},{self.num_jobs},{self.num_stages},{self.timelimit}"
+
+    @staticmethod
+    def header() -> str:
+        """Returns the header for the comma-separated values."""
+        return "name,num_jobs,num_stages,timelimit"
