@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from clad import ExperimentSummary
+from cplnx import ExperimentSummary
 
 from .hfs_input_summary import HFSInputSummary
 

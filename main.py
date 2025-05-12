@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from clad import DynamicDataObject, SubroutineFlowValidator
+from cplnx import DynamicDataObject, SubroutineFlowValidator
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController

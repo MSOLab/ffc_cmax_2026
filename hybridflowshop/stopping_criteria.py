@@ -1,6 +1,6 @@
 from typing import Any
 
-from clad.dynamic_data_object import DynamicDataObject
+from cplnx import DynamicDataObject
 
 
 class StoppingCriteria(DynamicDataObject):

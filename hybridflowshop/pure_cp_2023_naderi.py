@@ -1,5 +1,7 @@
-from clad import ElapsedTimer, SolverOutputSummary
-from clad.cpsat import CpModelWithOptionalInterval, CpSatStatus
+from typing import Optional
+
+from cplnx import ElapsedTimer
+from cplnx.cpsat import CpModelWithOptionalInterval
 from schore.hybridflowshop import HybridFlowShopProblem
 
 
@@ -18,10 +20,6 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
     p: dict[str, dict[str, int]]
     """$P_{ji}$: processing time of job j at stage i"""
 
-    # Result
-
-    summary: SolverOutputSummary
-
     def __init__(self, hfs_instance: HybridFlowShopProblem, horizon: int):
         super().__init__(horizon)
         self.define_model(hfs_instance)
@@ -32,35 +30,36 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         self.define_makespan_objective()
         self.define_constraints()
 
-    def solve_with_summary(
-        self, computational_time: float, n_threads: int, timer: ElapsedTimer
-    ) -> SolverOutputSummary:
-        """Solve the CP model with the specified computational time and number of threads.
+    def solve(
+        self,
+        computational_time: float,
+        n_threads: int,
+        timer: Optional[ElapsedTimer] = None,
+    ) -> tuple[str, float, float, float]:
+        """Solve the CP model.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
             n_threads (int): The number of threads to use for solving.
-            timer (ElapsedTimer): The timer to track elapsed time.
+            timer (Optional[ElapsedTimer], optional): Timer to be passed to solver callback. Defaults to None.
 
         Returns:
-            SolverOutputSummary
+            tuple[str, float, float, float]: A tuple containing
+            - the solver status as a string defined in SolverStatus,
+            - elapsed time in seconds,
+            - the upper bound of the objective function, and
+            - the lower bound of the objective function.
         """  # noqa: E501
-        (
-            solver_status,
-            elapsed_time,
-            obj_value,
-            obj_bound,
-        ) = super().solve_with_prog_logger(computational_time, n_threads, timer)
-        progress_log = self.sol_prog_logger.get_log()
+        return super().solve_with_prog_logger(computational_time, n_threads, timer)
 
-        self.summary = SolverOutputSummary(
-            CpSatStatus.get_status_string(solver_status),
-            elapsed_time,
-            obj_value,
-            obj_bound,
-            progress_log,
-        )
-        return self.summary
+    def get_progress_log(self) -> list:
+        """Returns the log list.
+
+        Returns:
+            list[tuple[float, float, float]]: a list of tuples
+                containing (elapsed time, objective value, best bound)
+        """
+        return self.sol_prog_logger.get_log()
 
     # Parameters
 

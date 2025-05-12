@@ -2,9 +2,10 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
-from clad import (
+from cplnx import (
     DynamicDataObject,
     ExperimentSummary,
+    SolverOutputSummary,
     SolverStatus,
     SubroutineController,
 )
@@ -21,7 +22,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
     hfs_instance: HybridFlowShopProblem
     cp_model: PureCP2023Naderi
+    last_solution_manager: SolutionManager
+    """Manages the last(most recent) solution."""
     incumbent_solution_manager: SolutionManager
+    """Manages the incumbent solution."""
 
     def __init__(
         self,
@@ -45,34 +49,32 @@ class HybridFlowShopCpLnsController(SubroutineController):
             return True
         return False
 
-    def set_incumbent_solution(self) -> None:
+    def set_last_solution_as_incumbent(self) -> None:
         """Set the incumbent solution."""
-        self.incumbent_solution_manager = SolutionManager(
-            self.start_times_latest_sol,
-            self.end_times_latest_sol,
-            self.summary_latest_sol,
-        )
+        self.incumbent_solution_manager = self.last_solution_manager
         self.draw_incumbent_gantt()
-
-    def update_incumbent_solution(self) -> None:
-        if not hasattr(self, "incumbent_solution_manager"):
-            raise ValueError("No incumbent solution available to update.")
-        new_solution_manager = SolutionManager(
-            self.start_times_latest_sol,
-            self.end_times_latest_sol,
-            self.summary_latest_sol,
-        )
-        if (
-            self.incumbent_solution_manager.summary.objective_value
-            >= self.summary_latest_sol.objective_value
-        ):
-            self.incumbent_solution_manager = new_solution_manager
-            self.draw_incumbent_gantt()
 
     def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
         if output_path is None:
             output_path = self.get_file_path_by_for_subroutine("_gantt.png")
         self.incumbent_solution_manager.save_gantt_as_png(output_path)
+
+    def update_incumbent_solution(self) -> None:
+        if self.last_solution_is_better_than_incumbent():
+            self.set_last_solution_as_incumbent()
+
+    def last_solution_is_better_than_incumbent(self) -> bool:
+        """Check if the last solution is better than the incumbent solution."""
+        if not hasattr(self, "last_solution_manager"):
+            raise ValueError("No last solution available to compare.")
+        if not hasattr(self, "incumbent_solution_manager"):
+            return True
+        return (
+            self.last_solution_manager.summary.objective_value is not None
+            and self.incumbent_solution_manager.summary.objective_value is not None
+            and self.last_solution_manager.summary.objective_value
+            < self.incumbent_solution_manager.summary.objective_value
+        )
 
     def get_experiment_summary(self) -> ExperimentSummary:
         """Get the experiment summary.
@@ -100,17 +102,23 @@ class HybridFlowShopCpLnsController(SubroutineController):
             update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
         """  # noqa: E501
 
-        self.summary_latest_sol = self.cp_model.solve_with_summary(
+        (solver_status, elapsed_time, obj_value, obj_bound) = self.cp_model.solve(
             computational_time, n_threads, self.timer
         )
-        self.start_times_latest_sol, self.end_times_latest_sol = (
-            self.cp_model.extract_start_end_times()
+        progress_log = self.cp_model.get_progress_log()
+
+        summary = SolverOutputSummary(
+            solver_status, elapsed_time, obj_value, obj_bound, progress_log
         )
-        self.experiment_summary.add_run_summary(self.summary_latest_sol)
+        start_times, end_times = self.cp_model.extract_start_end_times()
+
         if check_feasibility:
-            self.check_feasibility(self.start_times_latest_sol)
+            self.check_feasibility(start_times)
+        self.experiment_summary.add_run_summary(summary)
+        self.last_solution_manager = SolutionManager(start_times, end_times, summary)
+
         if set_incumbent_solution:
-            self.set_incumbent_solution()
+            self.set_last_solution_as_incumbent()
         elif update_incumbent_solution:
             self.update_incumbent_solution()
 
@@ -203,10 +211,6 @@ class HybridFlowShopCpLnsController(SubroutineController):
         """Check if a given time is within the specified window."""
         return window_start <= time <= window_end
 
-    def check_latest_feasibility(self) -> None:
-        """Check feasibility of the latest solution."""
-        self.check_feasibility(self.start_times_latest_sol)
-
     def check_feasibility(self, start_times: dict[tuple[str, str, str], int]) -> None:
         """check feasibility of the given solution.
 
@@ -226,13 +230,16 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
         # Solve with tight time limit
         try:
-            summary = feasibility_cp.solve_with_summary(
+            solver_status, _, _, _ = feasibility_cp.solve(
                 computational_time=1.0, n_threads=1, timer=self.timer
             )
         except Exception as e:
             raise RuntimeError(f"Feasibility check failed: {e}")
 
-        SolverStatus.raise_if_not_feasible(summary.status)
+        if not SolverStatus.is_optimal_solution(solver_status):
+            raise ValueError(
+                f"Given schedule is not feasible. Solver status: {solver_status}"
+            )
 
     def post_run_process(self) -> None:
         experiment_summary_filename = "experiment_summary.yaml"
