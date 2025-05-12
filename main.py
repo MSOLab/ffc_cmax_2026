@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from clad import DynamicDataObject
+from clad import DynamicDataObject, SubroutineFlowValidator
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
@@ -36,7 +36,9 @@ def main():
     ]
     input_dir_path = Path(main_metadata_dict["input_dir"])
     output_dir_path = Path(main_metadata_dict["output_dir"])
-    result_gantt_filename_format = main_metadata_dict["result_gantt_filename_format"]
+    result_gantt_filename_format: str = main_metadata_dict[
+        "result_gantt_filename_format"
+    ]
 
     # Initialize output directory
     output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -45,13 +47,18 @@ def main():
     stopping_criteria = StoppingCriteria(stopping_criteria_dict)
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
 
+    # Validate the subroutine flow
+    validator = SubroutineFlowValidator(HybridFlowShopCpLnsController)
+    validator.validate(subroutine_flow)
+
     for benchmark_filename in benchmark_filenames:
         # Read the problem instance
         input_file_path = input_dir_path / benchmark_filename
         hfs_instance = load_hfs_instance(input_dir_path / benchmark_filename)
+        ins_name = input_file_path.stem
 
         input_summary = HFSInputSummary(
-            name=benchmark_filename,
+            name=ins_name,
             num_jobs=hfs_instance.num_jobs,
             num_stages=hfs_instance.num_stages,
             timelimit=stopping_criteria.timelimit,
@@ -60,11 +67,12 @@ def main():
         cp_lns_ctrlr = create_controller(
             hfs_instance, stopping_criteria, subroutine_flow, pra_common_params_dict
         )
-        cp_lns_ctrlr.set_working_dir(output_dir_path)
+        cp_lns_ctrlr.set_working_dir(output_dir_path / ins_name)
         cp_lns_ctrlr.run()
 
         # Save the result
-        cp_lns_ctrlr.save_incumbent_gantt_as_png(result_gantt_filename_format)
+        result_gantt_filename = result_gantt_filename_format.format(ins_name=ins_name)
+        cp_lns_ctrlr.draw_incumbent_gantt(output_dir_path / result_gantt_filename)
         expr_summary = cp_lns_ctrlr.get_experiment_summary()
 
         summary = HFSSummary(inputs=input_summary, outputs=expr_summary)

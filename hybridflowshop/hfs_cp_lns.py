@@ -1,5 +1,6 @@
 import random
 from collections import defaultdict
+from pathlib import Path
 
 from clad import (
     DynamicDataObject,
@@ -35,6 +36,9 @@ class HybridFlowShopCpLnsController(SubroutineController):
         self.cp_model.freeze_base_constraints()
 
     def is_stopping_condition(self) -> bool:
+        return self.time_is_up()
+
+    def time_is_up(self) -> bool:
         # If total elapsed time exceeds the stopping criteria
         if self.timer.get_elapsed_sec() >= self.stopping_criteria.timelimit:
             print("Stop by timelimit")
@@ -48,6 +52,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             self.end_times_latest_sol,
             self.summary_latest_sol,
         )
+        self.draw_incumbent_gantt()
 
     def update_incumbent_solution(self) -> None:
         if not hasattr(self, "incumbent_solution_manager"):
@@ -62,6 +67,12 @@ class HybridFlowShopCpLnsController(SubroutineController):
             >= self.summary_latest_sol.objective_value
         ):
             self.incumbent_solution_manager = new_solution_manager
+            self.draw_incumbent_gantt()
+
+    def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
+        if output_path is None:
+            output_path = self.get_file_path_by_for_subroutine("_gantt.png")
+        self.incumbent_solution_manager.save_gantt_as_png(output_path)
 
     def get_experiment_summary(self) -> ExperimentSummary:
         """Get the experiment summary.
@@ -70,12 +81,6 @@ class HybridFlowShopCpLnsController(SubroutineController):
             ExperimentSummary: The experiment summary object.
         """
         return self.experiment_summary
-
-    def save_incumbent_gantt_as_png(self, filename_format: str):
-        filename = filename_format.format(ins_name=self.hfs_instance.name)
-        self.incumbent_solution_manager.save_gantt_as_png(
-            filename, self._working_dir_path
-        )
 
     def solve_cp(
         self,
@@ -229,22 +234,21 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
         SolverStatus.raise_if_not_feasible(summary.status)
 
-    def post_run_process(self):
+    def post_run_process(self) -> None:
+        experiment_summary_filename = "experiment_summary.yaml"
+        solution_progress_fig_filename = "solution_progress.png"
+        if self._working_dir_path is None:
+            raise AttributeError("Working directory path is not set.")
+        result_dir = self._working_dir_path / "result"
         # Check feasibility of the incumbent solution
         self.check_feasibility(self.incumbent_solution_manager.start_times)
 
         # Experiment summary -> YAML file
-        experiment_summary_path = (
-            self._working_dir_path
-            / f"{self.experiment_summary.name}_experiment_summary.yaml"
-        )
-        self.experiment_summary.save_as_yaml(experiment_summary_path)
+        self.experiment_summary.save_as_yaml(result_dir / experiment_summary_filename)
 
         # Plot solution progress
         ObjectiveProgressPlotter.plot_solution_progress(
-            self.get_log(),
-            save_path=self._working_dir_path
-            / f"{self.experiment_summary.name}_solution_progress.png",
+            self.get_log(), result_dir / solution_progress_fig_filename
         )
 
     def get_log(self) -> list[tuple[float, float, float]]:

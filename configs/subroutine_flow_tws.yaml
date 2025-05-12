@@ -3,8 +3,6 @@
   n_threads: 8
   check_feasibility: True
   set_incumbent_solution: True
-- method_name: save_incumbent_gantt_as_png
-  filename_format: "{ins_name}_1_schedule_base_cp.png"
 - method_name: repeat
   n_repeats: 10
   routine_data:

@@ -49,7 +49,7 @@ class SolutionManager:
             target_model.add_hint(target_model.var_op_start[j][i][k], s_time)
             target_model.add_hint(target_model.var_op_is_present[j][i][k], 1)
 
-    def save_gantt_as_png(self, filename: str, output_dir: Path) -> None:
+    def save_gantt_as_png(self, output_path: Path) -> None:
         """
         Save the current incumbent solution as a Gantt chart image.
 
@@ -61,5 +61,5 @@ class SolutionManager:
 
         plotter = GanttPlotter()
         plotter.export_hybrid_flowshop_plot(
-            output_dir / filename, self.start_times, self.end_times
+            output_path, self.start_times, self.end_times
         )
