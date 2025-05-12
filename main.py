@@ -59,8 +59,8 @@ def main():
 
         input_summary = HFSInputSummary(
             name=ins_name,
-            num_jobs=hfs_instance.num_jobs,
-            num_stages=hfs_instance.num_stages,
+            job_count=hfs_instance.job_count,
+            stage_count=hfs_instance.stage_count,
             timelimit=stopping_criteria.timelimit,
         )
 

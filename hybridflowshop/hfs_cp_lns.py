@@ -9,7 +9,7 @@ from cplnx import (
     SolverStatus,
     SubroutineController,
 )
-from schore.hybridflowshop.problem import HybridFlowShopProblem
+from schore.hybridflowshop import HybridFlowShopProblem
 
 from .plotter import ObjectiveProgressPlotter
 from .pure_cp_2023_naderi import PureCP2023Naderi
