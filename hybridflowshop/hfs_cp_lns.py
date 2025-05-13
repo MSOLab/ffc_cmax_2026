@@ -56,7 +56,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
     def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
         if output_path is None:
-            output_path = self.get_file_path_by_for_subroutine("_gantt.png")
+            output_path = self.get_file_path_for_subroutine("_gantt.png")
         self.incumbent_solution_manager.save_gantt_as_png(output_path)
 
     def update_incumbent_solution(self) -> None:
