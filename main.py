@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from cplnx import DynamicDataObject, SubroutineFlowValidator
+from mbls import DynamicDataObject, SubroutineFlowValidator
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
@@ -21,11 +21,11 @@ def main():
     pra_common_params_rel_path = Path(main_metadata_dict["pra_common_params_rel_path"])
     pra_common_params_dict = read_yaml(pra_common_params_rel_path)
 
-    # Read the stopping criteria and subroutine flow
-    stopping_criteria_rel_path = Path(main_metadata_dict["stopping_criteria_rel_path"])
-    stopping_criteria_dict = read_yaml(stopping_criteria_rel_path)
+    # Read subroutine flow and stopping criteria
     subroutine_flow_rel_path = Path(main_metadata_dict["subroutine_flow_rel_path"])
     subroutine_flow_obj = read_yaml(subroutine_flow_rel_path)
+    stopping_criteria_rel_path = Path(main_metadata_dict["stopping_criteria_rel_path"])
+    stopping_criteria_dict = read_yaml(stopping_criteria_rel_path)
 
     # I/O parameters
     first: int = main_metadata_dict["first"]
@@ -44,8 +44,8 @@ def main():
     output_dir_path.mkdir(parents=True, exist_ok=True)
 
     # Subroutine controller arguments
-    stopping_criteria = StoppingCriteria(stopping_criteria_dict)
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
+    stopping_criteria = StoppingCriteria(stopping_criteria_dict)
 
     # Validate the subroutine flow
     validator = SubroutineFlowValidator(HybridFlowShopCpLnsController)
@@ -65,7 +65,7 @@ def main():
         )
 
         cp_lns_ctrlr = create_controller(
-            hfs_instance, stopping_criteria, subroutine_flow, pra_common_params_dict
+            hfs_instance, subroutine_flow, stopping_criteria, pra_common_params_dict
         )
         cp_lns_ctrlr.set_working_dir(output_dir_path / ins_name)
         cp_lns_ctrlr.run()
@@ -102,10 +102,10 @@ def load_hfs_instance(file_path: Path) -> HybridFlowShopProblem:
 
 
 def create_controller(
-    hfs_instance, stopping_criteria, subroutine_flow, controller_init_kwargs
+    hfs_instance, subroutine_flow, stopping_criteria, controller_init_kwargs
 ):
     return HybridFlowShopCpLnsController(
-        hfs_instance, stopping_criteria, subroutine_flow, **controller_init_kwargs
+        hfs_instance, subroutine_flow, stopping_criteria, **controller_init_kwargs
     )
 
 

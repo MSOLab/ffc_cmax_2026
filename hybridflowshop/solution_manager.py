@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from cplnx import SolverOutputSummary
+from mbls import SolverOutputSummary
 
 from .pure_cp_2023_naderi import PureCP2023Naderi
 

@@ -1,6 +1,6 @@
 from typing import Any
 
-from cplnx import DynamicDataObject
+from mbls import DynamicDataObject
 
 
 class StoppingCriteria(DynamicDataObject):

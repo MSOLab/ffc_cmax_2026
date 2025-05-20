@@ -1,11 +1,11 @@
 from typing import Optional
 
-from cplnx import ElapsedTimer
-from cplnx.cpsat import CpModelWithOptionalInterval
+from mbls import ElapsedTimer
+from mbls.cpsat import CpModelWithOptionalFixedInterval
 from schore.hybridflowshop import HybridFlowShopProblem
 
 
-class PureCP2023Naderi(CpModelWithOptionalInterval):
+class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     # Indices & Parameters
 
     j_list: list[str]
@@ -78,7 +78,7 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         for j in self.j_list:
             for i in self.i_list:
                 for k in self.M_of[i]:
-                    self.define_optional_interval_var(j, i, k, self.p[j][i])
+                    self.define_optional_fixed_interval_var(j, i, k, self.p[j][i])
 
     # Objective
 
@@ -91,7 +91,7 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         makespan = self.new_int_var(0, self.horizon, "makespan")
         self.add_max_equality(
             makespan,
-            [self.var_op_end[j][i][k] for j in j_list for i in i_list for k in M_of[i]],
+            [self.var_op_end[j, i, k] for j in j_list for i in i_list for k in M_of[i]],
         )
 
         self.minimize(makespan)
@@ -108,13 +108,13 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
 
         for i in i_list:
             for k in M_of[i]:
-                self.add_no_overlap([self.var_op_intvl[j][i][k] for j in j_list])
+                self.add_no_overlap([self.var_op_intvl[j, i, k] for j in j_list])
 
         # Constraints: Alternative
 
         for j in j_list:
             for i in i_list:
-                self.add(sum(self.var_op_is_present[j][i][k] for k in M_of[i]) == 1)
+                self.add(sum(self.var_op_is_present[j, i, k] for k in M_of[i]) == 1)
 
         # Constraints: EndBeforeStart
 
@@ -128,8 +128,8 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
                 for k in M_of[i]:
                     for next_k in M_of[next_i]:
                         self.add(
-                            self.var_op_end[j][i][k]
-                            <= self.var_op_start[j][next_i][next_k]
+                            self.var_op_end[j, i, k]
+                            <= self.var_op_start[j, next_i, next_k]
                         )
 
     # extraction methods for LNS
@@ -155,9 +155,9 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
         for j in self.j_list:
             for i in self.i_list:
                 for k in self.M_of[i]:
-                    start_var = self.var_op_start[j][i][k]
-                    end_var = self.var_op_end[j][i][k]
-                    is_present_var = self.var_op_is_present[j][i][k]
+                    start_var = self.var_op_start[j, i, k]
+                    end_var = self.var_op_end[j, i, k]
+                    is_present_var = self.var_op_is_present[j, i, k]
 
                     # Check if this operation is selected (is_present == 1)
                     if self.solver.Value(is_present_var):
@@ -185,7 +185,7 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
             assert i in self.i_list, f"Stage {i} not in stage list."
             assert k in self.M_of[i], f"Machine {k} not in machine list for stage {i}."
 
-        self.add(self.var_op_is_present[j][i][k] == 1)
+        self.add(self.var_op_is_present[j, i, k] == 1)
 
     def add_fixed_operation_precedence_constraint(
         self, j1: str, j2: str, i: str, k: str, ignore_integrity_check: bool = True
@@ -206,4 +206,4 @@ class PureCP2023Naderi(CpModelWithOptionalInterval):
             assert i in self.i_list, f"Stage {i} not in stage list."
             assert k in self.M_of[i], f"Machine {k} not in machine list for stage {i}."
 
-        self.add(self.var_op_end[j1][i][k] <= self.var_op_start[j2][i][k])
+        self.add(self.var_op_end[j1, i, k] <= self.var_op_start[j2, i, k])

@@ -2,7 +2,7 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
-from cplnx import (
+from mbls import (
     DynamicDataObject,
     ExperimentSummary,
     SolverOutputSummary,
@@ -30,11 +30,11 @@ class HybridFlowShopCpLnsController(SubroutineController):
     def __init__(
         self,
         hfs_instance: HybridFlowShopProblem,
-        stopping_criteria: StoppingCriteria,
         subroutine_flow: DynamicDataObject,
+        stopping_criteria: StoppingCriteria,
         horizon: int,
     ):
-        super().__init__(hfs_instance.name, stopping_criteria, subroutine_flow)
+        super().__init__(hfs_instance.name, subroutine_flow, stopping_criteria)
         self.hfs_instance = hfs_instance
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
         self.cp_model.freeze_base_constraints()
@@ -225,8 +225,8 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
         # Freeze operation start times and machine assignments
         for (j, i, k), start_time in start_times.items():
-            feasibility_cp.add(self.cp_model.var_op_is_present[j][i][k] == 1)
-            feasibility_cp.add(self.cp_model.var_op_start[j][i][k] == start_time)
+            feasibility_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
+            feasibility_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
 
         # Solve with tight time limit
         try:
