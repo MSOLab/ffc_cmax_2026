@@ -67,8 +67,11 @@ version = "0.0.1"
 source = { virtual = "." }
 dependencies = [
     { name = "matplotlib" },
+    { name = "mbls" },
     { name = "ortools" },
     { name = "pyyaml" },
+    { name = "routix" },
+    { name = "schore" },
 ]
 
 [package.dev-dependencies]
@@ -79,8 +82,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.3" },
+    { name = "mbls", directory = "../mbls" },
     { name = "ortools", specifier = ">=9.12.4544" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "routix", directory = "../routix" },
+    { name = "schore", directory = "../schore" },
 ]
 
 [package.metadata.requires-dev]
@@ -141,6 +147,25 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/e3/c82963a3b86d6e6d5874cbeaa390166458a7f1961bab9feb14d3d1a10f02/matplotlib-3.10.3-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fdfa07c0ec58035242bc8b2c8aae37037c9a886370eef6850703d7583e19964b", size = 8606464, upload-time = "2025-05-08T19:09:59.471Z" },
     { url = "https://files.pythonhosted.org/packages/0e/34/24da1027e7fcdd9e82da3194c470143c551852757a4b473a09a012f5b945/matplotlib-3.10.3-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:c0b9849a17bce080a16ebcb80a7b714b5677d0ec32161a2cc0a8e5a6030ae220", size = 9413103, upload-time = "2025-05-08T19:10:03.208Z" },
     { url = "https://files.pythonhosted.org/packages/a6/da/948a017c3ea13fd4a97afad5fdebe2f5bbc4d28c0654510ce6fd6b06b7bd/matplotlib-3.10.3-cp311-cp311-win_amd64.whl", hash = "sha256:eef6ed6c03717083bc6d69c2d7ee8624205c29a8e6ea5a31cd3492ecdbaee1e1", size = 8065492, upload-time = "2025-05-08T19:10:05.271Z" },
+]
+
+[[package]]
+name = "mbls"
+version = "0.0.4"
+source = { directory = "../mbls" }
+dependencies = [
+    { name = "routix" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "routix", specifier = "==0.0.4" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ortools", specifier = ">=9.12.4544" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250402" },
 ]
 
 [[package]]
@@ -296,6 +321,37 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/45/73/0f49dacd6e82c9430e46f4a027baa4ca205e8b0a9dce1397f44edc23559d/PyYAML-6.0.2-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:797b4f722ffa07cc8d62053e4cff1486fa6dc094105d13fea7b1de7d8bf71c9e", size = 756638, upload-time = "2024-08-06T20:32:18.555Z" },
     { url = "https://files.pythonhosted.org/packages/22/5f/956f0f9fc65223a58fbc14459bf34b4cc48dec52e00535c79b8db361aabd/PyYAML-6.0.2-cp311-cp311-win32.whl", hash = "sha256:11d8f3dd2b9c1207dcaf2ee0bbbfd5991f571186ec9cc78427ba5bd32afae4b5", size = 143850, upload-time = "2024-08-06T20:32:19.889Z" },
     { url = "https://files.pythonhosted.org/packages/ed/23/8da0bbe2ab9dcdd11f4f4557ccaf95c10b9811b13ecced089d43ce59c3c8/PyYAML-6.0.2-cp311-cp311-win_amd64.whl", hash = "sha256:e10ce637b18caea04431ce14fabcf5c64a1c61ec9c56b071a4b7ca131ca52d44", size = 161980, upload-time = "2024-08-06T20:32:21.273Z" },
+]
+
+[[package]]
+name = "routix"
+version = "0.0.4"
+source = { directory = "../routix" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250402" },
+]
+
+[[package]]
+name = "schore"
+version = "0.0.1"
+source = { directory = "../schore" }
+dependencies = [
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pandas", specifier = ">=2.2.3" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pandas-stubs", specifier = ">=2.2.3.250308" },
+    { name = "pytest", specifier = ">=8.3.5" },
 ]
 
 [[package]]
