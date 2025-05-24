@@ -46,8 +46,8 @@ class SolutionManager:
         """
         target_model.clear_hints()
         for (j, i, k), s_time in self.start_times.items():
-            target_model.add_hint(target_model.var_op_start[j][i][k], s_time)
-            target_model.add_hint(target_model.var_op_is_present[j][i][k], 1)
+            target_model.add_hint(target_model.var_op_start[j, i, k], s_time)
+            target_model.add_hint(target_model.var_op_is_present[j, i, k], 1)
 
     def save_gantt_as_png(self, output_path: Path) -> None:
         """
