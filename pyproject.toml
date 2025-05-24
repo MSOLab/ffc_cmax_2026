@@ -6,11 +6,19 @@ readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [
     "matplotlib>=3.10.3",
+    "mbls",
     "ortools>=9.12.4544",
     "pyyaml>=6.0.2",
+    "routix",
+    "schore",
 ]
 
 [dependency-groups]
 dev = [
     "types-pyyaml>=6.0.12.20250516",
 ]
+
+[tool.uv.sources]
+mbls = { path = "../mbls" }
+routix = { path = "../routix" }
+schore = { path = "../schore" }
