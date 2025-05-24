@@ -1,0 +1,15 @@
+- method: solve_cp
+  computational_time: 5
+  n_threads: 8
+  check_feasibility: True
+  set_incumbent_solution: True
+- method: repeat
+  params:
+    n_repeats: 10
+    routine_data:
+    - method: apply_block_search
+      rho: 0.2
+      computational_time: 5
+      n_threads: 8
+      check_feasibility: True
+      update_incumbent_solution: True

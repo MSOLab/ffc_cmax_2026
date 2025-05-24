@@ -1,6 +1,7 @@
 import random
 from collections import defaultdict
 from pathlib import Path
+from typing import Callable
 
 from mbls import (
     DynamicDataObject,
@@ -39,6 +40,8 @@ class HybridFlowShopCpLnsController(SubroutineController):
         self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
         self.cp_model.freeze_base_constraints()
 
+    # Start stopping condition
+
     def is_stopping_condition(self) -> bool:
         return self.time_is_up()
 
@@ -48,6 +51,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
             print("Stop by timelimit")
             return True
         return False
+
+    # End stopping condition
+
+    # Start solution management
 
     def set_last_solution_as_incumbent(self) -> None:
         """Set the incumbent solution."""
@@ -76,6 +83,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
             < self.incumbent_solution_manager.summary.objective_value
         )
 
+    # End solution management
+
+    # Start experiment summary methods
+
     def get_experiment_summary(self) -> ExperimentSummary:
         """Get the experiment summary.
 
@@ -83,6 +94,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
             ExperimentSummary: The experiment summary object.
         """
         return self.experiment_summary
+
+    # End experiment summary methods
+
+    # Start subroutine definition
 
     def solve_cp(
         self,
@@ -100,7 +115,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
             set_incumbent_solution (bool, optional): If True, set the solution as the incumbent. Defaults to False.
             update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
-        """  # noqa: E501
+        """
 
         (solver_status, elapsed_time, obj_value, obj_bound) = self.cp_model.solve(
             computational_time, n_threads, self.timer
@@ -122,6 +137,56 @@ class HybridFlowShopCpLnsController(SubroutineController):
         elif update_incumbent_solution:
             self.update_incumbent_solution()
 
+    def solve_with_initial_solution(
+        self,
+        computational_time: float,
+        n_threads: int,
+        check_feasibility=False,
+        update_incumbent_solution=False,
+    ):
+        """Solve CP model with the incumbent solution as the initial solution.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            n_threads (int): The number of threads to use for solving.
+            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
+            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+        """
+        self.incumbent_solution_manager.apply_hint_to(self.cp_model)
+        self.solve_cp(
+            computational_time,
+            n_threads,
+            check_feasibility=check_feasibility,
+            update_incumbent_solution=update_incumbent_solution,
+        )
+
+    def freeze_solve_reset(
+        self,
+        freeze_method: Callable,
+        computational_time: float,
+        n_threads: int,
+        check_feasibility=False,
+        update_incumbent_solution=False,
+    ):
+        """Apply the freeze method, solve, and reset the model.
+
+        Args:
+            freeze_method (Callable): A callable that applies the freeze method to the CP model.
+            computational_time (float): The maximum computational time in seconds.
+            n_threads (int): The number of threads to use for solving.
+            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
+            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+        """
+        freeze_method()
+        self.solve_with_initial_solution(
+            computational_time,
+            n_threads,
+            check_feasibility=check_feasibility,
+            update_incumbent_solution=update_incumbent_solution,
+        )
+        self.cp_model.delete_added_constraints()
+
+    # Time window operator
     def apply_time_window_search(
         self,
         rho: float,
@@ -138,18 +203,15 @@ class HybridFlowShopCpLnsController(SubroutineController):
             n_threads (int): The number of threads to use for solving.
             check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
             update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
-        """  # noqa: E501
+        """
 
-        self.apply_time_window_operator(rho)
-        self.incumbent_solution_manager.apply_hint_to(self.cp_model)
-        self.solve_cp(
+        self.freeze_solve_reset(
+            lambda: self.apply_time_window_operator(rho),
             computational_time,
             n_threads,
             check_feasibility=check_feasibility,
             update_incumbent_solution=update_incumbent_solution,
         )
-        # Remove added constraints
-        self.cp_model.delete_added_constraints()
 
     def apply_time_window_operator(self, rho: float):
         """
@@ -159,7 +221,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             current_start_times (dict[tuple[str, str, str], int]): (job_name, stage_name, machine_id) -> current start_time
             current_end_times (dict[tuple[str, str, str], int]): (job_name, stage_name, machine_id) -> current end_time
             rho (float, optional): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
-        """  # noqa: E501
+        """
         print(f"Applying time window operator with rho={rho}")
 
         start_times = self.incumbent_solution_manager.start_times
@@ -240,6 +302,95 @@ class HybridFlowShopCpLnsController(SubroutineController):
             raise ValueError(
                 f"Given schedule is not feasible. Solver status: {solver_status}"
             )
+
+    # Block operator
+    def apply_block_search(
+        self,
+        rho: float,
+        computational_time: float,
+        n_threads: int,
+        check_feasibility=False,
+        update_incumbent_solution=False,
+    ):
+        """Block search with incumbent solution as the hint.
+
+        Args:
+            rho (float): Fraction of total number of operations to include in the block.
+            computational_time (float): The maximum computational time in seconds.
+            n_threads (int): The number of threads to use for solving.
+            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
+            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+        """
+
+        self.freeze_solve_reset(
+            lambda: self.apply_block_operator(rho),
+            computational_time,
+            n_threads,
+            check_feasibility=check_feasibility,
+            update_incumbent_solution=update_incumbent_solution,
+        )
+
+    def apply_block_operator(self, rho: float):
+        """
+        Apply the Block Operator to the current CP model.
+
+        Args:
+            rho (float): Fraction of total number of operations to include in the block.
+        """
+        print(f"Applying block operator with rho={rho}")
+
+        start_times = self.incumbent_solution_manager.start_times
+        end_times = self.incumbent_solution_manager.end_times
+
+        if not start_times or not end_times:
+            raise ValueError("No solution available for block operator.")
+
+        all_ops = list(start_times.keys())
+        total_ops = len(all_ops)
+        num_to_select = max(1, int(rho * total_ops))
+
+        # Step 1: Start from a random operation
+        seed_op = random.choice(all_ops)
+        selected_ops = set([seed_op])
+        queue = [seed_op]
+
+        # Step 2: Expand to overlapping operations
+        while queue and len(selected_ops) < num_to_select:
+            current_op = queue.pop(0)
+            cs, ce = start_times[current_op], end_times[current_op]
+            for op in all_ops:
+                if op in selected_ops:
+                    continue
+                os, oe = start_times[op], end_times[op]
+                if self.is_overlap(cs, ce, os, oe):
+                    selected_ops.add(op)
+                    queue.append(op)
+                if len(selected_ops) >= num_to_select:
+                    break
+
+        print(
+            f"[Block Operator] Selected {len(selected_ops)} overlapping ops (target={num_to_select})"
+        )
+
+        # Step 3: Out-of-block 작업들에 대해 고정 제약 추가
+        out_of_block_ops = set(all_ops) - selected_ops
+        stage_mc_to_jobs = defaultdict(list)
+
+        for j, i, k in out_of_block_ops:
+            self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
+            stage_mc_to_jobs[(i, k)].append(j)
+
+        for (i, k), jobs in stage_mc_to_jobs.items():
+            jobs_sorted = sorted(jobs, key=lambda j: start_times[(j, i, k)])
+            for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
+                self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+
+    @staticmethod
+    def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
+        """Check if two time intervals overlap."""
+        return not (e1 <= s2 or e2 <= s1)
+
+    # End subroutine definition
 
     def post_run_process(self) -> None:
         experiment_summary_filename = "experiment_summary.yaml"
