@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, SubroutineFlowValidator
+from mbls import DynamicDataObject, SubroutineFlowValidator, save_ddo_as_yaml
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
@@ -50,6 +50,13 @@ def main():
     # Validate the subroutine flow
     validator = SubroutineFlowValidator(HybridFlowShopCpLnsController)
     validator.validate(subroutine_flow)
+
+    # Save main metadata, subroutine flow, and stopping criteria
+    main_metadata_filename = output_dir_path / MAIN_METADATA_FILENAME
+    with open(main_metadata_filename, "w") as f:
+        yaml.safe_dump(main_metadata_dict, f, default_flow_style=False)
+    save_ddo_as_yaml(subroutine_flow, output_dir_path / subroutine_flow_rel_path)
+    stopping_criteria.save_as_yaml(output_dir_path / stopping_criteria_rel_path)
 
     for benchmark_filename in benchmark_filenames:
         # Read the problem instance
