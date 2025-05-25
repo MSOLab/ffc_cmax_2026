@@ -151,14 +151,14 @@ wheels = [
 
 [[package]]
 name = "mbls"
-version = "0.0.4"
+version = "0.0.5"
 source = { directory = "../mbls" }
 dependencies = [
     { name = "routix" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "routix", specifier = "==0.0.4" }]
+requires-dist = [{ name = "routix", specifier = "==0.0.5" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -325,7 +325,7 @@ wheels = [
 
 [[package]]
 name = "routix"
-version = "0.0.4"
+version = "0.0.5"
 source = { directory = "../routix" }
 
 [package.metadata]

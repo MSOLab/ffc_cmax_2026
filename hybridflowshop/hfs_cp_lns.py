@@ -402,7 +402,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         self.check_feasibility(self.incumbent_solution_manager.start_times)
 
         # Experiment summary -> YAML file
-        self.experiment_summary.save_as_yaml(result_dir / experiment_summary_filename)
+        self.experiment_summary.to_yaml(result_dir / experiment_summary_filename)
 
         # Plot solution progress
         ObjectiveProgressPlotter.plot_solution_progress(

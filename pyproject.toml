@@ -19,6 +19,6 @@ dev = [
 ]
 
 [tool.uv.sources]
-mbls = { path = "../mbls" }
 routix = { path = "../routix" }
 schore = { path = "../schore" }
+mbls = { path = "../mbls" }

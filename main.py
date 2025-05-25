@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, SubroutineFlowValidator, save_ddo_as_yaml
+from mbls import DynamicDataObject, SubroutineFlowValidator, utils
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
@@ -28,17 +28,17 @@ def main():
     stopping_criteria_dict = read_yaml(stopping_criteria_rel_path)
 
     # I/O parameters
-    first: int = main_metadata_dict["first"]
-    last: int = main_metadata_dict["last"]
-    benchmark_filename_format: str = main_metadata_dict["benchmark_filename_format"]
+    first = int(main_metadata_dict["first"])
+    last = int(main_metadata_dict["last"])
+    benchmark_filename_format = str(main_metadata_dict["benchmark_filename_format"])
     benchmark_filenames = [
         benchmark_filename_format.format(i) for i in range(first, last + 1)
     ]
     input_dir_path = Path(main_metadata_dict["input_dir"])
     output_dir_path = Path(main_metadata_dict["output_dir"])
-    result_gantt_filename_format: str = main_metadata_dict[
-        "result_gantt_filename_format"
-    ]
+    result_gantt_filename_format = str(
+        main_metadata_dict["result_gantt_filename_format"]
+    )
 
     # Initialize output directory
     output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -55,8 +55,8 @@ def main():
     main_metadata_filename = output_dir_path / MAIN_METADATA_FILENAME
     with open(main_metadata_filename, "w") as f:
         yaml.safe_dump(main_metadata_dict, f, default_flow_style=False)
-    save_ddo_as_yaml(subroutine_flow, output_dir_path / subroutine_flow_rel_path)
-    stopping_criteria.save_as_yaml(output_dir_path / stopping_criteria_rel_path)
+    utils.safe_save_yaml(subroutine_flow, output_dir_path / subroutine_flow_rel_path)
+    stopping_criteria.to_yaml(output_dir_path / stopping_criteria_rel_path)
 
     for benchmark_filename in benchmark_filenames:
         # Read the problem instance
