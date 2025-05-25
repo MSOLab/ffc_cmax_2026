@@ -1,6 +1,6 @@
 "pra_common_params_rel_path": "resources/pra_common_params.yaml"
-"first": 0
-"last": 2
+"first": 1
+"last": 30
 "benchmark_filename_format": "{}.txt"
 "input_dir" : "resources/pra"
 "stopping_criteria_rel_path": "configs/stopping_criteria.yaml"
@@ -8,6 +8,6 @@
 # "output_dir" : "Outputs/pra_pure_cp"
 # "subroutine_flow_rel_path": "configs/subroutine_flow_time_window.yaml"
 # "output_dir" : "Outputs/pra_time_window"
-"subroutine_flow_rel_path": "configs/subroutine_flow_block.yaml"
-"output_dir" : "Outputs/pra_block"
+"subroutine_flow_rel_path": "configs_600/subroutine_flow_block.yaml"
+"output_dir" : "Outputs_600/pra_block"
 "result_gantt_filename_format": "{ins_name}_result_gantt.png"
