@@ -6,9 +6,8 @@ from mbls import DynamicDataObject, SubroutineFlowValidator, utils
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
-from hybridflowshop.hfs_input_summary import HFSInputSummary
-from hybridflowshop.hfs_summary import HFSSummary
 from hybridflowshop.stopping_criteria import StoppingCriteria
+from single_hfs_instance_solver import SingleHFSInstanceSolver
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
@@ -36,9 +35,6 @@ def main():
     ]
     input_dir_path = Path(main_metadata_dict["input_dir"])
     output_dir_path = Path(main_metadata_dict["output_dir"])
-    result_gantt_filename_format = str(
-        main_metadata_dict["result_gantt_filename_format"]
-    )
 
     # Initialize output directory
     output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -58,33 +54,27 @@ def main():
     utils.safe_save_yaml(subroutine_flow, output_dir_path / subroutine_flow_rel_path)
     stopping_criteria.to_yaml(output_dir_path / stopping_criteria_rel_path)
 
+    # Output metadata
+    output_metadata = {
+        "result_gantt_filename_format": main_metadata_dict[
+            "result_gantt_filename_format"
+        ]
+    }
+
     for benchmark_filename in benchmark_filenames:
         # Read the problem instance
         input_file_path = input_dir_path / benchmark_filename
-        hfs_instance = load_hfs_instance(input_dir_path / benchmark_filename)
-        ins_name = input_file_path.stem
+        hfs_instance = load_hfs_instance(input_file_path)
 
-        input_summary = HFSInputSummary(
-            name=ins_name,
-            job_count=hfs_instance.job_count,
-            stage_count=hfs_instance.stage_count,
-            timelimit=stopping_criteria.timelimit,
+        single_hfs_ins_solver = SingleHFSInstanceSolver(
+            hfs_instance,
+            pra_common_params_dict,
+            subroutine_flow,
+            stopping_criteria,
+            output_dir_path,
+            output_metadata,
         )
-
-        cp_lns_ctrlr = create_controller(
-            hfs_instance, subroutine_flow, stopping_criteria, pra_common_params_dict
-        )
-        cp_lns_ctrlr.set_working_dir(output_dir_path / ins_name)
-        cp_lns_ctrlr.run()
-
-        # Save the result
-        result_gantt_filename = result_gantt_filename_format.format(ins_name=ins_name)
-        cp_lns_ctrlr.draw_incumbent_gantt(output_dir_path / result_gantt_filename)
-        expr_summary = cp_lns_ctrlr.get_experiment_summary()
-
-        summary = HFSSummary(inputs=input_summary, outputs=expr_summary)
-        summary_filename = input_file_path.stem + ".csv"
-        summary.save(output_dir_path / summary_filename)
+        single_hfs_ins_solver.solve()
 
 
 # Helper methods
@@ -106,14 +96,6 @@ def load_hfs_instance(file_path: Path) -> HybridFlowShopProblem:
         raise FileNotFoundError(f"Benchmark file not found: {file_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading benchmark file {file_path}: {e}")
-
-
-def create_controller(
-    hfs_instance, subroutine_flow, stopping_criteria, controller_init_kwargs
-):
-    return HybridFlowShopCpLnsController(
-        hfs_instance, subroutine_flow, stopping_criteria, **controller_init_kwargs
-    )
 
 
 if __name__ == "__main__":
