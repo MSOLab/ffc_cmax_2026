@@ -37,8 +37,10 @@ class SingleHFSInstanceSolver(
 
     def init_controller(self) -> HybridFlowShopCpLnsController:
         """Initialize the controller with the given instance and parameters."""
+
         # controller_init_kwargs
         horizon = self.shared_params["horizon"]
+
         return HybridFlowShopCpLnsController(
             self.instance,
             self.subroutine_flow,
@@ -46,7 +48,7 @@ class SingleHFSInstanceSolver(
             horizon,
         )
 
-    def post_run_process(self):
+    def post_run_process(self) -> None:
         ins_name = self.instance.name
 
         # save
@@ -67,7 +69,7 @@ class SingleHFSInstanceSolver(
                 report_filename_format = report_filename_format.strip()
                 report_filename = report_filename_format.format(ins_name=ins_name)
 
-        report.save(self.output_dir_instance / report_filename)
+        report.save(self.working_dir / report_filename)
 
         if "result_gantt_filename_format" in self.output_metadata:
             result_gantt_filename_format = self.output_metadata[
@@ -79,5 +81,5 @@ class SingleHFSInstanceSolver(
                     ins_name=ins_name
                 )
                 self.ctrlr.draw_incumbent_gantt(
-                    self.output_dir_instance / result_gantt_filename
+                    self.working_dir / result_gantt_filename
                 )

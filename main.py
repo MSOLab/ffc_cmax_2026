@@ -38,8 +38,8 @@ def main():
     input_dir_path = Path(main_metadata_dict["input_dir"])
     output_dir_path = Path(main_metadata_dict["output_dir"])
 
-    # Initialize output directory
-    output_dir_path.mkdir(parents=True, exist_ok=True)
+    # Initialize working directory
+    working_dir_path = init_working_dir(output_dir_path, e_timer)
 
     # Subroutine controller arguments
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
@@ -50,11 +50,17 @@ def main():
     validator.validate(subroutine_flow)
 
     # Save main metadata, subroutine flow, and stopping criteria
-    main_metadata_filename = output_dir_path / MAIN_METADATA_FILENAME
+    algorithm_data_dir = "algorithm_data"
+    algorithm_data_dir_path = working_dir_path / algorithm_data_dir
+    algorithm_data_dir_path.mkdir(parents=True, exist_ok=True)
+
+    main_metadata_filename = algorithm_data_dir_path / MAIN_METADATA_FILENAME
     with open(main_metadata_filename, "w") as f:
         yaml.safe_dump(main_metadata_dict, f, default_flow_style=False)
-    utils.safe_save_yaml(subroutine_flow, output_dir_path / subroutine_flow_rel_path)
-    stopping_criteria.to_yaml(output_dir_path / stopping_criteria_rel_path)
+    utils.safe_save_yaml(
+        subroutine_flow, algorithm_data_dir_path / subroutine_flow_rel_path
+    )
+    stopping_criteria.to_yaml(algorithm_data_dir_path / stopping_criteria_rel_path)
 
     # Output metadata
     output_metadata = {
@@ -102,6 +108,15 @@ def load_hfs_instance(file_path: Path) -> HybridFlowShopProblem:
         raise FileNotFoundError(f"Benchmark file not found: {file_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading benchmark file {file_path}: {e}")
+
+
+def init_working_dir(output_dir: Path, e_timer: ElapsedTimer) -> Path:
+    """
+    Prepare the output directory for the instance run.
+    """
+    working_dir = output_dir / e_timer.get_formatted_start_dt()
+    working_dir.mkdir(parents=True, exist_ok=True)
+    return working_dir
 
 
 if __name__ == "__main__":

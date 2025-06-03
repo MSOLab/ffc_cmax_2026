@@ -9,8 +9,15 @@ ControllerT = TypeVar("ControllerT", bound=SubroutineController)
 
 
 class SingleInstanceSolver(Generic[ProblemT, ControllerT], ABC):
-    instance: ProblemT  # Loaded problem instance
+    """
+    Abstract runner for a single problem instance.
+    """
+
+    instance: ProblemT
     ctrlr: ControllerT
+
+    working_dir: Path
+    """Working directory for the instance run."""
 
     def __init__(
         self,
@@ -39,30 +46,38 @@ class SingleInstanceSolver(Generic[ProblemT, ControllerT], ABC):
         # Alias
         self.ins_name = getattr(instance, "name", None)
 
-        self.prepare_output_directory()
+        self._init_working_dir()
 
-    def prepare_output_directory(self):
-        """Prepare the output directory for the instance run."""
-        self.output_dir_instance = (
-            self.output_dir / self.e_timer.get_formatted_start_dt()
-        )
+    def _init_working_dir(self) -> None:
+        """
+        Initialize the working directory for the instance run.
+        This method creates a directory structure based on the output directory,
+        elapsed timer start time, and instance name if available.
+
+        - If the output directory stem does not match the formatted start date-time,
+        it creates a subdirectory with the formatted start date-time.
+        - If an instance name is provided, it creates a further subdirectory for the instance.
+        """
+        self.working_dir = self.output_dir
+        if self.output_dir.stem != self.e_timer.get_formatted_start_dt():
+            self.working_dir /= self.e_timer.get_formatted_start_dt()
         if self.ins_name is not None:
-            self.output_dir_instance = self.output_dir_instance / self.ins_name
-        self.output_dir_instance.mkdir(parents=True, exist_ok=True)
+            self.working_dir /= self.ins_name
+        self.working_dir.mkdir(parents=True, exist_ok=True)
 
-    def solve(self) -> None:
+    def solve(self):
         """
         Solve the instance by running the controller and performing post-run processing.
         """
         self.run()
-        self.post_run_process()
+        return self.post_run_process()
 
     def run(self) -> None:
         """
         Run the instance using the initialized controller.
         """
         self.ctrlr = self.init_controller()
-        self.ctrlr.set_working_dir(self.output_dir_instance)
+        self.ctrlr.set_working_dir(self.working_dir)
         self.ctrlr.run()
 
     @abstractmethod
