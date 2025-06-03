@@ -34,6 +34,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         self,
         computational_time: float,
         n_threads: int,
+        random_seed: Optional[int] = None,
         timer: Optional[ElapsedTimer] = None,
     ) -> tuple[str, float, float, float]:
         """Solve the CP model.
@@ -50,7 +51,9 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
             - the upper bound of the objective function, and
             - the lower bound of the objective function.
         """  # noqa: E501
-        return super().solve_with_prog_logger(computational_time, n_threads, timer)
+        return super().solve_with_prog_logger(
+            computational_time, n_threads, random_seed, timer
+        )
 
     def get_progress_log(self) -> list:
         """Returns the log list.

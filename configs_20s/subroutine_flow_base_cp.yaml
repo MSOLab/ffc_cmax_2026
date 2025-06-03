@@ -1,3 +1,5 @@
+- method: set_random_seed
+  seed: 42
 - method: solve_cp
   computational_time: 25
   n_threads: 8

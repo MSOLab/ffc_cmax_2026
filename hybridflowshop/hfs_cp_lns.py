@@ -129,7 +129,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         """
 
         (solver_status, elapsed_time, obj_value, obj_bound) = self.cp_model.solve(
-            computational_time, n_threads, self.timer
+            computational_time, n_threads, self.random_seed, self.timer
         )
         progress_log = self.cp_model.get_progress_log()
 
