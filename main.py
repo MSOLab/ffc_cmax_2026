@@ -5,6 +5,7 @@ import yaml
 from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator
 from schore.hybridflowshop import HybridFlowShopProblem
 
+from hfs_instance_set_runner import HFSInstanceSetRunner
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.stopping_criteria import StoppingCriteria
 from single_hfs_instance_runner import SingleHFSInstanceRunner
@@ -38,7 +39,8 @@ def main():
     benchmark_filenames = [
         benchmark_filename_format.format(i) for i in range(first, last + 1)
     ]
-    output_dir_path = Path(main_metadata_dict["output_dir"])
+    output_dir = Path(main_metadata_dict["output_dir"])
+    result_dir_name = str(main_metadata_dict["result_dir_name"])
     result_gantt_filename_format = str(
         main_metadata_dict["result_gantt_filename_format"]
     )
@@ -47,7 +49,7 @@ def main():
     )
 
     # Initialize working directory
-    working_dir_path = init_working_dir(output_dir_path, e_timer)
+    working_dir_path = init_working_dir(output_dir, e_timer)
 
     # Subroutine controller arguments
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
@@ -73,24 +75,25 @@ def main():
     # Output metadata
     output_metadata = {
         "start_dt": e_timer.start_dt,
+        "result_dir_name": result_dir_name,
         "result_gantt_filename_format": result_gantt_filename_format,
         "progress_plot_filename_format": progress_plot_filename_format,
     }
 
-    for benchmark_filename in benchmark_filenames:
-        # Read the problem instance
-        input_file_path = input_dir_path / benchmark_filename
-        hfs_instance = load_hfs_instance(input_file_path)
+    # Load problem instances
+    instances = load_list_of_instances(input_dir_path, benchmark_filenames)
 
-        single_hfs_ins_solver = SingleHFSInstanceRunner(
-            hfs_instance,
-            pra_common_params_dict,
-            subroutine_flow,
-            stopping_criteria,
-            output_dir_path,
-            output_metadata,
-        )
-        single_hfs_ins_solver.solve()
+    # Create and run the instance set runner
+    hfs_instance_set_runner = HFSInstanceSetRunner(
+        s_i_runner_class=SingleHFSInstanceRunner,
+        instances=instances,
+        shared_params=pra_common_params_dict,
+        subroutine_flow=subroutine_flow,
+        stopping_criteria=stopping_criteria,
+        output_dir=working_dir_path,
+        output_metadata=output_metadata,
+    )
+    hfs_instance_set_runner.solve()
 
     # Print elapsed time
     print(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")
@@ -124,6 +127,25 @@ def init_working_dir(output_dir: Path, e_timer: ElapsedTimer) -> Path:
     working_dir = output_dir / e_timer.get_formatted_start_dt()
     working_dir.mkdir(parents=True, exist_ok=True)
     return working_dir
+
+
+def load_list_of_instances(
+    input_dir_path: Path, benchmark_filenames: list[str]
+) -> list[HybridFlowShopProblem]:
+    """Load a list of hybrid flow shop problem instances from the specified directory.
+
+    Args:
+        input_dir_path (Path): Path to the directory containing benchmark files.
+        benchmark_filenames (list[str]): List of benchmark filenames to load.
+
+    Returns:
+        list[HybridFlowShopProblem]: List of loaded hybrid flow shop problem instances.
+    """
+    instances = []
+    for benchmark_filename in benchmark_filenames:
+        input_file_path = input_dir_path / benchmark_filename
+        instances.append(load_hfs_instance(input_file_path))
+    return instances
 
 
 if __name__ == "__main__":

@@ -19,19 +19,19 @@ class SingleHFSInstanceRunner(
 ):
     def __init__(
         self,
-        hfs_instance: HybridFlowShopProblem,
-        pra_shared_params_dict: dict,
+        instance: HybridFlowShopProblem,
+        shared_param_dict: dict,
         subroutine_flow: DynamicDataObject,
         stopping_criteria: StoppingCriteria,
-        output_dir_path: Path,
+        output_dir: Path,
         output_metadata: dict[str, Any],
     ):
         super().__init__(
-            instance=hfs_instance,
-            shared_params=pra_shared_params_dict,
+            instance=instance,
+            shared_param_dict=shared_param_dict,
             subroutine_flow=subroutine_flow,
             stopping_criteria=stopping_criteria,
-            output_dir=output_dir_path,
+            output_dir=output_dir,
             output_metadata=output_metadata,
         )
 
@@ -39,7 +39,7 @@ class SingleHFSInstanceRunner(
         """Initialize the controller with the given instance and parameters."""
 
         # controller_init_kwargs
-        horizon = self.shared_params["horizon"]
+        horizon = self.shared_param_dict["horizon"]
 
         return HybridFlowShopCpLnsController(
             self.instance,
@@ -74,11 +74,11 @@ class SingleHFSInstanceRunner(
         summary = HFSSummary(inputs=input_summary, outputs=expr_summary)
 
         summary_filename = self.name + "_summary.csv"
-        if "report_filename_format" in self.output_metadata:
-            report_filename_format = self.output_metadata["report_filename_format"]
-            if isinstance(report_filename_format, str):
-                report_filename_format = report_filename_format.strip()
-                summary_filename = report_filename_format.format(self.name)
+        if "summary_filename_format" in self.output_metadata:
+            summary_filename_format = self.output_metadata["summary_filename_format"]
+            if isinstance(summary_filename_format, str):
+                summary_filename_format = summary_filename_format.strip()
+                summary_filename = summary_filename_format.format(self.name)
 
         summary.save(self.result_dir / summary_filename)
 

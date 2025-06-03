@@ -1,23 +1,29 @@
-"pra_common_params_rel_path": "resources/pra_common_params.yaml"
-"benchmark_filename_format": "{}.txt"
-"input_dir" : "resources/pra"
-"first": 0
-"last": 2
-"stopping_criteria_rel_path": "configs_20s/stopping_criteria.yaml"
-"subroutine_flow_rel_path": "configs_20s/subroutine_flow_time_window.yaml"
-"output_dir" : "Outputs_20s/pra_time_window"
-# "first": 1
-# "last": 30
-# "stopping_criteria_rel_path": "configs_600s/stopping_criteria.yaml"
-# "subroutine_flow_rel_path": "configs_600s/subroutine_flow_base_cp.yaml"
-# "output_dir" : "Outputs_600s/pra_pure_cp"
-# "subroutine_flow_rel_path": "configs_600s/subroutine_flow_time_window.yaml"
-# "output_dir" : "Outputs_600s/pra_time_window"
-# "subroutine_flow_rel_path": "configs_600s/subroutine_flow_block.yaml"
-# "output_dir" : "Outputs_600s/pra_block"
+# INPUT METADATA
+pra_common_params_rel_path: "resources/pra_common_params.yaml"
+benchmark_filename_format: "{}.txt"
+input_dir : "resources/pra"
+first: 0
+last: 2
+# first: 1
+# last: 30
+
+# ALGORITHM METADATA
+stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+subroutine_flow_rel_path: "configs_20s/subroutine_flow_time_window.yaml"
+output_dir : "Outputs_20s/pra_time_window"
+# stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+# subroutine_flow_rel_path: "configs_600s/subroutine_flow_base_cp.yaml"
+# output_dir : "Outputs_600s/pra_pure_cp"
+# subroutine_flow_rel_path: "configs_600s/subroutine_flow_time_window.yaml"
+# output_dir : "Outputs_600s/pra_time_window"
+# subroutine_flow_rel_path: "configs_600s/subroutine_flow_block.yaml"
+# output_dir : "Outputs_600s/pra_block"
 # subroutine_flow_rel_path: "configs_600s/subroutine_flow_tw_block_list.yaml"
 # output_dir : "Outputs_600s/pra_tw_block_list"
-"draw_gantt": true
-"result_gantt_filename_format": "{}_result_gantt.png"
-"draw_progress_plot": true
-"progress_plot_filename_format": "{}_progress_plot.png"
+
+# OUTPUT METADATA
+result_dir_name: "results"
+draw_gantt: true
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: true
+progress_plot_filename_format: "{}_progress_plot.png"

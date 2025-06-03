@@ -22,7 +22,7 @@ class SingleInstanceRunner(Generic[ProblemT, ControllerT], ABC):
     def __init__(
         self,
         instance: ProblemT,
-        shared_params: dict,
+        shared_param_dict: dict,
         subroutine_flow: Any,
         stopping_criteria: Any,
         output_dir: Path,
@@ -35,7 +35,7 @@ class SingleInstanceRunner(Generic[ProblemT, ControllerT], ABC):
 
         # Instance data
         self.instance = instance
-        self.shared_params = shared_params
+        self.shared_param_dict = shared_param_dict
         # Algorithm data
         self.subroutine_flow = subroutine_flow
         self.stopping_criteria = stopping_criteria
@@ -54,12 +54,12 @@ class SingleInstanceRunner(Generic[ProblemT, ControllerT], ABC):
         This method creates a directory structure based on the output directory,
         elapsed timer start time, and instance name if available.
 
-        - If the output directory stem does not match the formatted start date-time,
+        - If the output directory name does not match the formatted start date-time,
         it creates a subdirectory with the formatted start date-time.
         - If an instance name is provided, it creates a further subdirectory for the instance.
         """
         self.working_dir = self.output_dir
-        if self.output_dir.stem != self.e_timer.get_formatted_start_dt():
+        if self.output_dir.name != self.e_timer.get_formatted_start_dt():
             self.working_dir /= self.e_timer.get_formatted_start_dt()
         if self.ins_name is not None:
             self.working_dir /= self.ins_name
