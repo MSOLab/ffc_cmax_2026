@@ -111,7 +111,7 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
         output_dir=working_dir_path,
         output_metadata=output_metadata,
     )
-    hfs_instance_set_runner.solve()
+    hfs_instance_set_runner.run()
 
     # Print elapsed time
     print(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")

@@ -72,14 +72,6 @@ class InstanceSetRunner(Generic[ProblemT, RunnerT], ABC):
             self.working_dir /= self.e_timer.get_formatted_start_dt()
         self.working_dir.mkdir(parents=True, exist_ok=True)
 
-    def solve(self):
-        """
-        Solves all instances, collecting results in self.results.
-        Returns the list of results.
-        """
-        self.run()
-        return self.post_run_process()
-
     def run(self):
         self.runners.clear()
         self.results.clear()
@@ -95,13 +87,14 @@ class InstanceSetRunner(Generic[ProblemT, RunnerT], ABC):
             )
             self.runners.append(runner)
             try:
-                result = runner.solve()
+                result = runner.run()
             except Exception as e:
                 # Handle or log error, append None or an error object as appropriate
                 print(f"Error in instance {idx}: {e}")  # TODO: logging
                 result = None
             self.results.append(result)
-        return self.results
+
+        return self.post_run_process()
 
     @abstractmethod
     def post_run_process(self):

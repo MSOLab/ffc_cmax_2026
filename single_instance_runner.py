@@ -65,20 +65,15 @@ class SingleInstanceRunner(Generic[ProblemT, ControllerT], ABC):
             self.working_dir /= self.ins_name
         self.working_dir.mkdir(parents=True, exist_ok=True)
 
-    def solve(self):
-        """
-        Solve the instance by running the controller and performing post-run processing.
-        """
-        self.run()
-        return self.post_run_process()
-
-    def run(self) -> None:
+    def run(self):
         """
         Run the instance using the initialized controller.
         """
         self.ctrlr = self.init_controller()
         self.ctrlr.set_working_dir(self.working_dir)
         self.ctrlr.run()
+
+        return self.post_run_process()
 
     @abstractmethod
     def init_controller(self) -> ControllerT:
