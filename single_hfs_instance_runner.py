@@ -8,14 +8,14 @@ from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HFSInputSummary
 from hybridflowshop.hfs_summary import HFSSummary
 from hybridflowshop.stopping_criteria import StoppingCriteria
-from single_instance_solver import SingleInstanceSolver
+from single_instance_runner import SingleInstanceRunner
 
 
 # class SingleHFSInstanceSolver(SingleInstanceSolver):
 #     instance: HybridFlowShopProblem
 #     ctrlr: HybridFlowShopCpLnsController
-class SingleHFSInstanceSolver(
-    SingleInstanceSolver[HybridFlowShopProblem, HybridFlowShopCpLnsController]
+class SingleHFSInstanceRunner(
+    SingleInstanceRunner[HybridFlowShopProblem, HybridFlowShopCpLnsController]
 ):
     def __init__(
         self,

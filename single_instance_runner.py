@@ -8,7 +8,7 @@ ProblemT = TypeVar("ProblemT")  # Type for the problem instance
 ControllerT = TypeVar("ControllerT", bound=SubroutineController)
 
 
-class SingleInstanceSolver(Generic[ProblemT, ControllerT], ABC):
+class SingleInstanceRunner(Generic[ProblemT, ControllerT], ABC):
     """
     Abstract runner for a single problem instance.
     """
