@@ -14,10 +14,28 @@ MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
 
 def main():
-    e_timer = ElapsedTimer()
-
     # Read the main metadata file
-    main_metadata_dict = read_yaml(Path(MAIN_METADATA_FILENAME))
+    main_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
+    subroutine_flow_rel_path_strings = [
+        "configs_100s/subroutine_flow_base_cp.yaml",
+        "configs_100s/subroutine_flow_time_window.yaml",
+        "configs_100s/subroutine_flow_block.yaml",
+    ]
+    output_dir_strings = [
+        "Outputs_100s/base_cp",
+        "Outputs_100s/time_window",
+        "Outputs_100s/block",
+    ]
+    for subroutine_flow_rel_path_str, output_dir_str in zip(
+        subroutine_flow_rel_path_strings, output_dir_strings
+    ):
+        main_metadata["subroutine_flow_rel_path"] = subroutine_flow_rel_path_str
+        main_metadata["output_dir"] = output_dir_str
+        run_hfs_instance_set_runner(main_metadata)
+
+
+def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
+    e_timer = ElapsedTimer()
 
     # Read common parameters for PRA benchmarks
     pra_common_params_rel_path = Path(main_metadata_dict["pra_common_params_rel_path"])
