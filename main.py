@@ -51,22 +51,13 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     first = int(main_metadata_dict["first"])
     last = int(main_metadata_dict["last"])
     input_dir_path = Path(main_metadata_dict["input_dir"])
-
-    # Output parameters
     benchmark_filename_format = str(main_metadata_dict["benchmark_filename_format"])
     benchmark_filenames = [
         benchmark_filename_format.format(i) for i in range(first, last + 1)
     ]
-    output_dir = Path(main_metadata_dict["output_dir"])
-    result_dir_name = str(main_metadata_dict["result_dir_name"])
-    result_gantt_filename_format = str(
-        main_metadata_dict["result_gantt_filename_format"]
-    )
-    progress_plot_filename_format = str(
-        main_metadata_dict["progress_plot_filename_format"]
-    )
 
     # Initialize working directory
+    output_dir = Path(main_metadata_dict["output_dir"])
     working_dir_path = init_working_dir(output_dir, e_timer)
 
     # Subroutine controller arguments
@@ -91,12 +82,25 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     stopping_criteria.to_yaml(algorithm_data_dir_path / stopping_criteria_rel_path)
 
     # Output metadata
+    result_dir_name = str(main_metadata_dict["result_dir_name"])
     output_metadata = {
         "start_dt": e_timer.start_dt,
         "result_dir_name": result_dir_name,
-        "result_gantt_filename_format": result_gantt_filename_format,
-        "progress_plot_filename_format": progress_plot_filename_format,
     }
+    draw_gantt = main_metadata_dict.get("draw_gantt", False)
+    output_metadata["draw_gantt"] = draw_gantt
+    if draw_gantt:
+        result_gantt_filename_format = str(
+            main_metadata_dict["result_gantt_filename_format"]
+        )
+        output_metadata["gantt_filename_format"] = result_gantt_filename_format
+    draw_progress_plot = main_metadata_dict.get("draw_progress_plot", False)
+    output_metadata["draw_progress_plot"] = draw_progress_plot
+    if draw_progress_plot:
+        progress_plot_filename_format = str(
+            main_metadata_dict["progress_plot_filename_format"]
+        )
+        output_metadata["progress_plot_filename_format"] = progress_plot_filename_format
 
     # Load problem instances
     instances = load_list_of_instances(input_dir_path, benchmark_filenames)
