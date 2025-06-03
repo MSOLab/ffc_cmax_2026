@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from mbls import SolverOutputSummary
 
@@ -48,6 +48,47 @@ class SolutionManager:
         for (j, i, k), s_time in self.start_times.items():
             target_model.add_hint(target_model.var_op_start[j, i, k], s_time)
             target_model.add_hint(target_model.var_op_is_present[j, i, k], 1)
+
+    @staticmethod
+    def get_time_dict_pyyaml(
+        time_dict: dict[tuple[str, str, str], int],
+    ) -> dict[str, int]:
+        """
+        Convert a time dictionary to a format suitable for PyYAML serialization.
+
+        Args:
+            time_dict (dict[tuple[str, str, str], int]): The time dictionary to convert
+
+        Returns:
+            dict[str, int]: !!python/tuple [left, center, right] -> time
+        """
+        return {
+            f"!!python/tuple [{j},{i},{k}]": t for (j, i, k), t in time_dict.items()
+        }
+
+    def get_solution_dict(self, for_pyyaml: bool = False) -> dict[str, Any]:
+        """
+        Convert the incumbent solution to a dictionary format.
+
+        Args:
+            for_pyyaml (bool, optional): If true, create start time and end time dictionary for PyYAML.
+                Defaults to False.
+
+        Returns:
+            dict[str, Any]: A dictionary representation of the incumbent solution
+        """
+        start_times: dict[Any, int]
+        end_times: dict[Any, int]
+        if for_pyyaml:
+            start_times = self.get_time_dict_pyyaml(self.start_times)
+            end_times = self.get_time_dict_pyyaml(self.end_times)
+        else:
+            start_times = self.start_times
+            end_times = self.end_times
+        return {
+            "start_times": start_times,
+            "end_times": end_times,
+        }
 
     def save_gantt_as_png(self, output_path: Path) -> None:
         """

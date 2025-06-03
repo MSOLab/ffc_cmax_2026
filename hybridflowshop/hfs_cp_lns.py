@@ -1,7 +1,7 @@
 import random
 from collections import defaultdict
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from mbls import (
     DynamicDataObject,
@@ -12,7 +12,6 @@ from mbls import (
 )
 from schore.hybridflowshop import HybridFlowShopProblem
 
-from .plotter import ObjectiveProgressPlotter
 from .pure_cp_2023_naderi import PureCP2023Naderi
 from .solution_manager import SolutionManager
 from .stopping_criteria import StoppingCriteria
@@ -82,6 +81,18 @@ class HybridFlowShopCpLnsController(SubroutineController):
             and self.last_solution_manager.summary.objective_value
             < self.incumbent_solution_manager.summary.objective_value
         )
+
+    def get_incumbent_solution_dict(self, for_pyyaml: bool = False) -> dict[str, Any]:
+        """
+        Get the incumbent solution as a dictionary.
+
+        Args:
+            for_pyyaml (bool, optional): If true, create start time and end time dictionary for PyYAML.
+                Defaults to False.
+        """
+        if not hasattr(self, "incumbent_solution_manager"):
+            raise ValueError("No incumbent solution available.")
+        return self.incumbent_solution_manager.get_solution_dict(for_pyyaml=for_pyyaml)
 
     # End solution management
 
@@ -345,12 +356,12 @@ class HybridFlowShopCpLnsController(SubroutineController):
         if not start_times or not end_times:
             raise ValueError("No solution available for block operator.")
 
-        all_ops = list(start_times.keys())
+        all_ops = list(start_times.keys())  # TODO: 순서 유지되는지 확인
         total_ops = len(all_ops)
         num_to_select = max(1, int(rho * total_ops))
 
         # Step 1: Start from a random operation
-        seed_op = random.choice(all_ops)
+        seed_op = random.choice(all_ops)  # TODO: random seed management
         selected_ops = set([seed_op])
         queue = [seed_op]
 
@@ -393,21 +404,8 @@ class HybridFlowShopCpLnsController(SubroutineController):
     # End subroutine definition
 
     def post_run_process(self) -> None:
-        experiment_summary_filename = "experiment_summary.yaml"
-        solution_progress_fig_filename = "solution_progress.png"
-        if self._working_dir_path is None:
-            raise AttributeError("Working directory path is not set.")
-        result_dir = self._working_dir_path / "result"
         # Check feasibility of the incumbent solution
         self.check_feasibility(self.incumbent_solution_manager.start_times)
-
-        # Experiment summary -> YAML file
-        self.experiment_summary.to_yaml(result_dir / experiment_summary_filename)
-
-        # Plot solution progress
-        ObjectiveProgressPlotter.plot_solution_progress(
-            self.get_log(), result_dir / solution_progress_fig_filename
-        )
 
     def get_log(self) -> list[tuple[float, float, float]]:
         return_list: list[tuple[float, float, float]] = []

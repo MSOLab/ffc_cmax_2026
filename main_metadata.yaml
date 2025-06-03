@@ -17,4 +17,7 @@
 # "output_dir" : "Outputs_600s/pra_block"
 # subroutine_flow_rel_path: "configs_600s/subroutine_flow_tw_block_list.yaml"
 # output_dir : "Outputs_600s/pra_tw_block_list"
-"result_gantt_filename_format": "{ins_name}_result_gantt.png"
+"draw_gantt": true
+"result_gantt_filename_format": "{}_result_gantt.png"
+"draw_progress_plot": true
+"progress_plot_filename_format": "{}_progress_plot.png"

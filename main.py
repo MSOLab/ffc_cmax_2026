@@ -2,12 +2,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator, utils
+from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.stopping_criteria import StoppingCriteria
-from single_hfs_instance_solver import SingleHFSInstanceSolver
+from single_hfs_instance_runner import SingleHFSInstanceRunner
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
@@ -28,15 +28,23 @@ def main():
     stopping_criteria_rel_path = Path(main_metadata_dict["stopping_criteria_rel_path"])
     stopping_criteria_dict = read_yaml(stopping_criteria_rel_path)
 
-    # I/O parameters
+    # Input parameters
     first = int(main_metadata_dict["first"])
     last = int(main_metadata_dict["last"])
+    input_dir_path = Path(main_metadata_dict["input_dir"])
+
+    # Output parameters
     benchmark_filename_format = str(main_metadata_dict["benchmark_filename_format"])
     benchmark_filenames = [
         benchmark_filename_format.format(i) for i in range(first, last + 1)
     ]
-    input_dir_path = Path(main_metadata_dict["input_dir"])
     output_dir_path = Path(main_metadata_dict["output_dir"])
+    result_gantt_filename_format = str(
+        main_metadata_dict["result_gantt_filename_format"]
+    )
+    progress_plot_filename_format = str(
+        main_metadata_dict["progress_plot_filename_format"]
+    )
 
     # Initialize working directory
     working_dir_path = init_working_dir(output_dir_path, e_timer)
@@ -57,7 +65,7 @@ def main():
     main_metadata_filename = algorithm_data_dir_path / MAIN_METADATA_FILENAME
     with open(main_metadata_filename, "w") as f:
         yaml.safe_dump(main_metadata_dict, f, default_flow_style=False)
-    utils.safe_save_yaml(
+    DynamicDataObject.safe_save_yaml(
         subroutine_flow, algorithm_data_dir_path / subroutine_flow_rel_path
     )
     stopping_criteria.to_yaml(algorithm_data_dir_path / stopping_criteria_rel_path)
@@ -65,9 +73,8 @@ def main():
     # Output metadata
     output_metadata = {
         "start_dt": e_timer.start_dt,
-        "result_gantt_filename_format": main_metadata_dict[
-            "result_gantt_filename_format"
-        ],
+        "result_gantt_filename_format": result_gantt_filename_format,
+        "progress_plot_filename_format": progress_plot_filename_format,
     }
 
     for benchmark_filename in benchmark_filenames:
@@ -75,7 +82,7 @@ def main():
         input_file_path = input_dir_path / benchmark_filename
         hfs_instance = load_hfs_instance(input_file_path)
 
-        single_hfs_ins_solver = SingleHFSInstanceSolver(
+        single_hfs_ins_solver = SingleHFSInstanceRunner(
             hfs_instance,
             pra_common_params_dict,
             subroutine_flow,

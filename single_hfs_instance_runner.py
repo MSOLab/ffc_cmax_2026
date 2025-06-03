@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from mbls import DynamicDataObject
+from mbls import DynamicDataObject, utils
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
@@ -49,37 +49,75 @@ class SingleHFSInstanceRunner(
         )
 
     def post_run_process(self) -> None:
-        ins_name = self.instance.name
+        self.name = self.instance.name
+        result_dir_name = self.output_metadata.get("result_dir_name", "results")
+        self.result_dir = self.working_dir / result_dir_name
 
-        # save
+        self.save_summary()
+        self.save_solution()
+        if "draw_gantt" in self.output_metadata and self.output_metadata["draw_gantt"]:
+            self.save_gantt_chart()
+        if (
+            "draw_progress_plot" in self.output_metadata
+            and self.output_metadata["draw_progress_plot"]
+        ):
+            self.save_progress_plot()
 
+    def save_summary(self) -> None:
         input_summary = HFSInputSummary(
-            name=ins_name,
+            name=self.name,
             job_count=self.instance.job_count,
             stage_count=self.instance.stage_count,
             timelimit=self.stopping_criteria.timelimit,
         )
         expr_summary = self.ctrlr.get_experiment_summary()
-        report = HFSSummary(inputs=input_summary, outputs=expr_summary)
+        summary = HFSSummary(inputs=input_summary, outputs=expr_summary)
 
-        report_filename = ins_name + "_summary.csv"
+        summary_filename = self.name + "_summary.csv"
         if "report_filename_format" in self.output_metadata:
             report_filename_format = self.output_metadata["report_filename_format"]
             if isinstance(report_filename_format, str):
                 report_filename_format = report_filename_format.strip()
-                report_filename = report_filename_format.format(ins_name=ins_name)
+                summary_filename = report_filename_format.format(self.name)
 
-        report.save(self.working_dir / report_filename)
+        summary.save(self.result_dir / summary_filename)
 
+    def save_solution(self) -> None:
+        solution = self.ctrlr.get_incumbent_solution_dict(for_pyyaml=True)
+
+        solution_filename = self.name + "_solution.yaml"
+        if "solution_filename_format" in self.output_metadata:
+            solution_filename_format = self.output_metadata["solution_filename_format"]
+            if isinstance(solution_filename_format, str):
+                solution_filename_format = solution_filename_format.strip()
+                solution_filename = solution_filename_format.format(self.name)
+
+        utils.object_to_yaml(solution, self.result_dir / solution_filename)
+
+    def save_gantt_chart(self) -> None:
+        result_gantt_filename_format = "{}_result_gantt.png"
         if "result_gantt_filename_format" in self.output_metadata:
             result_gantt_filename_format = self.output_metadata[
                 "result_gantt_filename_format"
             ]
             if isinstance(result_gantt_filename_format, str):
                 result_gantt_filename_format = result_gantt_filename_format.strip()
-                result_gantt_filename = result_gantt_filename_format.format(
-                    ins_name=ins_name
-                )
-                self.ctrlr.draw_incumbent_gantt(
-                    self.working_dir / result_gantt_filename
-                )
+
+        result_gantt_filename = result_gantt_filename_format.format(self.name)
+        self.ctrlr.draw_incumbent_gantt(self.result_dir / result_gantt_filename)
+
+    def save_progress_plot(self) -> None:
+        from hybridflowshop.plotter.objective_progress import ObjectiveProgressPlotter
+
+        progress_plot_filename_format = "{}_progress_plot.png"
+        if "progress_plot_filename_format" in self.output_metadata:
+            progress_plot_filename_format = self.output_metadata[
+                "progress_plot_filename_format"
+            ]
+            if isinstance(progress_plot_filename_format, str):
+                progress_plot_filename_format = progress_plot_filename_format.strip()
+
+        progress_plot_filename = progress_plot_filename_format.format(self.name)
+        ObjectiveProgressPlotter.plot_solution_progress(
+            self.ctrlr.get_log(), self.result_dir / progress_plot_filename
+        )
