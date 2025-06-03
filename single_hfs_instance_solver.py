@@ -11,14 +11,16 @@ from hybridflowshop.stopping_criteria import StoppingCriteria
 from single_instance_solver import SingleInstanceSolver
 
 
-class SingleHFSInstanceSolver(SingleInstanceSolver):
-    instance: HybridFlowShopProblem
-    ctrlr: HybridFlowShopCpLnsController
-
+# class SingleHFSInstanceSolver(SingleInstanceSolver):
+#     instance: HybridFlowShopProblem
+#     ctrlr: HybridFlowShopCpLnsController
+class SingleHFSInstanceSolver(
+    SingleInstanceSolver[HybridFlowShopProblem, HybridFlowShopCpLnsController]
+):
     def __init__(
         self,
         hfs_instance: HybridFlowShopProblem,
-        pra_common_params_dict: dict,
+        pra_shared_params_dict: dict,
         subroutine_flow: DynamicDataObject,
         stopping_criteria: StoppingCriteria,
         output_dir_path: Path,
@@ -26,7 +28,7 @@ class SingleHFSInstanceSolver(SingleInstanceSolver):
     ):
         super().__init__(
             instance=hfs_instance,
-            controller_init_kwargs=pra_common_params_dict,
+            shared_params=pra_shared_params_dict,
             subroutine_flow=subroutine_flow,
             stopping_criteria=stopping_criteria,
             output_dir=output_dir_path,
@@ -35,37 +37,47 @@ class SingleHFSInstanceSolver(SingleInstanceSolver):
 
     def init_controller(self) -> HybridFlowShopCpLnsController:
         """Initialize the controller with the given instance and parameters."""
+        # controller_init_kwargs
+        horizon = self.shared_params["horizon"]
         return HybridFlowShopCpLnsController(
-            hfs_instance=self.instance,
-            subroutine_flow=self.subroutine_flow,
-            stopping_criteria=self.stopping_criteria,
-            **self.controller_init_kwargs,
+            self.instance,
+            self.subroutine_flow,
+            self.stopping_criteria,
+            horizon,
         )
 
     def post_run_process(self):
-        hfs_instance = self.instance
-        ins_name = hfs_instance.name
-        working_dir = self.output_dir_instance
-        hfs_cp_lns_ctrlr = self.ctrlr
+        ins_name = self.instance.name
 
         # save
 
         input_summary = HFSInputSummary(
             name=ins_name,
-            job_count=hfs_instance.job_count,
-            stage_count=hfs_instance.stage_count,
+            job_count=self.instance.job_count,
+            stage_count=self.instance.stage_count,
             timelimit=self.stopping_criteria.timelimit,
         )
-        expr_summary = hfs_cp_lns_ctrlr.get_experiment_summary()
+        expr_summary = self.ctrlr.get_experiment_summary()
         report = HFSSummary(inputs=input_summary, outputs=expr_summary)
-        report_filename = ins_name + ".csv"
-        report.save(working_dir / report_filename)
+
+        report_filename = ins_name + "_summary.csv"
+        if "report_filename_format" in self.output_metadata:
+            report_filename_format = self.output_metadata["report_filename_format"]
+            if isinstance(report_filename_format, str):
+                report_filename_format = report_filename_format.strip()
+                report_filename = report_filename_format.format(ins_name=ins_name)
+
+        report.save(self.output_dir_instance / report_filename)
 
         if "result_gantt_filename_format" in self.output_metadata:
             result_gantt_filename_format = self.output_metadata[
                 "result_gantt_filename_format"
             ]
-            result_gantt_filename = result_gantt_filename_format.format(
-                ins_name=ins_name
-            )
-            hfs_cp_lns_ctrlr.draw_incumbent_gantt(working_dir / result_gantt_filename)
+            if isinstance(result_gantt_filename_format, str):
+                result_gantt_filename_format = result_gantt_filename_format.strip()
+                result_gantt_filename = result_gantt_filename_format.format(
+                    ins_name=ins_name
+                )
+                self.ctrlr.draw_incumbent_gantt(
+                    self.output_dir_instance / result_gantt_filename
+                )

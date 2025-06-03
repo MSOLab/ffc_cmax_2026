@@ -1,28 +1,34 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from routix import ElapsedTimer, SubroutineController
 
+ProblemT = TypeVar("ProblemT")  # Type for the problem instance
+ControllerT = TypeVar("ControllerT", bound=SubroutineController)
 
-class SingleInstanceSolver(ABC):
-    instance: Any  # Loaded problem instance
-    ctrlr: SubroutineController
+
+class SingleInstanceSolver(Generic[ProblemT, ControllerT], ABC):
+    instance: ProblemT  # Loaded problem instance
+    ctrlr: ControllerT
 
     def __init__(
         self,
-        instance: Any,  # Loaded problem instance
-        controller_init_kwargs: dict,
+        instance: ProblemT,
+        shared_params: dict,
         subroutine_flow: Any,
         stopping_criteria: Any,
-        output_dir: Path,  # Output directory
+        output_dir: Path,
         output_metadata: dict[str, Any],
     ):
+        # Set up the elapsed timer
         self.e_timer = ElapsedTimer()
+        if dt := output_metadata.get("start_dt"):
+            self.e_timer.set_start_time(dt)
 
         # Instance data
         self.instance = instance
-        self.controller_init_kwargs = controller_init_kwargs
+        self.shared_params = shared_params
         # Algorithm data
         self.subroutine_flow = subroutine_flow
         self.stopping_criteria = stopping_criteria
@@ -44,22 +50,28 @@ class SingleInstanceSolver(ABC):
             self.output_dir_instance = self.output_dir_instance / self.ins_name
         self.output_dir_instance.mkdir(parents=True, exist_ok=True)
 
-    @abstractmethod
-    def init_controller(self) -> Any:
+    def solve(self) -> None:
         """
-        Initialize the controller with the given instance and parameters.
-        This method should be implemented by subclasses.
+        Solve the instance by running the controller and performing post-run processing.
         """
-        pass
+        self.run()
+        self.post_run_process()
 
-    def run(self) -> Any:
+    def run(self) -> None:
         """
         Run the instance using the initialized controller.
         """
         self.ctrlr = self.init_controller()
         self.ctrlr.set_working_dir(self.output_dir_instance)
         self.ctrlr.run()
-        return self.ctrlr
+
+    @abstractmethod
+    def init_controller(self) -> ControllerT:
+        """
+        Initialize the controller with the given instance and parameters.
+        This method should be implemented by subclasses.
+        """
+        pass
 
     @abstractmethod
     def post_run_process(self):
@@ -68,10 +80,3 @@ class SingleInstanceSolver(ABC):
         This method should be implemented by subclasses.
         """
         pass
-
-    def solve(self):
-        """
-        Solve the instance by running the controller and performing post-run processing.
-        """
-        self.run()
-        self.post_run_process()

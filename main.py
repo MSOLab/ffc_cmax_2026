@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, SubroutineFlowValidator, utils
+from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator, utils
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
@@ -13,6 +13,8 @@ MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
 
 def main():
+    e_timer = ElapsedTimer()
+
     # Read the main metadata file
     main_metadata_dict = read_yaml(Path(MAIN_METADATA_FILENAME))
 
@@ -56,9 +58,10 @@ def main():
 
     # Output metadata
     output_metadata = {
+        "start_dt": e_timer.start_dt,
         "result_gantt_filename_format": main_metadata_dict[
             "result_gantt_filename_format"
-        ]
+        ],
     }
 
     for benchmark_filename in benchmark_filenames:
@@ -75,6 +78,9 @@ def main():
             output_metadata,
         )
         single_hfs_ins_solver.solve()
+
+    # Print elapsed time
+    print(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")
 
 
 # Helper methods
