@@ -343,7 +343,7 @@ dev = [
 
 [[package]]
 name = "schore"
-version = "0.0.1"
+version = "0.0.2"
 source = { directory = "../schore" }
 dependencies = [
     { name = "pandas" },
@@ -356,6 +356,7 @@ requires-dist = [{ name = "pandas", specifier = ">=2.2.3" }]
 dev = [
     { name = "pandas-stubs", specifier = ">=2.2.3.250308" },
     { name = "pytest", specifier = ">=8.3.5" },
+    { name = "typing-extensions", specifier = ">=4.14.0" },
 ]
 
 [[package]]
