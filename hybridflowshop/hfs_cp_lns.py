@@ -54,6 +54,20 @@ class HybridFlowShopCpLnsController(SubroutineController):
             return True
         return False
 
+    def get_remaining_sec(self) -> float:
+        return self.timer.get_remaining_sec(self.stopping_criteria.timelimit)
+
+    def get_remaining_time_limit(self, subroutine_time_limit: float) -> float:
+        """Get the remaining time limit for the subroutine.
+
+        Args:
+            subroutine_time_limit (float): The time limit for the subroutine in seconds.
+
+        Returns:
+            float: The minimum of the subroutine time limit and the remaining time limit.
+        """
+        return min(subroutine_time_limit, self.get_remaining_sec())
+
     # End stopping condition
 
     # Start solution management
@@ -130,9 +144,10 @@ class HybridFlowShopCpLnsController(SubroutineController):
             set_incumbent_solution (bool, optional): If True, set the solution as the incumbent. Defaults to False.
             update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
         """
+        _timelimit = self.get_remaining_time_limit(computational_time)
 
         (solver_status, elapsed_time, obj_value, obj_bound) = self.cp_model.solve(
-            computational_time, n_threads, self.random_seed, self.timer
+            _timelimit, n_threads, self.random_seed, self.timer
         )
         progress_log = self.cp_model.get_progress_log()
 
