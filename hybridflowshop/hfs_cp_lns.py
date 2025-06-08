@@ -18,10 +18,13 @@ from .stopping_criteria import StoppingCriteria
 
 
 class HybridFlowShopCpLnsController(SubroutineController):
+    # Problem data
+    cp_model: PureCP2023Naderi
+    # Instance data
+    hfs_instance: HybridFlowShopProblem
+    # Algorithm data
     stopping_criteria: StoppingCriteria
 
-    hfs_instance: HybridFlowShopProblem
-    cp_model: PureCP2023Naderi
     last_solution_manager: SolutionManager
     """Manages the last(most recent) solution."""
     incumbent_solution_manager: SolutionManager

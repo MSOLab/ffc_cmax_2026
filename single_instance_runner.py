@@ -13,7 +13,6 @@ class SingleInstanceRunner(Generic[ProblemT, ControllerT], ABC):
     Abstract runner for a single problem instance.
     """
 
-    instance: ProblemT
     ctrlr: ControllerT
 
     working_dir: Path
