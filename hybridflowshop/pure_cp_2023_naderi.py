@@ -17,7 +17,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     M_of: dict[str, list[str]]
     """$M_i$: machine index (k) list for stage i"""
 
-    p: dict[str, dict[str, int]]
+    p: dict[tuple[str, str], int]
     """$P_{ji}$: processing time of job j at stage i"""
 
     def __init__(self, hfs_instance: HybridFlowShopProblem, horizon: int):
@@ -70,9 +70,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         self.j_list = hfs_instance.get_job_id_list()
         self.i_list = hfs_instance.get_stage_id_list()
         self.M_of = hfs_instance.get_stage_2_machines_map()
-        self.p = hfs_instance.p_manager.job_2_stage_2_value_map(
-            self.j_list, self.i_list
-        )
+        self.p = hfs_instance.p_manager.job_stage_2_value_map(self.j_list, self.i_list)
 
     # Variables
 
@@ -81,7 +79,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         for j in self.j_list:
             for i in self.i_list:
                 for k in self.M_of[i]:
-                    self.define_optional_fixed_interval_var(j, i, k, self.p[j][i])
+                    self.define_optional_fixed_interval_var(j, i, k, self.p[j, i])
 
     # Objective
 
@@ -133,6 +131,11 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
                         self.add(
                             self.var_op_end[j, i, k]
                             <= self.var_op_start[j, next_i, next_k]
+                            # ).only_enforce_if(
+                            #     [
+                            #         self.var_op_is_present[j, i, k],
+                            #         self.var_op_is_present[j, next_i, next_k],
+                            #     ]
                         )
 
     # extraction methods for LNS
