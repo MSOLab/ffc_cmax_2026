@@ -3,7 +3,7 @@ pra_common_params_rel_path: "resources/pra_common_params.yaml"
 benchmark_filename_format: "{}.txt"
 input_dir : "resources/pra"
 first: 0
-last: 101
+last: 102
 
 # ALGORITHM METADATA
 # stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
