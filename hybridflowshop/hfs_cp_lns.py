@@ -163,7 +163,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
             update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
         """
-        self.incumbent_solution_manager.apply_hint_to(self.cp_model)
+        self.incumbent_solution_manager.apply_start_and_present_hint_to(self.cp_model)
         self.solve_cp(
             computational_time,
             n_threads,

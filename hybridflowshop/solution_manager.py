@@ -37,7 +37,7 @@ class SolutionManager:
     def get_obj_bound(self) -> Optional[float]:
         return self.summary.best_objective_bound
 
-    def apply_hint_to(self, target_model: PureCP2023Naderi) -> None:
+    def apply_start_and_present_hint_to(self, target_model: PureCP2023Naderi) -> None:
         """
         Apply current incumbent solution as initial variable hints to another CP model.
 
