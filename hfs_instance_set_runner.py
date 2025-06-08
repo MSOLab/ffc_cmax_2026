@@ -3,12 +3,12 @@ from typing import Any, Sequence
 
 from schore.hybridflowshop import HybridFlowShopProblem
 
-from instance_set_runner import InstanceSetRunner
+from instance_set_concurrent_runner import InstanceSetConcurrentRunner
 from single_hfs_instance_runner import SingleHFSInstanceRunner
 
 
 class HFSInstanceSetRunner(
-    InstanceSetRunner[HybridFlowShopProblem, SingleHFSInstanceRunner]
+    InstanceSetConcurrentRunner[HybridFlowShopProblem, SingleHFSInstanceRunner]
 ):
     """
     Orchestrates solving a set of Hybrid Flow Shop (HFS) instances with a given runner class.

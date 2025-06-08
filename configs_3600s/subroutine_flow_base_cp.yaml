@@ -1,0 +1,5 @@
+- method: solve_cp
+  computational_time: 3600
+  n_threads: 8
+  check_feasibility: True
+  set_incumbent_solution: True
