@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,18 +19,21 @@ def main():
     # Read the main metadata file
     main_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
     stopping_criteria_rel_path_strings = [
+        # "configs_20s/stopping_criteria.yaml",
         "configs_3600s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
     ]
     subroutine_flow_rel_path_strings = [
+        # "configs_20s/subroutine_flow_base_cp.yaml",
         "configs_3600s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_time_window.yaml",
         # "configs_100s/subroutine_flow_block.yaml",
     ]
     output_dir_strings = [
+        # "Outputs_20s/base_cp",
         "Outputs_3600s/base_cp",
         # "Outputs_100s/base_cp",
         # "Outputs_100s/time_window",
@@ -71,6 +75,8 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     # Initialize working directory
     output_dir = Path(main_metadata_dict["output_dir"])
     working_dir_path = init_working_dir(output_dir, e_timer)
+
+    set_dual_log_handlers(working_dir_path / "hfs_instance_set_runner.log")
 
     # Subroutine controller arguments
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
@@ -132,7 +138,8 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     hfs_instance_set_runner.run()
 
     # Print elapsed time
-    print(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")
+    logging.info(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")
+    reset_log_handlers()
 
 
 # Helper methods
@@ -163,6 +170,30 @@ def init_working_dir(output_dir: Path, e_timer: ElapsedTimer) -> Path:
     working_dir = output_dir / e_timer.get_formatted_start_dt()
     working_dir.mkdir(parents=True, exist_ok=True)
     return working_dir
+
+
+def set_dual_log_handlers(log_path: Path):
+    """
+    Set the dual handler for logging.
+    This function configures the logging to handle both console and file outputs.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_path),
+            logging.StreamHandler(),
+        ],
+    )
+
+
+def reset_log_handlers():
+    """
+    Reset the log handlers to avoid duplicate logs.
+    This function clears all existing log handlers.
+    """
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
 
 
 def load_list_of_instances(

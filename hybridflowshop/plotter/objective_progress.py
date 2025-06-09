@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ class ObjectiveProgressPlotter:
             show_markers (bool, optional): Whether to show markers at each step. Defaults to True.
         """  # noqa: E501
         if not progress_log:
-            print("No progress data available to plot.")
+            logging.warning("No progress data available to plot.")
             return
 
         elapsed_times, objectives, best_bounds = zip(*progress_log)
@@ -77,4 +78,4 @@ class ObjectiveProgressPlotter:
         plt.tight_layout()
 
         plt.savefig(save_path)
-        print(f"Solution progress plot saved to {save_path}")
+        logging.info(f"Solution progress plot saved to {save_path}")

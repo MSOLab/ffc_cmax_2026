@@ -1,3 +1,4 @@
+import logging
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -50,7 +51,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
     def time_is_up(self) -> bool:
         # If total elapsed time exceeds the stopping criteria
         if self.timer.get_elapsed_sec() >= self.stopping_criteria.timelimit:
-            print("Stop by timelimit")
+            logging.info("Stop by timelimit")
             return True
         return False
 
@@ -251,7 +252,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
             current_end_times (dict[tuple[str, str, str], int]): (job_name, stage_name, machine_id) -> current end_time
             rho (float, optional): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
         """
-        print(f"Applying time window operator with rho={rho}")
+        logging.info(f"Applying time window operator with rho={rho}")
 
         start_times = self.incumbent_solution_manager.start_times
         end_times = self.incumbent_solution_manager.end_times
@@ -270,7 +271,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         window_start = random.randint(0, max(0, C_max - window_length))
         window_end = window_start + window_length
 
-        print(
+        logging.info(
             f"[Time Window] Selected window: [{window_start}, {window_end}] (C_max={C_max})"
         )
 
@@ -366,7 +367,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         Args:
             rho (float): Fraction of total number of operations to include in the block.
         """
-        print(f"Applying block operator with rho={rho}")
+        logging.info(f"Applying block operator with rho={rho}")
 
         start_times = self.incumbent_solution_manager.start_times
         end_times = self.incumbent_solution_manager.end_times
@@ -397,7 +398,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
                 if len(selected_ops) >= num_to_select:
                     break
 
-        print(
+        logging.info(
             f"[Block Operator] Selected {len(selected_ops)} overlapping ops (target={num_to_select})"
         )
 
