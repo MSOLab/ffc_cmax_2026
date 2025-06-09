@@ -127,8 +127,8 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
         output_dir=working_dir_path,
         output_metadata=output_metadata,
     )
-    # Concurrent execution can be enabled by setting max_workers
-    hfs_instance_set_runner.set_max_workers(WORKER_CNT)  # If not set, defaults to 1
+    # Default is 2; if set to 1, it will run sequentially
+    hfs_instance_set_runner.set_max_workers(WORKER_CNT)
     hfs_instance_set_runner.run()
 
     # Print elapsed time

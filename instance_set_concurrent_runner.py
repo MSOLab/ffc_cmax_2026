@@ -1,7 +1,10 @@
 import concurrent.futures
-from typing import Generic, TypeVar
+import logging
+from pathlib import Path
+from typing import Any, Generic, Sequence, TypeVar
 
-from instance_set_runner import InstanceSetRunner
+from routix.runner import InstanceSetRunner
+
 from single_instance_runner import SingleInstanceRunner
 
 ProblemT = TypeVar("ProblemT")
@@ -9,17 +12,51 @@ RunnerT = TypeVar("RunnerT", bound=SingleInstanceRunner)
 
 
 class InstanceSetConcurrentRunner(InstanceSetRunner, Generic[ProblemT, RunnerT]):
+    """Orchestrates solving a set of instances concurrently using a specified runner class."""
+
+    def __init__(
+        self,
+        s_i_runner_class: type[RunnerT],
+        instances: Sequence[ProblemT],
+        shared_param_dict: dict,
+        subroutine_flow: Any,
+        stopping_criteria: Any,
+        output_dir: Path,
+        output_metadata: dict[str, Any],
+    ):
+        super().__init__(
+            s_i_runner_class,
+            instances,
+            shared_param_dict,
+            subroutine_flow,
+            stopping_criteria,
+            output_dir,
+            output_metadata,
+        )
+        self._max_workers: int = 2  # Default value for max_workers
+
+    def get_max_workers(self) -> int:
+        """
+        Returns:
+            int: The maximum number of workers for concurrent execution.
+                If not set, returns the default value of 2.
+        """
+        return self._max_workers
+
     def set_max_workers(self, max_workers: int) -> None:
         """
         Sets the maximum number of workers for concurrent execution.
         This method can be called to override the default value.
         """
-        self._max_workers = max_workers
-
-    def get_max_workers(self) -> int:
-        if hasattr(self, "_max_workers"):
-            return self._max_workers
-        return 1  # Default value if not set
+        if max_workers < 1:
+            logging.warning(
+                f"Given max_workers {max_workers} is less than 1. "
+                "Setting max_workers to 1."
+            )
+            self._max_workers = 1
+        else:
+            logging.info(f"Setting max_workers to {max_workers}")
+            self._max_workers = max_workers
 
     def _run_single(self, instance: ProblemT):
         runner: RunnerT = self.s_i_runner_class(
@@ -34,7 +71,9 @@ class InstanceSetConcurrentRunner(InstanceSetRunner, Generic[ProblemT, RunnerT])
         try:
             return runner.run()
         except Exception as e:
-            print(f"Error in instance {getattr(instance, 'name', str(instance))}: {e}")
+            logging.error(
+                f"Error in instance {getattr(instance, 'name', str(instance))}: {e}"
+            )
             return None
 
     def run(self):
