@@ -12,7 +12,7 @@ from hybridflowshop.stopping_criteria import StoppingCriteria
 from single_hfs_instance_runner import SingleHFSInstanceRunner
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
-WORKER_CNT = 8  # Default number of workers for concurrent execution
+WORKER_CNT = 3
 
 
 def main():
