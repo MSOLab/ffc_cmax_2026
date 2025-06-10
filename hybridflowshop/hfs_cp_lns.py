@@ -2,28 +2,28 @@ import logging
 import random
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
-from mbls import (
-    DynamicDataObject,
-    ExperimentSummary,
-    SolverOutputSummary,
-    SolverStatus,
-    SubroutineController,
-)
+from mbls import DynamicDataObject, SolverStatus
+from mbls.cpsat.cp_subroutine_controller import CpSubroutineController
 from schore.hybridflowshop import HybridFlowShopProblem
 
+from hybridflowshop.solution_manager import SolutionManager
+
 from .pure_cp_2023_naderi import PureCP2023Naderi
-from .solution_manager import SolutionManager
 from .stopping_criteria import StoppingCriteria
 
 
-class HybridFlowShopCpLnsController(SubroutineController):
-    # Problem data
-    cp_model: PureCP2023Naderi
-    # Instance data
-    hfs_instance: HybridFlowShopProblem
-    # Algorithm data
+class HybridFlowShopCpLnsController(
+    CpSubroutineController[HybridFlowShopProblem, PureCP2023Naderi, StoppingCriteria]
+):
+    """
+    Controller for solving Hybrid Flow Shop problems using CP-based LNS.
+
+    This controller manages the interaction between the problem, the CP solver,
+    and the solution manager, allowing for efficient search and solution management.
+    """
+
     stopping_criteria: StoppingCriteria
 
     last_solution_manager: SolutionManager
@@ -33,15 +33,52 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
     def __init__(
         self,
-        hfs_instance: HybridFlowShopProblem,
+        instance: HybridFlowShopProblem,
+        shared_param_dict: dict,
         subroutine_flow: DynamicDataObject,
         stopping_criteria: StoppingCriteria,
-        horizon: int,
     ):
-        super().__init__(hfs_instance.name, subroutine_flow, stopping_criteria)
-        self.hfs_instance = hfs_instance
-        self.cp_model = PureCP2023Naderi(hfs_instance, horizon)
-        self.cp_model.freeze_base_constraints()
+        super().__init__(
+            instance,
+            shared_param_dict,
+            PureCP2023Naderi,
+            subroutine_flow,
+            stopping_criteria,
+        )
+
+    def set_working_dir(self, dir_path: Path | str):
+        super().set_working_dir(dir_path)
+        self.log_handlers: list[logging.StreamHandler] = []
+        self.add_file_handler()
+
+    def add_file_handler(
+        self,
+        log_filename: Optional[str] = None,
+        level=logging.INFO,
+        fmt="%(asctime)s - %(levelname)s - %(message)s",
+    ):
+        logger = logging.getLogger()
+        _log_filename = log_filename or "subroutine_controller.log"
+        if self._working_dir_path is not None:
+            log_path = self._working_dir_path / _log_filename
+            # 이미 같은 파일 핸들러가 등록되어 있는지 확인 (중복 방지)
+            for handler in logger.handlers:
+                if isinstance(
+                    handler, logging.FileHandler
+                ) and handler.baseFilename == str(log_path):
+                    return  # 이미 등록되어 있으면 추가하지 않음
+
+            file_handler = logging.FileHandler(log_path)
+            file_handler.setLevel(level)
+            file_handler.setFormatter(logging.Formatter(fmt))
+            logger.addHandler(file_handler)
+            self.log_handlers = [file_handler]
+
+    def release_log_handlers(self) -> None:
+        logger = logging.getLogger()
+        for handler in self.log_handlers:
+            logger.removeHandler(handler)
+            handler.close()
 
     # Start stopping condition
 
@@ -71,6 +108,12 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
     # End stopping condition
 
+    def create_base_cp_model(self) -> PureCP2023Naderi:
+        if "horizon" not in self.shared_param_dict:
+            raise ValueError("Horizon not found in shared parameters.")
+        horizon = self.shared_param_dict["horizon"]
+        return PureCP2023Naderi(self.instance, horizon)
+
     # Start solution management
 
     def set_last_solution_as_incumbent(self) -> None:
@@ -91,6 +134,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         """Check if the last solution is better than the incumbent solution."""
         if not hasattr(self, "last_solution_manager"):
             raise ValueError("No last solution available to compare.")
+        # If no incumbent solution exists, the last solution is considered better
         if not hasattr(self, "incumbent_solution_manager"):
             return True
         return (
@@ -114,133 +158,138 @@ class HybridFlowShopCpLnsController(SubroutineController):
 
     # End solution management
 
-    # Start experiment summary methods
-
-    def get_experiment_summary(self) -> ExperimentSummary:
-        """Get the experiment summary.
-
-        Returns:
-            ExperimentSummary: The experiment summary object.
-        """
-        return self.experiment_summary
-
-    # End experiment summary methods
-
     # Start subroutine definition
 
     def solve_cp(
         self,
         computational_time: float,
-        n_threads: int,
-        check_feasibility=False,
-        set_incumbent_solution=False,
-        update_incumbent_solution=False,
+        num_workers: int,
+        obj_value_is_valid: bool = False,
+        obj_bound_is_valid: bool = False,
+        error_if_infeasible: bool = False,
     ):
-        """Solve current CP model.
+        """Solve the current CP model.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
-            n_threads (int): The number of threads to use for solving.
-            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
-            set_incumbent_solution (bool, optional): If True, set the solution as the incumbent. Defaults to False.
-            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            obj_value_is_valid (bool, optional): If True, adds the objective value log.
+                Defaults to False.
+            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
+                Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
         """
         _timelimit = self.get_remaining_time_limit(computational_time)
-
-        (solver_status, elapsed_time, obj_value, obj_bound) = self.cp_model.solve(
-            _timelimit, n_threads, self.random_seed, self.timer
+        summary = self.solve_current_cp_model(
+            _timelimit,
+            num_workers,
+            random_seed=self.random_seed,
+            timer=self.timer,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
         )
-        progress_log = self.cp_model.get_progress_log()
 
-        summary = SolverOutputSummary(
-            solver_status, elapsed_time, obj_value, obj_bound, progress_log
-        )
         start_times, end_times = self.cp_model.extract_start_end_times()
 
-        if check_feasibility:
+        if error_if_infeasible:
             self.check_feasibility(start_times)
         self.experiment_summary.add_run_summary(summary)
-        self.last_solution_manager = SolutionManager(start_times, end_times, summary)
+        self.last_solution_manager = SolutionManager(
+            start_times=start_times,
+            end_times=end_times,
+            summary=summary,
+        )
 
-        if set_incumbent_solution:
-            self.set_last_solution_as_incumbent()
-        elif update_incumbent_solution:
+        if obj_value_is_valid:
             self.update_incumbent_solution()
 
     def solve_with_initial_solution(
         self,
         computational_time: float,
-        n_threads: int,
-        check_feasibility=False,
-        update_incumbent_solution=False,
+        num_workers: int,
+        obj_value_is_valid: bool = False,
+        obj_bound_is_valid: bool = False,
+        error_if_infeasible: bool = False,
     ):
-        """Solve CP model with the incumbent solution as the initial solution.
+        """Solve the current CP model with the incumbent solution as the initial solution.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
-            n_threads (int): The number of threads to use for solving.
-            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
-            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            obj_value_is_valid (bool, optional): If True, adds the objective value log.
+                Defaults to False.
+            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
+                Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
         """
         self.incumbent_solution_manager.apply_start_and_present_hint_to(self.cp_model)
         self.solve_cp(
             computational_time,
-            n_threads,
-            check_feasibility=check_feasibility,
-            update_incumbent_solution=update_incumbent_solution,
+            num_workers,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
+            error_if_infeasible=error_if_infeasible,
         )
 
     def freeze_solve_reset(
         self,
         freeze_method: Callable,
         computational_time: float,
-        n_threads: int,
-        check_feasibility=False,
-        update_incumbent_solution=False,
+        num_workers: int,
+        obj_value_is_valid: bool = False,
+        obj_bound_is_valid: bool = False,
+        error_if_infeasible: bool = False,
     ):
         """Apply the freeze method, solve, and reset the model.
 
         Args:
             freeze_method (Callable): A callable that applies the freeze method to the CP model.
             computational_time (float): The maximum computational time in seconds.
-            n_threads (int): The number of threads to use for solving.
-            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
-            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            obj_value_is_valid (bool, optional): If True, adds the objective value log.
+                Defaults to False.
+            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
+                Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
         """
         freeze_method()
         self.solve_with_initial_solution(
             computational_time,
-            n_threads,
-            check_feasibility=check_feasibility,
-            update_incumbent_solution=update_incumbent_solution,
+            num_workers,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
+            error_if_infeasible=error_if_infeasible,
         )
         self.cp_model.delete_added_constraints()
 
-    # Time window operator
-    def apply_time_window_search(
+    # Subroutine: Time window operator
+
+    def time_window_search(
         self,
         rho: float,
         computational_time: float,
-        n_threads: int,
-        check_feasibility=False,
-        update_incumbent_solution=False,
+        num_workers: int,
+        error_if_infeasible=False,
     ):
         """Time window search with incumbent solution as the hint.
 
         Args:
             rho (float): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
             computational_time (float): The maximum computational time in seconds.
-            n_threads (int): The number of threads to use for solving.
-            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
-            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
         """
-
         self.freeze_solve_reset(
             lambda: self.apply_time_window_operator(rho),
             computational_time,
-            n_threads,
-            check_feasibility=check_feasibility,
-            update_incumbent_solution=update_incumbent_solution,
+            num_workers,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
         )
 
     def apply_time_window_operator(self, rho: float):
@@ -299,65 +348,37 @@ class HybridFlowShopCpLnsController(SubroutineController):
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
                 self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
 
-    def is_within_window(self, time: int, window_start: int, window_end: int) -> bool:
+    @staticmethod
+    def is_within_window(time: int, window_start: int, window_end: int) -> bool:
         """Check if a given time is within the specified window."""
         return window_start <= time <= window_end
 
-    def check_feasibility(self, start_times: dict[tuple[str, str, str], int]) -> None:
-        """check feasibility of the given solution.
+    # Subroutine: Block operator
 
-        Args:
-            start_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
-
-        Raises:
-            RuntimeError: If error occurred during feasibility check CP solving.
-            ValueError: If given schedule is not feasible.
-        """
-        feasibility_cp = PureCP2023Naderi(self.hfs_instance, self.cp_model.horizon)
-
-        # Freeze operation start times and machine assignments
-        for (j, i, k), start_time in start_times.items():
-            feasibility_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
-            feasibility_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
-
-        # Solve with tight time limit
-        try:
-            solver_status, _, _, _ = feasibility_cp.solve(
-                computational_time=1.0, n_threads=1, timer=self.timer
-            )
-        except Exception as e:
-            raise RuntimeError(f"Feasibility check failed: {e}")
-
-        if not SolverStatus.is_optimal_solution(solver_status):
-            raise ValueError(
-                f"Given schedule is not feasible. Solver status: {solver_status}"
-            )
-
-    # Block operator
-    def apply_block_search(
+    def block_search(
         self,
         rho: float,
         computational_time: float,
-        n_threads: int,
-        check_feasibility=False,
-        update_incumbent_solution=False,
+        num_workers: int,
+        error_if_infeasible=False,
     ):
         """Block search with incumbent solution as the hint.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
             computational_time (float): The maximum computational time in seconds.
-            n_threads (int): The number of threads to use for solving.
-            check_feasibility (bool, optional): If True, check feasibility of the solution. Defaults to False.
-            update_incumbent_solution (bool, optional): If True, update the incumbent solution. Defaults to False.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
         """
 
         self.freeze_solve_reset(
             lambda: self.apply_block_operator(rho),
             computational_time,
-            n_threads,
-            check_feasibility=check_feasibility,
-            update_incumbent_solution=update_incumbent_solution,
+            num_workers,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
         )
 
     def apply_block_operator(self, rho: float):
@@ -380,7 +401,7 @@ class HybridFlowShopCpLnsController(SubroutineController):
         num_to_select = max(1, int(rho * total_ops))
 
         # Step 1: Start from a random operation
-        seed_op = random.choice(all_ops)  # TODO: random seed management
+        seed_op = random.choice(all_ops)
         selected_ops = set([seed_op])
         queue = [seed_op]
 
@@ -423,12 +444,39 @@ class HybridFlowShopCpLnsController(SubroutineController):
     # End subroutine definition
 
     def post_run_process(self) -> None:
-        # Check feasibility of the incumbent solution
         self.check_feasibility(self.incumbent_solution_manager.start_times)
+        self.release_log_handlers()
 
-    def get_log(self) -> list[tuple[float, float, float]]:
-        return_list: list[tuple[float, float, float]] = []
-        for run in self.experiment_summary.runs:
-            if run.progress_log:
-                return_list.extend(run.progress_log)
-        return return_list
+    def check_feasibility(self, start_times: dict[tuple[str, str, str], int]) -> None:
+        """Check the feasibility of the given start times.
+
+        Args:
+            start_times (dict[tuple[str, str, str], int]): _description_
+
+        Raises:
+            ValueError: _description_
+            RuntimeError: _description_
+            ValueError: _description_
+        """
+        for (j, i, k), start_time in start_times.items():
+            if start_time < 0:
+                raise ValueError(
+                    f"Invalid start time for job {j}, stage {i}, machine {k}: {start_time}"
+                )
+        base_cp = self.create_base_cp_model()
+
+        # Freeze operation start times and machine assignments
+        for (j, i, k), start_time in start_times.items():
+            base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
+            base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
+
+        # Solve with tight time limit
+        try:
+            summary = self.solve_cp_model(base_cp, 1.0, 1)
+        except Exception as e:
+            raise RuntimeError(f"Feasibility check failed: {e}") from e
+
+        if not SolverStatus.is_optimal_solution(summary.status):
+            raise ValueError(f"Feasibility check failed with status: {summary.status}")
+
+        logging.info("Feasibility check passed.")

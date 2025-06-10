@@ -4,6 +4,7 @@ from typing import Any, Optional
 from mbls import SolverOutputSummary
 
 from .pure_cp_2023_naderi import PureCP2023Naderi
+from .utils import tuple_to_pyyaml_key
 
 
 class SolutionManager:
@@ -62,9 +63,7 @@ class SolutionManager:
         Returns:
             dict[str, int]: !!python/tuple [left, center, right] -> time
         """
-        return {
-            f"!!python/tuple [{j},{i},{k}]": t for (j, i, k), t in time_dict.items()
-        }
+        return tuple_to_pyyaml_key(time_dict)
 
     def get_solution_dict(self, for_pyyaml: bool = False) -> dict[str, Any]:
         """

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import matplotlib.patches as patches
@@ -54,6 +55,7 @@ class GanttPlotter:
             machine_list_per_stage=machine_list_per_stage,
         )
         plt.savefig(file_path, bbox_inches="tight", dpi=300)
+        logging.info(f"Gantt chart saved to {file_path}")
         plt.close()
 
     def plot_hybrid_flowshop(

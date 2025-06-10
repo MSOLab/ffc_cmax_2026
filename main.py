@@ -19,21 +19,27 @@ def main():
     # Read the main metadata file
     main_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
     stopping_criteria_rel_path_strings = [
+        # "configs_20s/stopping_criteria.yaml",
         "configs_20s/stopping_criteria.yaml",
+        # "configs_20s/stopping_criteria.yaml",
         # "configs_3600s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
     ]
     subroutine_flow_rel_path_strings = [
-        "configs_20s/subroutine_flow_base_cp.yaml",
+        # "configs_20s/subroutine_flow_base_cp.yaml",
+        "configs_20s/subroutine_flow_time_window.yaml",
+        # "configs_20s/subroutine_flow_block.yaml",
         # "configs_3600s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_time_window.yaml",
         # "configs_100s/subroutine_flow_block.yaml",
     ]
     output_dir_strings = [
-        "Outputs_20s/base_cp",
+        # "Outputs_20s/base_cp",
+        "Outputs_20s/time_window",
+        # "Outputs_20s/block",
         # "Outputs_3600s/base_cp",
         # "Outputs_100s/base_cp",
         # "Outputs_100s/time_window",
@@ -52,6 +58,30 @@ def main():
 
 def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     e_timer = ElapsedTimer()
+
+    single_instance_skip_run_do_post_process = main_metadata_dict.get(
+        "single_instance_skip_run_do_post_process", False
+    )
+    single_instance_from_files_save_analysis_only = main_metadata_dict.get(
+        "single_instance_from_files_save_analysis_only", False
+    )
+    if single_instance_skip_run_do_post_process:
+        if "analysis_timestamp" in main_metadata_dict:
+            e_timer.set_start_dt_from_dir_name(main_metadata_dict["analysis_timestamp"])
+        else:
+            raise ValueError(
+                "single_instance_skip_run_do_post_process is True, "
+                "but 'analysis_timestamp' is not provided in main_metadata_dict."
+            )
+    if single_instance_from_files_save_analysis_only:
+        single_instance_skip_run_do_post_process = True
+        if "analysis_timestamp" in main_metadata_dict:
+            e_timer.set_start_dt_from_dir_name(main_metadata_dict["analysis_timestamp"])
+        else:
+            raise ValueError(
+                "single_instance_from_files_save_analysis_only is True, "
+                "but 'analysis_timestamp' is not provided in main_metadata_dict."
+            )
 
     # Read common parameters for PRA benchmarks
     pra_common_params_rel_path = Path(main_metadata_dict["pra_common_params_rel_path"])
@@ -76,7 +106,7 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     output_dir = Path(main_metadata_dict["output_dir"])
     working_dir_path = init_working_dir(output_dir, e_timer)
 
-    set_dual_log_handlers(working_dir_path / "hfs_instance_set_runner.log")
+    log_handlers = add_file_handler(working_dir_path / "hfs_instance_set_runner.log")
 
     # Subroutine controller arguments
     subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
@@ -104,6 +134,8 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     output_metadata = {
         "start_dt": e_timer.start_dt,
         "result_dir_name": result_dir_name,
+        "single_instance_skip_run_do_post_process": single_instance_skip_run_do_post_process,
+        "single_instance_from_files_save_analysis_only": single_instance_from_files_save_analysis_only,
     }
     draw_gantt = main_metadata_dict.get("draw_gantt", False)
     output_metadata["draw_gantt"] = draw_gantt
@@ -139,7 +171,7 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
 
     # Print elapsed time
     logging.info(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")
-    reset_log_handlers()
+    release_log_handlers(log_handlers)
 
 
 # Helper methods
@@ -167,33 +199,44 @@ def init_working_dir(output_dir: Path, e_timer: ElapsedTimer) -> Path:
     """
     Prepare the output directory for the instance run.
     """
-    working_dir = output_dir / e_timer.get_formatted_start_dt()
+    working_dir = output_dir / e_timer.get_start_dt_for_dir_name()
     working_dir.mkdir(parents=True, exist_ok=True)
     return working_dir
 
 
-def set_dual_log_handlers(log_path: Path):
+def add_file_handler(
+    log_path: Path,
+    level=logging.INFO,
+    fmt="%(asctime)s - %(levelname)s - %(message)s",
+) -> list[logging.Handler]:
     """
     Set the dual handler for logging.
     This function configures the logging to handle both console and file outputs.
     """
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_path),
-            logging.StreamHandler(),
-        ],
-    )
+    logger = logging.getLogger()
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler) and handler.baseFilename == str(
+            log_path
+        ):
+            return []
+
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(level)
+    file_handler.setFormatter(logging.Formatter(fmt))
+    logger.addHandler(file_handler)
+
+    return [file_handler]
 
 
-def reset_log_handlers():
+def release_log_handlers(handlers: list[logging.Handler]) -> None:
     """
     Reset the log handlers to avoid duplicate logs.
     This function clears all existing log handlers.
     """
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
+    logger = logging.getLogger()
+    for handler in handlers:
+        logger.removeHandler(handler)
+        handler.close()
 
 
 def load_list_of_instances(
@@ -216,4 +259,11 @@ def load_list_of_instances(
 
 
 if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
     main()
