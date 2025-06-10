@@ -143,18 +143,13 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     def extract_start_end_times(
         self,
     ) -> tuple[dict[tuple[str, str, str], int], dict[tuple[str, str, str], int]]:
-        """
-        Extracts start and end times from a solved CP model.
-
-        Args:
-            model (PureCP2023Naderi): The CP model containing variables.
-            solver (CpSolver): The solver after solving the CP model.
+        """Extracts start and end times from a solved CP model.
 
         Returns:
             tuple:
                 - start_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
                 - end_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> end time (int)
-        """  # noqa: E501
+        """
         start_times: dict[tuple[str, str, str], int] = {}
         end_times: dict[tuple[str, str, str], int] = {}
 

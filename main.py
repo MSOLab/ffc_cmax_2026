@@ -19,22 +19,22 @@ def main():
     # Read the main metadata file
     main_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
     stopping_criteria_rel_path_strings = [
-        # "configs_20s/stopping_criteria.yaml",
-        "configs_3600s/stopping_criteria.yaml",
+        "configs_20s/stopping_criteria.yaml",
+        # "configs_3600s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
     ]
     subroutine_flow_rel_path_strings = [
-        # "configs_20s/subroutine_flow_base_cp.yaml",
-        "configs_3600s/subroutine_flow_base_cp.yaml",
+        "configs_20s/subroutine_flow_base_cp.yaml",
+        # "configs_3600s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_time_window.yaml",
         # "configs_100s/subroutine_flow_block.yaml",
     ]
     output_dir_strings = [
-        # "Outputs_20s/base_cp",
-        "Outputs_3600s/base_cp",
+        "Outputs_20s/base_cp",
+        # "Outputs_3600s/base_cp",
         # "Outputs_100s/base_cp",
         # "Outputs_100s/time_window",
         # "Outputs_100s/block",
