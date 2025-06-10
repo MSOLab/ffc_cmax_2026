@@ -9,7 +9,7 @@ dependencies = [
     "mbls==0.0.8",
     "ortools>=9.12.4544",
     "pyyaml>=6.0.2",
-    "routix==0.0.8",
+    "routix==0.0.9",
     "schore==0.0.2",
 ]
 

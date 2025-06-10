@@ -86,7 +86,7 @@ requires-dist = [
     { name = "mbls", specifier = "==0.0.8" },
     { name = "ortools", specifier = ">=9.12.4544" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "routix", specifier = "==0.0.8" },
+    { name = "routix", specifier = "==0.0.9" },
     { name = "schore", specifier = "==0.0.2" },
 ]
 
@@ -331,11 +331,11 @@ wheels = [
 
 [[package]]
 name = "routix"
-version = "0.0.8"
+version = "0.0.9"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a4/12/1892f1c5c4ba2c3fcd2608625872f44e0983ea213b907eeef140702e155b/routix-0.0.8.tar.gz", hash = "sha256:1fc212239a3b6fde7aaa8a8a895c42b3fe956230b639339afc5a9fea0c879d17", size = 22588, upload-time = "2025-06-10T15:29:20.428Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/06/17ffb9f2ebb990e973a67063902a7d6e803b9ea6a21fc8c2a143f27b3b50/routix-0.0.9.tar.gz", hash = "sha256:553867b3df1501fb0593b2ce7906d2adc4a38c45cc7f09a65a465ca60da0ab7c", size = 22872, upload-time = "2025-06-10T16:19:58.107Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/c1/7f4bba49ce79077515773a1f7a0076cb7aecb7b59591ee147075321e04f9/routix-0.0.8-py3-none-any.whl", hash = "sha256:a7c24c5247f44cf5d564f2b7ee1f49ec6b6373ec252d36c38156a23d6c70bc93", size = 19137, upload-time = "2025-06-10T15:29:19.22Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/de/700db74f62312b3fc87c65cde032626cc45d109b5027e0a417f83d8a73c3/routix-0.0.9-py3-none-any.whl", hash = "sha256:7bcdfdd802dc7df4b10c5619780c7c9a0603c8decfded80e3ef5a95b1267837f", size = 19490, upload-time = "2025-06-10T16:19:56.883Z" },
 ]
 
 [[package]]

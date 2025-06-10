@@ -6,13 +6,13 @@ import yaml
 from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator
 from schore.hybridflowshop import HybridFlowShopProblem
 
-from hfs_instance_set_runner import HFSInstanceSetRunner
+from hfs_multi_instance_runner import HfsMultiInstanceRunner
+from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.stopping_criteria import StoppingCriteria
-from single_hfs_instance_runner import SingleHFSInstanceRunner
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
-WORKER_CNT = 3
+WORKER_CNT = 1
 
 
 def main():
@@ -20,8 +20,8 @@ def main():
     main_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
     stopping_criteria_rel_path_strings = [
         # "configs_20s/stopping_criteria.yaml",
-        "configs_20s/stopping_criteria.yaml",
         # "configs_20s/stopping_criteria.yaml",
+        "configs_20s/stopping_criteria.yaml",
         # "configs_3600s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
         # "configs_100s/stopping_criteria.yaml",
@@ -29,8 +29,8 @@ def main():
     ]
     subroutine_flow_rel_path_strings = [
         # "configs_20s/subroutine_flow_base_cp.yaml",
-        "configs_20s/subroutine_flow_time_window.yaml",
-        # "configs_20s/subroutine_flow_block.yaml",
+        # "configs_20s/subroutine_flow_time_window.yaml",
+        "configs_20s/subroutine_flow_block.yaml",
         # "configs_3600s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_base_cp.yaml",
         # "configs_100s/subroutine_flow_time_window.yaml",
@@ -38,8 +38,8 @@ def main():
     ]
     output_dir_strings = [
         # "Outputs_20s/base_cp",
-        "Outputs_20s/time_window",
-        # "Outputs_20s/block",
+        # "Outputs_20s/time_window",
+        "Outputs_20s/block",
         # "Outputs_3600s/base_cp",
         # "Outputs_100s/base_cp",
         # "Outputs_100s/time_window",
@@ -155,9 +155,9 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     # Load problem instances
     instances = load_list_of_instances(input_dir_path, benchmark_filenames)
 
-    # Create and run the instance set runner
-    hfs_instance_set_runner = HFSInstanceSetRunner(
-        s_i_runner_class=SingleHFSInstanceRunner,
+    # Create and run the multi instance runner
+    hfs_instance_set_runner = HfsMultiInstanceRunner(
+        s_i_runner_class=HfsSingleInstanceRunner,
         instances=instances,
         shared_params=pra_common_params_dict,
         subroutine_flow=subroutine_flow,

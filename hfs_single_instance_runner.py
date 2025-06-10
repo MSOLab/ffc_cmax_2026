@@ -15,10 +15,7 @@ from hybridflowshop.stopping_criteria import StoppingCriteria
 from hybridflowshop.utils import pyyaml_key_to_tuple
 
 
-# class SingleHFSInstanceRunner(SingleInstanceRunner):
-#     instance: HybridFlowShopProblem
-#     ctrlr: HybridFlowShopCpLnsController
-class SingleHFSInstanceRunner(
+class HfsSingleInstanceRunner(
     SingleInstanceRunner[HybridFlowShopProblem, HybridFlowShopCpLnsController]
 ):
     def __init__(
