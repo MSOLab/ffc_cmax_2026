@@ -1,5 +1,8 @@
+- method: set_random_seed
+  seed: 42
 - method: solve_cp
   computational_time: 600
-  n_threads: 8
-  check_feasibility: True
-  set_incumbent_solution: True
+  num_workers: 8
+  obj_value_is_valid: true
+  obj_bound_is_valid: true
+  error_if_infeasible: true
