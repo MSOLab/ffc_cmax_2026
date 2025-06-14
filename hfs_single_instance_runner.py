@@ -161,4 +161,6 @@ class HfsSingleInstanceRunner(
         # Read the saved obj_log file
         obj_store = ObjValueBoundStore.load_yaml(self.obj_log_path, encoding=encoding)
         # Plot the objective progress
-        ObjValueBoundPainter.plot(obj_store, output_path)
+        ObjValueBoundPainter.plot(
+            obj_store, output_path, drop_first_values_percent=0.03
+        )

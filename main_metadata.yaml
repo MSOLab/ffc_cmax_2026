@@ -6,9 +6,9 @@ first: 0
 last: 2
 
 # ALGORITHM METADATA
-# stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-# subroutine_flow_rel_path: "configs_20s/subroutine_flow_time_window.yaml"
-# output_dir : "Outputs_20s/pra_time_window"
+stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+subroutine_flow_rel_path: "configs_20s/subroutine_flow_time_window.yaml"
+output_dir : "Outputs_20s/pra_time_window"
 # stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 # subroutine_flow_rel_path: "configs_100s/subroutine_flow_time_window.yaml"
 # output_dir : "Outputs_100s/pra_time_window"
