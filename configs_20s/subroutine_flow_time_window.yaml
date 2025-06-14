@@ -1,11 +1,8 @@
 - method: set_random_seed
   seed: 42
-- method: solve_cp
+- method: solve_base_cp_model
   computational_time: 5
   num_workers: 8
-  obj_value_is_valid: true
-  obj_bound_is_valid: true
-  error_if_infeasible: true
 - method: repeat
   params:
     n_repeats: 10

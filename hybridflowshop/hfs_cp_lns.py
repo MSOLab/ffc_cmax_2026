@@ -233,6 +233,36 @@ class HybridFlowShopCpLnsController(
             error_if_infeasible=error_if_infeasible,
         )
 
+    def solve_base_cp_model(
+        self,
+        computational_time: float,
+        num_workers: int,
+        hint_from_incumbent: bool = False,
+    ):
+        """
+        Solve the base CP model.
+        This method resets the CP model, applies the incumbent solution as a hint if available,
+        and solves the model with the given computational time and number of workers.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            hint_from_incumbent (bool, optional): If True, uses the incumbent solution as a hint.
+                Defaults to False.
+        """
+        self.cp_model.delete_added_constraints()
+        if hint_from_incumbent and hasattr(self, "incumbent_solution_manager"):
+            self.incumbent_solution_manager.apply_start_and_present_hint_to(
+                self.cp_model
+            )
+        self.solve_cp(
+            computational_time,
+            num_workers,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=True,
+            error_if_infeasible=True,
+        )
+
     def freeze_solve_reset(
         self,
         freeze_method: Callable,

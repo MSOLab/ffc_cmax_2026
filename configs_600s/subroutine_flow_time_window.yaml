@@ -1,15 +1,14 @@
-- method: solve_cp
-  computational_time: 3
-  n_threads: 8
-  check_feasibility: True
-  set_incumbent_solution: True
+- method: set_random_seed
+  seed: 42
+- method: solve_base_cp_model
+  computational_time: 20
+  num_workers: 8
 - method: repeat
   params:
-    n_repeats: 30
+    n_repeats: 999
     routine_data:
-    - method: apply_time_window_search
+    - method: time_window_search
       rho: 0.2
       computational_time: 20
-      n_threads: 8
-      check_feasibility: True
-      update_incumbent_solution: True
+      num_workers: 8
+      error_if_infeasible: true
