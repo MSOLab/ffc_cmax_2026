@@ -64,16 +64,7 @@ class TimeSeriesPlotter:
         """
 
         plt.figure(figsize=figsize, dpi=dpi)
-        x_range = (
-            max(max(t for t, _ in lst) for lst in lists_of_time_and_val)
-            if lists_of_time_and_val
-            else 0
-        )
-        y_range = (
-            max(max(v for _, v in lst) for lst in lists_of_time_and_val)
-            if lists_of_time_and_val
-            else 0
-        )
+
         color_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
         for i, time_and_obj_list in enumerate(lists_of_time_and_val):
@@ -110,19 +101,20 @@ class TimeSeriesPlotter:
                     s=40,
                     zorder=3,
                 )
+            y_offset = 0
             if maps_of_time_to_note and i < len(maps_of_time_to_note):
                 time_to_label_map = maps_of_time_to_note[i]
-                for time, label in time_to_label_map.items():
+                reversed_time_list = sorted(time_to_label_map.keys(), reverse=True)
+                for time in reversed_time_list:
                     if time not in times:
                         continue  # Skip if time not in the current list
-                    label_str = str(label)
+                    label_str = str(time_to_label_map[time])
 
                     idx = times.index(time)
                     y_pos = objectives[idx]
 
-                    x_dynamic_offset = min(20, int(x_range * 1000))
-                    y_dynamic_offset = min(20, int(y_range * 1000))
-                    text_offset = (x_dynamic_offset, y_dynamic_offset)
+                    text_offset = (20, 20 + y_offset)
+                    y_offset += 10
 
                     plt.annotate(
                         label_str,
