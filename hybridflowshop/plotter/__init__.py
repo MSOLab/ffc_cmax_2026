@@ -1,2 +1,3 @@
 from .gantt import GanttPlotter
-from .objective_progress import ObjectiveProgressPlotter
+
+__all__ = ["GanttPlotter"]

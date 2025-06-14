@@ -1,9 +1,9 @@
-import csv
 from pathlib import Path
 from typing import Any
 
 import yaml
 from mbls import DynamicDataObject, utils
+from mbls.cpsat import ObjValueBoundStore
 from routix.runner import SingleInstanceRunner
 from schore.hybridflowshop import HybridFlowShopProblem
 
@@ -54,10 +54,12 @@ class HfsSingleInstanceRunner(
         if not self.output_metadata.get(
             "single_instance_from_files_save_analysis_only", False
         ):
-            self.save_files()
-        self.from_files_save_analysis()
+            self.save_files(self.encoding)
+        self.from_files_save_analysis(self.encoding)
 
     def prepare_saved_file_paths(self) -> None:
+        self.encoding = self.output_metadata.get("encoding", "utf-8")
+
         self.summary_filename = self.name + "_summary.csv"
         if "summary_filename_format" in self.output_metadata:
             summary_filename_format = self.output_metadata["summary_filename_format"]
@@ -74,7 +76,7 @@ class HfsSingleInstanceRunner(
                 self.solution_filename = solution_filename_format.format(self.name)
         self.solution_path = self.result_dir / self.solution_filename
 
-        self.obj_log_filename = self.name + "_obj_log.csv"
+        self.obj_log_filename = self.name + "_obj_log.yaml"
         if "obj_log_filename_format" in self.output_metadata:
             obj_log_filename_format = self.output_metadata["obj_log_filename_format"]
             if isinstance(obj_log_filename_format, str):
@@ -82,16 +84,19 @@ class HfsSingleInstanceRunner(
                 self.obj_log_filename = obj_log_filename_format.format(self.name)
         self.obj_log_path = self.result_dir / self.obj_log_filename
 
-    def save_files(self) -> None:
+    def save_files(self, encoding: str = "utf-8") -> None:
         """
         Save the files generated during the run.
         This method is called after the run is complete.
-        """
-        self.save_summary()
-        self.save_solution()
-        self.save_obj_log()
 
-    def save_summary(self) -> None:
+        Args:
+            encoding (str, optional): The encoding to use when saving files. Defaults to "utf-8".
+        """
+        self.save_summary(encoding=encoding)
+        self.save_solution(encoding=encoding)
+        self.save_obj_value_bound_store(encoding=encoding)
+
+    def save_summary(self, encoding: str = "utf-8") -> None:
         input_summary = HFSInputSummary(
             name=self.name,
             job_count=self.instance.job_count,
@@ -100,37 +105,20 @@ class HfsSingleInstanceRunner(
         )
         expr_summary = self.ctrlr.experiment_summary
         summary = HFSSummary(inputs=input_summary, outputs=expr_summary)
-        summary.save(self.summary_path)
+        summary.save(self.summary_path, encoding=encoding)
 
-    def save_solution(self) -> None:
+    def save_solution(self, encoding: str = "utf-8") -> None:
         solution = self.ctrlr.get_incumbent_solution_dict(for_pyyaml=True)
-        utils.object_to_yaml(solution, self.solution_path)
+        utils.object_to_yaml(solution, self.solution_path, encoding=encoding)
 
-    def save_obj_log(self) -> None:
-        """
-        Save the objective log to a CSV file.
-        Each row: time,obj_value,obj_bound
-        """
-        obj_value_log = getattr(self.ctrlr, "obj_value_log", [])
-        obj_bound_log = getattr(self.ctrlr, "obj_bound_log", [])
+    def save_obj_value_bound_store(self, encoding: str = "utf-8") -> None:
+        self.ctrlr.obj_store.save_yaml(self.obj_log_path, encoding=encoding)
 
-        unique_times = sorted(set(t for t, _ in obj_value_log + obj_bound_log))
-        obj_value_dict = {t: v for t, v in obj_value_log}
-        obj_bound_dict = {t: v for t, v in obj_bound_log}
+    def from_files_save_analysis(self, encoding: str = "utf-8") -> None:
+        self.from_files_draw_gantt_chart(encoding=encoding)
+        self.from_files_draw_progress_plot(encoding=encoding)
 
-        with open(self.obj_log_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["time", "obj_value", "obj_bound"])
-            for t in unique_times:
-                value = obj_value_dict.get(t, None)
-                bound = obj_bound_dict.get(t, None)
-                writer.writerow([t, value, bound])
-
-    def from_files_save_analysis(self) -> None:
-        self.from_files_draw_gantt_chart()
-        self.from_files_draw_progress_plot()
-
-    def from_files_draw_gantt_chart(self) -> None:
+    def from_files_draw_gantt_chart(self, encoding: str = "utf-8") -> None:
         # Prepare the Gantt chart file path
         result_gantt_filename_format = "{}_result_gantt.png"
         if "result_gantt_filename_format" in self.output_metadata:
@@ -143,7 +131,7 @@ class HfsSingleInstanceRunner(
         output_path = self.result_dir / result_gantt_filename
 
         # Read saved solution file to create dictionary of start and end times
-        with open(self.solution_path, "r", encoding="utf-8") as f:
+        with open(self.solution_path, "r", encoding=encoding) as f:
             solution_dict = yaml.load(f, Loader=yaml.UnsafeLoader)
             start_times = pyyaml_key_to_tuple(solution_dict["start_times"])
             end_times = pyyaml_key_to_tuple(solution_dict["end_times"])
@@ -152,11 +140,11 @@ class HfsSingleInstanceRunner(
                 output_path, start_times, end_times
             )
 
-    def from_files_draw_progress_plot(self) -> None:
+    def from_files_draw_progress_plot(self, encoding: str = "utf-8") -> None:
         """
         Read the saved obj_log file and draw the progress plot.
         """
-        from hybridflowshop.plotter.objective_progress import ObjectiveProgressPlotter
+        from hybridflowshop.painter import ObjValueBoundPainter
 
         # Prepare the progress plot file path
         progress_plot_filename_format = "{}_progress_plot.png"
@@ -171,23 +159,6 @@ class HfsSingleInstanceRunner(
         output_path = self.result_dir / progress_plot_filename
 
         # Read the saved obj_log file
-        obj_value_log: list[tuple[float, float]] = []
-        obj_bound_log: list[tuple[float, float]] = []
-        with open(self.obj_log_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                t = float(row["time"])
-                obj_val = row["obj_value"]
-                obj_bound = row["obj_bound"]
-                # None 값이 아닌 경우만 추가
-                if obj_val not in (None, "", "None"):
-                    obj_value_log.append((t, float(obj_val)))
-                if obj_bound not in (None, "", "None"):
-                    obj_bound_log.append((t, float(obj_bound)))
-
+        obj_store = ObjValueBoundStore.load_yaml(self.obj_log_path, encoding=encoding)
         # Plot the objective progress
-        ObjectiveProgressPlotter.plot_lists_of_time_and_obj(
-            [obj_value_log, obj_bound_log],
-            output_path,
-            labels=["ObjVal", "LBound"],
-        )
+        ObjValueBoundPainter.plot(obj_store, output_path)

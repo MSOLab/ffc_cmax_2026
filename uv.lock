@@ -83,10 +83,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.3" },
-    { name = "mbls", specifier = "==0.0.8" },
+    { name = "mbls", specifier = "==0.0.10" },
     { name = "ortools", specifier = ">=9.12.4544" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "routix", specifier = "==0.0.9" },
+    { name = "routix", specifier = "==0.0.10" },
     { name = "schore", specifier = "==0.0.2" },
 ]
 
@@ -155,14 +155,14 @@ wheels = [
 
 [[package]]
 name = "mbls"
-version = "0.0.8"
+version = "0.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "routix" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/68/da/7e3c0b72b7d46ba060984006c2c28c79a56b83a087836d3575101b8696aa/mbls-0.0.8.tar.gz", hash = "sha256:f6a13052f8ac7f4b97db0922e91ff1f70218927b8ab5477e71706b1786c5ea85", size = 18663, upload-time = "2025-06-10T15:34:56.915Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/94/3711a371fa11a94a03ab062ca0b5e4a8ecbb467ea3c29050a5e5413c746a/mbls-0.0.10.tar.gz", hash = "sha256:4ee338215648c0eb8a514a50fa09510c327d97798f1b6ef683510a349353b6a7", size = 20239, upload-time = "2025-06-14T14:57:45.457Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/6b/84d00553e052c62d0b738918cffb04e16e0105cdc3793fd3cd199f4f38e4/mbls-0.0.8-py3-none-any.whl", hash = "sha256:c8a3e4ae20d6f98dbe862be789f811b58ed36cd33a184380e615b2bd32b217b2", size = 12817, upload-time = "2025-06-10T15:34:55.558Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/e6/b3414d707b7c4ceb09a0f0c0b0aa4e67d4f1b3f7d7196c750168de707b39/mbls-0.0.10-py3-none-any.whl", hash = "sha256:9684ab47a8821ce4986c6721c52581435889b8dd303e814f7ccf1918babffa79", size = 13117, upload-time = "2025-06-14T14:57:44.571Z" },
 ]
 
 [[package]]
@@ -331,11 +331,11 @@ wheels = [
 
 [[package]]
 name = "routix"
-version = "0.0.9"
+version = "0.0.10"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d9/06/17ffb9f2ebb990e973a67063902a7d6e803b9ea6a21fc8c2a143f27b3b50/routix-0.0.9.tar.gz", hash = "sha256:553867b3df1501fb0593b2ce7906d2adc4a38c45cc7f09a65a465ca60da0ab7c", size = 22872, upload-time = "2025-06-10T16:19:58.107Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/fd/4b527bd11e055ab3570f2f7134cd0c568627da199b23927690b5c6dc2a22/routix-0.0.10.tar.gz", hash = "sha256:a108886f6433e899413dbb47d0ada2adf9a7df6abf1d19445c8928d6b8b14c67", size = 29592, upload-time = "2025-06-14T14:52:49.071Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/de/700db74f62312b3fc87c65cde032626cc45d109b5027e0a417f83d8a73c3/routix-0.0.9-py3-none-any.whl", hash = "sha256:7bcdfdd802dc7df4b10c5619780c7c9a0603c8decfded80e3ef5a95b1267837f", size = 19490, upload-time = "2025-06-10T16:19:56.883Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/e0/818aa91270d5053bc60fc6de95d695a97c8561cb0769aba981e944456328/routix-0.0.10-py3-none-any.whl", hash = "sha256:51d2b1f004e4dc077055d1b5dbf182aa76e4e2062f00a99903518b5429add4fc", size = 25826, upload-time = "2025-06-14T14:52:47.891Z" },
 ]
 
 [[package]]
