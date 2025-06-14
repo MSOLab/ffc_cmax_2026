@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
 import matplotlib.pyplot as plt
 
@@ -86,14 +87,14 @@ class ObjectiveProgressPlotter:
         lists_of_time_and_obj: list[list[tuple[float, float]]],
         save_path: Path,
         show_markers: bool = True,
-        labels: list[str] | None = None,
+        labels: Optional[list[str]] = None,
         drop_first_values_percent: float = 0.05,
         title: str = "Objective Progress",
         xlabel: str = "Elapsed Time (seconds)",
         ylabel: str = "Objective Value",
         legend_loc: str = "upper right",
-        xlim: tuple[float, float] | None = None,
-        ylim: tuple[float, float] | None = None,
+        xlim: Optional[tuple[float, float]] = None,
+        ylim: Optional[tuple[float, float]] = None,
         grid: bool = True,
         grid_style: str = "--",
         grid_alpha: float = 0.6,
@@ -108,13 +109,13 @@ class ObjectiveProgressPlotter:
             lists_of_time_and_obj (list[list[tuple[float, float]]]): Multiple lists containing (time, objective) tuples.
             save_path (Path): Path to save the plot.
             show_markers (bool, optional): Whether to show markers at each step. Defaults to True.
-            labels (list[str], optional): Labels for each list. Defaults to None.
+            labels (Optional[list[str]] , optional): Labels for each list. Defaults to None.
             title (str, optional): Title of the plot. Defaults to "Objective Progress".
             xlabel (str, optional): X-axis label. Defaults to "Elapsed Time (seconds)".
             ylabel (str, optional): Y-axis label. Defaults to "Objective Value".
             legend_loc (str, optional): Location of the legend. Defaults to "upper right".
-            xlim (tuple[float, float], optional): X-axis limits. Defaults to None.
-            ylim (tuple[float, float], optional): Y-axis limits. Defaults to None.
+            xlim (Optional[tuple[float, float]], optional): X-axis limits. Defaults to None.
+            ylim (Optional[tuple[float, float]], optional): Y-axis limits. Defaults to None.
             grid (bool, optional): Whether to show grid lines. Defaults to True.
             grid_style (str, optional): Style of the grid lines. Defaults to "--".
             grid_alpha (float, optional): Transparency of the grid lines. Defaults to 0.6.
