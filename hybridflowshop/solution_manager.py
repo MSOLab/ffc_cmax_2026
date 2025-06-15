@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from mbls import SolverOutputSummary
 
+from .painter import GanttPlotter
 from .pure_cp_2023_naderi import PureCP2023Naderi
 from .utils import tuple_to_pyyaml_key
 
@@ -97,8 +98,6 @@ class SolutionManager:
             filename (str): Filename to save the Gantt chart (relative to output_dir)
             figsize (tuple): Size of the matplotlib figure
         """
-        from .plotter import GanttPlotter
-
         plotter = GanttPlotter()
         plotter.export_hybrid_flowshop_plot(
             output_path, self.start_times, self.end_times

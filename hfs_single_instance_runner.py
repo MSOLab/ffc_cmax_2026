@@ -10,7 +10,7 @@ from schore.hybridflowshop import HybridFlowShopProblem
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HFSInputSummary
 from hybridflowshop.hfs_summary import HFSSummary
-from hybridflowshop.plotter.gantt import GanttPlotter
+from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.stopping_criteria import StoppingCriteria
 from hybridflowshop.utils import pyyaml_key_to_tuple
 

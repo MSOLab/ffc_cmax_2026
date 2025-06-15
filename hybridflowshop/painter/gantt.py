@@ -3,12 +3,14 @@ from pathlib import Path
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 
 class GanttPlotter:
     # matplotlib.pyplot variables
-    fig: plt.Figure
-    ax: plt.Axes
+    fig: Figure
+    ax: Axes
 
     # constants
     cmap_name = "tab20"
