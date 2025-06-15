@@ -1,7 +1,7 @@
 - method: set_random_seed
   seed: 42
 - method: solve_base_cp_model
-  computational_time: 20
+  computational_time: 30
   num_workers: 8
 - method: repeat
   params:
@@ -9,6 +9,5 @@
     routine_data:
     - method: time_window_search
       rho: 0.2
-      computational_time: 20
+      computational_time: 30
       num_workers: 8
-      error_if_infeasible: true

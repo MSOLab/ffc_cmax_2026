@@ -1,17 +1,13 @@
 - method: set_random_seed
   seed: 42
 - method: solve_base_cp_model
-  computational_time: 30
+  computational_time: 3
   num_workers: 8
 - method: repeat
   params:
     n_repeats: 999
     routine_data:
-    - method: time_window_search
-      rho: 0.2
-      computational_time: 30
-      num_workers: 8
     - method: block_search
       rho: 0.2
-      computational_time: 30
+      computational_time: 10
       num_workers: 8

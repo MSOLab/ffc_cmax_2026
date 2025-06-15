@@ -18,7 +18,15 @@ WORKER_CNT = 1
 def main():
     # Read the main metadata file
     main_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
-    run_hfs_instance_set_runner(main_metadata)
+    for i_o_data_path_dict in main_metadata.get("dicts_of_i_o_data_path"):
+        main_metadata["stopping_criteria_rel_path"] = i_o_data_path_dict[
+            "stopping_criteria_rel_path"
+        ]
+        main_metadata["subroutine_flow_rel_path"] = i_o_data_path_dict[
+            "subroutine_flow_rel_path"
+        ]
+        main_metadata["output_dir"] = i_o_data_path_dict["output_dir"]
+        run_hfs_instance_set_runner(main_metadata)
 
 
 def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:

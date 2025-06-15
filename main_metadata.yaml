@@ -6,21 +6,13 @@ first: 0
 last: 2
 
 # ALGORITHM METADATA
-stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-subroutine_flow_rel_path: "configs_20s/subroutine_flow_time_window.yaml"
-output_dir : "Outputs_20s/pra_time_window"
-# stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
-# subroutine_flow_rel_path: "configs_100s/subroutine_flow_time_window.yaml"
-# output_dir : "Outputs_100s/pra_time_window"
-# stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-# subroutine_flow_rel_path: "configs_600s/subroutine_flow_base_cp.yaml"
-# output_dir : "Outputs_600s/pra_pure_cp"
-# subroutine_flow_rel_path: "configs_600s/subroutine_flow_time_window.yaml"
-# output_dir : "Outputs_600s/pra_time_window"
-# subroutine_flow_rel_path: "configs_600s/subroutine_flow_block.yaml"
-# output_dir : "Outputs_600s/pra_block"
-# subroutine_flow_rel_path: "configs_600s/subroutine_flow_tw_block_list.yaml"
-# output_dir : "Outputs_600s/pra_tw_block_list"
+dicts_of_i_o_data_path:
+- stopping_criteria_rel_path: "configs_200s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_200s/subroutine_flow_base_cp.yaml"
+  output_dir : "Outputs_pra_200s/pure_cp"
+- stopping_criteria_rel_path: "configs_200s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_200s/subroutine_flow_time_window.yaml"
+  output_dir : "Outputs_pra_200s/time_window"
 
 # OUTPUT METADATA
 result_dir_name: "results"

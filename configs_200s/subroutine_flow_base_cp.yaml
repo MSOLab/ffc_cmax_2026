@@ -1,0 +1,5 @@
+- method: set_random_seed
+  seed: 42
+- method: solve_base_cp_model
+  computational_time: 200
+  num_workers: 8
