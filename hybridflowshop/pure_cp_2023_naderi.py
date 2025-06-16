@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Optional
 
 from mbls import ElapsedTimer
@@ -201,6 +202,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
             j (str): job index
             i (str): stage index
             k (str): machine index
+            ignore_integrity_check (bool, optional): Skip data integrity check. Defaults to True.
         """
         if not ignore_integrity_check:
             assert j in self.j_list, f"Job {j} not in job list."
@@ -220,7 +222,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
             j2 (str): succeeding job index
             i (str): stage index
             k (str): machine index
-            skip_assertion (bool, optional): Skip data integrity check. Defaults to True.
+            ignore_integrity_check (bool, optional): Skip data integrity check. Defaults to True.
         """  # noqa: E501
         if not ignore_integrity_check:
             assert j1 in self.j_list, f"Job {j1} not in job list."
@@ -229,3 +231,18 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
             assert k in self.M_of[i], f"Machine {k} not in machine list for stage {i}."
 
         self.add(self.var_op_end[j1, i, k] <= self.var_op_start[j2, i, k])
+
+    def add_start_and_present_hints_from_start_times(
+        self,
+        start_times: dict[tuple[str, str, str], int],
+        ignore_integrity_check: bool = True,
+    ) -> None:
+        for (j, i, k), s_time in start_times.items():
+            if not ignore_integrity_check:
+                assert j in self.j_list, f"Job {j} not in job list."
+                assert i in self.i_list, f"Stage {i} not in stage list."
+                assert k in self.M_of[i], (
+                    f"Machine {k} not in machine list for stage {i}."
+                )
+            self.add_hint(self.var_op_start[j, i, k], s_time)
+            self.add_hint(self.var_op_is_present[j, i, k], 1)

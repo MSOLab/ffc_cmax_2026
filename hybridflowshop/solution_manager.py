@@ -44,7 +44,7 @@ class SolutionManager:
     def get_obj_bound(self) -> Optional[float]:
         return self.summary.best_objective_bound
 
-    def apply_start_and_present_hint_to(self, target_model: PureCP2023Naderi) -> None:
+    def apply_start_and_present_hints_to(self, target_model: PureCP2023Naderi) -> None:
         """
         Apply current incumbent solution as initial variable hints to another CP model.
 
@@ -52,9 +52,7 @@ class SolutionManager:
             target_model (PureCP2023Naderi): The target CP model to receive hints
         """
         target_model.clear_hints()
-        for (j, i, k), s_time in self.start_times.items():
-            target_model.add_hint(target_model.var_op_start[j, i, k], s_time)
-            target_model.add_hint(target_model.var_op_is_present[j, i, k], 1)
+        target_model.add_start_and_present_hints_from_start_times(self.start_times)
 
     @staticmethod
     def get_time_dict_pyyaml(

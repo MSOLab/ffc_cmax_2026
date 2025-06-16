@@ -160,7 +160,7 @@ class HybridFlowShopCpLnsController(
 
     # Start subroutine definition
 
-    def solve_cp(
+    def solve_current_cp_remaining_time_limit(
         self,
         computational_time: float,
         num_workers: int,
@@ -168,7 +168,12 @@ class HybridFlowShopCpLnsController(
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
     ):
-        """Solve the current CP model.
+        """Solve the current CP model with the remaining time limit.
+
+        - Updates the experiment summary with the run summary of the current solution.
+        - Updates the last solution manager with the start and end times extracted from the CP model.
+        - Checks the feasibility of the solution if required.
+        - If the objective value is valid, it updates the incumbent solution.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
@@ -232,10 +237,10 @@ class HybridFlowShopCpLnsController(
                 Defaults to False.
         """
         if self.feasible_incumbent_solution_exists():
-            self.incumbent_solution_manager.apply_start_and_present_hint_to(
+            self.incumbent_solution_manager.apply_start_and_present_hints_to(
                 self.cp_model
             )
-        self.solve_cp(
+        self.solve_current_cp_remaining_time_limit(
             computational_time,
             num_workers,
             obj_value_is_valid=obj_value_is_valid,
@@ -264,10 +269,10 @@ class HybridFlowShopCpLnsController(
         """
         self.cp_model.delete_added_constraints()
         if hint_from_incumbent and self.feasible_incumbent_solution_exists():
-            self.incumbent_solution_manager.apply_start_and_present_hint_to(
+            self.incumbent_solution_manager.apply_start_and_present_hints_to(
                 self.cp_model
             )
-        self.solve_cp(
+        self.solve_current_cp_remaining_time_limit(
             computational_time,
             num_workers,
             obj_value_is_valid=True,
@@ -380,7 +385,7 @@ class HybridFlowShopCpLnsController(
                 out_of_window_ops.add(key)
 
         # 4. Fix machine assignment and precedence for out-of-window operations
-        stage_mc_to_jobs = defaultdict(list)
+        stage_mc_to_jobs: dict[tuple[str, str], list[str]] = defaultdict(list)
 
         for j, i, k in out_of_window_ops:
             self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
@@ -498,9 +503,9 @@ class HybridFlowShopCpLnsController(
             start_times (dict[tuple[str, str, str], int]): _description_
 
         Raises:
-            ValueError: _description_
-            RuntimeError: _description_
-            ValueError: _description_
+            ValueError: If any start time is negative or invalid.
+            RuntimeError: If the feasibility check fails while solving the model.
+            ValueError: If the feasibility check fails with an unexpected status.
         """
         for (j, i, k), start_time in start_times.items():
             if start_time < 0:
