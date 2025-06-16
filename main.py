@@ -12,7 +12,7 @@ from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.stopping_criteria import StoppingCriteria
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
-WORKER_CNT = 1
+WORKER_CNT = 2
 
 
 def main():

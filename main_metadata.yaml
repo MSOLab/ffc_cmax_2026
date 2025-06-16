@@ -3,16 +3,13 @@ pra_common_params_rel_path: "resources/pra_common_params.yaml"
 benchmark_filename_format: "{}.txt"
 input_dir : "resources/pra"
 first: 1
-last: 2
+last: 30
 
 # ALGORITHM METADATA
 dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_pure_cp.yaml"
 #   output_dir : "Outputs_pra_20s/pure_cp"
-# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_lns_list.yaml"
-#   output_dir : "Outputs_pra_20s/jbh1_lns_list"
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_time_window.yaml"
 #   output_dir : "Outputs_pra_20s/time_window"
@@ -28,6 +25,9 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_jbh_time_window.yaml"
 #   output_dir : "Outputs_pra_20s/jbh_time_window"
+# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_lns_list.yaml"
+#   output_dir : "Outputs_pra_20s/jbh1_lns_list"
 - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
   subroutine_flow_rel_path: "configs_100s/subroutine_flow_jbh1_block.yaml"
   output_dir : "Outputs_pra_100s/jbh1_block"
