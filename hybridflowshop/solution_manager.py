@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Optional
 
-from mbls import SolverOutputSummary
+from mbls import SolverOutputSummary, SolverStatus
 
 from .painter import GanttPlotter
 from .pure_cp_2023_naderi import PureCP2023Naderi
@@ -23,6 +23,11 @@ class SolutionManager:
         self.start_times = start_times
         self.end_times = end_times
         self.summary = summary
+        self.is_feasible = SolverStatus.found_feasible_solution(summary.status)
+        """
+        Indicates whether the solution is feasible based on the solver status.
+        True if the status is FEASIBLE or OPTIMAL, False otherwise.
+        """
 
     def get_result_summary(self) -> SolverOutputSummary:
         """

@@ -204,6 +204,13 @@ class HybridFlowShopCpLnsController(
         if obj_value_is_valid:
             self.update_incumbent_solution()
 
+    def feasible_incumbent_solution_exists(self) -> bool:
+        """Check if the incumbent solution is feasible."""
+        return (
+            hasattr(self, "incumbent_solution_manager")
+            and self.incumbent_solution_manager.is_feasible
+        )
+
     def solve_with_initial_solution(
         self,
         computational_time: float,
@@ -224,7 +231,10 @@ class HybridFlowShopCpLnsController(
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
         """
-        self.incumbent_solution_manager.apply_start_and_present_hint_to(self.cp_model)
+        if self.feasible_incumbent_solution_exists():
+            self.incumbent_solution_manager.apply_start_and_present_hint_to(
+                self.cp_model
+            )
         self.solve_cp(
             computational_time,
             num_workers,
@@ -232,6 +242,8 @@ class HybridFlowShopCpLnsController(
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
         )
+
+    # Subroutine: solve base CP model
 
     def solve_base_cp_model(
         self,
@@ -251,7 +263,7 @@ class HybridFlowShopCpLnsController(
                 Defaults to False.
         """
         self.cp_model.delete_added_constraints()
-        if hint_from_incumbent and hasattr(self, "incumbent_solution_manager"):
+        if hint_from_incumbent and self.feasible_incumbent_solution_exists():
             self.incumbent_solution_manager.apply_start_and_present_hint_to(
                 self.cp_model
             )
@@ -262,6 +274,8 @@ class HybridFlowShopCpLnsController(
             obj_bound_is_valid=True,
             error_if_infeasible=True,
         )
+
+    # Helper method for LNS-CP
 
     def freeze_solve_reset(
         self,
