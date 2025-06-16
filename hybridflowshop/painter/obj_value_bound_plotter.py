@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Optional
 
 from mbls.cpsat import ObjValueBoundStore
 
@@ -17,13 +16,13 @@ class ObjValueBoundPainter:
         store: ObjValueBoundStore,
         save_path: Path,
         show_markers: bool = True,
-        drop_first_values_percent: float = 0.01,
+        drop_first_values_percent: float = 0.0,
         title: str = "Objective Value and Bound Over Time",
         xlabel: str = "Elapsed Time (seconds)",
         ylabel: str = "Objective",
         legend_loc: str = "upper right",
-        xlim: Optional[tuple[float, float]] = None,
-        ylim: Optional[tuple[float, float]] = None,
+        xlim: tuple[float, float] | None = None,
+        ylim: tuple[float, float] | None = None,
         show: bool = False,
         dpi: int = 300,
     ):

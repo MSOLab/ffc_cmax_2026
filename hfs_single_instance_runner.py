@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -146,7 +147,6 @@ class HfsSingleInstanceRunner(
         """
         from hybridflowshop.painter import ObjValueBoundPainter
 
-        # Prepare the progress plot file path
         progress_plot_filename_format = "{}_progress_plot.png"
         if "progress_plot_filename_format" in self.output_metadata:
             progress_plot_filename_format = self.output_metadata[
@@ -154,7 +154,28 @@ class HfsSingleInstanceRunner(
             ]
             if isinstance(progress_plot_filename_format, str):
                 progress_plot_filename_format = progress_plot_filename_format.strip()
+            else:
+                logging.warning(
+                    "Invalid type for 'progress_plot_filename_format': "
+                    f"{type(progress_plot_filename_format)}. Using default format."
+                )
+                progress_plot_filename_format = "{}_progress_plot.png"
 
+        drop_first_values_percent = 0.0
+        if "drop_first_values_percent" in self.output_metadata:
+            drop_first_values_percent = self.output_metadata[
+                "drop_first_values_percent"
+            ]
+            if isinstance(drop_first_values_percent, (int, float)):
+                drop_first_values_percent = float(drop_first_values_percent)
+            else:
+                logging.warning(
+                    "Invalid type for 'drop_first_values_percent': "
+                    f"{type(drop_first_values_percent)}. Using default value of 0.0."
+                )
+                drop_first_values_percent = 0.0
+
+        # Prepare the progress plot file path
         progress_plot_filename = progress_plot_filename_format.format(self.name)
         output_path = self.result_dir / progress_plot_filename
 
@@ -162,5 +183,5 @@ class HfsSingleInstanceRunner(
         obj_store = ObjValueBoundStore.load_yaml(self.obj_log_path, encoding=encoding)
         # Plot the objective progress
         ObjValueBoundPainter.plot(
-            obj_store, output_path, drop_first_values_percent=0.03
+            obj_store, output_path, drop_first_values_percent=drop_first_values_percent
         )

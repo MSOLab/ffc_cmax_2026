@@ -14,7 +14,7 @@ class TimeSeriesPlotter:
         linestyles: Optional[list[str]] = None,
         show_markers: bool = True,
         labels: Optional[list[str]] = None,
-        drop_first_values_percent: float = 0.01,
+        drop_first_values_percent: float = 0.0,
         title: str = "Objective Progress",
         xlabel: str = "Elapsed Time (seconds)",
         ylabel: str = "Objective Value",
@@ -47,7 +47,7 @@ class TimeSeriesPlotter:
                 This is useful to remove initial noise or irrelevant data.
                 0.01 means dropping the first 1% of values from each list.
                 If the list is too short, it will not drop any values.
-                Defaults to 0.01.
+                Defaults to 0.0.
             title (str, optional): Title of the plot. Defaults to "Objective Progress".
             xlabel (str, optional): X-axis label. Defaults to "Elapsed Time (seconds)".
             ylabel (str, optional): Y-axis label. Defaults to "Objective Value".
