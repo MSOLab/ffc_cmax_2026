@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Optional
 
 from mbls import ElapsedTimer
@@ -20,9 +22,25 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     p: dict[tuple[str, str], int]
     """$P_{ji}$: processing time of job j at stage i"""
 
-    def __init__(self, hfs_instance: HybridFlowShopProblem, horizon: int):
+    def __init__(self, horizon: int):
         super().__init__(horizon)
-        self.define_model(hfs_instance)
+
+    @classmethod
+    def from_instance(
+        cls, hfs_instance: HybridFlowShopProblem, horizon: int
+    ) -> "PureCP2023Naderi":
+        """Creates a PureCP2023Naderi model from a HybridFlowShopProblem instance.
+
+        Args:
+            hfs_instance (HybridFlowShopProblem): The hybrid flow shop problem instance.
+            horizon (int): The time horizon for the scheduling problem.
+
+        Returns:
+            PureCP2023Naderi: An instance of the PureCP2023Naderi model.
+        """
+        result = cls(horizon)
+        result.define_model(hfs_instance)
+        return result
 
     def define_model(self, hfs_instance: HybridFlowShopProblem):
         self.define_parameters(hfs_instance)
@@ -55,7 +73,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
             computational_time, n_threads, random_seed, timer
         )
 
-    def get_progress_log(self) -> list:
+    def get_progress_log(self) -> list[tuple[float, float, float]]:
         """Returns the log list.
 
         Returns:
@@ -67,10 +85,13 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     # Parameters
 
     def define_parameters(self, hfs_instance: HybridFlowShopProblem):
-        self.j_list = hfs_instance.get_job_id_list()
-        self.i_list = hfs_instance.get_stage_id_list()
-        self.M_of = hfs_instance.get_stage_2_machines_map()
-        self.p = hfs_instance.p_manager.job_stage_2_value_map(self.j_list, self.i_list)
+        self.j_list = hfs_instance.job_id_list
+        self.i_list = hfs_instance.stage_id_list
+        self.M_of = hfs_instance.stage_2_machines_map
+        _p = hfs_instance.p_manager.job_stage_2_value_map(self.j_list, self.i_list)
+        self.p = {
+            (j, i): int(float(_p[j, i])) for j in self.j_list for i in self.i_list
+        }
 
     # Variables
 
@@ -138,7 +159,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
                             #     ]
                         )
 
-    # extraction methods for LNS
+    # extraction method for the solution
 
     def extract_start_end_times(
         self,

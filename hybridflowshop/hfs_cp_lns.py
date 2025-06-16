@@ -112,7 +112,7 @@ class HybridFlowShopCpLnsController(
         if "horizon" not in self.shared_param_dict:
             raise ValueError("Horizon not found in shared parameters.")
         horizon = self.shared_param_dict["horizon"]
-        return PureCP2023Naderi(self.instance, horizon)
+        return self.cp_model_class.from_instance(self.instance, horizon)
 
     # Start solution management
 
