@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from mbls import DynamicDataObject, SolverStatus
+from mbls import DynamicDataObject, SolverOutputSummary, SolverStatus
 from mbls.cpsat.cp_subroutine_controller import CpSubroutineController
 from schore.hybridflowshop import HybridFlowShopProblem
 
@@ -116,19 +116,33 @@ class HybridFlowShopCpLnsController(
 
     # Start solution management
 
-    def set_last_solution_as_incumbent(self) -> None:
-        """Set the incumbent solution."""
+    def set_last_solution_as_incumbent(self, draw_gantt: bool = False) -> None:
+        """Set the incumbent solution.
+
+        Args:
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the incumbent solution.
+                Defaults to False.
+        """
         self.incumbent_solution_manager = self.last_solution_manager
-        self.draw_incumbent_gantt()
+        if draw_gantt:
+            self.draw_incumbent_gantt()
 
     def draw_incumbent_gantt(self, output_path: Optional[Path] = None) -> None:
         if output_path is None:
             output_path = self.get_file_path_for_subroutine("_gantt.png")
         self.incumbent_solution_manager.save_gantt_as_png(output_path)
 
-    def update_incumbent_solution(self) -> None:
+    def update_incumbent_solution(self, draw_gantt: bool = False) -> None:
+        """Update the incumbent solution if the last solution is better.
+        This method checks if the last solution is better than the incumbent solution.
+        If it is, it sets the last solution as the incumbent solution and optionally draws the Gantt chart.
+
+        Args:
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution if it is better.
+                Defaults to False.
+        """
         if self.last_solution_is_better_than_incumbent():
-            self.set_last_solution_as_incumbent()
+            self.set_last_solution_as_incumbent(draw_gantt=draw_gantt)
 
     def last_solution_is_better_than_incumbent(self) -> bool:
         """Check if the last solution is better than the incumbent solution."""
@@ -167,6 +181,7 @@ class HybridFlowShopCpLnsController(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
     ):
         """Solve the current CP model with the remaining time limit.
 
@@ -183,6 +198,8 @@ class HybridFlowShopCpLnsController(
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
                 Defaults to False.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
         _timelimit = self.get_remaining_time_limit(computational_time)
@@ -207,7 +224,7 @@ class HybridFlowShopCpLnsController(
         )
 
         if obj_value_is_valid:
-            self.update_incumbent_solution()
+            self.update_incumbent_solution(draw_gantt=draw_gantt)
 
     def feasible_incumbent_solution_exists(self) -> bool:
         """Check if the incumbent solution is feasible."""
@@ -223,8 +240,13 @@ class HybridFlowShopCpLnsController(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
     ):
         """Solve the current CP model with the incumbent solution as the initial solution.
+
+        - If a feasible incumbent solution exists, it clears the hints in the current CP model
+          and applies the incumbent solution as a hint.
+        - Then, it solves the CP model with the given computational time and number of workers.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
@@ -235,17 +257,19 @@ class HybridFlowShopCpLnsController(
                 Defaults to False.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
         if self.feasible_incumbent_solution_exists():
-            self.incumbent_solution_manager.apply_start_and_present_hints_to(
-                self.cp_model
-            )
+            self.cp_model.clear_hints()
+            self.incumbent_solution_manager.apply_start_and_present_hints(self.cp_model)
         self.solve_current_cp_remaining_time_limit(
             computational_time,
             num_workers,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
         )
 
     # Subroutine: solve base CP model
@@ -255,6 +279,7 @@ class HybridFlowShopCpLnsController(
         computational_time: float,
         num_workers: int,
         hint_from_incumbent: bool = False,
+        draw_gantt=False,
     ):
         """
         Solve the base CP model.
@@ -266,19 +291,28 @@ class HybridFlowShopCpLnsController(
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
             hint_from_incumbent (bool, optional): If True, uses the incumbent solution as a hint.
                 Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
         self.cp_model.delete_added_constraints()
-        if hint_from_incumbent and self.feasible_incumbent_solution_exists():
-            self.incumbent_solution_manager.apply_start_and_present_hints_to(
-                self.cp_model
+        if hint_from_incumbent:
+            self.solve_with_initial_solution(
+                computational_time,
+                num_workers,
+                obj_value_is_valid=True,
+                obj_bound_is_valid=True,
+                error_if_infeasible=True,
+                draw_gantt=draw_gantt,
             )
-        self.solve_current_cp_remaining_time_limit(
-            computational_time,
-            num_workers,
-            obj_value_is_valid=True,
-            obj_bound_is_valid=True,
-            error_if_infeasible=True,
-        )
+        else:
+            self.solve_current_cp_remaining_time_limit(
+                computational_time,
+                num_workers,
+                obj_value_is_valid=True,
+                obj_bound_is_valid=True,
+                error_if_infeasible=True,
+                draw_gantt=draw_gantt,
+            )
 
     # Helper method for LNS-CP
 
@@ -290,6 +324,7 @@ class HybridFlowShopCpLnsController(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
     ):
         """Apply the freeze method, solve, and reset the model.
 
@@ -303,6 +338,8 @@ class HybridFlowShopCpLnsController(
                 Defaults to False.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
         freeze_method()
         self.solve_with_initial_solution(
@@ -311,6 +348,7 @@ class HybridFlowShopCpLnsController(
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
         )
         self.cp_model.delete_added_constraints()
 
@@ -322,6 +360,7 @@ class HybridFlowShopCpLnsController(
         computational_time: float,
         num_workers: int,
         error_if_infeasible=False,
+        draw_gantt: bool = False,
     ):
         """Time window search with incumbent solution as the hint.
 
@@ -331,6 +370,8 @@ class HybridFlowShopCpLnsController(
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
         self.freeze_solve_reset(
             lambda: self.apply_time_window_operator(rho),
@@ -339,6 +380,7 @@ class HybridFlowShopCpLnsController(
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
         )
 
     def apply_time_window_operator(self, rho: float):
@@ -410,6 +452,7 @@ class HybridFlowShopCpLnsController(
         computational_time: float,
         num_workers: int,
         error_if_infeasible=False,
+        draw_gantt: bool = False,
     ):
         """Block search with incumbent solution as the hint.
 
@@ -418,6 +461,8 @@ class HybridFlowShopCpLnsController(
             computational_time (float): The maximum computational time in seconds.
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
 
@@ -428,6 +473,7 @@ class HybridFlowShopCpLnsController(
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
         )
 
     def apply_block_operator(self, rho: float):
@@ -489,6 +535,201 @@ class HybridFlowShopCpLnsController(
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
         """Check if two time intervals overlap."""
         return not (e1 <= s2 or e2 <= s1)
+
+    # Subroutine: Johnson-based Heuristic for initialization
+
+    def construct_solution_by_incremental_cp(
+        self,
+        job_sequence: list[str],
+        max_time_per_job: float,
+        num_workers: int,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        """Construct a complete solution by incrementally solving CP submodels.
+
+        This method builds a feasible schedule by adding jobs one by one
+        according to the provided job sequence. At each step, a sub-CP model
+        is constructed for the current subset of jobs and solved with the
+        given time limit. Previously scheduled jobs are frozen to guide the solver.
+
+        Args:
+            job_sequence (list[str]): The sequence of job IDs to be added.
+            max_time_per_job (float): The time limit (in seconds) for solving each incremental subproblem.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        _last_summary: SolverOutputSummary | None = None
+        _last_sol_manager: SolutionManager | None = None
+
+        for j, job_id in enumerate(job_sequence):
+            logging.info(f"Add job {job_id}")
+            job_subset = set(job_sequence[: j + 1])  # Jobs up to the current one
+            # Create CP model with the job subset
+            new_sub_cp = self.cp_model.create_problem_of_job_subset(job_subset)
+            # If this is not the first job, freeze jobs in the previous model
+            if _last_sol_manager is not None:
+                _last_sol_manager.apply_start_and_present_hints(new_sub_cp)
+                _last_sol_manager.apply_fixed_machine_and_ops_precedence_constraints(
+                    new_sub_cp
+                )
+            _timelimit = self.get_remaining_time_limit(max_time_per_job)
+            _last_summary = self.solve_cp_model(
+                new_sub_cp,
+                _timelimit,
+                num_workers,
+                random_seed=self.random_seed,
+                timer=self.timer,
+            )
+            start_times, end_times = new_sub_cp.extract_start_end_times()
+            _last_sol_manager = SolutionManager(
+                start_times=start_times,
+                end_times=end_times,
+                summary=_last_summary,
+            )
+
+        assert _last_summary is not None, "No summary available after solving CP model."
+        assert _last_summary.objective_value is not None, (
+            "No objective value available after solving."
+        )
+        assert _last_sol_manager is not None, "No solution available after solving."
+
+        if error_if_infeasible:
+            self.check_feasibility(_last_sol_manager.start_times)
+
+        elapsed_time = self.timer.get_elapsed_sec()
+        obj_value = _last_summary.objective_value
+        progress_log = [(elapsed_time, obj_value, 0.0)]
+        self.append_obj_log(
+            progress_log,
+            is_maximize=False,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+        )
+        subroutine_summary = SolverOutputSummary(
+            _last_summary.status,
+            elapsed_time,
+            objective_value=obj_value,
+            best_objective_bound=None,
+            progress_log=progress_log,
+        )
+        self.experiment_summary.add_run_summary(subroutine_summary)
+        self.last_solution_manager = _last_sol_manager
+
+        self.update_incumbent_solution(draw_gantt=draw_gantt)
+
+    @staticmethod
+    def johnson_sequence(
+        aggregated_times_stage1: dict[str, int], aggregated_times_stage2: dict[str, int]
+    ) -> list[str]:
+        jobs = list(aggregated_times_stage1.keys())
+        sequence: list[str] = []
+        while jobs:
+            job = min(
+                jobs,
+                key=lambda j: min(
+                    aggregated_times_stage1[j], aggregated_times_stage2[j]
+                ),
+            )
+            if aggregated_times_stage1[job] <= aggregated_times_stage2[job]:
+                sequence.insert(0, job)  # Front
+            else:
+                sequence.append(job)  # Back
+            jobs.remove(job)
+        return sequence
+
+    def get_jbh1_sequence(self) -> list[str]:
+        jobs = self.instance.job_id_list
+        stages = self.instance.stage_id_list
+        p_dict: dict[tuple[str, str], int] = (
+            self.instance.p_manager.job_stage_2_value_map(jobs, stages)
+        )
+        p1 = {j: p_dict[j, stages[0]] for j in jobs}  # First stage processing times
+        p2 = {j: p_dict[j, stages[-1]] for j in jobs}  # Last stage processing times
+        return self.johnson_sequence(p1, p2)
+
+    def get_jbh2_sequence(self) -> list[str]:
+        jobs = self.instance.job_id_list
+        num_stages = self.instance.stage_count
+        stages = self.instance.stage_id_list
+        p_dict: dict[tuple[str, str], int] = (
+            self.instance.p_manager.job_stage_2_value_map(jobs, stages)
+        )
+        mid = num_stages // 2
+        # First half stage list
+        first_half_stages = stages[:mid]
+        # Second half stage list
+        second_half_stages = stages[mid:]
+        p1 = {
+            j: sum(p_dict[j, s] for s in first_half_stages) for j in jobs
+        }  # Aggregated processing times for first half stages
+        p2 = {
+            j: sum(p_dict[j, s] for s in second_half_stages) for j in jobs
+        }  # Aggregated processing times for second half stages
+        return self.johnson_sequence(p1, p2)
+
+    def build_jbh1_solution(
+        self,
+        max_time_per_job: float,
+        num_workers: int,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        """Build a CP-guided solution using the Johnson-based Heuristic 1 (JbH1) sequence.
+
+        This method computes a job sequence by aggregating processing times from
+        the first and last stages (JbH1 rule), then incrementally constructs a feasible
+        schedule by solving sub-CP models for each job prefix in the sequence.
+
+        Args:
+            max_time_per_job (float): The maximum computational time per job addition in seconds.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+
+        self.construct_solution_by_incremental_cp(
+            self.get_jbh1_sequence(),
+            max_time_per_job,
+            num_workers,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def build_jbh2_solution(
+        self,
+        max_time_per_job: float,
+        num_workers: int,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        """Build a CP-guided solution using the Johnson-based Heuristic 2 (JbH2) sequence.
+
+        This method computes a job sequence by aggregating processing times from
+        the first half and second half stages (JbH2 rule), then incrementally constructs a feasible
+        schedule by solving sub-CP models for each job prefix in the sequence.
+
+        Args:
+            max_time_per_job (float): The maximum computational time per job addition in seconds.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+
+        self.construct_solution_by_incremental_cp(
+            self.get_jbh2_sequence(),
+            max_time_per_job,
+            num_workers,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
 
     # End subroutine definition
 

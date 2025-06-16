@@ -44,15 +44,35 @@ class SolutionManager:
     def get_obj_bound(self) -> Optional[float]:
         return self.summary.best_objective_bound
 
-    def apply_start_and_present_hints_to(self, target_model: PureCP2023Naderi) -> None:
+    def apply_start_and_present_hints(
+        self, target_model: PureCP2023Naderi, ignore_integrity_check: bool = True
+    ) -> None:
         """
         Apply current incumbent solution as initial variable hints to another CP model.
 
         Args:
             target_model (PureCP2023Naderi): The target CP model to receive hints
+            ignore_integrity_check (bool, optional): If true, skip integrity checks.
+                Defaults to True.
         """
-        target_model.clear_hints()
-        target_model.add_start_and_present_hints_from_start_times(self.start_times)
+        target_model.add_start_and_present_hints_from_start_times(
+            self.start_times, ignore_integrity_check=ignore_integrity_check
+        )
+
+    def apply_fixed_machine_and_ops_precedence_constraints(
+        self, target_model: PureCP2023Naderi, ignore_integrity_check: bool = True
+    ) -> None:
+        """
+        Add fixed constraints based on the incumbent solution to another CP model.
+
+        Args:
+            target_model (PureCP2023Naderi): The target CP model to receive fixed constraints
+            ignore_integrity_check (bool, optional): If true, skip integrity checks.
+                Defaults to True.
+        """
+        target_model.add_fixed_machine_and_ops_precedence_constraints_from_start_times(
+            self.start_times, ignore_integrity_check=ignore_integrity_check
+        )
 
     @staticmethod
     def get_time_dict_pyyaml(

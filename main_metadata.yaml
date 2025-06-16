@@ -7,12 +7,21 @@ last: 2
 
 # ALGORITHM METADATA
 dicts_of_i_o_data_path:
-- stopping_criteria_rel_path: "configs_200s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_200s/subroutine_flow_base_cp.yaml"
-  output_dir : "Outputs_pra_200s/pure_cp"
-- stopping_criteria_rel_path: "configs_200s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_200s/subroutine_flow_time_window.yaml"
-  output_dir : "Outputs_pra_200s/time_window"
+# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_pure_cp.yaml"
+#   output_dir : "Outputs_pra_20s/pure_cp"
+- stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_20s/subroutine_flow_jbh1_pure_cp.yaml"
+  output_dir : "Outputs_pra_20s/jbh1_pure_cp"
+- stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_20s/subroutine_flow_jbh2_pure_cp.yaml"
+  output_dir : "Outputs_pra_20s/jbh2_pure_cp"
+# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_lns_list.yaml"
+#   output_dir : "Outputs_pra_20s/jbh1_lns_list"
+# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_time_window.yaml"
+#   output_dir : "Outputs_pra_20s/time_window"
 
 # OUTPUT METADATA
 result_dir_name: "results"

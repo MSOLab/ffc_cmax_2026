@@ -160,6 +160,43 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
                             #     ]
                         )
 
+    # Subproblem generation
+
+    def create_problem_of_job_subset(
+        self,
+        job_subset: set[str],
+    ) -> PureCP2023Naderi:
+        """Creates a new problem instance with a subset of jobs.
+
+        Args:
+            job_subset (set[str]): A set of job indices to include in the new problem.
+
+        Raises:
+            ValueError: If the job subset is not a subset of the original job list.
+
+        Returns:
+            PureCP2023Naderi: A new instance of the PureCP2023Naderi model
+                with the specified job subset.
+        """
+        if not job_subset.issubset(self.j_list):
+            raise ValueError("Job subset must be a subset of the original job list.")
+        # Create a new instance of the model
+        new_model = PureCP2023Naderi(self.horizon)
+
+        # Filter parameters based on the job subset
+        new_model.j_list = [j for j in self.j_list if j in job_subset]
+        new_model.i_list = self.i_list
+        new_model.M_of = {i: [k for k in self.M_of[i]] for i in self.i_list}
+        new_model.p = {
+            (j, i): self.p[j, i] for j in new_model.j_list for i in new_model.i_list
+        }
+        # Define variables, objective, and constraints for the new model
+        new_model.define_variables()
+        new_model.define_makespan_objective()
+        new_model.define_constraints()
+
+        return new_model
+
     # extraction method for the solution
 
     def extract_start_end_times(
@@ -232,6 +269,32 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
         self.add(self.var_op_end[j1, i, k] <= self.var_op_start[j2, i, k])
 
+    def add_fixed_machine_and_ops_precedence_constraints_from_start_times(
+        self,
+        start_times: dict[tuple[str, str, str], int],
+        ignore_integrity_check: bool = True,
+    ) -> None:
+        """Fixes the operations based on provided start times.
+
+        Args:
+            start_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
+            ignore_integrity_check (bool, optional): Skip data integrity check. Defaults to True.
+        """
+        stage_mc_to_jobs: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for j, i, k in start_times:
+            self.add_fixed_machine_assignment_constraint(
+                j, i, k, ignore_integrity_check
+            )
+            stage_mc_to_jobs[(i, k)].append(j)
+
+        for (i, k), jobs in stage_mc_to_jobs.items():
+            jobs_sorted = sorted(jobs, key=lambda j: start_times[(j, i, k)])
+            for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
+                self.add_fixed_operation_precedence_constraint(
+                    j1, j2, i, k, ignore_integrity_check
+                )
+
+    # methods to add hints
     def add_start_and_present_hints_from_start_times(
         self,
         start_times: dict[tuple[str, str, str], int],
