@@ -622,23 +622,29 @@ class HybridFlowShopCpLnsController(
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
     @staticmethod
-    def johnson_sequence(
-        aggregated_times_stage1: dict[str, int], aggregated_times_stage2: dict[str, int]
+    def johnson_rule_permutation(
+        aggregated_p1: dict[str, int], aggregated_p2: dict[str, int]
     ) -> list[str]:
-        jobs = list(aggregated_times_stage1.keys())
-        sequence: list[str] = []
+        jobs = list(aggregated_p1.keys())
+        n = len(jobs)
+        sequence: list[str] = [""] * n  # Initialize sequence with empty strings
+        left = 0
+        right = n - 1
+
+        # Pre-sort jobs based on aggregated processing times
+        jobs.sort(
+            key=lambda j: (min(aggregated_p1[j], aggregated_p2[j]), j)
+        )  # Sort by min processing time first, then by job ID
+
         while jobs:
-            job = min(
-                jobs,
-                key=lambda j: min(
-                    aggregated_times_stage1[j], aggregated_times_stage2[j]
-                ),
-            )
-            if aggregated_times_stage1[job] <= aggregated_times_stage2[job]:
-                sequence.insert(0, job)  # Front
+            job = jobs.pop(0)  # Remove the first job from the sorted list
+            if aggregated_p1[job] <= aggregated_p2[job]:
+                sequence[left] = job  # Last of the front
+                left += 1
             else:
-                sequence.append(job)  # Back
-            jobs.remove(job)
+                sequence[right] = job  # First of the back
+                right -= 1
+
         return sequence
 
     def get_jbh1_sequence(self) -> list[str]:
@@ -649,7 +655,7 @@ class HybridFlowShopCpLnsController(
         )
         p1 = {j: p_dict[j, stages[0]] for j in jobs}  # First stage processing times
         p2 = {j: p_dict[j, stages[-1]] for j in jobs}  # Last stage processing times
-        return self.johnson_sequence(p1, p2)
+        return self.johnson_rule_permutation(p1, p2)
 
     def get_jbh2_sequence(self) -> list[str]:
         jobs = self.instance.job_id_list
@@ -669,7 +675,7 @@ class HybridFlowShopCpLnsController(
         p2 = {
             j: sum(p_dict[j, s] for s in second_half_stages) for j in jobs
         }  # Aggregated processing times for second half stages
-        return self.johnson_sequence(p1, p2)
+        return self.johnson_rule_permutation(p1, p2)
 
     def build_jbh1_solution(
         self,
