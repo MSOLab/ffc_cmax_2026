@@ -5,6 +5,7 @@ from typing import Any
 import yaml
 from mbls import DynamicDataObject, utils
 from mbls.cpsat import ObjValueBoundStore
+from mbls.painter import ObjValueBoundPlotter
 from routix.runner import SingleInstanceRunner
 from schore.hybridflowshop import HybridFlowShopProblem
 
@@ -145,7 +146,6 @@ class HfsSingleInstanceRunner(
         """
         Read the saved obj_log file and draw the progress plot.
         """
-        from hybridflowshop.painter import ObjValueBoundPainter
 
         progress_plot_filename_format = "{}_progress_plot.png"
         if "progress_plot_filename_format" in self.output_metadata:
@@ -182,6 +182,6 @@ class HfsSingleInstanceRunner(
         # Read the saved obj_log file
         obj_store = ObjValueBoundStore.load_yaml(self.obj_log_path, encoding=encoding)
         # Plot the objective progress
-        ObjValueBoundPainter.plot(
+        ObjValueBoundPlotter.plot(
             obj_store, output_path, drop_first_values_percent=drop_first_values_percent
         )
