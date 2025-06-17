@@ -8,9 +8,10 @@ from mbls import DynamicDataObject, ElapsedTimer, SolverOutputSummary, SolverSta
 from mbls.cpsat.cp_subroutine_controller import CpSubroutineController
 from schore.hybridflowshop import HybridFlowShopProblem
 
-from hybridflowshop.solution_manager import SolutionManager
-
+from .hfs_experiment_summary import HfsExperimentSummary
+from .hfs_solver_output_summary import HfsSolverOutputSummary
 from .pure_cp_2023_naderi import PureCP2023Naderi
+from .solution_manager import SolutionManager
 from .stopping_criteria import StoppingCriteria
 
 
@@ -45,6 +46,8 @@ class HybridFlowShopCpLnsController(
             subroutine_flow,
             stopping_criteria,
         )
+
+        self.experiment_summary = HfsExperimentSummary(instance.name)
 
     def set_working_dir(self, dir_path: Path | str):
         super().set_working_dir(dir_path)
@@ -211,12 +214,14 @@ class HybridFlowShopCpLnsController(
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
         )
+        # Indicates this is not an initial solution
+        _summary = HfsSolverOutputSummary.from_other(summary, is_init=False)
 
         start_times, end_times = self.cp_model.extract_start_end_times()
 
         if error_if_infeasible:
             self.check_feasibility(start_times)
-        self.experiment_summary.add_run_summary(summary)
+        self.experiment_summary.add_run_summary(_summary)
         self.last_solution_manager = SolutionManager(
             start_times=start_times,
             end_times=end_times,
@@ -612,12 +617,13 @@ class HybridFlowShopCpLnsController(
             obj_bound_is_valid=False,
         )
         elapsed_time = e_timer.get_elapsed_sec()
-        subroutine_summary = SolverOutputSummary(
+        subroutine_summary = HfsSolverOutputSummary(
             _last_summary.status,
             elapsed_time,
             objective_value=obj_value,
             best_objective_bound=None,
             progress_log=progress_log,
+            is_init=True,
         )
         self.experiment_summary.add_run_summary(subroutine_summary)
         self.last_solution_manager = _last_sol_manager
