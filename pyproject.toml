@@ -5,7 +5,7 @@ description = "Hybrid Flow Shop Scheduling Problem"
 readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [
-    "mbls==0.0.11",
+    "mbls",
     "ortools>=9.12.4544",
     "pyyaml>=6.0.2",
     "routix==0.0.11",
@@ -17,3 +17,6 @@ dev = [
     "pip>=25.1.1",
     "types-pyyaml>=6.0.12.20250516",
 ]
+
+[tool.uv.sources]
+mbls = { path = "../mbls" }

@@ -1,11 +1,11 @@
 - method: set_random_seed
   seed: 42
 - method: build_jh1_solution
-  max_time_per_job: 3
+  max_time_per_add: 3
   num_workers: 8
   error_if_infeasible: true
 - method: build_jh2_solution
-  max_time_per_job: 3
+  max_time_per_add: 3
   num_workers: 8
   error_if_infeasible: true
 - method: repeat

@@ -546,8 +546,9 @@ class HybridFlowShopCpLnsController(
     def construct_solution_by_incremental_cp(
         self,
         job_sequence: list[str],
-        max_time_per_job: float,
+        max_time_per_add: float,
         num_workers: int,
+        added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -560,8 +561,10 @@ class HybridFlowShopCpLnsController(
 
         Args:
             job_sequence (list[str]): The sequence of job IDs to be added.
-            max_time_per_job (float): The time limit (in seconds) for solving each incremental subproblem.
+            max_time_per_add (float): The time limit (in seconds) for solving each incremental subproblem.
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -573,17 +576,25 @@ class HybridFlowShopCpLnsController(
         _last_summary: SolverOutputSummary | None = None
         _last_sol_manager: SolutionManager | None = None
 
-        for j, job_id in enumerate(job_sequence):
-            logging.info(f"Add job {job_id}")
-            job_subset = set(job_sequence[: j + 1])  # Jobs up to the current one
+        sequence_of_job_sublist = [
+            job_sequence[i : i + added_batch_size]
+            for i in range(0, len(job_sequence), added_batch_size)
+        ]
+
+        job_subset: set[str] = set()
+        for job_sublist in sequence_of_job_sublist:
+            logging.info(f"Add jobs {job_sublist} into {len(job_subset)}-job subset")
+            job_subset.update(job_sublist)  # Add new jobs to the subset
+
             # Create CP model with the job subset
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
-            # If this is not the first job, freeze jobs in the previous model
+            # If this is not the first iteration, freeze jobs in the previous model
             if _last_sol_manager is not None:
                 _last_sol_manager.apply_fixed_machine_and_ops_precedence_constraints(
                     sub_cp_mdl
                 )
-            _timelimit = self.get_remaining_time_limit(max_time_per_job)
+
+            _timelimit = self.get_remaining_time_limit(max_time_per_add)
             _last_summary = self.solve_cp_model(
                 sub_cp_mdl,
                 _timelimit,
@@ -591,6 +602,7 @@ class HybridFlowShopCpLnsController(
                 random_seed=self.random_seed,
                 timer=self.timer,
             )
+
             start_times, end_times = sub_cp_mdl.extract_start_end_times()
             _last_sol_manager = SolutionManager(
                 start_times=start_times,
@@ -722,8 +734,9 @@ class HybridFlowShopCpLnsController(
 
     def build_jh1_solution(
         self,
-        max_time_per_job: float,
+        max_time_per_add: float,
         num_workers: int,
+        added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -734,7 +747,7 @@ class HybridFlowShopCpLnsController(
         schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
-            max_time_per_job (float): The maximum computational time per job addition in seconds.
+            max_time_per_add (float): The maximum computational time per addition in seconds.
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
@@ -744,16 +757,18 @@ class HybridFlowShopCpLnsController(
 
         self.construct_solution_by_incremental_cp(
             self.get_jh1_sequence(),
-            max_time_per_job,
+            max_time_per_add,
             num_workers,
+            added_batch_size=added_batch_size,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
     def build_jh2_solution(
         self,
-        max_time_per_job: float,
+        max_time_per_add: float,
         num_workers: int,
+        added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -764,7 +779,7 @@ class HybridFlowShopCpLnsController(
         schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
-            max_time_per_job (float): The maximum computational time per job addition in seconds.
+            max_time_per_add (float): The maximum computational time per addition in seconds.
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
@@ -774,8 +789,9 @@ class HybridFlowShopCpLnsController(
 
         self.construct_solution_by_incremental_cp(
             self.get_jh2_sequence(),
-            max_time_per_job,
+            max_time_per_add,
             num_workers,
+            added_batch_size=added_batch_size,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )

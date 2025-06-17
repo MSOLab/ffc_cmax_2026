@@ -81,7 +81,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mbls", specifier = "==0.0.11" },
+    { name = "mbls", directory = "../mbls" },
     { name = "ortools", specifier = ">=9.12.4544" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "routix", specifier = "==0.0.11" },
@@ -154,14 +154,25 @@ wheels = [
 [[package]]
 name = "mbls"
 version = "0.0.11"
-source = { registry = "https://pypi.org/simple" }
+source = { directory = "../mbls" }
 dependencies = [
     { name = "matplotlib" },
     { name = "routix" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a0/54/c44c1101e25b81c0b086d412b48554e451ee5eb2b18f1e3316bc60380a1b/mbls-0.0.11.tar.gz", hash = "sha256:dacebe6f0c44aad37b1418516799d4f00d19e65064f40605264cbdfc951e8dad", size = 30923, upload-time = "2025-06-16T11:45:20.984Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/bf/dde43f9200b10ac5bdb828b677d37e7cf7934fc658f0f073b445b3725f6f/mbls-0.0.11-py3-none-any.whl", hash = "sha256:30592eb9c3f01d450986a43da5548334a3d421d991b2711697ab1753e2e74691", size = 16844, upload-time = "2025-06-16T11:45:19.784Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "matplotlib", specifier = ">=3.10.3" },
+    { name = "routix", specifier = ">=0.0.11" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ortools", specifier = ">=9.12.4544" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "types-protobuf", specifier = ">=6.30.2.20250516" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250402" },
 ]
 
 [[package]]
