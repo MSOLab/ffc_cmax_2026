@@ -685,11 +685,11 @@ class HybridFlowShopCpLnsController(
                 l1.append(job)
             else:
                 l2.append(job)
-            logging.info(
-                f"Job {job} with p1={aggregated_p1[job]}, p2={aggregated_p2[job]}"
-                f"; Min={min(aggregated_p1[job], aggregated_p2[job])}"
-                f"; p1<=p2: {aggregated_p1[job] <= aggregated_p2[job]}"
-            )
+            # logging.info(
+            #     f"Job {job} with p1={aggregated_p1[job]}, p2={aggregated_p2[job]}"
+            #     f"; Min={min(aggregated_p1[job], aggregated_p2[job])}"
+            #     f"; p1<=p2: {aggregated_p1[job] <= aggregated_p2[job]}"
+            # )
 
         # Sort by increasing order of p_1j, tie-breaking by job-ID (ascending)
         l1.sort(key=lambda j: (aggregated_p1[j], j))

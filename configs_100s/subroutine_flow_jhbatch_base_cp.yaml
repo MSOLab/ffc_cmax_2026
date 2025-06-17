@@ -10,3 +10,7 @@
   num_workers: 8
   added_batch_size: 5
   error_if_infeasible: true
+- method: solve_base_cp_model
+  computational_time: 100
+  num_workers: 8
+  hint_from_incumbent: true
