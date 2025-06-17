@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class HFSInputSummary:
+class HfsInputSummary:
     name: str
     job_count: int
     stage_count: int

@@ -10,8 +10,8 @@ from routix.runner import SingleInstanceRunner
 from schore.hybridflowshop import HybridFlowShopProblem
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
-from hybridflowshop.hfs_input_summary import HFSInputSummary
-from hybridflowshop.hfs_summary import HFSSummary
+from hybridflowshop.hfs_input_summary import HfsInputSummary
+from hybridflowshop.hfs_summary import HfsSummary
 from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.stopping_criteria import StoppingCriteria
 from hybridflowshop.utils import pyyaml_key_to_tuple
@@ -99,14 +99,14 @@ class HfsSingleInstanceRunner(
         self.save_obj_value_bound_store(encoding=encoding)
 
     def save_summary(self, encoding: str = "utf-8") -> None:
-        input_summary = HFSInputSummary(
+        input_summary = HfsInputSummary(
             name=self.name,
             job_count=self.instance.job_count,
             stage_count=self.instance.stage_count,
             timelimit=self.stopping_criteria.timelimit,
         )
         expr_summary = self.ctrlr.experiment_summary
-        summary = HFSSummary(inputs=input_summary, outputs=expr_summary)
+        summary = HfsSummary(inputs=input_summary, outputs=expr_summary)
         summary.save(self.summary_path, encoding=encoding)
 
     def save_solution(self, encoding: str = "utf-8") -> None:

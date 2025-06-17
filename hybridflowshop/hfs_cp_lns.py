@@ -569,22 +569,21 @@ class HybridFlowShopCpLnsController(
             logging.info(f"Add job {job_id}")
             job_subset = set(job_sequence[: j + 1])  # Jobs up to the current one
             # Create CP model with the job subset
-            new_sub_cp = self.cp_model.create_problem_of_job_subset(job_subset)
+            sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             # If this is not the first job, freeze jobs in the previous model
             if _last_sol_manager is not None:
-                _last_sol_manager.apply_start_and_present_hints(new_sub_cp)
                 _last_sol_manager.apply_fixed_machine_and_ops_precedence_constraints(
-                    new_sub_cp
+                    sub_cp_mdl
                 )
             _timelimit = self.get_remaining_time_limit(max_time_per_job)
             _last_summary = self.solve_cp_model(
-                new_sub_cp,
+                sub_cp_mdl,
                 _timelimit,
                 num_workers,
                 random_seed=self.random_seed,
                 timer=self.timer,
             )
-            start_times, end_times = new_sub_cp.extract_start_end_times()
+            start_times, end_times = sub_cp_mdl.extract_start_end_times()
             _last_sol_manager = SolutionManager(
                 start_times=start_times,
                 end_times=end_times,
@@ -625,29 +624,63 @@ class HybridFlowShopCpLnsController(
     def johnson_rule_permutation(
         aggregated_p1: dict[str, int], aggregated_p2: dict[str, int]
     ) -> list[str]:
+        """
+        Apply Johnson's rule to determine the job sequence.
+        This method takes two dictionaries representing aggregated processing times
+        for two stages and returns a job sequence based on the Johnson's rule.
+
+        Args:
+            aggregated_p1 (dict[str, int]): job ID -> aggregated processing time for the 1st stage
+            aggregated_p2 (dict[str, int]): job ID -> aggregated processing time for the 2nd stage
+
+        Returns:
+            list[str]: A list of job IDs ordered according to Johnson's rule.
+        """
         jobs = list(aggregated_p1.keys())
-        n = len(jobs)
-        sequence: list[str] = [""] * n  # Initialize sequence with empty strings
-        left = 0
-        right = n - 1
+        # n = len(jobs)
+        # sequence: list[str] = [""] * n  # Initialize sequence with empty strings
+        # left = 0
+        # right = n - 1
 
-        # Pre-sort jobs based on aggregated processing times
-        jobs.sort(
-            key=lambda j: (min(aggregated_p1[j], aggregated_p2[j]), j)
-        )  # Sort by min processing time first, then by job ID
+        # # Pre-sort jobs based on aggregated processing times
+        # jobs.sort(
+        #     key=lambda j: (min(aggregated_p1[j], aggregated_p2[j]), j)
+        # )  # Sort by min processing time first, then by job ID
 
-        while jobs:
-            job = jobs.pop(0)  # Remove the first job from the sorted list
+        # while jobs:
+        #     job = jobs.pop(0)  # Remove the first job from the sorted list
+        #     if aggregated_p1[job] <= aggregated_p2[job]:
+        #         sequence[left] = job  # Last of the front
+        #         left += 1
+        #     else:
+        #         sequence[right] = job  # First of the back
+        #         right -= 1
+        l1: list[str] = []
+        l2: list[str] = []
+
+        for job in jobs:
             if aggregated_p1[job] <= aggregated_p2[job]:
-                sequence[left] = job  # Last of the front
-                left += 1
+                l1.append(job)
             else:
-                sequence[right] = job  # First of the back
-                right -= 1
+                l2.append(job)
+            logging.info(
+                f"Job {job} with p1={aggregated_p1[job]}, p2={aggregated_p2[job]}"
+                f"; Min={min(aggregated_p1[job], aggregated_p2[job])}"
+                f"; p1<=p2: {aggregated_p1[job] <= aggregated_p2[job]}"
+            )
 
+        # Sort by increasing order of p_1j, tie-breaking by job-ID (ascending)
+        l1.sort(key=lambda j: (aggregated_p1[j], j))
+
+        # Sort by decreasing order of p_2j, tie-breaking by job-ID (descending)
+        l2.sort(key=lambda j: (aggregated_p2[j], j), reverse=True)
+
+        logging.info(f"Job sequence by Johnson's rule: {l1}+{l2}")
+
+        sequence = l1 + l2
         return sequence
 
-    def get_jbh1_sequence(self) -> list[str]:
+    def get_jh1_sequence(self) -> list[str]:
         jobs = self.instance.job_id_list
         stages = self.instance.stage_id_list
         p_dict: dict[tuple[str, str], int] = (
@@ -657,7 +690,7 @@ class HybridFlowShopCpLnsController(
         p2 = {j: p_dict[j, stages[-1]] for j in jobs}  # Last stage processing times
         return self.johnson_rule_permutation(p1, p2)
 
-    def get_jbh2_sequence(self) -> list[str]:
+    def get_jh2_sequence(self) -> list[str]:
         jobs = self.instance.job_id_list
         num_stages = self.instance.stage_count
         stages = self.instance.stage_id_list
@@ -677,17 +710,17 @@ class HybridFlowShopCpLnsController(
         }  # Aggregated processing times for second half stages
         return self.johnson_rule_permutation(p1, p2)
 
-    def build_jbh1_solution(
+    def build_jh1_solution(
         self,
         max_time_per_job: float,
         num_workers: int,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using the Johnson-based Heuristic 1 (JbH1) sequence.
+        """Build a CP-guided solution using the Johnson-based Heuristic 1 (jh1) sequence.
 
         This method computes a job sequence by aggregating processing times from
-        the first and last stages (JbH1 rule), then incrementally constructs a feasible
+        the first and last stages (jh1 rule), then incrementally constructs a feasible
         schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
@@ -700,24 +733,24 @@ class HybridFlowShopCpLnsController(
         """
 
         self.construct_solution_by_incremental_cp(
-            self.get_jbh1_sequence(),
+            self.get_jh1_sequence(),
             max_time_per_job,
             num_workers,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
-    def build_jbh2_solution(
+    def build_jh2_solution(
         self,
         max_time_per_job: float,
         num_workers: int,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using the Johnson-based Heuristic 2 (JbH2) sequence.
+        """Build a CP-guided solution using the Johnson-based Heuristic 2 (jh2) sequence.
 
         This method computes a job sequence by aggregating processing times from
-        the first half and second half stages (JbH2 rule), then incrementally constructs a feasible
+        the first half and second half stages (jh2 rule), then incrementally constructs a feasible
         schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
@@ -730,7 +763,7 @@ class HybridFlowShopCpLnsController(
         """
 
         self.construct_solution_by_incremental_cp(
-            self.get_jbh2_sequence(),
+            self.get_jh2_sequence(),
             max_time_per_job,
             num_workers,
             error_if_infeasible=error_if_infeasible,

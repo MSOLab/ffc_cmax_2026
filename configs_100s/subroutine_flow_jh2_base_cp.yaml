@@ -1,10 +1,10 @@
 - method: set_random_seed
   seed: 42
-- method: build_jbh1_solution
-  max_time_per_job: 5
+- method: build_jh2_solution
+  max_time_per_job: 10
   num_workers: 8
   error_if_infeasible: true
 - method: solve_base_cp_model
-  computational_time: 25
+  computational_time: 100
   num_workers: 8
   hint_from_incumbent: true

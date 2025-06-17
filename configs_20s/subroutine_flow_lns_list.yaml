@@ -1,6 +1,6 @@
 - method: set_random_seed
   seed: 42
-- method: build_jbh1_solution
+- method: build_jh1_solution
   max_time_per_job: 5
   num_workers: 8
   error_if_infeasible: true

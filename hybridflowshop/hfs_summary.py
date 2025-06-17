@@ -1,15 +1,14 @@
 from pathlib import Path
 
-from mbls import ExperimentSummary
+from .hfs_experiment_summary import HfsExperimentSummary
+from .hfs_input_summary import HfsInputSummary
 
-from .hfs_input_summary import HFSInputSummary
 
+class HfsSummary:
+    inputs: HfsInputSummary
+    outputs: HfsExperimentSummary
 
-class HFSSummary:
-    inputs: HFSInputSummary
-    outputs: ExperimentSummary
-
-    def __init__(self, inputs: HFSInputSummary, outputs: ExperimentSummary):
+    def __init__(self, inputs: HfsInputSummary, outputs: HfsExperimentSummary):
         self.inputs = inputs
         self.outputs = outputs
 
