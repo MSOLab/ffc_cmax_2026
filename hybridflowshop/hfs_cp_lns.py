@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from mbls import DynamicDataObject, SolverOutputSummary, SolverStatus
+from mbls import DynamicDataObject, ElapsedTimer, SolverOutputSummary, SolverStatus
 from mbls.cpsat.cp_subroutine_controller import CpSubroutineController
 from schore.hybridflowshop import HybridFlowShopProblem
 
@@ -562,6 +562,9 @@ class HybridFlowShopCpLnsController(
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
+
+        e_timer = ElapsedTimer()
+
         _last_summary: SolverOutputSummary | None = None
         _last_sol_manager: SolutionManager | None = None
 
@@ -599,15 +602,16 @@ class HybridFlowShopCpLnsController(
         if error_if_infeasible:
             self.check_feasibility(_last_sol_manager.start_times)
 
-        elapsed_time = self.timer.get_elapsed_sec()
+        log_time = self.timer.get_elapsed_sec()
         obj_value = _last_summary.objective_value
-        progress_log = [(elapsed_time, obj_value, 0.0)]
+        progress_log = [(log_time, obj_value, 0.0)]
         self.append_obj_log(
             progress_log,
             is_maximize=False,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
         )
+        elapsed_time = e_timer.get_elapsed_sec()
         subroutine_summary = SolverOutputSummary(
             _last_summary.status,
             elapsed_time,
