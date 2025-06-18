@@ -1,4 +1,5 @@
 import logging
+import math
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -48,6 +49,9 @@ class HybridFlowShopCpLnsController(
         )
 
         self.experiment_summary = HfsExperimentSummary(instance.name)
+
+        self.obj_lower_bound: float | None = None
+        """Best objective bound found so far."""
 
     def set_working_dir(self, dir_path: Path | str):
         super().set_working_dir(dir_path)
@@ -206,6 +210,12 @@ class HybridFlowShopCpLnsController(
                 Defaults to False.
         """
         _timelimit = self.get_remaining_time_limit(computational_time)
+
+        # If LB for the objective bound is valid for the model, set it in the CP model
+        if obj_value_is_valid:
+            if self.obj_lower_bound is not None:
+                self.cp_model.set_obj_lower_bound(self.obj_lower_bound)
+
         summary = self.solve_current_cp_model(
             _timelimit,
             num_workers,
@@ -230,6 +240,14 @@ class HybridFlowShopCpLnsController(
 
         if obj_value_is_valid:
             self.update_incumbent_solution(draw_gantt=draw_gantt)
+        if obj_bound_is_valid:
+            if summary.best_objective_bound is not None:
+                if self.obj_lower_bound is None:
+                    self.obj_lower_bound = summary.best_objective_bound
+                else:
+                    self.obj_lower_bound = max(
+                        self.obj_lower_bound, summary.best_objective_bound
+                    )
 
     def feasible_incumbent_solution_exists(self) -> bool:
         """Check if the incumbent solution is feasible."""
@@ -794,6 +812,54 @@ class HybridFlowShopCpLnsController(
             added_batch_size=added_batch_size,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
+        )
+
+    def init_shdlb(self) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance using the method
+        described by Santos et al. (1995) and assign it to `self.obj_bound`.
+        """
+        instance = self.instance
+        jobs: list[str] = instance.job_id_list
+        stages: list[str] = instance.stage_id_list
+        stage_2_mc_count_map: dict[str, int] = {
+            i: len(instance.stage_2_machines_map[i]) for i in stages
+        }
+        p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
+            jobs, stages
+        )
+        m = len(stages)
+
+        def LB0() -> int:
+            return max(sum(p[j, i] for i in stages) for j in jobs)
+
+        def RS(j: str, stage_idx: int) -> int:
+            return sum(p[j, stages[s]] for s in range(stage_idx + 1, m))
+
+        def LS(j: str, stage_idx: int) -> int:
+            return sum(p[j, stages[s]] for s in range(0, stage_idx))
+
+        def LBj(stage_idx: int) -> float:
+            i = stages[stage_idx]
+            M_i = stage_2_mc_count_map[i]
+
+            # LSA and RSA: ascending sorted LS and RS values
+            LSA = sorted([LS(j, stage_idx) for j in jobs])
+            RSA = sorted([RS(j, stage_idx) for j in jobs])
+
+            total_processing = sum(p[j, i] for j in jobs)
+
+            lhs_sum = sum(LSA[y] for y in range(min(M_i, len(LSA))))
+            rhs_sum = sum(RSA[y] for y in range(min(M_i, len(RSA))))
+
+            return math.ceil((lhs_sum + total_processing + rhs_sum) / M_i)
+
+        lb0 = LB0()
+        stage_bounds = [LBj(stage_idx) for stage_idx in range(m)]
+
+        self.obj_lower_bound = max([lb0] + stage_bounds)
+        logging.info(
+            f"[Lower Bound] LB(0) = {lb0}, LB(j) = {stage_bounds}, LB_MAX = {self.obj_lower_bound}"
         )
 
     # End subroutine definition

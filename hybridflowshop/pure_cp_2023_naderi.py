@@ -5,6 +5,7 @@ from typing import Optional
 
 from mbls import ElapsedTimer
 from mbls.cpsat import CpModelWithOptionalFixedInterval
+from ortools.sat.python.cp_model import IntVar
 from schore.hybridflowshop import HybridFlowShopProblem
 
 
@@ -22,6 +23,10 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
     p: dict[tuple[str, str], int]
     """$P_{ji}$: processing time of job j at stage i"""
+
+    # Objective
+    obj_var: IntVar
+    """Defines the makespan objective for the scheduling problem."""
 
     def __init__(self, horizon: int):
         super().__init__(horizon)
@@ -118,6 +123,15 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         )
 
         self.minimize(makespan)
+        self.obj_var = makespan
+
+    def set_obj_lower_bound(self, bound: float) -> None:
+        """Sets a lower bound for the objective function.
+
+        Args:
+            bound (float): The lower bound for the objective function.
+        """
+        self.add(self.obj_var >= bound)
 
     # Constraints
 
