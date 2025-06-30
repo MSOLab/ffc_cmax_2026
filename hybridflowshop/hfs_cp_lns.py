@@ -12,6 +12,7 @@ from schore.hybridflowshop import HybridFlowShopProblem
 from .hfs_experiment_summary import HfsExperimentSummary
 from .hfs_solver_output_summary import HfsSolverOutputSummary
 from .pure_cp_2023_naderi import PureCP2023Naderi
+from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from .solution_manager import SolutionManager
 from .stopping_criteria import StoppingCriteria
 
@@ -574,6 +575,71 @@ class HybridFlowShopCpLnsController(
 
     # Subroutine: Johnson-based Heuristic for initialization
 
+    def dispatch_sequentially(self, job_sequence: list[str], draw_gantt: bool = False):
+        e_timer = ElapsedTimer()
+
+        # Create an empty schedule
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        # Job name -> stage name -> processing time map
+        job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
+            self.instance.job_id_list, self.instance.stage_id_list
+        )
+
+        for idx, j in enumerate(job_sequence):
+            schedule.dispatch_job_earliest(
+                j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
+            )
+            # TODO: uncomment only for debug purpose
+            start_times = schedule.get_start_time_map()
+            end_times = schedule.get_end_time_map()
+            obj_value = float(schedule.makespan)
+            sol_mgr = SolutionManager(
+                start_times,
+                end_times,
+                SolverOutputSummary(
+                    SolverStatus.FEASIBLE,
+                    0.0,
+                    objective_value=obj_value,
+                    best_objective_bound=None,
+                    progress_log=None,
+                ),
+            )
+            output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
+            sol_mgr.save_gantt_as_png(output_path)
+
+        log_time = self.timer.get_elapsed_sec()
+        obj_value = float(schedule.makespan)
+        progress_log = [(log_time, obj_value, 0.0)]
+        self.append_obj_log(
+            progress_log,
+            is_maximize=False,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+        )
+
+        elapsed_time = e_timer.get_elapsed_sec()
+        summary_for_sol_mgr = SolverOutputSummary(
+            SolverStatus.FEASIBLE,
+            elapsed_time,
+            objective_value=obj_value,
+            best_objective_bound=None,
+            progress_log=progress_log,
+        )
+        summary_for_run = HfsSolverOutputSummary.from_other(
+            summary_for_sol_mgr, is_init=True
+        )
+        self.experiment_summary.add_run_summary(summary_for_run)
+
+        start_times = schedule.get_start_time_map()
+        end_times = schedule.get_end_time_map()
+        self.last_solution_manager = SolutionManager(
+            start_times, end_times, summary_for_sol_mgr
+        )
+
+        self.update_incumbent_solution(draw_gantt=draw_gantt)
+
     def construct_solution_by_incremental_cp(
         self,
         job_sequence: list[str],
@@ -875,6 +941,24 @@ class HybridFlowShopCpLnsController(
             f"[Lower Bound] LB(0) = {lb0}, LB(j) = {stage_bounds}, LB_MAX = {self.obj_lower_bound}"
         )
 
+    def dispatch_by_jh1(self, draw_gantt: bool = False) -> None:
+        """
+        Dispatch jobs in the order determined by Johnson's rule for the first and last stages.
+        This method computes the job sequence using the Johnson-based Heuristic 1 (jh1) and
+        dispatches jobs sequentially to create a feasible schedule.
+        """
+        job_sequence = self.get_jh1_sequence()
+        self.dispatch_sequentially(job_sequence, draw_gantt=draw_gantt)
+
+    def dispatch_by_jh2(self, draw_gantt: bool = False) -> None:
+        """
+        Dispatch jobs in the order determined by Johnson's rule for the first half and second half stages.
+        This method computes the job sequence using the Johnson-based Heuristic 2 (jh2) and
+        dispatches jobs sequentially to create a feasible schedule.
+        """
+        job_sequence = self.get_jh2_sequence()
+        self.dispatch_sequentially(job_sequence, draw_gantt=draw_gantt)
+
     # End subroutine definition
 
     def post_run_process(self) -> None:
@@ -892,6 +976,7 @@ class HybridFlowShopCpLnsController(
             RuntimeError: If the feasibility check fails while solving the model.
             ValueError: If the feasibility check fails with an unexpected status.
         """
+        logging.info("Feasibility check starts")
         for (j, i, k), start_time in start_times.items():
             if start_time < 0:
                 raise ValueError(
@@ -908,9 +993,9 @@ class HybridFlowShopCpLnsController(
         try:
             summary = self.solve_cp_model(base_cp, 1.0, 1)
         except Exception as e:
-            raise RuntimeError(f"Feasibility check failed: {e}") from e
+            raise RuntimeError(f"Feasibility check FAILED: {e}") from e
 
         if not SolverStatus.is_optimal_solution(summary.status):
-            raise ValueError(f"Feasibility check failed with status: {summary.status}")
+            raise ValueError(f"Feasibility check FAILED with status: {summary.status}")
 
-        logging.info("Feasibility check passed.")
+        logging.info("Feasibility check passed")
