@@ -312,41 +312,41 @@ class HybridFlowShopCpLnsController(
         self,
         computational_time: float,
         num_workers: int,
-        hint_from_incumbent: bool = False,
         is_initial_solution: bool = False,
         draw_gantt: bool = False,
     ):
         """
-        Solve the base CP model.
-        This method resets the CP model, applies the incumbent solution as a hint if available,
-        and solves the model with the given computational time and number of workers.
+        Solve the base CP model for the hybrid flow shop problem.
+
+        This method resets the CP model and solves it with the given computational time and number of workers.
+        - If `is_initial_solution` is True, the solution is treated as the initial solution (e.g., for logging or summary purposes).
+        - If `is_initial_solution` is False, the incumbent solution (if it exists) is applied as a hint to the CP model before solving.
+        - If `draw_gantt` is True, a Gantt chart of the solution is generated after solving.
 
         Args:
-            computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
-            hint_from_incumbent (bool, optional): If True, uses the incumbent solution as a hint.
-                Defaults to False.
-            is_initial_solution (bool, optional): If True, indicates that this is an initial solution.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
+            computational_time (float): The maximum computational time in seconds for solving the CP model.
+            num_workers (int): The number of parallel workers (threads) to use during search.
+            is_initial_solution (bool, optional): If True, marks this run as producing the initial solution (affects summary/logging). Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution after solving. Defaults to False.
         """
         self.cp_model.delete_added_constraints()
-        if hint_from_incumbent:
-            self.solve_with_initial_solution(
-                computational_time,
-                num_workers,
-                obj_value_is_valid=True,
-                obj_bound_is_valid=True,
-                error_if_infeasible=True,
-                draw_gantt=draw_gantt,
-            )
-        else:
+        if is_initial_solution:
             self.solve_current_cp_remaining_time_limit(
                 computational_time,
                 num_workers,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
-                is_initial_solution=is_initial_solution,
+                is_initial_solution=True,
+                error_if_infeasible=True,
+                draw_gantt=draw_gantt,
+            )
+        else:
+            # If it is not an initial solution, apply the incumbent solution as a hint
+            self.solve_with_initial_solution(
+                computational_time,
+                num_workers,
+                obj_value_is_valid=True,
+                obj_bound_is_valid=True,
                 error_if_infeasible=True,
                 draw_gantt=draw_gantt,
             )

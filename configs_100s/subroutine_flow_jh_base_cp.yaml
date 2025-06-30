@@ -11,4 +11,3 @@
 - method: solve_base_cp_model
   computational_time: 100
   num_workers: 8
-  hint_from_incumbent: true
