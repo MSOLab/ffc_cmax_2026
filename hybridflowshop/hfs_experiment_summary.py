@@ -7,6 +7,7 @@ from .hfs_solver_output_summary import HfsSolverOutputSummary
 
 
 class HfsExperimentSummary(ExperimentSummary):
+    # TODO: apply generic and typevar to ExperimentSummary
     runs: list[HfsSolverOutputSummary] = field(default_factory=list)
 
     def get_init_summary(
