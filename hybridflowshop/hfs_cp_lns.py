@@ -140,9 +140,10 @@ class HybridFlowShopCpLnsController(
         self.incumbent_solution_manager.save_gantt_as_png(output_path)
 
     def update_incumbent_solution(self, draw_gantt: bool = False) -> None:
-        """Update the incumbent solution if the last solution is better.
-        This method checks if the last solution is better than the incumbent solution.
-        If it is, it sets the last solution as the incumbent solution and optionally draws the Gantt chart.
+        """
+        Update the incumbent solution if the last solution is better.
+        - This method checks if the last solution is better than the incumbent solution.
+        - If it is, it sets the last solution as the incumbent solution and optionally draws the Gantt chart.
 
         Args:
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution if it is better.
@@ -152,7 +153,10 @@ class HybridFlowShopCpLnsController(
             self.set_last_solution_as_incumbent(draw_gantt=draw_gantt)
 
     def last_solution_is_better_than_incumbent(self) -> bool:
-        """Check if the last solution is better than the incumbent solution."""
+        """
+        Check if the last solution is better than the incumbent solution.
+        - If no incumbent solution exists, the last solution is considered better.
+        """
         if not hasattr(self, "last_solution_manager"):
             raise ValueError("No last solution available to compare.")
         # If no incumbent solution exists, the last solution is considered better
@@ -411,8 +415,8 @@ class HybridFlowShopCpLnsController(
         Apply the Time Window Operator to the current CP model.
 
         Args:
-            current_start_times (dict[tuple[str, str, str], int]): (job_name, stage_name, machine_id) -> current start_time
-            current_end_times (dict[tuple[str, str, str], int]): (job_name, stage_name, machine_id) -> current end_time
+            current_start_times (dict[tuple[str, str, str], int]): (job_name, stage_name, mc_name) -> current start_time
+            current_end_times (dict[tuple[str, str, str], int]): (job_name, stage_name, mc_name) -> current end_time
             rho (float, optional): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
         """
         logging.info(f"Applying time window operator with rho={rho}")
