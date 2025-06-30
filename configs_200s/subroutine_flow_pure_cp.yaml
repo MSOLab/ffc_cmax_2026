@@ -3,3 +3,4 @@
 - method: solve_base_cp_model
   computational_time: 200
   num_workers: 8
+  is_initial_solution: true

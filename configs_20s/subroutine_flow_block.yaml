@@ -3,6 +3,7 @@
 - method: solve_base_cp_model
   computational_time: 5
   num_workers: 8
+  is_initial_solution: true
 - method: repeat
   params:
     n_repeats: 10

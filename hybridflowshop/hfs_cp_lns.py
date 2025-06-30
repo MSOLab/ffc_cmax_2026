@@ -191,11 +191,12 @@ class HybridFlowShopCpLnsController(
         num_workers: int,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
+        is_initial_solution: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Solve the current CP model with the remaining time limit.
-
+        """
+        Solve the current CP model with the remaining time limit.
         - Updates the experiment summary with the run summary of the current solution.
         - Updates the last solution manager with the start and end times extracted from the CP model.
         - Checks the feasibility of the solution if required.
@@ -208,6 +209,7 @@ class HybridFlowShopCpLnsController(
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
                 Defaults to False.
+            is_initial_solution (bool, optional): If True, indicates that this is an initial solution.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -228,8 +230,10 @@ class HybridFlowShopCpLnsController(
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
         )
-        # Indicates this is not an initial solution
-        _summary = HfsSolverOutputSummary.from_other(summary, is_init=False)
+
+        _summary = HfsSolverOutputSummary.from_other(
+            summary, is_init=is_initial_solution
+        )
 
         start_times, end_times = self.cp_model.extract_start_end_times()
 
@@ -287,7 +291,8 @@ class HybridFlowShopCpLnsController(
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        if self.feasible_incumbent_solution_exists():
+        cannot_apply_hint = not self.feasible_incumbent_solution_exists()
+        if not cannot_apply_hint:
             self.cp_model.clear_hints()
             self.incumbent_solution_manager.apply_start_and_present_hints(self.cp_model)
         self.solve_current_cp_remaining_time_limit(
@@ -295,6 +300,7 @@ class HybridFlowShopCpLnsController(
             num_workers,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
+            is_initial_solution=cannot_apply_hint,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -306,7 +312,8 @@ class HybridFlowShopCpLnsController(
         computational_time: float,
         num_workers: int,
         hint_from_incumbent: bool = False,
-        draw_gantt=False,
+        is_initial_solution: bool = False,
+        draw_gantt: bool = False,
     ):
         """
         Solve the base CP model.
@@ -318,6 +325,7 @@ class HybridFlowShopCpLnsController(
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
             hint_from_incumbent (bool, optional): If True, uses the incumbent solution as a hint.
                 Defaults to False.
+            is_initial_solution (bool, optional): If True, indicates that this is an initial solution.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -337,6 +345,7 @@ class HybridFlowShopCpLnsController(
                 num_workers,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
+                is_initial_solution=is_initial_solution,
                 error_if_infeasible=True,
                 draw_gantt=draw_gantt,
             )
