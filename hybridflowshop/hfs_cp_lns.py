@@ -592,22 +592,22 @@ class HybridFlowShopCpLnsController(
                 j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
             )
             # TODO: uncomment only for debug purpose
-            start_times = schedule.get_start_time_map()
-            end_times = schedule.get_end_time_map()
-            obj_value = float(schedule.makespan)
-            sol_mgr = SolutionManager(
-                start_times,
-                end_times,
-                SolverOutputSummary(
-                    SolverStatus.FEASIBLE,
-                    0.0,
-                    objective_value=obj_value,
-                    best_objective_bound=None,
-                    progress_log=None,
-                ),
-            )
-            output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
-            sol_mgr.save_gantt_as_png(output_path)
+            # start_times = schedule.get_start_time_map()
+            # end_times = schedule.get_end_time_map()
+            # obj_value = float(schedule.makespan)
+            # sol_mgr = SolutionManager(
+            #     start_times,
+            #     end_times,
+            #     SolverOutputSummary(
+            #         SolverStatus.FEASIBLE,
+            #         0.0,
+            #         objective_value=obj_value,
+            #         best_objective_bound=None,
+            #         progress_log=None,
+            #     ),
+            # )
+            # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
+            # sol_mgr.save_gantt_as_png(output_path)
 
         log_time = self.timer.get_elapsed_sec()
         obj_value = float(schedule.makespan)
