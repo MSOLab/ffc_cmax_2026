@@ -2,7 +2,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from routix.runner import MultiInstanceConcurrentRunner
-from schore.examples.hybrid_flowshop import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
 
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 

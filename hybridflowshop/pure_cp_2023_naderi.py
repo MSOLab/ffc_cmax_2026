@@ -6,7 +6,9 @@ from typing import Optional
 from mbls import ElapsedTimer
 from mbls.cpsat import CpModelWithOptionalFixedInterval
 from ortools.sat.python.cp_model import IntVar
-from schore.examples.hybrid_flowshop import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
 
 
 class PureCP2023Naderi(CpModelWithOptionalFixedInterval):

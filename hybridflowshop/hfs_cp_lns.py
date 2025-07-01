@@ -7,7 +7,9 @@ from typing import Any, Callable, Optional
 
 from mbls import DynamicDataObject, ElapsedTimer, SolverOutputSummary, SolverStatus
 from mbls.cpsat.cp_subroutine_controller import CpSubroutineController
-from schore.examples.hybrid_flowshop import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
 
 from .hfs_experiment_summary import HfsExperimentSummary
 from .hfs_solver_output_summary import HfsSolverOutputSummary

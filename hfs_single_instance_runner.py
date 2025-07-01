@@ -7,7 +7,9 @@ from mbls import DynamicDataObject, utils
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
 from routix.runner import SingleInstanceRunner
-from schore.examples.hybrid_flowshop import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary

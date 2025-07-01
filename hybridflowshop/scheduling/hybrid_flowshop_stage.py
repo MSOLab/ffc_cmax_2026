@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from schore.schedule.base import ParallelResourceGroup
+from schore.schedule.abstract import ParallelResourceGroup
 
 from .hybrid_flowshop_operation import HybridFlowshopOperation
 from .machine import Machine

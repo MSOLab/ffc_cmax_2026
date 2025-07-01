@@ -1,4 +1,4 @@
-from schore.schedule.base import Activity
+from schore.schedule.abstract import Activity
 
 
 class HybridFlowshopOperation(Activity):

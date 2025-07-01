@@ -1,4 +1,5 @@
-from .base.resource import Resource
+from schore.schedule.abstract import Resource
+
 from .hybrid_flowshop_operation import HybridFlowshopOperation
 
 
