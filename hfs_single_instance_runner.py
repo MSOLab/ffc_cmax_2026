@@ -7,7 +7,7 @@ from mbls import DynamicDataObject, utils
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
 from routix.runner import SingleInstanceRunner
-from schore.hybridflowshop import HybridFlowShopProblem
+from schore.examples.hybrid_flowshop import HybridFlowshopParameters
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
@@ -18,11 +18,11 @@ from hybridflowshop.utils import pyyaml_key_to_tuple
 
 
 class HfsSingleInstanceRunner(
-    SingleInstanceRunner[HybridFlowShopProblem, HybridFlowShopCpLnsController]
+    SingleInstanceRunner[HybridFlowshopParameters, HybridFlowShopCpLnsController]
 ):
     def __init__(
         self,
-        instance: HybridFlowShopProblem,
+        instance: HybridFlowshopParameters,
         shared_param_dict: dict,
         subroutine_flow: DynamicDataObject,
         stopping_criteria: StoppingCriteria,

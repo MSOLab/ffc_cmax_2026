@@ -6,7 +6,7 @@ from typing import Optional
 from mbls import ElapsedTimer
 from mbls.cpsat import CpModelWithOptionalFixedInterval
 from ortools.sat.python.cp_model import IntVar
-from schore.hybridflowshop import HybridFlowShopProblem
+from schore.examples.hybrid_flowshop import HybridFlowshopParameters
 
 
 class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
@@ -33,12 +33,12 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
     @classmethod
     def from_instance(
-        cls, hfs_instance: HybridFlowShopProblem, horizon: int
+        cls, hfs_instance: HybridFlowshopParameters, horizon: int
     ) -> "PureCP2023Naderi":
-        """Creates a PureCP2023Naderi model from a HybridFlowShopProblem instance.
+        """Creates a PureCP2023Naderi model from a HybridFlowshopParameters instance.
 
         Args:
-            hfs_instance (HybridFlowShopProblem): The hybrid flow shop problem instance.
+            hfs_instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
             horizon (int): The time horizon for the scheduling problem.
 
         Returns:
@@ -48,7 +48,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         result.define_model(hfs_instance)
         return result
 
-    def define_model(self, hfs_instance: HybridFlowShopProblem):
+    def define_model(self, hfs_instance: HybridFlowshopParameters):
         self.define_parameters(hfs_instance)
         self.define_variables()
         self.define_makespan_objective()
@@ -90,7 +90,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
     # Parameters
 
-    def define_parameters(self, hfs_instance: HybridFlowShopProblem):
+    def define_parameters(self, hfs_instance: HybridFlowshopParameters):
         self.j_list = hfs_instance.job_id_list
         self.i_list = hfs_instance.stage_id_list
         self.M_of = hfs_instance.stage_2_machines_map

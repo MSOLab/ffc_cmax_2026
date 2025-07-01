@@ -95,7 +95,7 @@ requires-dist = [
     { name = "ortools", specifier = ">=9.12.4544" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "routix", specifier = "==0.0.11" },
-    { name = "schore", specifier = "==0.0.3" },
+    { name = "schore", directory = "../schore" },
 ]
 
 [package.metadata.requires-dev]
@@ -410,14 +410,19 @@ wheels = [
 
 [[package]]
 name = "schore"
-version = "0.0.3"
-source = { registry = "https://pypi.org/simple" }
+version = "0.0.4"
+source = { directory = "../schore" }
 dependencies = [
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8c/80/8f59f51c2d6e6e5e433ec1c44614ee5e5282eda7c2de667e29f4ef87f87e/schore-0.0.3.tar.gz", hash = "sha256:976b5bd1aa01c95d4634d453271927ebaf954c1f832a4d382a52348977d31bb0", size = 21397, upload-time = "2025-06-16T11:45:56.075Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/69/cb241915d60be6bd2dac4e6490f5c0d844a8058d8e4b048600b52f70c50b/schore-0.0.3-py3-none-any.whl", hash = "sha256:22baacb487bccee5f7ab08e58a62b2b00896180830c0373ac2d85420a2c8b35e", size = 11517, upload-time = "2025-06-16T11:45:55.222Z" },
+
+[package.metadata]
+requires-dist = [{ name = "pandas", specifier = ">=2.2.3" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pandas-stubs", specifier = ">=2.2.3.250308" },
+    { name = "pytest", specifier = ">=8.3.5" },
 ]
 
 [[package]]

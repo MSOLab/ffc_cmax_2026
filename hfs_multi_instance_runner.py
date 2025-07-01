@@ -2,13 +2,13 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from routix.runner import MultiInstanceConcurrentRunner
-from schore.hybridflowshop import HybridFlowShopProblem
+from schore.examples.hybrid_flowshop import HybridFlowshopParameters
 
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 
 
 class HfsMultiInstanceRunner(
-    MultiInstanceConcurrentRunner[HybridFlowShopProblem, HfsSingleInstanceRunner]
+    MultiInstanceConcurrentRunner[HybridFlowshopParameters, HfsSingleInstanceRunner]
 ):
     """
     Orchestrates solving a set of Hybrid Flow Shop (HFS) instances with a given runner class.
@@ -18,7 +18,7 @@ class HfsMultiInstanceRunner(
     def __init__(
         self,
         s_i_runner_class: type[HfsSingleInstanceRunner],
-        instances: Sequence[HybridFlowShopProblem],
+        instances: Sequence[HybridFlowshopParameters],
         shared_params: dict,
         subroutine_flow: Any,
         stopping_criteria: Any,

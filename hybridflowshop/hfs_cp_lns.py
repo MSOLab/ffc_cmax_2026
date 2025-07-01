@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional
 
 from mbls import DynamicDataObject, ElapsedTimer, SolverOutputSummary, SolverStatus
 from mbls.cpsat.cp_subroutine_controller import CpSubroutineController
-from schore.hybridflowshop import HybridFlowShopProblem
+from schore.examples.hybrid_flowshop import HybridFlowshopParameters
 
 from .hfs_experiment_summary import HfsExperimentSummary
 from .hfs_solver_output_summary import HfsSolverOutputSummary
@@ -18,7 +18,7 @@ from .stopping_criteria import StoppingCriteria
 
 
 class HybridFlowShopCpLnsController(
-    CpSubroutineController[HybridFlowShopProblem, PureCP2023Naderi, StoppingCriteria]
+    CpSubroutineController[HybridFlowshopParameters, PureCP2023Naderi, StoppingCriteria]
 ):
     """
     Controller for solving Hybrid Flow Shop problems using CP-based LNS.
@@ -36,7 +36,7 @@ class HybridFlowShopCpLnsController(
 
     def __init__(
         self,
-        instance: HybridFlowShopProblem,
+        instance: HybridFlowshopParameters,
         shared_param_dict: dict,
         subroutine_flow: DynamicDataObject,
         stopping_criteria: StoppingCriteria,

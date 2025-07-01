@@ -9,7 +9,7 @@ dependencies = [
     "ortools>=9.12.4544",
     "pyyaml>=6.0.2",
     "routix==0.0.11",
-    "schore==0.0.3",
+    "schore",
 ]
 
 [dependency-groups]
@@ -27,3 +27,4 @@ pythonpath = ["."]
 
 [tool.uv.sources]
 mbls = { path = "../mbls" }
+schore = { path = "../schore" }
