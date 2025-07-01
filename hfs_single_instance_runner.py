@@ -135,11 +135,13 @@ class HfsSingleInstanceRunner(
         # Read saved solution file to create dictionary of start and end times
         with open(self.solution_path, "r", encoding=encoding) as f:
             solution_dict = yaml.load(f, Loader=yaml.UnsafeLoader)
-            start_times = pyyaml_key_to_tuple(solution_dict["start_times"])
-            end_times = pyyaml_key_to_tuple(solution_dict["end_times"])
+            # TODO: backward compatibility; change to "start_time_map" in future versions
+            start_time_map = pyyaml_key_to_tuple(solution_dict["start_times"])
+            # TODO: backward compatibility; change to "end_time_map" in future versions
+            end_time_map = pyyaml_key_to_tuple(solution_dict["end_times"])
 
             GanttPlotter().export_hybrid_flowshop_plot(
-                output_path, start_times, end_times
+                output_path, start_time_map, end_time_map
             )
 
     def from_files_draw_progress_plot(self, encoding: str = "utf-8") -> None:

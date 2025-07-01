@@ -86,8 +86,8 @@ class HybridFlowshopSchedule:
         """
         return_dict: dict[tuple[str, str, str], int] = {}
         for stage in self._stages.values():
-            stage_start_times = stage.get_start_time_map()
-            for key, value in stage_start_times.items():
+            stage_start_time_map = stage.get_start_time_map()
+            for key, value in stage_start_time_map.items():
                 if key in return_dict:
                     raise ValueError(
                         f"Duplicate start time entry for key {key} in stage {stage.name}."
@@ -104,8 +104,8 @@ class HybridFlowshopSchedule:
         """
         return_dict: dict[tuple[str, str, str], int] = {}
         for stage in self._stages.values():
-            stage_end_times = stage.get_end_time_map()
-            for key, value in stage_end_times.items():
+            stage_end_time_map = stage.get_end_time_map()
+            for key, value in stage_end_time_map.items():
                 if key in return_dict:
                     raise ValueError(
                         f"Duplicate end time entry for key {key} in stage {stage.name}."

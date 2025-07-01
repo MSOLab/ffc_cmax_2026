@@ -213,18 +213,18 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
     # extraction method for the solution
 
-    def extract_start_end_times(
+    def extract_start_end_time_map(
         self,
     ) -> tuple[dict[tuple[str, str, str], int], dict[tuple[str, str, str], int]]:
         """Extracts start and end times from a solved CP model.
 
         Returns:
             tuple:
-                - start_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
-                - end_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> end time (int)
+                - start_time_map (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
+                - end_time_map (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> end time (int)
         """
-        start_times: dict[tuple[str, str, str], int] = {}
-        end_times: dict[tuple[str, str, str], int] = {}
+        start_time_map: dict[tuple[str, str, str], int] = {}
+        end_time_map: dict[tuple[str, str, str], int] = {}
 
         for j in self.j_list:
             for i in self.i_list:
@@ -237,10 +237,10 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
                     if self.solver.Value(is_present_var):
                         start_value = self.solver.Value(start_var)
                         end_value = self.solver.Value(end_var)
-                        start_times[(j, i, k)] = start_value
-                        end_times[(j, i, k)] = end_value
+                        start_time_map[(j, i, k)] = start_value
+                        end_time_map[(j, i, k)] = end_value
 
-        return start_times, end_times
+        return start_time_map, end_time_map
 
     # methods to add constraints for LNS
 
@@ -283,38 +283,38 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
         self.add(self.var_op_end[j1, i, k] <= self.var_op_start[j2, i, k])
 
-    def add_fixed_machine_and_ops_precedence_constraints_from_start_times(
+    def add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
         self,
-        start_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
         ignore_integrity_check: bool = True,
     ) -> None:
         """Fixes the operations based on provided start times.
 
         Args:
-            start_times (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
+            start_time_map (dict[tuple[str, str, str], int]): Mapping (job, stage, machine) -> start time (int)
             ignore_integrity_check (bool, optional): Skip data integrity check. Defaults to True.
         """
         stage_mc_to_jobs: dict[tuple[str, str], list[str]] = defaultdict(list)
-        for j, i, k in start_times:
+        for j, i, k in start_time_map:
             self.add_fixed_machine_assignment_constraint(
                 j, i, k, ignore_integrity_check
             )
             stage_mc_to_jobs[(i, k)].append(j)
 
         for (i, k), jobs in stage_mc_to_jobs.items():
-            jobs_sorted = sorted(jobs, key=lambda j: start_times[(j, i, k)])
+            jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
                 self.add_fixed_operation_precedence_constraint(
                     j1, j2, i, k, ignore_integrity_check
                 )
 
     # methods to add hints
-    def add_start_and_present_hints_from_start_times(
+    def add_start_and_present_hints_from_start_time_map(
         self,
-        start_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
         ignore_integrity_check: bool = True,
     ) -> None:
-        for (j, i, k), s_time in start_times.items():
+        for (j, i, k), s_time in start_time_map.items():
             if not ignore_integrity_check:
                 assert j in self.j_list, f"Job {j} not in job list."
                 assert i in self.i_list, f"Stage {i} not in stage list."

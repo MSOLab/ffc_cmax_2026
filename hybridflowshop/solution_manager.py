@@ -16,12 +16,12 @@ class SolutionManager:
 
     def __init__(
         self,
-        start_times: dict[tuple[str, str, str], int],
-        end_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
+        end_time_map: dict[tuple[str, str, str], int],
         summary: SolverOutputSummary,
     ):
-        self.start_times = start_times
-        self.end_times = end_times
+        self.start_time_map = start_time_map
+        self.end_time_map = end_time_map
         self.summary = summary
         self.is_feasible = SolverStatus.found_feasible_solution(summary.status)
         """
@@ -55,8 +55,8 @@ class SolutionManager:
             ignore_integrity_check (bool, optional): If true, skip integrity checks.
                 Defaults to True.
         """
-        target_model.add_start_and_present_hints_from_start_times(
-            self.start_times, ignore_integrity_check=ignore_integrity_check
+        target_model.add_start_and_present_hints_from_start_time_map(
+            self.start_time_map, ignore_integrity_check=ignore_integrity_check
         )
 
     def apply_fixed_machine_and_ops_precedence_constraints(
@@ -70,8 +70,8 @@ class SolutionManager:
             ignore_integrity_check (bool, optional): If true, skip integrity checks.
                 Defaults to True.
         """
-        target_model.add_fixed_machine_and_ops_precedence_constraints_from_start_times(
-            self.start_times, ignore_integrity_check=ignore_integrity_check
+        target_model.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
+            self.start_time_map, ignore_integrity_check=ignore_integrity_check
         )
 
     @staticmethod
@@ -100,17 +100,17 @@ class SolutionManager:
         Returns:
             dict[str, Any]: A dictionary representation of the incumbent solution
         """
-        start_times: dict[Any, int]
-        end_times: dict[Any, int]
+        start_time_map: dict[Any, int]
+        end_time_map: dict[Any, int]
         if for_pyyaml:
-            start_times = self.get_time_dict_pyyaml(self.start_times)
-            end_times = self.get_time_dict_pyyaml(self.end_times)
+            start_time_map = self.get_time_dict_pyyaml(self.start_time_map)
+            end_time_map = self.get_time_dict_pyyaml(self.end_time_map)
         else:
-            start_times = self.start_times
-            end_times = self.end_times
+            start_time_map = self.start_time_map
+            end_time_map = self.end_time_map
         return {
-            "start_times": start_times,
-            "end_times": end_times,
+            "start_times": start_time_map,  # TODO: backward compatibility; change to "start_time_map" in future versions
+            "end_times": end_time_map,  # TODO: backward compatibility; change to "end_time_map" in future versions
         }
 
     def save_gantt_as_png(self, output_path: Path) -> None:
@@ -123,5 +123,5 @@ class SolutionManager:
         """
         plotter = GanttPlotter()
         plotter.export_hybrid_flowshop_plot(
-            output_path, self.start_times, self.end_times
+            output_path, self.start_time_map, self.end_time_map
         )

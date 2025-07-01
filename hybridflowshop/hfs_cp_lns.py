@@ -236,14 +236,14 @@ class HybridFlowShopCpLnsController(
             summary, is_init=is_initial_solution
         )
 
-        start_times, end_times = self.cp_model.extract_start_end_times()
+        start_time_map, end_time_map = self.cp_model.extract_start_end_time_map()
 
         if error_if_infeasible:
-            self.check_feasibility(start_times)
+            self.check_feasibility(start_time_map)
         self.experiment_summary.add_run_summary(_summary)
         self.last_solution_manager = SolutionManager(
-            start_times=start_times,
-            end_times=end_times,
+            start_time_map=start_time_map,
+            end_time_map=end_time_map,
             summary=summary,
         )
 
@@ -402,7 +402,8 @@ class HybridFlowShopCpLnsController(
         """Time window search with incumbent solution as the hint.
 
         Args:
-            rho (float): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
+            rho (float): Fraction of makespan to define the window size.
+                For example, 0.2 means 20% of makespan.
             computational_time (float): The maximum computational time in seconds.
             num_workers (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
@@ -425,20 +426,19 @@ class HybridFlowShopCpLnsController(
         Apply the Time Window Operator to the current CP model.
 
         Args:
-            current_start_times (dict[tuple[str, str, str], int]): (job_name, stage_name, mc_name) -> current start_time
-            current_end_times (dict[tuple[str, str, str], int]): (job_name, stage_name, mc_name) -> current end_time
-            rho (float, optional): Fraction of makespan to define the window size (e.g., 0.2 means 20% of makespan)
+            rho (float): Fraction of makespan to define the window size.
+                For example, 0.2 means 20% of makespan.
         """
         logging.info(f"Applying time window operator with rho={rho}")
 
-        start_times = self.incumbent_solution_manager.start_times
-        end_times = self.incumbent_solution_manager.end_times
+        start_time_map = self.incumbent_solution_manager.start_time_map
+        end_time_map = self.incumbent_solution_manager.end_time_map
 
         # 1. Calculate makespan (C_max)
-        all_end_times = list(end_times.values())
-        if not all_end_times:
+        all_end_time_map = list(end_time_map.values())
+        if not all_end_time_map:
             raise ValueError("No end times available for Time Window Operator.")
-        C_max = max(all_end_times)
+        C_max = max(all_end_time_map)
 
         # 2. Select random time window
         window_length = int(rho * C_max)
@@ -455,9 +455,9 @@ class HybridFlowShopCpLnsController(
         # 3. Classify operations
         out_of_window_ops = set()
 
-        for key in start_times:
-            s_time = start_times[key]
-            e_time = end_times[key]
+        for key in start_time_map:
+            s_time = start_time_map[key]
+            e_time = end_time_map[key]
             if not self.is_within_window(
                 s_time, window_start, window_end
             ) and not self.is_within_window(e_time, window_start, window_end):
@@ -472,7 +472,7 @@ class HybridFlowShopCpLnsController(
 
         for (i, k), jobs in stage_mc_to_jobs.items():
             # Start time 기준 정렬
-            jobs_sorted = sorted(jobs, key=lambda j: start_times[(j, i, k)])
+            jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
                 self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
 
@@ -522,13 +522,13 @@ class HybridFlowShopCpLnsController(
         """
         logging.info(f"Applying block operator with rho={rho}")
 
-        start_times = self.incumbent_solution_manager.start_times
-        end_times = self.incumbent_solution_manager.end_times
+        start_time_map = self.incumbent_solution_manager.start_time_map
+        end_time_map = self.incumbent_solution_manager.end_time_map
 
-        if not start_times or not end_times:
+        if not start_time_map or not end_time_map:
             raise ValueError("No solution available for block operator.")
 
-        all_ops = list(start_times.keys())  # TODO: 순서 유지되는지 확인
+        all_ops = list(start_time_map.keys())  # TODO: 순서 유지되는지 확인
         total_ops = len(all_ops)
         num_to_select = max(1, int(rho * total_ops))
 
@@ -540,11 +540,11 @@ class HybridFlowShopCpLnsController(
         # Step 2: Expand to overlapping operations
         while queue and len(selected_ops) < num_to_select:
             current_op = queue.pop(0)
-            cs, ce = start_times[current_op], end_times[current_op]
+            cs, ce = start_time_map[current_op], end_time_map[current_op]
             for op in all_ops:
                 if op in selected_ops:
                     continue
-                os, oe = start_times[op], end_times[op]
+                os, oe = start_time_map[op], end_time_map[op]
                 if self.is_overlap(cs, ce, os, oe):
                     selected_ops.add(op)
                     queue.append(op)
@@ -564,7 +564,7 @@ class HybridFlowShopCpLnsController(
             stage_mc_to_jobs[(i, k)].append(j)
 
         for (i, k), jobs in stage_mc_to_jobs.items():
-            jobs_sorted = sorted(jobs, key=lambda j: start_times[(j, i, k)])
+            jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
                 self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
 
@@ -592,12 +592,12 @@ class HybridFlowShopCpLnsController(
                 j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
             )
             # TODO: uncomment only for debug purpose
-            # start_times = schedule.get_start_time_map()
-            # end_times = schedule.get_end_time_map()
+            # start_time_map = schedule.get_start_time_map()
+            # end_time_map = schedule.get_end_time_map()
             # obj_value = float(schedule.makespan)
             # sol_mgr = SolutionManager(
-            #     start_times,
-            #     end_times,
+            #     start_time_map,
+            #     end_time_map,
             #     SolverOutputSummary(
             #         SolverStatus.FEASIBLE,
             #         0.0,
@@ -632,10 +632,10 @@ class HybridFlowShopCpLnsController(
         )
         self.experiment_summary.add_run_summary(summary_for_run)
 
-        start_times = schedule.get_start_time_map()
-        end_times = schedule.get_end_time_map()
+        start_time_map = schedule.get_start_time_map()
+        end_time_map = schedule.get_end_time_map()
         self.last_solution_manager = SolutionManager(
-            start_times, end_times, summary_for_sol_mgr
+            start_time_map, end_time_map, summary_for_sol_mgr
         )
 
         self.update_incumbent_solution(draw_gantt=draw_gantt)
@@ -700,10 +700,10 @@ class HybridFlowShopCpLnsController(
                 timer=self.timer,
             )
 
-            start_times, end_times = sub_cp_mdl.extract_start_end_times()
+            start_time_map, end_time_map = sub_cp_mdl.extract_start_end_time_map()
             _last_sol_manager = SolutionManager(
-                start_times=start_times,
-                end_times=end_times,
+                start_time_map=start_time_map,
+                end_time_map=end_time_map,
                 summary=_last_summary,
             )
 
@@ -714,7 +714,7 @@ class HybridFlowShopCpLnsController(
         assert _last_sol_manager is not None, "No solution available after solving."
 
         if error_if_infeasible:
-            self.check_feasibility(_last_sol_manager.start_times)
+            self.check_feasibility(_last_sol_manager.start_time_map)
 
         log_time = self.timer.get_elapsed_sec()
         obj_value = _last_summary.objective_value
@@ -962,14 +962,16 @@ class HybridFlowShopCpLnsController(
     # End subroutine definition
 
     def post_run_process(self) -> None:
-        self.check_feasibility(self.incumbent_solution_manager.start_times)
+        self.check_feasibility(self.incumbent_solution_manager.start_time_map)
         self.release_log_handlers()
 
-    def check_feasibility(self, start_times: dict[tuple[str, str, str], int]) -> None:
+    def check_feasibility(
+        self, start_time_map: dict[tuple[str, str, str], int]
+    ) -> None:
         """Check the feasibility of the given start times.
 
         Args:
-            start_times (dict[tuple[str, str, str], int]): _description_
+            start_time_map (dict[tuple[str, str, str], int]): _description_
 
         Raises:
             ValueError: If any start time is negative or invalid.
@@ -977,7 +979,7 @@ class HybridFlowShopCpLnsController(
             ValueError: If the feasibility check fails with an unexpected status.
         """
         logging.info("Feasibility check starts")
-        for (j, i, k), start_time in start_times.items():
+        for (j, i, k), start_time in start_time_map.items():
             if start_time < 0:
                 raise ValueError(
                     f"Invalid start time for job {j}, stage {i}, machine {k}: {start_time}"
@@ -985,7 +987,7 @@ class HybridFlowShopCpLnsController(
         base_cp = self.create_base_cp_model()
 
         # Freeze operation start times and machine assignments
-        for (j, i, k), start_time in start_times.items():
+        for (j, i, k), start_time in start_time_map.items():
             base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
             base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
 

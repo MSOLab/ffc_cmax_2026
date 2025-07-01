@@ -103,8 +103,8 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         """
         return_dict: dict[tuple[str, str, str], int] = {}
         for machine in self.resources:
-            machine_start_times = machine.get_start_time_map()
-            for key, value in machine_start_times.items():
+            machine_start_time_map = machine.get_start_time_map()
+            for key, value in machine_start_time_map.items():
                 if key in return_dict:
                     raise ValueError(
                         f"Duplicate start time entry for key {key} from machine {machine.name}."
@@ -123,8 +123,8 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         """
         return_dict: dict[tuple[str, str, str], int] = {}
         for machine in self.resources:
-            machine_end_times = machine.get_end_time_map()
-            for key, value in machine_end_times.items():
+            machine_end_time_map = machine.get_end_time_map()
+            for key, value in machine_end_time_map.items():
                 if key in return_dict:
                     raise ValueError(
                         f"Duplicate end time entry for key {key} from machine {machine.name}."
