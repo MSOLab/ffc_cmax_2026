@@ -4,7 +4,9 @@ from typing import Any
 
 import yaml
 from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator
-from schore.examples.hybrid_flowshop import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
 
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
