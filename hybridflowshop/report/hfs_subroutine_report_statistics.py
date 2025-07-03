@@ -71,6 +71,6 @@ class HfsSubroutineReportStatistics(SubroutineReportStatistics[HfsSubroutineRepo
         return_dict.pop("firstObj")
         return_dict["initObj"] = init_obj
         if type(best) is HfsCpsatSolverReport:
-            return_dict["status"] = best.status
+            return_dict["status"] = best.status.to_solver_status_enum().value
 
         return return_dict

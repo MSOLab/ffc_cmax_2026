@@ -3,7 +3,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator
+from mbls import (
+    DynamicDataObject,
+    ElapsedTimer,
+    StoppingCriteria,
+    SubroutineFlowValidator,
+)
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
@@ -11,7 +16,6 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
-from hybridflowshop.stopping_criteria import StoppingCriteria
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
 WORKER_CNT = 2

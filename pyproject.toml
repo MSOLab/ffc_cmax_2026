@@ -5,17 +5,15 @@ description = "Hybrid Flow Shop Scheduling Problem"
 readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [
-    "mbls",
+    "mbls==0.0.12",
     "ortools>=9.12.4544",
     "pyyaml>=6.0.2",
-    "routix==0.0.11",
-    "schore",
+    "schore==0.0.4",
 ]
 
 [dependency-groups]
 dev = [
     "pip>=25.1.1",
-    "pytest>=8.4.1",
     "types-pyyaml>=6.0.12.20250516",
 ]
 
@@ -24,7 +22,3 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
 pythonpath = ["."]
-
-[tool.uv.sources]
-mbls = { path = "../mbls" }
-schore = { path = "../schore" }

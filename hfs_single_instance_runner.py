@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, utils
+from mbls import DynamicDataObject, StoppingCriteria, utils
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
 from routix.runner import SingleInstanceRunner
@@ -15,7 +15,10 @@ from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
 from hybridflowshop.hfs_summary import HfsSummary
 from hybridflowshop.painter.gantt import GanttPlotter
-from hybridflowshop.stopping_criteria import StoppingCriteria
+from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
+from hybridflowshop.report.hfs_subroutine_report_statistics import (
+    HfsSubroutineReportStatistics,
+)
 from hybridflowshop.utils import pyyaml_key_to_tuple
 
 
@@ -40,7 +43,7 @@ class HfsSingleInstanceRunner(
             output_metadata=output_metadata,
         )
 
-    def init_controller(self) -> HybridFlowShopCpLnsController:
+    def get_controller(self) -> HybridFlowShopCpLnsController:
         """Initialize the controller with the given instance and parameters."""
         return HybridFlowShopCpLnsController(
             self.instance,
@@ -107,8 +110,10 @@ class HfsSingleInstanceRunner(
             stage_count=self.instance.stage_count,
             timelimit=self.stopping_criteria.timelimit,
         )
-        expr_summary = self.ctrlr.experiment_summary
-        summary = HfsSummary(inputs=input_summary, outputs=expr_summary)
+        report_stats: HfsSubroutineReportStatistics[HfsSubroutineReport] = (
+            HfsSubroutineReportStatistics(self.ctrlr.report_recorder)
+        )
+        summary = HfsSummary(inputs=input_summary, outputs=report_stats)
         summary.save(self.summary_path, encoding=encoding)
 
     def save_solution(self, encoding: str = "utf-8") -> None:

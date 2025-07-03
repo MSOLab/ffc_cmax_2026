@@ -1,14 +1,15 @@
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Generic
 
-from mbls import SolverOutputSummary, SolverStatus
+from routix.report import SubroutineReportT
 
 from .painter import GanttPlotter
 from .pure_cp_2023_naderi import PureCP2023Naderi
 from .utils import tuple_to_pyyaml_key
 
 
-class SolutionManager:
+# TODO: remove
+class SolutionManager(Generic[SubroutineReportT]):
     """
     Manages the incumbent solution obtained from the CP model,
     including summary reporting and visualization.
@@ -18,35 +19,18 @@ class SolutionManager:
         self,
         start_time_map: dict[tuple[str, str, str], int],
         end_time_map: dict[tuple[str, str, str], int],
-        summary: SolverOutputSummary,
+        report: SubroutineReportT,
     ):
         self.start_time_map = start_time_map
         self.end_time_map = end_time_map
-        self.summary = summary
-        self.is_feasible = SolverStatus.found_feasible_solution(summary.status)
-        """
-        Indicates whether the solution is feasible based on the solver status.
-        True if the status is FEASIBLE or OPTIMAL, False otherwise.
-        """
-
-    def get_result_summary(self) -> SolverOutputSummary:
-        """
-        Returns the CP model's result summary.
-
-        Returns:
-            SolverOutputSummary: The summary object
-        """
-        return self.summary
-
-    def get_obj_value(self) -> Optional[float]:
-        return self.summary.objective_value
-
-    def get_obj_bound(self) -> Optional[float]:
-        return self.summary.best_objective_bound
+        self.report = report
+        self.is_feasible = report.obj_value is not None
+        """Indicates whether the solution is feasible based on the report's objective value."""
 
     def apply_start_and_present_hints(
         self, target_model: PureCP2023Naderi, ignore_integrity_check: bool = True
     ) -> None:
+        # TODO: move to PureCP2023Naderi
         """
         Apply current incumbent solution as initial variable hints to another CP model.
 
@@ -62,6 +46,7 @@ class SolutionManager:
     def apply_fixed_machine_and_ops_precedence_constraints(
         self, target_model: PureCP2023Naderi, ignore_integrity_check: bool = True
     ) -> None:
+        # TODO: move to PureCP2023Naderi
         """
         Add fixed constraints based on the incumbent solution to another CP model.
 
@@ -78,6 +63,7 @@ class SolutionManager:
     def get_time_dict_pyyaml(
         time_dict: dict[tuple[str, str, str], int],
     ) -> dict[str, int]:
+        # TODO: move to HybridFlowshopSchedule
         """
         Convert a time dictionary to a format suitable for PyYAML serialization.
 
@@ -100,6 +86,7 @@ class SolutionManager:
         Returns:
             dict[str, Any]: A dictionary representation of the incumbent solution
         """
+        # TODO: move to HybridFlowshopSchedule
         start_time_map: dict[Any, int]
         end_time_map: dict[Any, int]
         if for_pyyaml:
@@ -121,6 +108,7 @@ class SolutionManager:
             filename (str): Filename to save the Gantt chart (relative to output_dir)
             figsize (tuple): Size of the matplotlib figure
         """
+        # TODO: move to HybridFlowshopSchedule
         plotter = GanttPlotter()
         plotter.export_hybrid_flowshop_plot(
             output_path, self.start_time_map, self.end_time_map
