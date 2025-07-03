@@ -7,7 +7,7 @@ This repository is a Python project for solving Hybrid Flowshop (HFS) problems u
 - Definition of Hybrid Flowshop problems and support for various instances
 - Implementation of CP-based LNS and Pure CP algorithms
 - Various stopping criteria (e.g., time limit) and experiment management
-- Visualization tools for Gantt charts, time series, etc.
+- Visualization tools for Gantt charts, time series, and progress plots
 - Automatic saving and summarization of experiment results
 
 ## Folder Structure
@@ -16,7 +16,7 @@ This repository is a Python project for solving Hybrid Flowshop (HFS) problems u
 ├── main.py                        # Main entry point
 ├── hfs_single_instance_runner.py  # Single instance runner script
 ├── hfs_multi_instance_runner.py   # Multi-instance runner script
-├── main_metadata.yaml
+├── main_metadata.yaml             # Main experiment configuration
 ├── LICENSE
 ├── pyproject.toml
 ├── uv.lock
@@ -29,20 +29,24 @@ This repository is a Python project for solving Hybrid Flowshop (HFS) problems u
 │   ├── solution_manager.py        # Solution management
 │   ├── stopping_criteria.py       # Stopping criteria
 │   ├── utils.py
-│   └── painter/                   # Visualization tools
-│       ├── gantt.py
-│       ├── obj_value_bound_plotter.py
-│       └── time_series_plotter.py
-├── configs_*/                     # Various experiment settings (yaml)
-├── Outputs/                       # Results (plots, csv, etc.)
-│   └── pra_pure_cp/
-│       ├── 0.csv, 1.csv, ...
-│       ├── 0_result_gantt.png, ...
-│       └── 0/, 1/, 2/, ...
-├── resources/                     # Problem instance data
-│   ├── pra_common_params.yaml
-│   └── pra/
-│       ├── 0.txt, 1.txt, ...
+│   ├── report/                    # Subroutine report/statistics
+│   │   ├── hfs_subroutine_report.py
+│   │   ├── hfs_subroutine_report_statistics.py
+│   │   └── __init__.py
+│   ├── painter/                   # Visualization tools
+│   │   ├── gantt.py
+│   │   └── __init__.py
+│   ├── scheduling/                # Scheduling data structure
+│   │   ├── hybrid_flowshop_operation.py
+│   │   ├── hybrid_flowshop_stage.py
+│   │   ├── hybrid_flowshop_schedule.py
+│   │   ├── machine.py
+│   │   └── __init__.py
+│   └── __init__.py
+└── resources/                     # Problem instance data
+    ├── pra_common_params.yaml
+    └── pra/
+        ├── 0.txt, 1.txt, ...
 ```
 
 ## Installation and Usage (with uv)
@@ -59,15 +63,16 @@ uv run main.py
 ## Main Dependencies
 
 - Python 3.11 only
-- `mbls`, `schore`, `ortools`, etc. (see pyproject.toml)
+- `mbls`, `schore`, `ortools`, `pyyaml`, etc. (see pyproject.toml)
 
-## Example Results
+## Results
 
-- Gantt charts (.png), solutions (.csv), and logs are saved in the Outputs/ folder.
+- Gantt charts (.png), solutions (.csv), and logs are saved in the Outputs/ folder (not versioned).
 
 ## Notes
 
-- Various experiment setting yaml files are in the configs_*/ folders.
+- Various experiment setting yaml files are in the configs_*/ folders (not versioned).
 - Problem instances (.txt) and common parameters are in the resources/ folder.
+- Core scheduling and visualization logic is under `hybridflowshop/`.
 
 ---
