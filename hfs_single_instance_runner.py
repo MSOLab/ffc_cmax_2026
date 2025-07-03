@@ -1,26 +1,33 @@
+import logging
 from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, utils
+from mbls import DynamicDataObject, StoppingCriteria, utils
 from mbls.cpsat import ObjValueBoundStore
+from mbls.painter import ObjValueBoundPlotter
 from routix.runner import SingleInstanceRunner
-from schore.hybridflowshop import HybridFlowShopProblem
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
 
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
-from hybridflowshop.hfs_input_summary import HFSInputSummary
-from hybridflowshop.hfs_summary import HFSSummary
+from hybridflowshop.hfs_input_summary import HfsInputSummary
+from hybridflowshop.hfs_summary import HfsSummary
 from hybridflowshop.painter.gantt import GanttPlotter
-from hybridflowshop.stopping_criteria import StoppingCriteria
+from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
+from hybridflowshop.report.hfs_subroutine_report_statistics import (
+    HfsSubroutineReportStatistics,
+)
 from hybridflowshop.utils import pyyaml_key_to_tuple
 
 
 class HfsSingleInstanceRunner(
-    SingleInstanceRunner[HybridFlowShopProblem, HybridFlowShopCpLnsController]
+    SingleInstanceRunner[HybridFlowshopParameters, HybridFlowShopCpLnsController]
 ):
     def __init__(
         self,
-        instance: HybridFlowShopProblem,
+        instance: HybridFlowshopParameters,
         shared_param_dict: dict,
         subroutine_flow: DynamicDataObject,
         stopping_criteria: StoppingCriteria,
@@ -36,7 +43,7 @@ class HfsSingleInstanceRunner(
             output_metadata=output_metadata,
         )
 
-    def init_controller(self) -> HybridFlowShopCpLnsController:
+    def get_controller(self) -> HybridFlowShopCpLnsController:
         """Initialize the controller with the given instance and parameters."""
         return HybridFlowShopCpLnsController(
             self.instance,
@@ -97,14 +104,16 @@ class HfsSingleInstanceRunner(
         self.save_obj_value_bound_store(encoding=encoding)
 
     def save_summary(self, encoding: str = "utf-8") -> None:
-        input_summary = HFSInputSummary(
+        input_summary = HfsInputSummary(
             name=self.name,
             job_count=self.instance.job_count,
             stage_count=self.instance.stage_count,
             timelimit=self.stopping_criteria.timelimit,
         )
-        expr_summary = self.ctrlr.experiment_summary
-        summary = HFSSummary(inputs=input_summary, outputs=expr_summary)
+        report_stats: HfsSubroutineReportStatistics[HfsSubroutineReport] = (
+            HfsSubroutineReportStatistics(self.ctrlr.report_recorder)
+        )
+        summary = HfsSummary(inputs=input_summary, outputs=report_stats)
         summary.save(self.summary_path, encoding=encoding)
 
     def save_solution(self, encoding: str = "utf-8") -> None:
@@ -133,20 +142,20 @@ class HfsSingleInstanceRunner(
         # Read saved solution file to create dictionary of start and end times
         with open(self.solution_path, "r", encoding=encoding) as f:
             solution_dict = yaml.load(f, Loader=yaml.UnsafeLoader)
-            start_times = pyyaml_key_to_tuple(solution_dict["start_times"])
-            end_times = pyyaml_key_to_tuple(solution_dict["end_times"])
+            # TODO: backward compatibility; change to "start_time_map" in future versions
+            start_time_map = pyyaml_key_to_tuple(solution_dict["start_times"])
+            # TODO: backward compatibility; change to "end_time_map" in future versions
+            end_time_map = pyyaml_key_to_tuple(solution_dict["end_times"])
 
             GanttPlotter().export_hybrid_flowshop_plot(
-                output_path, start_times, end_times
+                output_path, start_time_map, end_time_map
             )
 
     def from_files_draw_progress_plot(self, encoding: str = "utf-8") -> None:
         """
         Read the saved obj_log file and draw the progress plot.
         """
-        from hybridflowshop.painter import ObjValueBoundPainter
 
-        # Prepare the progress plot file path
         progress_plot_filename_format = "{}_progress_plot.png"
         if "progress_plot_filename_format" in self.output_metadata:
             progress_plot_filename_format = self.output_metadata[
@@ -154,13 +163,34 @@ class HfsSingleInstanceRunner(
             ]
             if isinstance(progress_plot_filename_format, str):
                 progress_plot_filename_format = progress_plot_filename_format.strip()
+            else:
+                logging.warning(
+                    "Invalid type for 'progress_plot_filename_format': "
+                    f"{type(progress_plot_filename_format)}. Using default format."
+                )
+                progress_plot_filename_format = "{}_progress_plot.png"
 
+        drop_first_values_percent = 0.0
+        if "drop_first_values_percent" in self.output_metadata:
+            drop_first_values_percent = self.output_metadata[
+                "drop_first_values_percent"
+            ]
+            if isinstance(drop_first_values_percent, (int, float)):
+                drop_first_values_percent = float(drop_first_values_percent)
+            else:
+                logging.warning(
+                    "Invalid type for 'drop_first_values_percent': "
+                    f"{type(drop_first_values_percent)}. Using default value of 0.0."
+                )
+                drop_first_values_percent = 0.0
+
+        # Prepare the progress plot file path
         progress_plot_filename = progress_plot_filename_format.format(self.name)
         output_path = self.result_dir / progress_plot_filename
 
         # Read the saved obj_log file
         obj_store = ObjValueBoundStore.load_yaml(self.obj_log_path, encoding=encoding)
         # Plot the objective progress
-        ObjValueBoundPainter.plot(
-            obj_store, output_path, drop_first_values_percent=0.03
+        ObjValueBoundPlotter.plot(
+            obj_store, output_path, drop_first_values_percent=drop_first_values_percent
         )

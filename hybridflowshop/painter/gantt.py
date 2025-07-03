@@ -25,15 +25,15 @@ class GanttPlotter:
 
     def display_hybrid_flowshop_plot(
         self,
-        start_times: dict[tuple[str, str, str], int],
-        end_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
+        end_time_map: dict[tuple[str, str, str], int],
         job_list: list[str] = [],
         stage_list: list[str] = [],
         machine_list_per_stage: dict[str, list[str]] = {},
     ):
         self.plot_hybrid_flowshop(
-            start_times,
-            end_times,
+            start_time_map,
+            end_time_map,
             job_list=job_list,
             stage_list=stage_list,
             machine_list_per_stage=machine_list_per_stage,
@@ -43,15 +43,15 @@ class GanttPlotter:
     def export_hybrid_flowshop_plot(
         self,
         file_path: Path,
-        start_times: dict[tuple[str, str, str], int],
-        end_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
+        end_time_map: dict[tuple[str, str, str], int],
         job_list: list[str] = [],
         stage_list: list[str] = [],
         machine_list_per_stage: dict[str, list[str]] = {},
     ):
         self.plot_hybrid_flowshop(
-            start_times,
-            end_times,
+            start_time_map,
+            end_time_map,
             job_list=job_list,
             stage_list=stage_list,
             machine_list_per_stage=machine_list_per_stage,
@@ -62,8 +62,8 @@ class GanttPlotter:
 
     def plot_hybrid_flowshop(
         self,
-        start_times: dict[tuple[str, str, str], int],
-        end_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
+        end_time_map: dict[tuple[str, str, str], int],
         job_list: list[str] = [],
         stage_list: list[str] = [],
         machine_list_per_stage: dict[str, list[str]] = {},
@@ -72,22 +72,22 @@ class GanttPlotter:
         Plot a Gantt chart for a Hybrid Flow Shop solution.
 
         Args:
-            start_times (dict): (job, stage, machine) -> start time
-            end_times (dict): (job, stage, machine) -> end time
+            start_time_map (dict): (job, stage, machine) -> start time
+            end_time_map (dict): (job, stage, machine) -> end time
             job_list (list, optional): List of jobs to include
             stage_list (list, optional): List of stages to include
             machine_list_per_stage (dict, optional): stage -> list of machines
         """
-        self.set_x_horizon(start_times, end_times)
+        self.set_x_horizon(start_time_map, end_time_map)
 
         # list of jobs, stages, & machines
 
         if len(job_list) == 0:
-            _job_list = sorted({j for (j, _, _) in start_times.keys()})
+            _job_list = sorted({j for (j, _, _) in start_time_map.keys()})
         else:
             _job_list = job_list.copy()
         if len(stage_list) == 0:
-            _stage_list = sorted({i for (_, i, _) in start_times.keys()})
+            _stage_list = sorted({i for (_, i, _) in start_time_map.keys()})
         else:
             _stage_list = stage_list.copy()
 
@@ -97,7 +97,7 @@ class GanttPlotter:
         for stage in stage_list:
             if not machine_list_per_stage.get(stage):
                 _machine_list_per_stage[stage] = sorted(
-                    {mc for (_, stg, mc) in start_times.keys() if stg == stage}
+                    {mc for (_, stg, mc) in start_time_map.keys() if stg == stage}
                 )
             else:
                 _machine_list_per_stage[stage] = machine_list_per_stage[stage].copy()
@@ -107,7 +107,7 @@ class GanttPlotter:
 
         # Prepare machine lanes & labels
         machine_lanes, machine_labels = GanttPlotter.create_machine_lanes(
-            start_times, _stage_list, _machine_list_per_stage
+            start_time_map, _stage_list, _machine_list_per_stage
         )
 
         # Mapping machine to y-axis
@@ -115,8 +115,8 @@ class GanttPlotter:
             mc: self.machine_height * idx for idx, mc in enumerate(machine_lanes)
         }
         self.draw_operation_bars(
-            start_times=start_times,
-            end_times=end_times,
+            start_time_map=start_time_map,
+            end_time_map=end_time_map,
             job_to_color=job_to_color,
             machine_to_y=machine_to_y,
             job_list=_job_list,
@@ -137,34 +137,34 @@ class GanttPlotter:
 
     @staticmethod
     def compute_horizon(
-        start_times: dict[tuple[str, str, str], int],
-        end_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
+        end_time_map: dict[tuple[str, str, str], int],
     ) -> tuple[int, int]:
         """
-        Computes the (start, end) horizon of the schedule from start_times and end_times.
+        Computes the (start, end) horizon of the schedule from start_time_map and end_time_map.
 
         Args:
-            start_times (dict): (job, stage, machine) -> start time
-            end_times (dict): (job, stage, machine) -> end time
+            start_time_map (dict): (job, stage, machine) -> start time
+            end_time_map (dict): (job, stage, machine) -> end time
 
         Returns:
             (int, int): (minimum start time, maximum end time)
         """  # noqa: E501
-        if not start_times or not end_times:
-            raise ValueError("start_times and end_times must not be empty.")
+        if not start_time_map or not end_time_map:
+            raise ValueError("start_time_map and end_time_map must not be empty.")
 
-        min_start = min(start_times.values())
-        max_end = max(end_times.values())
+        min_start = min(start_time_map.values())
+        max_end = max(end_time_map.values())
 
         return min_start, max_end
 
     def set_x_horizon(
         self,
-        start_times: dict[tuple[str, str, str], int],
-        end_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
+        end_time_map: dict[tuple[str, str, str], int],
     ):
         earliest_start, latest_completion = GanttPlotter.compute_horizon(
-            start_times, end_times
+            start_time_map, end_time_map
         )
         self.ax.set_xlim(earliest_start, latest_completion + 1)
 
@@ -187,7 +187,7 @@ class GanttPlotter:
 
     @staticmethod
     def create_machine_lanes(
-        start_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
         stage_list: list[str],
         machine_list_per_stage: dict[str, list[str]],
     ) -> tuple[list[tuple[str, str]], list[str]]:
@@ -195,7 +195,7 @@ class GanttPlotter:
         Create a list of (stage, machine) lanes and corresponding machine labels.
 
         Args:
-            start_times (dict): (job, stage, machine) -> start time dictionary.
+            start_time_map (dict): (job, stage, machine) -> start time dictionary.
             stage_list (list[str]): List of stages to include.
             machine_list_per_stage (dict[str, list[str]]): Mapping stage -> list of machines.
 
@@ -213,7 +213,7 @@ class GanttPlotter:
             )
             if machines is None or len(machines) == 0:
                 machines = sorted(
-                    {mc for (_, stg, mc) in start_times.keys() if stg == stage}
+                    {mc for (_, stg, mc) in start_time_map.keys() if stg == stage}
                 )
             for mc in machines:
                 machine_lanes.append((stage, mc))
@@ -282,20 +282,20 @@ class GanttPlotter:
 
     def draw_operation_bars(
         self,
-        start_times: dict[tuple[str, str, str], int],
-        end_times: dict[tuple[str, str, str], int],
+        start_time_map: dict[tuple[str, str, str], int],
+        end_time_map: dict[tuple[str, str, str], int],
         job_to_color: dict[str, tuple[float, float, float, float]],
         machine_to_y: dict[tuple[str, str], float],
         job_list: list[str],
     ):
         """Draw the operation bars and labels on the Gantt chart."""
-        for (job, stage, machine), s_time in start_times.items():
+        for (job, stage, machine), s_time in start_time_map.items():
             if job_list and job not in job_list:
                 continue
             if (stage, machine) not in machine_to_y:
                 continue
 
-            e_time = end_times[(job, stage, machine)]
+            e_time = end_time_map[(job, stage, machine)]
             y = machine_to_y[(stage, machine)]
             color = job_to_color[job]
 

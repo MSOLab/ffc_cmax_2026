@@ -5,12 +5,10 @@ description = "Hybrid Flow Shop Scheduling Problem"
 readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [
-    "matplotlib>=3.10.3",
-    "mbls==0.0.10",
+    "mbls==0.0.12",
     "ortools>=9.12.4544",
     "pyyaml>=6.0.2",
-    "routix==0.0.10",
-    "schore==0.0.2",
+    "schore==0.0.4",
 ]
 
 [dependency-groups]
@@ -18,3 +16,9 @@ dev = [
     "pip>=25.1.1",
     "types-pyyaml>=6.0.12.20250516",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+pythonpath = ["."]

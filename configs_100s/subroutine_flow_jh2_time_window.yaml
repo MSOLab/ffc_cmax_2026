@@ -1,15 +1,15 @@
 - method: set_random_seed
   seed: 42
-- method: solve_base_cp_model
-  computational_time: 5
+- method: build_jh2_solution
+  max_time_per_add: 10
   num_workers: 8
-  is_initial_solution: true
+  error_if_infeasible: true
 - method: repeat
   params:
-    n_repeats: 10
+    n_repeats: 999
     routine_data:
-    - method: block_search
+    - method: time_window_search
       rho: 0.2
-      computational_time: 5
+      computational_time: 20
       num_workers: 8
       error_if_infeasible: true

@@ -1,0 +1,6 @@
+- method: set_random_seed
+  seed: 42
+- method: build_jh1_solution
+  max_time_per_add: 10
+  num_workers: 8
+  error_if_infeasible: true

@@ -1,0 +1,16 @@
+- method: set_random_seed
+  seed: 42
+- method: build_jh1_solution
+  max_time_per_add: 5
+  num_workers: 8
+  added_batch_size: 5
+  error_if_infeasible: true
+- method: build_jh2_solution
+  max_time_per_add: 5
+  num_workers: 8
+  added_batch_size: 5
+  error_if_infeasible: true
+- method: init_shdlb
+- method: solve_base_cp_model
+  computational_time: 600
+  num_workers: 8

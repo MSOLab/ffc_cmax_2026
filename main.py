@@ -3,16 +3,22 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, ElapsedTimer, SubroutineFlowValidator
-from schore.hybridflowshop import HybridFlowShopProblem
+from mbls import (
+    DynamicDataObject,
+    ElapsedTimer,
+    StoppingCriteria,
+    SubroutineFlowValidator,
+)
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
 
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
-from hybridflowshop.stopping_criteria import StoppingCriteria
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
-WORKER_CNT = 1
+WORKER_CNT = 2
 
 
 def main():
@@ -157,11 +163,11 @@ def read_yaml(path: Path) -> Any:
         raise RuntimeError(f"Error reading YAML from {path}: {e}")
 
 
-def load_hfs_instance(file_path: Path) -> HybridFlowShopProblem:
+def load_hfs_instance(file_path: Path) -> HybridFlowshopParameters:
     try:
         ins_name = file_path.stem
         with open(file_path, "r") as f:
-            return HybridFlowShopProblem.from_pra_data(ins_name, f)
+            return HybridFlowshopParameters.from_pra_data(ins_name, f)
     except FileNotFoundError:
         raise FileNotFoundError(f"Benchmark file not found: {file_path}")
     except Exception as e:
@@ -214,7 +220,7 @@ def release_log_handlers(handlers: list[logging.Handler]) -> None:
 
 def load_list_of_instances(
     input_dir_path: Path, benchmark_filenames: list[str]
-) -> list[HybridFlowShopProblem]:
+) -> list[HybridFlowshopParameters]:
     """Load a list of hybrid flow shop problem instances from the specified directory.
 
     Args:
@@ -222,7 +228,7 @@ def load_list_of_instances(
         benchmark_filenames (list[str]): List of benchmark filenames to load.
 
     Returns:
-        list[HybridFlowShopProblem]: List of loaded hybrid flow shop problem instances.
+        list[HybridFlowshopParameters]: List of loaded hybrid flow shop problem instances.
     """
     instances = []
     for benchmark_filename in benchmark_filenames:
