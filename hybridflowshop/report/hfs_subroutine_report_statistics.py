@@ -6,9 +6,7 @@ from .hfs_subroutine_report import HfsCpsatSolverReport, HfsSubroutineReportT
 
 
 class HfsSubroutineReportStatistics(SubroutineReportStatistics[HfsSubroutineReportT]):
-    def get_init_summary(
-        self, is_maximize: bool = False
-    ) -> HfsSubroutineReportT | None:
+    def get_init_report(self, is_maximize: bool = False) -> HfsSubroutineReportT | None:
         # Find valid reports
         valid_reports = [r for r in self.reports if r.obj_value is not None]
         # If no valid reports, return None
@@ -33,7 +31,7 @@ class HfsSubroutineReportStatistics(SubroutineReportStatistics[HfsSubroutineRepo
         )
 
     def get_improvement_ratio(self, is_maximize: bool = False) -> float | None:
-        init = self.get_init_summary()
+        init = self.get_init_report()
         best = self.get_best_report(is_maximize=is_maximize)
 
         if not (
@@ -61,7 +59,7 @@ class HfsSubroutineReportStatistics(SubroutineReportStatistics[HfsSubroutineRepo
 
         best = self.get_best_report(is_maximize=is_maximize)
 
-        init_summary = self.get_init_summary(is_maximize=is_maximize)
+        init_summary = self.get_init_report(is_maximize=is_maximize)
         if init_summary:
             init_obj = init_summary.obj_value
         else:
