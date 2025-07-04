@@ -1,8 +1,8 @@
 - method: set_random_seed
   seed: 42
-- method: dispatch_by_jh1
-- method: dispatch_by_jh2
-- method: init_shdlb
+- method: initialize_by_jdq1
+- method: initialize_by_jdq2
+- method: apply_shdlb
 - method: solve_base_cp_model
   computational_time: 20
   num_workers: 8

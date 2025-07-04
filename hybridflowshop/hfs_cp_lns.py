@@ -605,7 +605,7 @@ class HybridFlowShopCpLnsController(
 
     # Subroutine: Johnson-based Heuristic for initialization
 
-    def dispatch_sequentially(
+    def dispatch_by_job_stage_time(
         self,
         job_sequence: list[str],
         schedule: HybridFlowshopSchedule,
@@ -756,8 +756,8 @@ class HybridFlowShopCpLnsController(
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
     @staticmethod
-    def johnson_rule_permutation(
-        aggregated_p1: dict[str, int], aggregated_p2: dict[str, int]
+    def get_johnsons_rule_sequence(
+        job_name_2_p1_map: dict[str, int], job_name_2_p2_map: dict[str, int]
     ) -> list[str]:
         """
         Apply Johnson's rule to determine the job sequence.
@@ -765,13 +765,13 @@ class HybridFlowShopCpLnsController(
         for two stages and returns a job sequence based on the Johnson's rule.
 
         Args:
-            aggregated_p1 (dict[str, int]): job ID -> aggregated processing time for the 1st stage
-            aggregated_p2 (dict[str, int]): job ID -> aggregated processing time for the 2nd stage
+            job_name_2_p1_map (dict[str, int]): job ID -> processing time for the 1st stage
+            job_name_2_p2_map (dict[str, int]): job ID -> processing time for the 2nd stage
 
         Returns:
             list[str]: A list of job IDs ordered according to Johnson's rule.
         """
-        jobs = list(aggregated_p1.keys())
+        jobs = list(job_name_2_p1_map.keys())
         # n = len(jobs)
         # sequence: list[str] = [""] * n  # Initialize sequence with empty strings
         # left = 0
@@ -779,12 +779,12 @@ class HybridFlowShopCpLnsController(
 
         # # Pre-sort jobs based on aggregated processing times
         # jobs.sort(
-        #     key=lambda j: (min(aggregated_p1[j], aggregated_p2[j]), j)
+        #     key=lambda j: (min(job_name_2_p1_map[j], job_name_2_p2_map[j]), j)
         # )  # Sort by min processing time first, then by job ID
 
         # while jobs:
         #     job = jobs.pop(0)  # Remove the first job from the sorted list
-        #     if aggregated_p1[job] <= aggregated_p2[job]:
+        #     if job_name_2_p1_map[job] <= job_name_2_p2_map[job]:
         #         sequence[left] = job  # Last of the front
         #         left += 1
         #     else:
@@ -794,28 +794,28 @@ class HybridFlowShopCpLnsController(
         l2: list[str] = []
 
         for job in jobs:
-            if aggregated_p1[job] <= aggregated_p2[job]:
+            if job_name_2_p1_map[job] <= job_name_2_p2_map[job]:
                 l1.append(job)
             else:
                 l2.append(job)
             # logging.info(
-            #     f"Job {job} with p1={aggregated_p1[job]}, p2={aggregated_p2[job]}"
-            #     f"; Min={min(aggregated_p1[job], aggregated_p2[job])}"
-            #     f"; p1<=p2: {aggregated_p1[job] <= aggregated_p2[job]}"
+            #     f"Job {job} with p1={job_name_2_p1_map[job]}, p2={job_name_2_p2_map[job]}"
+            #     f"; Min={min(job_name_2_p1_map[job], job_name_2_p2_map[job])}"
+            #     f"; p1<=p2: {job_name_2_p1_map[job] <= job_name_2_p2_map[job]}"
             # )
 
         # Sort by increasing order of p_1j, tie-breaking by job-ID (ascending)
-        l1.sort(key=lambda j: (aggregated_p1[j], j))
+        l1.sort(key=lambda j: (job_name_2_p1_map[j], j))
 
         # Sort by decreasing order of p_2j, tie-breaking by job-ID (descending)
-        l2.sort(key=lambda j: (aggregated_p2[j], j), reverse=True)
+        l2.sort(key=lambda j: (job_name_2_p2_map[j], j), reverse=True)
 
         logging.info(f"Job sequence by Johnson's rule: {l1}+{l2}")
 
         sequence = l1 + l2
         return sequence
 
-    def get_jh1_sequence(self) -> list[str]:
+    def get_sequence1(self) -> list[str]:
         jobs = self.instance.job_id_list
         stages = self.instance.stage_id_list
         p_dict: dict[tuple[str, str], int] = (
@@ -823,9 +823,9 @@ class HybridFlowShopCpLnsController(
         )
         p1 = {j: p_dict[j, stages[0]] for j in jobs}  # First stage processing times
         p2 = {j: p_dict[j, stages[-1]] for j in jobs}  # Last stage processing times
-        return self.johnson_rule_permutation(p1, p2)
+        return self.get_johnsons_rule_sequence(p1, p2)
 
-    def get_jh2_sequence(self) -> list[str]:
+    def get_sequence2(self) -> list[str]:
         jobs = self.instance.job_id_list
         num_stages = self.instance.stage_count
         stages = self.instance.stage_id_list
@@ -843,9 +843,9 @@ class HybridFlowShopCpLnsController(
         p2 = {
             j: sum(p_dict[j, s] for s in second_half_stages) for j in jobs
         }  # Aggregated processing times for second half stages
-        return self.johnson_rule_permutation(p1, p2)
+        return self.get_johnsons_rule_sequence(p1, p2)
 
-    def build_jh1_solution(
+    def initialize_by_jcq1(
         self,
         max_time_per_add: float,
         num_workers: int,
@@ -869,7 +869,7 @@ class HybridFlowShopCpLnsController(
         """
 
         self.construct_solution_by_incremental_cp(
-            self.get_jh1_sequence(),
+            self.get_sequence1(),
             max_time_per_add,
             num_workers,
             added_batch_size=added_batch_size,
@@ -877,7 +877,7 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    def build_jh2_solution(
+    def initialize_by_jcq2(
         self,
         max_time_per_add: float,
         num_workers: int,
@@ -901,7 +901,7 @@ class HybridFlowShopCpLnsController(
         """
 
         self.construct_solution_by_incremental_cp(
-            self.get_jh2_sequence(),
+            self.get_sequence2(),
             max_time_per_add,
             num_workers,
             added_batch_size=added_batch_size,
@@ -909,7 +909,7 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    def init_shdlb(self) -> None:
+    def apply_shdlb(self) -> None:
         """
         Compute the global lower bound for the Hybrid Flow Shop instance using the method
         described by Santos et al. (1995) and assign it to `self.obj_bound`.
@@ -962,31 +962,33 @@ class HybridFlowShopCpLnsController(
             log_time = self.timer.elapsed_sec
             self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
 
-    def dispatch_by_jh1(self, draw_gantt: bool = False) -> None:
+    def initialize_by_jdq1(self, draw_gantt: bool = False) -> None:
         """
         Dispatch jobs in the order determined by Johnson's rule for the first and last stages.
         This method computes the job sequence using the Johnson-based Heuristic 1 (jh1) and
         dispatches jobs sequentially to create a feasible schedule.
         """
-        job_sequence = self.get_jh1_sequence()
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
         )
-        self.dispatch_sequentially(job_sequence, schedule, draw_gantt=draw_gantt)
+        self.dispatch_by_job_stage_time(
+            self.get_sequence1(), schedule, draw_gantt=draw_gantt
+        )
 
-    def dispatch_by_jh2(self, draw_gantt: bool = False) -> None:
+    def initialize_by_jdq2(self, draw_gantt: bool = False) -> None:
         """
         Dispatch jobs in the order determined by Johnson's rule for the first half and second half stages.
         This method computes the job sequence using the Johnson-based Heuristic 2 (jh2) and
         dispatches jobs sequentially to create a feasible schedule.
         """
-        job_sequence = self.get_jh2_sequence()
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
         )
-        self.dispatch_sequentially(job_sequence, schedule, draw_gantt=draw_gantt)
+        self.dispatch_by_job_stage_time(
+            self.get_sequence2(), schedule, draw_gantt=draw_gantt
+        )
 
     # End subroutine definition
 

@@ -5,8 +5,8 @@ worker_cnt: 1
 pra_common_params_rel_path: "resources/pra_common_params.yaml"
 benchmark_filename_format: "{}.txt"
 input_dir : "resources/pra"
-first: 1
-last: 100
+first: 0
+last: 1
 
 # ALGORITHM METADATA
 dicts_of_i_o_data_path:
@@ -43,6 +43,10 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_jd_shdlb_base_cp.yaml"
 #   output_dir : "Outputs_pra_20s/jd_shdlb_base_cp"
+- stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_20s/subroutine_flow_everything.yaml"
+  output_dir : "Outputs_pra_20s/everything"
+
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_jh1_block.yaml"
 #   output_dir : "Outputs_pra_100s/jh1_block"
@@ -97,9 +101,9 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_jhbatch_shdlb_base_cp.yaml"
 #   output_dir : "Outputs_pra_600s/jhbatch_shdlb_base_cp"
-- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_600s/subroutine_flow_jd_shdlb_base_cp.yaml"
-  output_dir : "Outputs_pra_600s/jd_shdlb_base_cp"
+# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_jd_shdlb_base_cp.yaml"
+#   output_dir : "Outputs_pra_600s/jd_shdlb_base_cp"
 
 # OUTPUT METADATA
 result_dir_name: "results"
