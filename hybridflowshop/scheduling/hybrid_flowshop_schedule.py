@@ -69,25 +69,6 @@ class HybridFlowshopSchedule:
             raise ValueError(f"Stage {stage_name} not found in schedule")
         return self._stages[stage_name]
 
-    def get_earliest_start_mc_name_and_time(
-        self, stage_name: str, p: int, release_t: int = 0
-    ) -> tuple[str, int]:
-        """Get the earliest available machine name and start time for a given stage.
-
-        Args:
-            stage_name (str): The name of the stage to check.
-            p (int): The processing time required for the operation.
-            release_t (int, optional): The earliest time the operation can start.
-                Defaults to 0.
-
-        Returns:
-            tuple[str, int]: A tuple containing the name of the earliest available machine
-                and the time it can start processing the operation.
-        """
-        return self.get_stage_by_name(stage_name).get_earliest_start_mc_name_and_time(
-            p, release_t
-        )
-
     def get_start_time_map(self) -> dict[tuple[str, str, str], int]:
         """
         Get a map of (job_name, stage_name, mc_name) to start time for all operations in the schedule.
@@ -155,7 +136,7 @@ class HybridFlowshopSchedule:
         """
         stage = self.get_stage_by_name(stage_name)
         _release_t = max(release_t, self.job_2_last_oper_end_time_map[job_name])
-        mc_name, start_time = stage.get_earliest_start_mc_name_and_time(p, _release_t)
+        mc_name, start_time = stage.select_machine_by_start_slack_idx(p, _release_t)
         # integer casting to ensure start_time is an integer
         # (not np.int64 for YAML compatibility)
         end_time = int(start_time + p)
