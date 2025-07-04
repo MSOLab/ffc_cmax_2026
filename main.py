@@ -18,7 +18,6 @@ from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
-WORKER_CNT = 2
 
 
 def main():
@@ -144,8 +143,8 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
         output_dir=working_dir_path,
         output_metadata=output_metadata,
     )
-    # Default is 2; if set to 1, it will run sequentially
-    hfs_instance_set_runner.set_max_workers(WORKER_CNT)
+    # Default is 1; if set to more than 2, it will run concurrently.
+    hfs_instance_set_runner.set_max_workers(main_metadata_dict.get("worker_cnt", 1))
     hfs_instance_set_runner.run()
 
     # Print elapsed time
