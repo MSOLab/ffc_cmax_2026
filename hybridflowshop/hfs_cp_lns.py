@@ -627,7 +627,7 @@ class HybridFlowShopCpLnsController(
         )
 
         for idx, j in enumerate(job_sequence):
-            schedule.dispatch_job_earliest(
+            schedule.dispatch_job_by_stages(
                 j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
             )
             # TODO: uncomment only for debug purpose

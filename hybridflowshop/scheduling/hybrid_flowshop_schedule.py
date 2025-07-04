@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
+
+from .exception import SchedulingFailureException
 from .hybrid_flowshop_operation import HybridFlowshopOperation
 from .hybrid_flowshop_stage import HybridFlowshopStage
 
@@ -7,7 +10,15 @@ from .hybrid_flowshop_stage import HybridFlowshopStage
 class HybridFlowshopSchedule:
     def __init__(self) -> None:
         self._stages: dict[str, HybridFlowshopStage] = {}
-        """Map from stage name to HybridFlowshopStage instance."""
+        """Stage name -> HybridFlowshopStage instance."""
+
+        # Internal states
+
+        self.job_2_last_oper_end_time_map: dict[str, int] = defaultdict(int)
+        """Job name -> end time of the last operation scheduled for that job."""
+
+        self.job_2_scheduled_oper_count_map: dict[str, int] = defaultdict(int)
+        """Job name -> count of operations scheduled for that job."""
 
     @classmethod
     def from_stage_name_2_mc_name_list_map(
@@ -126,7 +137,7 @@ class HybridFlowshopSchedule:
 
     def dispatch_operation_earliest(
         self, job_name: str, stage_name: str, p: int, release_t: int = 0
-    ) -> HybridFlowshopOperation | None:
+    ) -> HybridFlowshopOperation:
         """
         Dispatch an operation to the earliest available machine in the specified stage.
 
@@ -136,12 +147,15 @@ class HybridFlowshopSchedule:
             p (int): The processing time required for this operation.
             release_t (int, optional): The earliest time the operation can start. Defaults to 0.
 
+        Raises:
+            SchedulingFailureException: If the operation is not scheduled.
+
         Returns:
-            HybridFlowshopOperation | None: The operation if added successfully, otherwise None.
+            HybridFlowshopOperation: Scheduled operation.
         """
         stage = self.get_stage_by_name(stage_name)
         mc_name, start_time = stage.get_earliest_start_mc_name_and_time(p, release_t)
-        return stage.add_operation(
+        operation = stage.add_operation(
             HybridFlowshopOperation(
                 job_name=job_name,
                 stage_name=stage_name,
@@ -150,8 +164,18 @@ class HybridFlowshopSchedule:
                 end=start_time + p,
             )
         )
+        if operation is None:
+            raise SchedulingFailureException(
+                f"{job_name}.{stage_name}", p, mc_name, start_time
+            )
 
-    def dispatch_job_earliest(
+        # Update internal states
+        self.job_2_last_oper_end_time_map[job_name] = operation.end
+        self.job_2_scheduled_oper_count_map[job_name] += 1
+
+        return operation
+
+    def dispatch_job_by_stages(
         self,
         job_name: str,
         stage_name_list: list[str],
@@ -175,46 +199,14 @@ class HybridFlowshopSchedule:
         Returns:
             list[HybridFlowshopOperation]: A list of scheduled operations for the job across all stages.
         """
-        stage_name_2_mc_name_map: dict[str, str] = {}
-        stage_name_2_start_time_map: dict[str, int] = {}
-
-        # calculate target machine and start time for each stage
-        _release_t = max(release_t, 0)
-        for stage_name in stage_name_list:
-            if stage_name not in self._stages:
-                raise ValueError(f"Stage {stage_name} not found in schedule")
-            p = stage_name_2_p_map[stage_name]
-            mc_name, start_time = self.get_earliest_start_mc_name_and_time(
-                stage_name, p, _release_t
-            )
-
-            stage_name_2_mc_name_map[stage_name] = mc_name
-            stage_name_2_start_time_map[stage_name] = start_time
-
-            # Update _release_t to the end time of the last operation scheduled
-            _release_t = start_time + p
-
-        # Create operations for each stage
         operations = []
-        for stage_name in stage_name_list:
-            mc_name = stage_name_2_mc_name_map[stage_name]
-            start_time = stage_name_2_start_time_map[stage_name]
-            # integer casting to ensure start_time is an integer
-            # (not np.int64 for YAML compatibility)
-            end_time = int(start_time + stage_name_2_p_map[stage_name])
+        last_end_time = max(self.job_2_last_oper_end_time_map[job_name], release_t)
 
-            operation = HybridFlowshopOperation(
-                job_name=job_name,
-                stage_name=stage_name,
-                mc_name=mc_name,
-                start=start_time,
-                end=end_time,
+        for stage_name in stage_name_list:
+            operation = self.dispatch_operation_earliest(
+                job_name, stage_name, stage_name_2_p_map[stage_name], last_end_time
             )
-            scheduled_operation = self.schedule_operation(operation)
-            if scheduled_operation is not None:
-                operations.append(scheduled_operation)
-            else:
-                raise ValueError(
-                    f"Failed to schedule operation for job {job_name} in stage {stage_name}"
-                )
+            operations.append(operation)
+            last_end_time = operation.end
+
         return operations
