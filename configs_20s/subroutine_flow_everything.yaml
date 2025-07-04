@@ -2,6 +2,8 @@
   seed: 42
 - method: initialize_by_jdq1
 - method: initialize_by_jdq2
+- method: initialize_by_sdq1
+- method: initialize_by_sdq2
 - method: initialize_by_jcq1
   max_time_per_add: 3
   num_workers: 8

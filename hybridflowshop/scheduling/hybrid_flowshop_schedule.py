@@ -154,14 +154,18 @@ class HybridFlowshopSchedule:
             HybridFlowshopOperation: Scheduled operation.
         """
         stage = self.get_stage_by_name(stage_name)
-        mc_name, start_time = stage.get_earliest_start_mc_name_and_time(p, release_t)
+        _release_t = max(release_t, self.job_2_last_oper_end_time_map[job_name])
+        mc_name, start_time = stage.get_earliest_start_mc_name_and_time(p, _release_t)
+        # integer casting to ensure start_time is an integer
+        # (not np.int64 for YAML compatibility)
+        end_time = int(start_time + p)
         operation = stage.add_operation(
             HybridFlowshopOperation(
                 job_name=job_name,
                 stage_name=stage_name,
                 mc_name=mc_name,
                 start=start_time,
-                end=start_time + p,
+                end=end_time,
             )
         )
         if operation is None:
@@ -189,7 +193,7 @@ class HybridFlowshopSchedule:
         Args:
             job_name (str): The name of the job to be dispatched.
             stage_name_list (list[str]): List of stage names in the order they should be processed.
-            stage_name_2_p_map (dict[str, int]): Mapping of stage names to their processing times.
+            stage_name_2_p_map (dict[str, int]): Stage name -> processing time.
             release_t (int, optional): The earliest time the job can start processing at the 1st stage.
                 Defaults to 0.
 
@@ -208,5 +212,55 @@ class HybridFlowshopSchedule:
             )
             operations.append(operation)
             last_end_time = operation.end
+
+        return operations
+
+    def dispatch_stage_by_jobs(
+        self,
+        stage_name: str,
+        job_name_list: list[str],
+        job_name_2_p_map: dict[str, int],
+        release_t: int = 0,
+    ) -> list[HybridFlowshopOperation]:
+        """
+        Dispatch operations for a given stage, scheduling jobs in the order
+        determined by job_priority_queue.
+
+        The job_priority_queue is sorted by:
+        1. Jobs with smaller last operation end time are scheduled earlier.
+        2. If two jobs have the same last operation end time,
+           jobs that come earlier in job_name_list are scheduled earlier.
+
+        Args:
+            stage_name (str): Target stage name.
+            job_name_list (list[str]): List of job names to be dispatched in this stage.
+            job_name_2_p_map (dict[str, int]): Job name -> processing time.
+            release_t (int, optional): The earliest time the stage can start.
+                Defaults to 0.
+
+        Returns:
+            list[HybridFlowshopOperation]: A list of scheduled operations for the jobs
+                in the specified stage, in job_priority_queue order.
+        """
+        operations = []
+
+        # Make a job priority queue.
+        # 1. Jobs having smaller last operation end time are scheduled earlier.
+        # 2. If two jobs have the same last operation end time,
+        #    jobs that comes earlier in job_name_list are scheduled earlier.
+        job_priority_queue = sorted(
+            job_name_list,
+            key=lambda job_name: (
+                self.job_2_last_oper_end_time_map[job_name],
+                job_name_list.index(job_name),
+            ),
+        )
+        # logging.info(f"Dispatching stage {stage_name} for jobs {job_priority_queue}")
+
+        for job_name in job_priority_queue:
+            operation = self.dispatch_operation_earliest(
+                job_name, stage_name, job_name_2_p_map[job_name], release_t
+            )
+            operations.append(operation)
 
         return operations

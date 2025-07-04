@@ -643,6 +643,8 @@ class HybridFlowShopCpLnsController(
             # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
             # sol_mgr.save_gantt_as_png(output_path)
 
+        # Log
+
         log_time = self.timer.elapsed_sec
         obj_value = float(schedule.makespan)
         self.add_obj_value_log(log_time, obj_value, is_maximize=False)
@@ -651,16 +653,81 @@ class HybridFlowShopCpLnsController(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
+        # Report
+
         sub_time = sub_timer.elapsed_sec
         report = HfsSubroutineReport(sub_time, obj_value, None, True)
         self.report_recorder.append_report(report)
+
+        # Update internal state
 
         start_time_map = schedule.get_start_time_map()
         end_time_map = schedule.get_end_time_map()
         self.last_solution_manager = SolutionManager(
             start_time_map, end_time_map, report
         )
+        self.update_incumbent_solution(draw_gantt=draw_gantt)
 
+    def dispatch_by_stage_time_job(
+        self,
+        job_sequence: list[str],
+        schedule: HybridFlowshopSchedule,
+        draw_gantt: bool = False,
+    ):
+        """
+        Dispatch jobs by iterating over stages first, then time and jobs,
+        assigning each to the earliest available machine.
+
+        Args:
+            job_sequence (list[str]): The sequence of job IDs to be dispatched.
+            schedule (HybridFlowshopSchedule): The schedule to which jobs are dispatched.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        # Stage name -> job name -> processing time map
+        stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
+            self.instance.stage_id_list, self.instance.job_id_list
+        )
+        for idx, i in enumerate(self.instance.stage_id_list):
+            schedule.dispatch_stage_by_jobs(i, job_sequence, stage_2_job_2_p_dict[i])
+            # TODO: uncomment only for debug purpose
+            # start_time_map = schedule.get_start_time_map()
+            # end_time_map = schedule.get_end_time_map()
+            # sub_time = sub_timer.elapsed_sec
+            # obj_value = float(schedule.makespan)
+            # sol_mgr = SolutionManager(
+            #     start_time_map,
+            #     end_time_map,
+            #     HfsSubroutineReport(sub_time, obj_value, None, True),
+            # )
+            # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{i}.png")
+            # sol_mgr.save_gantt_as_png(output_path)
+
+        # Log
+
+        log_time = self.timer.elapsed_sec
+        obj_value = float(schedule.makespan)
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Report
+
+        sub_time = sub_timer.elapsed_sec
+        report = HfsSubroutineReport(sub_time, obj_value, None, True)
+        self.report_recorder.append_report(report)
+
+        # Update internal state
+
+        start_time_map = schedule.get_start_time_map()
+        end_time_map = schedule.get_end_time_map()
+        self.last_solution_manager = SolutionManager(
+            start_time_map, end_time_map, report
+        )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
     def construct_solution_by_incremental_cp(
@@ -964,9 +1031,12 @@ class HybridFlowShopCpLnsController(
 
     def initialize_by_jdq1(self, draw_gantt: bool = False) -> None:
         """
-        Dispatch jobs in the order determined by Johnson's rule for the first and last stages.
-        This method computes the job sequence using the Johnson-based Heuristic 1 (jh1) and
-        dispatches jobs sequentially to create a feasible schedule.
+        Uses q1 as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
@@ -978,15 +1048,52 @@ class HybridFlowShopCpLnsController(
 
     def initialize_by_jdq2(self, draw_gantt: bool = False) -> None:
         """
-        Dispatch jobs in the order determined by Johnson's rule for the first half and second half stages.
-        This method computes the job sequence using the Johnson-based Heuristic 2 (jh2) and
-        dispatches jobs sequentially to create a feasible schedule.
+        Uses q2 as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
         )
         self.dispatch_by_job_stage_time(
+            self.get_sequence2(), schedule, draw_gantt=draw_gantt
+        )
+
+    def initialize_by_sdq1(self, draw_gantt: bool = False) -> None:
+        """
+        Uses q1 as the job sequence
+        & dispatches by stage - time - job priority to initialize a schedule.
+
+        Args:
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        # Create an empty schedule
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        self.dispatch_by_stage_time_job(
+            self.get_sequence1(), schedule, draw_gantt=draw_gantt
+        )
+
+    def initialize_by_sdq2(self, draw_gantt: bool = False) -> None:
+        """
+        Uses q2 as the job sequence
+        & dispatches by stage - time - job priority to initialize a schedule.
+
+        Args:
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        # Create an empty schedule
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        self.dispatch_by_stage_time_job(
             self.get_sequence2(), schedule, draw_gantt=draw_gantt
         )
 
