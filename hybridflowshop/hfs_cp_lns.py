@@ -1181,12 +1181,16 @@ class HybridFlowShopCpLnsController(
             self.get_sequence1(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_jd_cds(self, draw_gantt: bool = False) -> None:
+    def initialize_by_jd_cds(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the Campbell-Dudek-Smith (CDS) sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1222,6 +1226,8 @@ class HybridFlowShopCpLnsController(
 
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
         # Log
@@ -1267,12 +1273,16 @@ class HybridFlowShopCpLnsController(
             self.get_sequence2(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_jd_tp(self, draw_gantt: bool = False) -> None:
+    def initialize_by_jd_tp(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the two-partition sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1308,6 +1318,8 @@ class HybridFlowShopCpLnsController(
 
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
         # Log
@@ -1335,12 +1347,16 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_jd_gupta(self, draw_gantt: bool = False) -> None:
+    def initialize_by_jd_gupta(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the gupta sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1361,6 +1377,9 @@ class HybridFlowShopCpLnsController(
             schedule.dispatch_job_by_stages(
                 j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
             )
+
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
 
         # Log
 
@@ -1387,12 +1406,16 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_jd_palmer(self, draw_gantt: bool = False) -> None:
+    def initialize_by_jd_palmer(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the gupta sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1413,6 +1436,9 @@ class HybridFlowShopCpLnsController(
             schedule.dispatch_job_by_stages(
                 j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
             )
+
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
 
         # Log
 
@@ -1457,12 +1483,16 @@ class HybridFlowShopCpLnsController(
             self.get_sequence1(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_sd_cds(self, draw_gantt: bool = False) -> None:
+    def initialize_by_sd_cds(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the Campbell-Dudek-Smith (CDS) sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1494,6 +1524,8 @@ class HybridFlowShopCpLnsController(
 
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
         # Log
@@ -1539,12 +1571,16 @@ class HybridFlowShopCpLnsController(
             self.get_sequence2(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_sd_tp(self, draw_gantt: bool = False) -> None:
+    def initialize_by_sd_tp(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the two-partition sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1576,6 +1612,8 @@ class HybridFlowShopCpLnsController(
 
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
         # Log
@@ -1603,12 +1641,16 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_sd_gupta(self, draw_gantt: bool = False) -> None:
+    def initialize_by_sd_gupta(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the two-partition sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1627,6 +1669,9 @@ class HybridFlowShopCpLnsController(
         job_sequence = self.get_gupta_sequence()
         for i in self.instance.stage_id_list:
             schedule.dispatch_stage_by_jobs(i, job_sequence, stage_2_job_2_p_dict[i])
+
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
 
         # Log
 
@@ -1653,12 +1698,16 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_sd_palmer(self, draw_gantt: bool = False) -> None:
+    def initialize_by_sd_palmer(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
         Uses the two-partition sequence as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
 
         Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1677,6 +1726,9 @@ class HybridFlowShopCpLnsController(
         job_sequence = self.get_palmer_sequence()
         for i in self.instance.stage_id_list:
             schedule.dispatch_stage_by_jobs(i, job_sequence, stage_2_job_2_p_dict[i])
+
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
 
         # Log
 
