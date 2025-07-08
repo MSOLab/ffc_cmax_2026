@@ -136,7 +136,7 @@ class HybridFlowshopSchedule:
         """
         stage = self.get_stage_by_name(stage_name)
         _release_t = max(release_t, self.job_2_last_oper_end_time_map[job_name])
-        mc_name, start_time = stage.select_machine_by_start_slack_idx(p, _release_t)
+        mc_name, start_time = stage.select_machine_by_start_idle_idx(p, _release_t)
         # integer casting to ensure start_time is an integer
         # (not np.int64 for YAML compatibility)
         end_time = int(start_time + p)

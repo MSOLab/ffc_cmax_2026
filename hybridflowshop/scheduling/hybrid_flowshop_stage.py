@@ -72,7 +72,7 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
 
     # Getters
 
-    def select_machine_by_start_slack_idx(
+    def select_machine_by_start_idle_idx(
         self, duration: int, release_t: int = 0
     ) -> tuple[str, int]:
         """
@@ -80,8 +80,8 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
 
         1. Machines having the earliest start time are preferred.
         2. If multiple machines have the same earliest start time,
-           machines with the smallest slack (earliest start time - makespan) are preferred.
-        3. If multiple machines have the same earliest start time and slack,
+           machines with the smallest idle time (earliest start time - makespan) are preferred.
+        3. If multiple machines have the same earliest start time and idle time,
            the first machine in the order they were added is chosen.
 
         Args:
@@ -101,20 +101,20 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         candidate_info = []
         for res in self.resources:
             start_time = res.get_earliest_start_time(duration, release_t)
-            slack = start_time - res.makespan
-            candidate_info.append((start_time, slack, res))
+            idle = start_time - res.makespan
+            candidate_info.append((start_time, idle, res))
 
         if not candidate_info:
             raise ValueError("No resource available to start the activity")
 
         # 1. Find machines with the earliest start time
         min_start = min(c[0] for c in candidate_info)
-        earliest_candidates = [c for c in candidate_info if c[0] == min_start]
-        # 2. Among them, find machines with the smallest slack
-        min_slack = min(c[1] for c in earliest_candidates)
-        slack_candidates = [c for c in earliest_candidates if c[1] == min_slack]
+        earliest_start_candidates = [c for c in candidate_info if c[0] == min_start]
+        # 2. Among them, find machines with the smallest idle time
+        min_idle = min(c[1] for c in earliest_start_candidates)
+        min_idle_candidates = [c for c in earliest_start_candidates if c[1] == min_idle]
         # 3. Pick the first one (order of addition)
-        selected = slack_candidates[0]
+        selected = min_idle_candidates[0]
         return selected[2].name, int(selected[0])
 
     def get_machine_by_name(self, mc_name: str) -> Machine:
