@@ -1,5 +1,5 @@
 # EXECUTION METADATA
-worker_cnt: 32
+worker_cnt: 2
 
 # INPUT METADATA
 pra_common_params_rel_path: "resources/pra_common_params.yaml"
@@ -79,9 +79,9 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_sd_palmer.yaml"
 #   output_dir : "Outputs_pra_20s/sd_palmer"
-- stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_20s/subroutine_flow_dispatch.yaml"
-  output_dir : "Outputs_pra_20s/dispatch"
+# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_dispatch.yaml"
+#   output_dir : "Outputs_pra_20s/dispatch"
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_everything.yaml"
 #   output_dir : "Outputs_pra_20s/everything"
@@ -144,6 +144,9 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_jd_shdlb_baseCp.yaml"
 #   output_dir : "Outputs_pra_600s/jd_shdlb_baseCp"
+- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_jc55_shdlb_baseCp.yaml"
+  output_dir : "Outputs_pra_600s/dispatch_jc55_shdlb_baseCp"
 
 # OUTPUT METADATA
 result_dir_name: "results"
