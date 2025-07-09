@@ -22,19 +22,24 @@ MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
 def main():
     # Read the main metadata file
-    main_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
-    for i_o_data_path_dict in main_metadata.get("dicts_of_i_o_data_path"):
-        main_metadata["stopping_criteria_rel_path"] = i_o_data_path_dict[
+    main_metadata_dict = read_yaml(Path(MAIN_METADATA_FILENAME))
+    for i_o_data_path_dict in main_metadata_dict.get("dicts_of_i_o_data_path"):
+        main_metadata_dict["stopping_criteria_rel_path"] = i_o_data_path_dict[
             "stopping_criteria_rel_path"
         ]
-        main_metadata["subroutine_flow_rel_path"] = i_o_data_path_dict[
+        main_metadata_dict["subroutine_flow_rel_path"] = i_o_data_path_dict[
             "subroutine_flow_rel_path"
         ]
-        main_metadata["output_dir"] = i_o_data_path_dict["output_dir"]
-        run_hfs_instance_set_runner(main_metadata)
+        main_metadata_dict["output_dir"] = i_o_data_path_dict["output_dir"]
+        run_hfs_instance_set_runner(main_metadata_dict)
 
 
 def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
+    logging.info(
+        f"Starting HFS Instance Set Runner with subroutine flow {main_metadata_dict['subroutine_flow_rel_path']}"
+        f" and stopping criteria {main_metadata_dict['stopping_criteria_rel_path']}"
+    )
+
     e_timer = ElapsedTimer()
 
     single_instance_skip_run_do_post_process = main_metadata_dict.get(
@@ -148,6 +153,10 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     hfs_instance_set_runner.run()
 
     # Print elapsed time
+    logging.info(
+        f"Done HFS Instance Set Runner with subroutine flow {main_metadata_dict['subroutine_flow_rel_path']}"
+        f" and stopping criteria {main_metadata_dict['stopping_criteria_rel_path']}"
+    )
     logging.info(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")
     release_log_handlers(log_handlers)
 

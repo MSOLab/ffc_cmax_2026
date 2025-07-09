@@ -777,7 +777,7 @@ class HybridFlowShopCpLnsController(
 
         job_subset: set[str] = set()
         for job_sublist in sequence_of_job_sublist:
-            logging.info(f"Add jobs {job_sublist} into {len(job_subset)}-job subset")
+            # logging.info(f"Add jobs {job_sublist} into {len(job_subset)}-job subset")
             job_subset.update(job_sublist)  # Add new jobs to the subset
 
             # Create CP model with the job subset
