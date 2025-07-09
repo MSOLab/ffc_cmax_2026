@@ -1046,7 +1046,7 @@ class HybridFlowShopCpLnsController(
             logging.info(f"Job {j} with Palmer score {palmer_score[j]}")
         return sorted_jobs
 
-    def initialize_by_jcq1(
+    def initialize_by_cjq1(
         self,
         max_time_per_add: float,
         num_workers: int,
@@ -1054,10 +1054,10 @@ class HybridFlowShopCpLnsController(
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using the Johnson-based Heuristic 1 (jh1) sequence.
+        """Build a CP-guided solution using Q1 sequence.
 
         This method computes a job sequence by aggregating processing times from
-        the first and last stages (jh1 rule), then incrementally constructs a feasible
+        the first and last stages (Q1), then incrementally constructs a feasible
         schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
@@ -1078,7 +1078,7 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    def initialize_by_jcq2(
+    def initialize_by_cjq2(
         self,
         max_time_per_add: float,
         num_workers: int,
@@ -1086,10 +1086,10 @@ class HybridFlowShopCpLnsController(
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using the Johnson-based Heuristic 2 (jh2) sequence.
+        """Build a CP-guided solution using the Q2 sequence.
 
         This method computes a job sequence by aggregating processing times from
-        the first half and second half stages (jh2 rule), then incrementally constructs a feasible
+        the first half and second half stages (Q2), then incrementally constructs a feasible
         schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
@@ -1164,7 +1164,7 @@ class HybridFlowShopCpLnsController(
             self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
 
     # TODO: remove
-    def initialize_by_jdq1(self, draw_gantt: bool = False) -> None:
+    def initialize_by_djq1(self, draw_gantt: bool = False) -> None:
         """
         Uses q1 as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
@@ -1181,7 +1181,7 @@ class HybridFlowShopCpLnsController(
             self.get_sequence1(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_jd_cds(
+    def initialize_by_dj_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
@@ -1256,7 +1256,7 @@ class HybridFlowShopCpLnsController(
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
     # TODO: remove
-    def initialize_by_jdq2(self, draw_gantt: bool = False) -> None:
+    def initialize_by_djq2(self, draw_gantt: bool = False) -> None:
         """
         Uses q2 as the job sequence
         & dispatches by job - stage - time priority to initialize a schedule.
@@ -1273,7 +1273,7 @@ class HybridFlowShopCpLnsController(
             self.get_sequence2(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_jd_tp(
+    def initialize_by_dj_tp(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
@@ -1347,7 +1347,7 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_jd_gupta(
+    def initialize_by_dj_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
@@ -1406,7 +1406,7 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_jd_palmer(
+    def initialize_by_dj_palmer(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
@@ -1466,7 +1466,7 @@ class HybridFlowShopCpLnsController(
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
     # TODO: remove
-    def initialize_by_sdq1(self, draw_gantt: bool = False) -> None:
+    def initialize_by_dsq1(self, draw_gantt: bool = False) -> None:
         """
         Uses q1 as the job sequence
         & dispatches by stage - time - job priority to initialize a schedule.
@@ -1483,7 +1483,7 @@ class HybridFlowShopCpLnsController(
             self.get_sequence1(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_sd_cds(
+    def initialize_by_ds_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
@@ -1554,7 +1554,7 @@ class HybridFlowShopCpLnsController(
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
     # TODO: remove
-    def initialize_by_sdq2(self, draw_gantt: bool = False) -> None:
+    def initialize_by_dsq2(self, draw_gantt: bool = False) -> None:
         """
         Uses q2 as the job sequence
         & dispatches by stage - time - job priority to initialize a schedule.
@@ -1571,7 +1571,7 @@ class HybridFlowShopCpLnsController(
             self.get_sequence2(), schedule, draw_gantt=draw_gantt
         )
 
-    def initialize_by_sd_tp(
+    def initialize_by_ds_tp(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
@@ -1641,7 +1641,7 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_sd_gupta(
+    def initialize_by_ds_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
@@ -1698,7 +1698,7 @@ class HybridFlowShopCpLnsController(
         )
         self.update_incumbent_solution(draw_gantt=draw_gantt)
 
-    def initialize_by_sd_palmer(
+    def initialize_by_ds_palmer(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """

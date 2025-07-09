@@ -1,7 +1,7 @@
 - method: set_random_seed
   seed: 42
-- method: initialize_by_jdq1
-- method: initialize_by_jdq2
+- method: initialize_by_djq1
+- method: initialize_by_djq2
 - method: apply_shdlb
 - method: solve_base_cp_model
   computational_time: 20

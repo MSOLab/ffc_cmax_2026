@@ -1,14 +1,14 @@
 - method: set_random_seed
   seed: 42
-- method: initialize_by_jdq1
-- method: initialize_by_jdq2
-- method: initialize_by_sdq1
-- method: initialize_by_sdq2
-- method: initialize_by_jcq1
+- method: initialize_by_djq1
+- method: initialize_by_djq2
+- method: initialize_by_dsq1
+- method: initialize_by_dsq2
+- method: initialize_by_cjq1
   max_time_per_add: 3
   num_workers: 8
   error_if_infeasible: true
-- method: initialize_by_jcq2
+- method: initialize_by_cjq2
   max_time_per_add: 3
   num_workers: 8
   error_if_infeasible: true
