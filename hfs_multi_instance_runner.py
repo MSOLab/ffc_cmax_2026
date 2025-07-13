@@ -21,7 +21,7 @@ class HfsMultiInstanceRunner(
         self,
         s_i_runner_class: type[HfsSingleInstanceRunner],
         instances: Sequence[HybridFlowshopParameters],
-        shared_params: dict,
+        shared_param_dict: dict,
         subroutine_flow: Any,
         stopping_criteria: Any,
         output_dir: Path,
@@ -30,7 +30,7 @@ class HfsMultiInstanceRunner(
         super().__init__(
             s_i_runner_class,
             instances,
-            shared_params,
+            shared_param_dict,
             subroutine_flow,
             stopping_criteria,
             output_dir,

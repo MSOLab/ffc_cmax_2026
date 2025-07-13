@@ -142,7 +142,7 @@ def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
     hfs_instance_set_runner = HfsMultiInstanceRunner(
         s_i_runner_class=HfsSingleInstanceRunner,
         instances=instances,
-        shared_params=pra_common_params_dict,
+        shared_param_dict=pra_common_params_dict,
         subroutine_flow=subroutine_flow,
         stopping_criteria=stopping_criteria,
         output_dir=working_dir_path,
