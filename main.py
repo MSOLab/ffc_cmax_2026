@@ -40,35 +40,41 @@ def main():
         logging.error(f"Metadata validation failed:\n{e}")
         return
 
-    # --- Setup base output directory and logging ---
-    base_output_dir_path = init_timestamped_working_dir(
-        base_output_dir=config.output_dir_scenarios, e_timer=e_timer
-    )
-    log_handlers = add_file_handler(base_output_dir_path / config.scenario_log_filename)
-    logging.info(f"Base output directory initialized at: {base_output_dir_path}")
-
-    # --- Determine RunMode based on metadata ---
+    # --- Determine RunMode and base_output_dir_path ---
     run_mode = RunMode.FULL_RUN
-
     if config.analysis_timestamp:
-        # Check if the timestamp directory exists before setting the mode
         potential_path = config.output_dir_scenarios / config.analysis_timestamp
         if potential_path.is_dir():
             run_mode = RunMode.POST_PROCESS_ONLY
+            base_output_dir_path = potential_path
             e_timer.set_start_dt_from_dir_name(config.analysis_timestamp)
-            logging.info(
-                "Found valid timestamp. "
-                f"Running in POST_PROCESS_ONLY mode for: {config.analysis_timestamp}"
-            )
         else:
+            base_output_dir_path = init_timestamped_working_dir(
+                base_output_dir=config.output_dir_scenarios, e_timer=e_timer
+            )
+    else:
+        base_output_dir_path = init_timestamped_working_dir(
+            base_output_dir=config.output_dir_scenarios, e_timer=e_timer
+        )
+
+    # --- Setup logging ---
+    log_handlers = add_file_handler(base_output_dir_path / config.scenario_log_filename)
+
+    logging.info(f"Base output directory is: {base_output_dir_path}")
+    if run_mode == RunMode.POST_PROCESS_ONLY:
+        logging.info(
+            "Found valid timestamp. "
+            f"Running in POST_PROCESS_ONLY mode for: {config.analysis_timestamp}"
+        )
+    else:
+        if config.analysis_timestamp:
             logging.warning(
                 f"Timestamp '{config.analysis_timestamp}' provided, "
-                f"but directory not found at '{potential_path}'. "
+                f"but directory not found at '{base_output_dir_path}'. "
                 "Proceeding with a new FULL_RUN."
             )
+        else:
             logging.info("Running in FULL_RUN mode.")
-    else:
-        logging.info("Running in FULL_RUN mode.")
 
     # --- Load data common to all scenarios ---
     pra_common_params_dict = read_yaml(config.pra_common_params_rel_path)
