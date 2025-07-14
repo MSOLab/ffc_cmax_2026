@@ -34,34 +34,34 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
 
     @classmethod
     def from_instance(
-        cls, hfs_instance: HybridFlowshopParameters, horizon: int
+        cls, instance: HybridFlowshopParameters, horizon: int
     ) -> "CP2023NaderiOptionalInterval":
-        """Creates a PureCP2023Naderi model from a HybridFlowshopParameters instance.
+        """Creates a CP2023NaderiOptionalInterval model from a HybridFlowshopParameters instance.
 
         Args:
-            hfs_instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
+            instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
             horizon (int): The time horizon for the scheduling problem.
 
         Returns:
-            PureCP2023Naderi: An instance of the PureCP2023Naderi model.
+            CP2023NaderiOptionalInterval: An instance of the model.
         """
         result = cls(horizon)
-        result.define_model(hfs_instance)
+        result.define_model(instance)
         return result
 
-    def define_model(self, hfs_instance: HybridFlowshopParameters) -> None:
-        self.define_parameters(hfs_instance)
+    def define_model(self, instance: HybridFlowshopParameters) -> None:
+        self.define_parameters(instance)
         self.define_variables()
         self.define_makespan_objective()
         self.define_constraints()
 
     # Parameters
 
-    def define_parameters(self, hfs_instance: HybridFlowshopParameters) -> None:
-        self.j_list = hfs_instance.job_id_list
-        self.i_list = hfs_instance.stage_id_list
-        self.M_of = hfs_instance.stage_2_machines_map
-        _p = hfs_instance.p_manager.job_stage_2_value_map(self.j_list, self.i_list)
+    def define_parameters(self, instance: HybridFlowshopParameters) -> None:
+        self.j_list = instance.job_id_list
+        self.i_list = instance.stage_id_list
+        self.M_of = instance.stage_2_machines_map
+        _p = instance.p_manager.job_stage_2_value_map(self.j_list, self.i_list)
         self.p = {
             (j, i): int(float(_p[j, i])) for j in self.j_list for i in self.i_list
         }
@@ -153,8 +153,7 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
     # Subproblem generation
 
     def create_problem_of_job_subset(
-        self,
-        job_subset: set[str],
+        self, job_subset: set[str]
     ) -> CP2023NaderiOptionalInterval:
         """Creates a new problem instance with a subset of jobs.
 
@@ -180,7 +179,7 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
         new_model.p = {
             (j, i): self.p[j, i] for j in new_model.j_list for i in new_model.i_list
         }
-        # Define variables, objective, and constraints for the new model
+        # Define variables, objective, and constraints
         new_model.define_variables()
         new_model.define_makespan_objective()
         new_model.define_constraints()
@@ -285,6 +284,7 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
                 )
 
     # methods to add hints
+
     def add_start_and_present_hints_from_start_time_map(
         self,
         start_time_map: dict[tuple[str, str, str], int],
