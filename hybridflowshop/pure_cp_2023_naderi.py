@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Optional
 
-from mbls import ElapsedTimer
 from mbls.cpsat import CpModelWithOptionalFixedInterval
 from ortools.sat.python.cp_model import IntVar
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -55,40 +53,6 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         self.define_variables()
         self.define_makespan_objective()
         self.define_constraints()
-
-    def solve(
-        self,
-        computational_time: float,
-        n_threads: int,
-        random_seed: Optional[int] = None,
-        timer: Optional[ElapsedTimer] = None,
-    ) -> tuple[str, float, float, float]:
-        """Solve the CP model.
-
-        Args:
-            computational_time (float): The maximum computational time in seconds.
-            n_threads (int): The number of threads to use for solving.
-            timer (Optional[ElapsedTimer], optional): Timer to be passed to solver callback. Defaults to None.
-
-        Returns:
-            tuple[str, float, float, float]: A tuple containing
-            - the solver status as a string defined in SolverStatus,
-            - elapsed time in seconds,
-            - the upper bound of the objective function, and
-            - the lower bound of the objective function.
-        """  # noqa: E501
-        return super().solve_with_prog_logger(
-            computational_time, n_threads, random_seed, timer
-        )
-
-    def get_progress_log(self) -> list[tuple[float, float, float]]:
-        """Returns the log list.
-
-        Returns:
-            list[tuple[float, float, float]]: a list of tuples
-                containing (elapsed time, objective value, best bound)
-        """
-        return self.sol_prog_logger.get_log()
 
     # Parameters
 

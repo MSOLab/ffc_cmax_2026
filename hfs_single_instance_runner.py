@@ -2,9 +2,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mbls import DynamicDataObject, StoppingCriteria, utils
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
+from routix import DynamicDataObject, StoppingCriteria
+from routix.io import object_to_yaml
 from routix.runner import SingleInstanceRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -113,7 +114,7 @@ class HfsSingleInstanceRunner(
 
     def save_solution(self, encoding: str = "utf-8") -> None:
         solution = self.ctrlr.get_incumbent_solution_dict(for_pyyaml=True)
-        utils.object_to_yaml(solution, self.solution_path, encoding=encoding)
+        object_to_yaml(solution, self.solution_path, encoding=encoding)
 
     def save_obj_value_bound_store(self, encoding: str = "utf-8") -> None:
         self.ctrlr.obj_store.save_yaml(self.obj_log_path, encoding=encoding)

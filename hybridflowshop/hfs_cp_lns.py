@@ -5,8 +5,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from mbls import DynamicDataObject, ElapsedTimer, StoppingCriteria
 from mbls.cpsat import CpsatSolverReport, CpsatStatus, CpSubroutineController
+from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
 from routix.report import SubroutineReportRecorder
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
