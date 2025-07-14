@@ -12,14 +12,16 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from .pure_cp_2023_naderi import PureCP2023Naderi
+from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
 from .report import HfsCpsatSolverReport, HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from .solution_manager import SolutionManager
 
 
 class HybridFlowShopCpLnsController(
-    CpSubroutineController[HybridFlowshopParameters, PureCP2023Naderi, StoppingCriteria]
+    CpSubroutineController[
+        HybridFlowshopParameters, CP2023NaderiOptionalInterval, StoppingCriteria
+    ]
 ):
     """
     Controller for solving Hybrid Flow Shop problems using CP-based LNS.
@@ -51,7 +53,7 @@ class HybridFlowShopCpLnsController(
         super().__init__(
             instance,
             shared_param_dict,
-            PureCP2023Naderi,
+            CP2023NaderiOptionalInterval,
             subroutine_flow,
             stopping_criteria,
         )
@@ -66,7 +68,7 @@ class HybridFlowShopCpLnsController(
 
     # Start abstract getters
 
-    def create_base_cp_model(self) -> PureCP2023Naderi:
+    def create_base_cp_model(self) -> CP2023NaderiOptionalInterval:
         if "horizon" not in self.shared_param_dict:
             raise ValueError("Horizon not found in shared parameters.")
         horizon = self.shared_param_dict["horizon"]

@@ -3,8 +3,8 @@ from typing import Any, Generic
 
 from routix.report import SubroutineReportT
 
+from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
 from .painter import GanttPlotter
-from .pure_cp_2023_naderi import PureCP2023Naderi
 from .utils import tuple_to_pyyaml_key
 
 
@@ -28,7 +28,9 @@ class SolutionManager(Generic[SubroutineReportT]):
         """Indicates whether the solution is feasible based on the report's objective value."""
 
     def apply_start_and_present_hints(
-        self, target_model: PureCP2023Naderi, ignore_integrity_check: bool = True
+        self,
+        target_model: CP2023NaderiOptionalInterval,
+        ignore_integrity_check: bool = True,
     ) -> None:
         # TODO: move to PureCP2023Naderi
         """
@@ -44,7 +46,9 @@ class SolutionManager(Generic[SubroutineReportT]):
         )
 
     def apply_fixed_machine_and_ops_precedence_constraints(
-        self, target_model: PureCP2023Naderi, ignore_integrity_check: bool = True
+        self,
+        target_model: CP2023NaderiOptionalInterval,
+        ignore_integrity_check: bool = True,
     ) -> None:
         # TODO: move to PureCP2023Naderi
         """

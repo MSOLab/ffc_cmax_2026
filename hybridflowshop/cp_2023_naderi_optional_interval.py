@@ -10,7 +10,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 )
 
 
-class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
+class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
     # Indices & Parameters
 
     j_list: list[str]
@@ -35,7 +35,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     @classmethod
     def from_instance(
         cls, hfs_instance: HybridFlowshopParameters, horizon: int
-    ) -> "PureCP2023Naderi":
+    ) -> "CP2023NaderiOptionalInterval":
         """Creates a PureCP2023Naderi model from a HybridFlowshopParameters instance.
 
         Args:
@@ -155,7 +155,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     def create_problem_of_job_subset(
         self,
         job_subset: set[str],
-    ) -> PureCP2023Naderi:
+    ) -> CP2023NaderiOptionalInterval:
         """Creates a new problem instance with a subset of jobs.
 
         Args:
@@ -171,7 +171,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         if not job_subset.issubset(self.j_list):
             raise ValueError("Job subset must be a subset of the original job list.")
         # Create a new instance of the model
-        new_model = PureCP2023Naderi(self.horizon)
+        new_model = CP2023NaderiOptionalInterval(self.horizon)
 
         # Filter parameters based on the job subset
         new_model.j_list = [j for j in self.j_list if j in job_subset]
