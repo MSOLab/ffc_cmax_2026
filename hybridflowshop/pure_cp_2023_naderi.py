@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
 from mbls.cpsat import CpModelWithOptionalFixedInterval
@@ -28,7 +29,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
     obj_var: IntVar
     """Defines the makespan objective for the scheduling problem."""
 
-    def __init__(self, horizon: int):
+    def __init__(self, horizon: int) -> None:
         super().__init__(horizon)
 
     @classmethod
@@ -48,7 +49,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         result.define_model(hfs_instance)
         return result
 
-    def define_model(self, hfs_instance: HybridFlowshopParameters):
+    def define_model(self, hfs_instance: HybridFlowshopParameters) -> None:
         self.define_parameters(hfs_instance)
         self.define_variables()
         self.define_makespan_objective()
@@ -56,7 +57,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
     # Parameters
 
-    def define_parameters(self, hfs_instance: HybridFlowshopParameters):
+    def define_parameters(self, hfs_instance: HybridFlowshopParameters) -> None:
         self.j_list = hfs_instance.job_id_list
         self.i_list = hfs_instance.stage_id_list
         self.M_of = hfs_instance.stage_2_machines_map
@@ -67,7 +68,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
     # Variables
 
-    def define_variables(self):
+    def define_variables(self) -> None:
         # Define variables for each operation in each job
         for j in self.j_list:
             for i in self.i_list:
@@ -76,7 +77,7 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
 
     # Objective
 
-    def define_makespan_objective(self):
+    def define_makespan_objective(self) -> None:
         # alias for readability
         j_list = self.j_list
         i_list = self.i_list
@@ -92,16 +93,25 @@ class PureCP2023Naderi(CpModelWithOptionalFixedInterval):
         self.obj_var = makespan
 
     def set_obj_lower_bound(self, bound: float) -> None:
-        """Sets a lower bound for the objective function.
+        """Sets a lower bound on the objective variable, handling potential float precision issues."""
+        if self.obj_var is None:
+            return
 
-        Args:
-            bound (float): The lower bound for the objective function.
-        """
-        self.add(self.obj_var >= bound)
+        # A small tolerance to handle floating point inaccuracies
+        epsilon = 1e-9
+
+        # If the bound is very close to an integer, treat it as such.
+        # Otherwise, use ceiling to ensure we don't cut off valid integer solutions.
+        if abs(bound - round(bound)) < epsilon:
+            int_bound = round(bound)
+        else:
+            int_bound = math.ceil(bound)
+
+        self.add(self.obj_var >= int_bound)
 
     # Constraints
 
-    def define_constraints(self):
+    def define_constraints(self) -> None:
         # Alias for readability
         j_list = self.j_list
         i_list = self.i_list
