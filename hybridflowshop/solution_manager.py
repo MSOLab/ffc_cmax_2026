@@ -3,7 +3,6 @@ from typing import Any, Generic
 
 from routix.report import SubroutineReportT
 
-from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
 from .painter import GanttPlotter
 from .utils import tuple_to_pyyaml_key
 
@@ -26,42 +25,6 @@ class SolutionManager(Generic[SubroutineReportT]):
         self.report = report
         self.is_feasible = report.obj_value is not None
         """Indicates whether the solution is feasible based on the report's objective value."""
-
-    def apply_start_and_present_hints(
-        self,
-        target_model: CP2023NaderiOptionalInterval,
-        ignore_integrity_check: bool = True,
-    ) -> None:
-        # TODO: move to PureCP2023Naderi
-        """
-        Apply current incumbent solution as initial variable hints to another CP model.
-
-        Args:
-            target_model (PureCP2023Naderi): The target CP model to receive hints
-            ignore_integrity_check (bool, optional): If true, skip integrity checks.
-                Defaults to True.
-        """
-        target_model.add_start_and_present_hints_from_start_time_map(
-            self.start_time_map, ignore_integrity_check=ignore_integrity_check
-        )
-
-    def apply_fixed_machine_and_ops_precedence_constraints(
-        self,
-        target_model: CP2023NaderiOptionalInterval,
-        ignore_integrity_check: bool = True,
-    ) -> None:
-        # TODO: move to PureCP2023Naderi
-        """
-        Add fixed constraints based on the incumbent solution to another CP model.
-
-        Args:
-            target_model (PureCP2023Naderi): The target CP model to receive fixed constraints
-            ignore_integrity_check (bool, optional): If true, skip integrity checks.
-                Defaults to True.
-        """
-        target_model.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
-            self.start_time_map, ignore_integrity_check=ignore_integrity_check
-        )
 
     @staticmethod
     def get_time_dict_pyyaml(

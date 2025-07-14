@@ -327,7 +327,10 @@ class HybridFlowShopCpLnsController(
         cannot_apply_hint = not self.feasible_incumbent_solution_exists()
         if not cannot_apply_hint:
             self.cp_model.clear_hints()
-            self.incumbent_solution_manager.apply_start_and_present_hints(self.cp_model)
+            self.cp_model.add_start_and_present_hints_from_start_time_map(
+                self.incumbent_solution_manager.start_time_map,
+                ignore_integrity_check=True,
+            )
         self.solve_current_cp_remaining_time_limit(
             computational_time,
             num_workers,
@@ -786,8 +789,8 @@ class HybridFlowShopCpLnsController(
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             # If this is not the first iteration, freeze jobs in the previous model
             if iter_sol_manager is not None:
-                iter_sol_manager.apply_fixed_machine_and_ops_precedence_constraints(
-                    sub_cp_mdl
+                sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
+                    iter_sol_manager.start_time_map, ignore_integrity_check=True
                 )
 
             _timelimit = self.get_remaining_time_limit(max_time_per_add)
