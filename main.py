@@ -40,6 +40,13 @@ def main():
         logging.error(f"Metadata validation failed:\n{e}")
         return
 
+    # --- Setup base output directory and logging ---
+    base_output_dir_path = init_timestamped_working_dir(
+        base_output_dir=config.output_dir_scenarios, e_timer=e_timer
+    )
+    log_handlers = add_file_handler(base_output_dir_path / config.scenario_log_filename)
+    logging.info(f"Base output directory initialized at: {base_output_dir_path}")
+
     # --- Determine RunMode based on metadata ---
     run_mode = RunMode.FULL_RUN
 
@@ -50,22 +57,18 @@ def main():
             run_mode = RunMode.POST_PROCESS_ONLY
             e_timer.set_start_dt_from_dir_name(config.analysis_timestamp)
             logging.info(
-                f"Found valid timestamp. Running in POST_PROCESS_ONLY mode for: {config.analysis_timestamp}"
+                "Found valid timestamp. "
+                f"Running in POST_PROCESS_ONLY mode for: {config.analysis_timestamp}"
             )
         else:
             logging.warning(
-                f"Timestamp '{config.analysis_timestamp}' provided, but directory not found at '{potential_path}'. Proceeding with a new FULL_RUN."
+                f"Timestamp '{config.analysis_timestamp}' provided, "
+                f"but directory not found at '{potential_path}'. "
+                "Proceeding with a new FULL_RUN."
             )
             logging.info("Running in FULL_RUN mode.")
     else:
         logging.info("Running in FULL_RUN mode.")
-
-    # Setup logging and base output directory
-    working_dir_path = config.output_dir_scenarios / e_timer.get_start_dt_for_dir_name()
-    working_dir_path.mkdir(parents=True, exist_ok=True)
-    log_handlers = add_file_handler(working_dir_path / config.scenario_log_filename)
-
-    logging.info("Starting HFS Multi-Scenario Runner.")
 
     # --- Load data common to all scenarios ---
     pra_common_params_dict = read_yaml(config.pra_common_params_rel_path)
@@ -114,14 +117,16 @@ def main():
         instances=instances,
         shared_param_dict=pra_common_params_dict,
         scenario_configs=scenario_configs,
-        output_dir=working_dir_path,
+        output_dir=base_output_dir_path,
         base_output_metadata=base_output_metadata,
         mode=run_mode,
     )
+    logging.info("Starting HFS Multi-Scenario Runner.")
     multi_scenario_runner.run()
 
     logging.info(
-        f"Finished HFS Multi-Scenario Runner. Total elapsed time: {e_timer.get_formatted_elapsed_time()} seconds."
+        "Finished HFS Multi-Scenario Runner. "
+        f"Total elapsed time: {e_timer.get_formatted_elapsed_time()} seconds."
     )
     release_log_handlers(log_handlers)
 
@@ -145,15 +150,6 @@ def load_hfs_instance(file_path: Path) -> HybridFlowshopParameters:
         raise FileNotFoundError(f"Benchmark file not found: {file_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading benchmark file {file_path}: {e}")
-
-
-def init_working_dir(output_dir: Path, e_timer: ElapsedTimer) -> Path:
-    """
-    Prepare the output directory for the instance run.
-    """
-    working_dir = output_dir / e_timer.get_start_dt_for_dir_name()
-    working_dir.mkdir(parents=True, exist_ok=True)
-    return working_dir
 
 
 def add_file_handler(
