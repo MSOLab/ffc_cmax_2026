@@ -1,4 +1,5 @@
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -9,11 +10,15 @@ from mbls import (
     StoppingCriteria,
     SubroutineFlowValidator,
 )
+from pydantic import ValidationError
+from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from hfs_config import MainMetadata
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
+from hfs_multi_scenario_runner import HfsMultiScenarioRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 
@@ -21,143 +26,102 @@ MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
 
 def main():
-    # Read the main metadata file
-    main_metadata_dict = read_yaml(Path(MAIN_METADATA_FILENAME))
-    for i_o_data_path_dict in main_metadata_dict.get("dicts_of_i_o_data_path"):
-        main_metadata_dict["stopping_criteria_rel_path"] = i_o_data_path_dict[
-            "stopping_criteria_rel_path"
-        ]
-        main_metadata_dict["subroutine_flow_rel_path"] = i_o_data_path_dict[
-            "subroutine_flow_rel_path"
-        ]
-        main_metadata_dict["output_dir"] = i_o_data_path_dict["output_dir"]
-        run_hfs_instance_set_runner(main_metadata_dict)
-
-
-def run_hfs_instance_set_runner(main_metadata_dict: dict[str, Any]) -> None:
-    logging.info(
-        f"Starting HFS Instance Set Runner with subroutine flow {main_metadata_dict['subroutine_flow_rel_path']}"
-        f" and stopping criteria {main_metadata_dict['stopping_criteria_rel_path']}"
-    )
-
     e_timer = ElapsedTimer()
 
-    single_instance_skip_run_do_post_process = main_metadata_dict.get(
-        "single_instance_skip_run_do_post_process", False
-    )
-    single_instance_from_files_save_analysis_only = main_metadata_dict.get(
-        "single_instance_from_files_save_analysis_only", False
-    )
-    if single_instance_skip_run_do_post_process:
-        if "analysis_timestamp" in main_metadata_dict:
-            e_timer.set_start_dt_from_dir_name(main_metadata_dict["analysis_timestamp"])
-        else:
-            raise ValueError(
-                "single_instance_skip_run_do_post_process is True, "
-                "but 'analysis_timestamp' is not provided in main_metadata_dict."
+    # --- Load and validate metadata ---
+    try:
+        raw_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
+        config = MainMetadata.model_validate(raw_metadata)
+    except FileNotFoundError:
+        logging.error(f"Metadata file not found at '{MAIN_METADATA_FILENAME}'")
+        return
+    except ValidationError as e:
+        logging.error(f"Metadata validation failed:\n{e}")
+        return
+
+    # --- Determine RunMode based on metadata ---
+    run_mode = RunMode.FULL_RUN
+
+    if config.analysis_timestamp:
+        # Check if the timestamp directory exists before setting the mode
+        potential_path = config.output_dir_scenarios / config.analysis_timestamp
+        if potential_path.is_dir():
+            run_mode = RunMode.POST_PROCESS_ONLY
+            e_timer.set_start_dt_from_dir_name(config.analysis_timestamp)
+            logging.info(
+                f"Found valid timestamp. Running in POST_PROCESS_ONLY mode for: {config.analysis_timestamp}"
             )
-    if single_instance_from_files_save_analysis_only:
-        single_instance_skip_run_do_post_process = True
-        if "analysis_timestamp" in main_metadata_dict:
-            e_timer.set_start_dt_from_dir_name(main_metadata_dict["analysis_timestamp"])
         else:
-            raise ValueError(
-                "single_instance_from_files_save_analysis_only is True, "
-                "but 'analysis_timestamp' is not provided in main_metadata_dict."
+            logging.warning(
+                f"Timestamp '{config.analysis_timestamp}' provided, but directory not found at '{potential_path}'. Proceeding with a new FULL_RUN."
             )
+            logging.info("Running in FULL_RUN mode.")
+    else:
+        logging.info("Running in FULL_RUN mode.")
 
-    # Read common parameters for PRA benchmarks
-    pra_common_params_rel_path = Path(main_metadata_dict["pra_common_params_rel_path"])
-    pra_common_params_dict = read_yaml(pra_common_params_rel_path)
+    # Setup logging and base output directory
+    working_dir_path = config.output_dir_scenarios / e_timer.get_start_dt_for_dir_name()
+    working_dir_path.mkdir(parents=True, exist_ok=True)
+    log_handlers = add_file_handler(working_dir_path / config.scenario_log_filename)
 
-    # Read subroutine flow and stopping criteria
-    subroutine_flow_rel_path = Path(main_metadata_dict["subroutine_flow_rel_path"])
-    subroutine_flow_obj = read_yaml(subroutine_flow_rel_path)
-    stopping_criteria_rel_path = Path(main_metadata_dict["stopping_criteria_rel_path"])
-    stopping_criteria_dict = read_yaml(stopping_criteria_rel_path)
+    logging.info("Starting HFS Multi-Scenario Runner.")
 
-    # Input parameters
-    first = int(main_metadata_dict["first"])
-    last = int(main_metadata_dict["last"])
-    input_dir_path = Path(main_metadata_dict["input_dir"])
-    benchmark_filename_format = str(main_metadata_dict["benchmark_filename_format"])
+    # --- Load data common to all scenarios ---
+    pra_common_params_dict = read_yaml(config.pra_common_params_rel_path)
+
     benchmark_filenames = [
-        benchmark_filename_format.format(i) for i in range(first, last + 1)
+        config.benchmark_filename_format.format(i)
+        for i in range(config.first, config.last + 1)
     ]
+    instances = load_list_of_instances(config.input_dir, benchmark_filenames)
 
-    # Initialize working directory
-    output_dir = Path(main_metadata_dict["output_dir"])
-    working_dir_path = init_working_dir(output_dir, e_timer)
+    # --- Prepare scenario configurations ---
+    scenario_configs = []
+    for path_config in config.dicts_of_i_o_data_path:
+        subroutine_flow_obj = read_yaml(path_config.subroutine_flow_rel_path)
+        stopping_criteria_dict = read_yaml(path_config.stopping_criteria_rel_path)
 
-    log_handlers = add_file_handler(working_dir_path / "hfs_instance_set_runner.log")
+        if run_mode == RunMode.FULL_RUN:
+            validator = SubroutineFlowValidator(HybridFlowShopCpLnsController)
+            validator.validate(DynamicDataObject.from_obj(subroutine_flow_obj))
 
-    # Subroutine controller arguments
-    subroutine_flow = DynamicDataObject.from_obj(subroutine_flow_obj)
-    stopping_criteria = StoppingCriteria(stopping_criteria_dict)
+        scenario_configs.append(
+            {
+                "subroutine_flow": DynamicDataObject.from_obj(subroutine_flow_obj),
+                "stopping_criteria": StoppingCriteria(stopping_criteria_dict),
+                "output_subdir": path_config.output_dir,
+            }
+        )
 
-    # Validate the subroutine flow
-    validator = SubroutineFlowValidator(HybridFlowShopCpLnsController)
-    validator.validate(subroutine_flow)
-
-    # Save main metadata, subroutine flow, and stopping criteria
-    algorithm_data_dir = "algorithm_data"
-    algorithm_data_dir_path = working_dir_path / algorithm_data_dir
-    algorithm_data_dir_path.mkdir(parents=True, exist_ok=True)
-
-    main_metadata_filename = algorithm_data_dir_path / MAIN_METADATA_FILENAME
-    with open(main_metadata_filename, "w") as f:
-        yaml.safe_dump(main_metadata_dict, f, default_flow_style=False)
-    DynamicDataObject.safe_save_yaml(
-        subroutine_flow, algorithm_data_dir_path / subroutine_flow_rel_path
+    # --- Base output metadata ---
+    base_output_metadata = config.model_dump(
+        include={
+            "result_dir_name",
+            "draw_gantt",
+            "result_gantt_filename_format",
+            "draw_progress_plot",
+            "progress_plot_filename_format",
+            "drop_first_values_percent",
+        }
     )
-    stopping_criteria.to_yaml(algorithm_data_dir_path / stopping_criteria_rel_path)
+    base_output_metadata["start_dt"] = e_timer.start_dt
 
-    # Output metadata
-    result_dir_name = str(main_metadata_dict["result_dir_name"])
-    output_metadata = {
-        "start_dt": e_timer.start_dt,
-        "result_dir_name": result_dir_name,
-        "single_instance_skip_run_do_post_process": single_instance_skip_run_do_post_process,
-        "single_instance_from_files_save_analysis_only": single_instance_from_files_save_analysis_only,
-    }
-    draw_gantt = main_metadata_dict.get("draw_gantt", False)
-    output_metadata["draw_gantt"] = draw_gantt
-    if draw_gantt:
-        result_gantt_filename_format = str(
-            main_metadata_dict["result_gantt_filename_format"]
-        )
-        output_metadata["gantt_filename_format"] = result_gantt_filename_format
-    draw_progress_plot = main_metadata_dict.get("draw_progress_plot", False)
-    output_metadata["draw_progress_plot"] = draw_progress_plot
-    if draw_progress_plot:
-        progress_plot_filename_format = str(
-            main_metadata_dict["progress_plot_filename_format"]
-        )
-        output_metadata["progress_plot_filename_format"] = progress_plot_filename_format
-
-    # Load problem instances
-    instances = load_list_of_instances(input_dir_path, benchmark_filenames)
-
-    # Create and run the multi instance runner
-    hfs_instance_set_runner = HfsMultiInstanceRunner(
+    # --- Create and run the multi-scenario runner ---
+    multi_scenario_runner = HfsMultiScenarioRunner(
+        m_i_runner_class=HfsMultiInstanceRunner,
         s_i_runner_class=HfsSingleInstanceRunner,
         instances=instances,
         shared_param_dict=pra_common_params_dict,
-        subroutine_flow=subroutine_flow,
-        stopping_criteria=stopping_criteria,
+        scenario_configs=scenario_configs,
         output_dir=working_dir_path,
-        output_metadata=output_metadata,
+        base_output_metadata=base_output_metadata,
+        mode=run_mode,
     )
-    # Default is 1; if set to more than 2, it will run concurrently.
-    hfs_instance_set_runner.set_max_workers(main_metadata_dict.get("worker_cnt", 1))
-    hfs_instance_set_runner.run()
+    multi_scenario_runner.run()
 
-    # Print elapsed time
     logging.info(
-        f"Done HFS Instance Set Runner with subroutine flow {main_metadata_dict['subroutine_flow_rel_path']}"
-        f" and stopping criteria {main_metadata_dict['stopping_criteria_rel_path']}"
+        f"Finished HFS Multi-Scenario Runner. Total elapsed time: {e_timer.get_formatted_elapsed_time()} seconds."
     )
-    logging.info(f"Elapsed time: {e_timer.get_formatted_elapsed_time()} seconds")
     release_log_handlers(log_handlers)
 
 
