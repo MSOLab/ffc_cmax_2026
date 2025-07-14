@@ -27,6 +27,9 @@ class MainMetadata(BaseModel):
     pra_common_params_rel_path: Path = Field(
         ..., description="Path to common parameters for PRA benchmarks."
     )
+    baseline_csv_path: Path = Field(
+        ..., description="Path to the baseline CSV file for comparison."
+    )  # TODO: utilize this in the code
     input_dir: Path = Field(
         ..., description="Directory containing benchmark instance files."
     )
