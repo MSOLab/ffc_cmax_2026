@@ -1,0 +1,7 @@
+- method: set_random_seed
+  seed: 42
+- method: initialize_by_ds_gupta
+- method: apply_shdlb
+- method: solve_base_cp_model
+  computational_time: 20
+  num_workers: 8
