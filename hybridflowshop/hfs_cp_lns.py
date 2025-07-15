@@ -12,7 +12,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
+from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
 from .report import HfsCpsatSolverReport, HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from .solution_manager import SolutionManager
@@ -20,7 +20,7 @@ from .solution_manager import SolutionManager
 
 class HybridFlowShopCpLnsController(
     CpSubroutineController[
-        HybridFlowshopParameters, CP2023NaderiOptionalInterval, StoppingCriteria
+        HybridFlowshopParameters, CP2023NaderiCumulative, StoppingCriteria
     ]
 ):
     """
@@ -53,7 +53,7 @@ class HybridFlowShopCpLnsController(
         super().__init__(
             instance,
             shared_param_dict,
-            CP2023NaderiOptionalInterval,
+            CP2023NaderiCumulative,
             subroutine_flow,
             stopping_criteria,
         )
@@ -68,7 +68,7 @@ class HybridFlowShopCpLnsController(
 
     # Start abstract getters
 
-    def create_base_cp_model(self) -> CP2023NaderiOptionalInterval:
+    def create_base_cp_model(self) -> CP2023NaderiCumulative:
         if "horizon" not in self.shared_param_dict:
             raise ValueError("Horizon not found in shared parameters.")
         horizon = self.shared_param_dict["horizon"]
@@ -327,7 +327,8 @@ class HybridFlowShopCpLnsController(
         cannot_apply_hint = not self.feasible_incumbent_solution_exists()
         if not cannot_apply_hint:
             self.cp_model.clear_hints()
-            self.cp_model.add_start_and_present_hints_from_start_time_map(
+            # self.cp_model.add_start_and_present_hints_from_start_time_map(
+            self.cp_model.add_start_hints_from_start_time_map(
                 self.incumbent_solution_manager.start_time_map,
                 ignore_integrity_check=True,
             )
@@ -502,14 +503,15 @@ class HybridFlowShopCpLnsController(
         stage_mc_to_jobs: dict[tuple[str, str], list[str]] = defaultdict(list)
 
         for j, i, k in out_of_window_ops:
-            self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
+            # self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
             stage_mc_to_jobs[(i, k)].append(j)
 
         for (i, k), jobs in stage_mc_to_jobs.items():
             # Start time 기준 정렬
             jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+                # self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+                self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
 
     @staticmethod
     def is_within_window(time: int, window_start: int, window_end: int) -> bool:
@@ -595,13 +597,14 @@ class HybridFlowShopCpLnsController(
         stage_mc_to_jobs = defaultdict(list)
 
         for j, i, k in out_of_block_ops:
-            self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
+            # self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
             stage_mc_to_jobs[(i, k)].append(j)
 
         for (i, k), jobs in stage_mc_to_jobs.items():
             jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+                # self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+                self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -789,7 +792,8 @@ class HybridFlowShopCpLnsController(
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             # If this is not the first iteration, freeze jobs in the previous model
             if iter_sol_manager is not None:
-                sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
+                # sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
+                sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
                     iter_sol_manager.start_time_map, ignore_integrity_check=True
                 )
 
@@ -1790,8 +1794,9 @@ class HybridFlowShopCpLnsController(
 
         # Freeze operation start times and machine assignments
         for (j, i, k), start_time in start_time_map.items():
-            base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
-            base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
+            # base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
+            # base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
+            base_cp.add(self.cp_model.var_op_start[j, i] == start_time)
 
         # Solve with tight time limit
         try:

@@ -22,6 +22,18 @@ class HfsMultiScenarioRunner(
     comprehensive Excel report.
     """
 
+    def set_baseline_df(self, baseline_csv_path: Path):
+        """
+        Sets the baseline DataFrame for comparison in the report.
+        This DataFrame should contain the baseline results for the scenarios.
+        """
+        if baseline_csv_path.exists():
+            self.baseline_df = pd.read_csv(baseline_csv_path)
+            logging.info(f"Baseline DataFrame loaded from {baseline_csv_path}")
+        else:
+            logging.warning(f"Baseline CSV file not found at {baseline_csv_path}")
+            self.baseline_df = pd.DataFrame()
+
     def post_run_process(self):
         """
         Aggregates results from all scenarios and generates a comprehensive Excel report
@@ -61,7 +73,10 @@ class HfsMultiScenarioRunner(
             excel_report_path, dashboard_df, raw_summary_df, info_df
         )
 
-    def create_dashboard(self, raw_summary_df: pd.DataFrame) -> pd.DataFrame:
+    def create_dashboard(
+        self,
+        raw_summary_df: pd.DataFrame,
+    ) -> pd.DataFrame:
         """Creates a pivoted dashboard DataFrame for performance comparison."""
         try:
             # Pivot the raw data to have scenarios as columns
@@ -70,9 +85,8 @@ class HfsMultiScenarioRunner(
             )
 
             # Load baseline data for comparison
-            baseline_path = Path("20250704_dispatching2_githubData.csv")
-            if baseline_path.exists():
-                baseline_df = pd.read_csv(baseline_path).rename(
+            if self.baseline_df is not None and not self.baseline_df.empty:
+                baseline_df = self.baseline_df.rename(
                     columns={"name": "instanceName", "ObjVal": "baseline"}
                 )[["instanceName", "baseline"]]
                 # Merge baseline data into the dashboard
@@ -83,8 +97,9 @@ class HfsMultiScenarioRunner(
                 dashboard_df.set_index("instanceName", inplace=True)
             else:
                 logging.warning(
-                    f"Baseline data file not found at {baseline_path}. Skipping gap calculation."
+                    "Baseline data file not available. Skipping gap calculation."
                 )
+                dashboard_df = pivot_df.copy()
                 dashboard_df["baseline"] = None
 
             # Calculate best overall and gaps
