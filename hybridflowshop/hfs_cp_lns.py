@@ -855,24 +855,7 @@ class HybridFlowShopCpLnsController(
             list[str]: A list of job IDs ordered according to Johnson's rule.
         """
         jobs = list(job_name_2_p1_map.keys())
-        # n = len(jobs)
-        # sequence: list[str] = [""] * n  # Initialize sequence with empty strings
-        # left = 0
-        # right = n - 1
 
-        # # Pre-sort jobs based on aggregated processing times
-        # jobs.sort(
-        #     key=lambda j: (min(job_name_2_p1_map[j], job_name_2_p2_map[j]), j)
-        # )  # Sort by min processing time first, then by job ID
-
-        # while jobs:
-        #     job = jobs.pop(0)  # Remove the first job from the sorted list
-        #     if job_name_2_p1_map[job] <= job_name_2_p2_map[job]:
-        #         sequence[left] = job  # Last of the front
-        #         left += 1
-        #     else:
-        #         sequence[right] = job  # First of the back
-        #         right -= 1
         l1: list[str] = []
         l2: list[str] = []
 
@@ -893,11 +876,12 @@ class HybridFlowShopCpLnsController(
         # Sort by decreasing order of p_2j, tie-breaking by job-ID (descending)
         l2.sort(key=lambda j: (job_name_2_p2_map[j], j), reverse=True)
 
-        logging.info(f"Job sequence by Johnson's rule: {l1}+{l2}")
+        # logging.info(f"Job sequence by Johnson's rule: {l1}+{l2}")
 
         sequence = l1 + l2
         return sequence
 
+    # TODO: remove
     def get_sequence1(self) -> list[str]:
         jobs = self.instance.job_id_list
         stages = self.instance.stage_id_list
@@ -937,6 +921,7 @@ class HybridFlowShopCpLnsController(
 
         return self.get_johnsons_rule_sequence(p1, p2)
 
+    # TODO: remove
     def get_sequence2(self) -> list[str]:
         jobs = self.instance.job_id_list
         num_stages = self.instance.stage_count
@@ -1051,10 +1036,9 @@ class HybridFlowShopCpLnsController(
 
         # Sort by ascending order: (Palmer score, job id)
         sorted_jobs = sorted(jobs, key=lambda j: (palmer_score[j], j))
-        for j in sorted_jobs:
-            logging.info(f"Job {j} with Palmer score {palmer_score[j]}")
         return sorted_jobs
 
+    # TODO: remove
     def initialize_by_cjq1(
         self,
         max_time_per_add: float,
@@ -1087,6 +1071,7 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
+    # TODO: remove
     def initialize_by_cjq2(
         self,
         max_time_per_add: float,
