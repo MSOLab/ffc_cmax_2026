@@ -3,7 +3,7 @@ pra_common_params_rel_path: "resources/pra_common_params.yaml"
 baseline_csv_path: "resources/pra_ref/githubData.csv"
 input_dir : "resources/pra"
 first: 1
-last: 100
+last: 30
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
@@ -77,9 +77,9 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_ds_palmer.yaml"
 #   output_dir : "pra_20s/ds_palmer"
-- stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_20s/subroutine_flow_ds_gupta_shdlb_baseCp.yaml"
-  output_dir : "pra_20s/dsgupta_shdlb_baseCp"
+# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_ds_gupta_shdlb_baseCp.yaml"
+#   output_dir : "pra_20s/dsgupta_shdlb_baseCp"
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_dispatch.yaml"
 #   output_dir : "pra_20s/dispatch"
@@ -131,14 +131,8 @@ dicts_of_i_o_data_path:
 #   output_dir : "pra_100s/cj55_baseCp"
 
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_baseCp.yaml"
-#   output_dir : "pra_600s/baseCp"
-# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_cj55_baseCp.yaml"
 #   output_dir : "pra_600s/cj55_baseCp"
-# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_shdlb_baseCp.yaml"
-#   output_dir : "pra_600s/shdlb_baseCp"
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_cj55_shdlb_baseCp.yaml"
 #   output_dir : "pra_600s/cj55_shdlb_baseCp"
@@ -148,6 +142,12 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cj55_shdlb_baseCp.yaml"
 #   output_dir : "pra_600s/dispatch_cj55_shdlb_baseCp"
+- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_600s/subroutine_flow_baseCp.yaml"
+  output_dir : "pra_600s/baseCp"
+- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_600s/subroutine_flow_shdlb_baseCp.yaml"
+  output_dir : "pra_600s/shdlb_baseCp"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"

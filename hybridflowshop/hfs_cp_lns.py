@@ -1119,6 +1119,70 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
+    def initialize_by_cjqp(
+        self,
+        max_time_per_add: float,
+        num_workers: int,
+        added_batch_size: int = 1,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        """Build a CP-guided solution using Q1 sequence.
+
+        This method computes a job sequence by aggregating processing times from
+        the first and last stages (Q1), then incrementally constructs a feasible
+        schedule by solving sub-CP models for each job prefix in the sequence.
+
+        Args:
+            max_time_per_add (float): The maximum computational time per addition in seconds.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+
+        self.construct_solution_by_incremental_cp(
+            self.get_palmer_sequence(),
+            max_time_per_add,
+            num_workers,
+            added_batch_size=added_batch_size,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def initialize_by_cjqg(
+        self,
+        max_time_per_add: float,
+        num_workers: int,
+        added_batch_size: int = 1,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        """Build a CP-guided solution using Q1 sequence.
+
+        This method computes a job sequence by aggregating processing times from
+        the first and last stages (Q1), then incrementally constructs a feasible
+        schedule by solving sub-CP models for each job prefix in the sequence.
+
+        Args:
+            max_time_per_add (float): The maximum computational time per addition in seconds.
+            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+
+        self.construct_solution_by_incremental_cp(
+            self.get_gupta_sequence(),
+            max_time_per_add,
+            num_workers,
+            added_batch_size=added_batch_size,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
     def apply_shdlb(self) -> None:
         """
         Compute the global lower bound for the Hybrid Flow Shop instance using the method
