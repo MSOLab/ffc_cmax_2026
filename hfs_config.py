@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,18 @@ class ScenarioPathConfig(BaseModel):
     )
 
 
+class BaselineColumnMapping(BaseModel):
+    """Defines the column name mapping for the baseline data file."""
+
+    instance: str = Field(
+        "Instance", description="Column name for the instance identifier."
+    )
+    obj_val: str = Field("UB", description="Column name for the objective value.")
+    obj_bound: str | None = Field(
+        "LB", description="Optional column name for the objective bound."
+    )
+
+
 class MainMetadata(BaseModel):
     """
     A Pydantic model to validate and manage the structure of main_metadata.yaml.
@@ -29,7 +41,7 @@ class MainMetadata(BaseModel):
     )
     baseline_csv_path: Path = Field(
         ..., description="Path to the baseline CSV file for comparison."
-    )  # TODO: utilize this in the code
+    )
     input_dir: Path = Field(
         ..., description="Directory containing benchmark instance files."
     )
@@ -37,6 +49,16 @@ class MainMetadata(BaseModel):
     last: int = Field(..., description="Last instance ID to run.")
     benchmark_filename_format: str = Field(
         ..., description="Format string for instance filenames, e.g., '{}.txt'."
+    )
+
+    # Column mapping for baseline data
+    baseline_column_mapping: BaselineColumnMapping = Field(
+        default_factory=lambda: BaselineColumnMapping(
+            instance="Instance",
+            obj_val="UB",
+            obj_bound="LB",
+        ),
+        description="Mapping for baseline data columns.",
     )
 
     # Scenario configurations
@@ -86,3 +108,7 @@ class MainMetadata(BaseModel):
         default=None,
         description="If a valid timestamp string is provided, the runner will operate in POST_PROCESS_ONLY mode for that specific run.",
     )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Returns a dictionary representation with Path objects converted to strings."""
+        return self.model_dump(mode="json")

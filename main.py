@@ -11,7 +11,7 @@ from routix import (
     StoppingCriteria,
     SubroutineFlowValidator,
 )
-from routix.io import init_timestamped_working_dir
+from routix.io import init_timestamped_working_dir, object_to_yaml
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
@@ -61,7 +61,7 @@ def main():
     log_handlers = add_file_handler(base_output_dir_path / config.scenario_log_filename)
 
     logging.info(f"Base output directory is: {base_output_dir_path}")
-    if run_mode == RunMode.POST_PROCESS_ONLY:
+    if run_mode is RunMode.POST_PROCESS_ONLY:
         logging.info(
             "Found valid timestamp. "
             f"Running in POST_PROCESS_ONLY mode for: {config.analysis_timestamp}"
@@ -78,6 +78,32 @@ def main():
 
     # --- Load data common to all scenarios ---
     pra_common_params_dict = read_yaml(config.pra_common_params_rel_path)
+
+    # Main metadata & common parameters handling
+    # - If run_mode is full run, dump the metadata and common parameters
+    # - If post-processing-only, load from the dumped files
+    main_metadata_dump_path = base_output_dir_path / MAIN_METADATA_FILENAME
+    pra_common_params_dump_path = (
+        base_output_dir_path / config.pra_common_params_rel_path.name
+    )
+    # if run_mode is RunMode.FULL_RUN:
+    if run_mode == RunMode.FULL_RUN:
+        object_to_yaml(config.to_dict(), main_metadata_dump_path)
+        object_to_yaml(pra_common_params_dict, pra_common_params_dump_path)
+    elif run_mode is RunMode.POST_PROCESS_ONLY:
+        if not main_metadata_dump_path.is_file():
+            raise FileNotFoundError(
+                f"Metadata file not found at '{main_metadata_dump_path}'"
+            )
+        config = MainMetadata.model_validate(read_yaml(main_metadata_dump_path))
+        # Set config.analysis_timestamp to the one from metadata
+        config.analysis_timestamp = e_timer.get_start_dt_for_dir_name()
+
+        if not pra_common_params_dump_path.is_file():
+            raise FileNotFoundError(
+                f"Common parameters file not found at '{pra_common_params_dump_path}'"
+            )
+        pra_common_params_dict = read_yaml(pra_common_params_dump_path)
 
     benchmark_filenames = [
         config.benchmark_filename_format.format(i)

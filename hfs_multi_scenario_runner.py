@@ -1,11 +1,16 @@
 import logging
 from pathlib import Path
+from typing import Any, Sequence
 
 import pandas as pd
+from routix.io import object_to_yaml
 from routix.runner import MultiScenarioRunner
+from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
+from xlsxwriter import Workbook
+from xlsxwriter.worksheet import Worksheet
 
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
@@ -22,6 +27,65 @@ class HfsMultiScenarioRunner(
     comprehensive Excel report.
     """
 
+    def __init__(
+        self,
+        m_i_runner_class: type[HfsMultiInstanceRunner],
+        s_i_runner_class: type[HfsSingleInstanceRunner],
+        instances: Sequence[HybridFlowshopParameters],
+        shared_param_dict: dict,
+        scenario_configs: Sequence[dict[str, Any]],
+        output_dir: Path,
+        base_output_metadata: dict[str, Any],
+        mode: RunMode = RunMode.FULL_RUN,
+        main_metadata_dict: dict | None = None,
+    ):
+        super().__init__(
+            m_i_runner_class,
+            s_i_runner_class,
+            instances,
+            shared_param_dict,
+            scenario_configs,
+            output_dir,
+            base_output_metadata,
+            mode,
+        )
+        super().__init__(
+            m_i_runner_class,
+            s_i_runner_class,
+            instances,
+            shared_param_dict,
+            scenario_configs,
+            output_dir,
+            base_output_metadata,
+            mode,
+        )
+        self.baseline_df: pd.DataFrame | None = None
+        """DataFrame containing baseline results for comparison in the report."""
+        self.main_metadata = main_metadata_dict if main_metadata_dict else {}
+
+        if self.mode == RunMode.FULL_RUN:
+            # --- Save scenario-specific config files for reproducibility ---
+            for i, scenario_config in enumerate(self.scenario_configs):
+                subroutine_flow = scenario_config.get("subroutine_flow")
+                stopping_criteria = scenario_config.get("stopping_criteria")
+
+                if subroutine_flow is None or stopping_criteria is None:
+                    continue
+
+                # Use a specific output subdir from config, or create a default one
+                scenario_output_dir = self.output_dir / f"scenario_{i + 1}"
+                if "output_subdir" in scenario_config:
+                    scenario_output_dir = self.output_dir / str(
+                        scenario_config["output_subdir"]
+                    )
+                scenario_output_dir.mkdir(parents=True, exist_ok=True)
+                object_to_yaml(
+                    subroutine_flow, scenario_output_dir / "subroutine_flow.yaml"
+                )
+                object_to_yaml(
+                    stopping_criteria, scenario_output_dir / "stopping_criteria.yaml"
+                )
+
     def set_baseline_df(self, baseline_csv_path: Path):
         """
         Sets the baseline DataFrame for comparison in the report.
@@ -37,8 +101,9 @@ class HfsMultiScenarioRunner(
     def post_run_process(self):
         """
         Aggregates results from all scenarios and generates a comprehensive Excel report
-        that includes a comparative dashboard.
+        that includes a comparative dashboard, raw data, and scenario information.
         """
+        # 1. Aggregate all scenario summaries
         all_summary_dfs = []
         for i, runner in enumerate(self.runners):
             summary_path = runner.working_dir / "multi_instance_summary.csv"
@@ -47,7 +112,7 @@ class HfsMultiScenarioRunner(
                 scenario_name = self.scenario_configs[i].get(
                     "output_subdir", f"scenario_{i + 1}"
                 )
-                df["scenario"] = scenario_name
+                df["scenario"] = str(scenario_name)
                 all_summary_dfs.append(df)
             else:
                 logging.warning(
@@ -58,85 +123,125 @@ class HfsMultiScenarioRunner(
             logging.warning("No scenario summaries found to aggregate.")
             return
 
-        # 1. Create the raw summary DataFrame
         raw_summary_df = pd.concat(all_summary_dfs, ignore_index=True)
+        # Save the aggregated raw summary
+        raw_summary_df.to_csv(
+            self.output_dir / "all_scenarios_summary.csv", index=False
+        )
+        logging.info(f"Aggregated summary saved to {self.output_dir}")
 
         # 2. Create the comparison dashboard
         dashboard_df = self.create_dashboard(raw_summary_df)
 
-        # 3. Create the info DataFrame
+        # 3. Create the scenario info sheet
         info_df = self.create_info_sheet()
 
-        # 4. Write all DataFrames to an Excel file with styling
+        # 4. Write all DataFrames to a styled Excel report
         excel_report_path = self.output_dir / "multi_scenario_report.xlsx"
         self.write_excel_report(
-            excel_report_path, dashboard_df, raw_summary_df, info_df
+            excel_report_path,
+            dashboard_df=dashboard_df,
+            raw_summary_df=raw_summary_df,
+            info_df=info_df,
+            baseline_df=self.baseline_df,
         )
 
-    def create_dashboard(
-        self,
-        raw_summary_df: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Creates a pivoted dashboard DataFrame for performance comparison."""
+    def create_dashboard(self, raw_summary_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Creates a pivoted and styled dashboard for performance comparison,
+        with a specific column order.
+        """
         try:
-            # Pivot the raw data to have scenarios as columns
+            # 1. Pivot the raw data to get scenarios as columns
             pivot_df = raw_summary_df.pivot_table(
                 index="instanceName", columns="scenario", values="bestObj"
-            )
+            ).reset_index()
 
-            # Load baseline data for comparison
+            # 2. Merge with baseline data if available
             if self.baseline_df is not None and not self.baseline_df.empty:
-                baseline_df = self.baseline_df.rename(
-                    columns={"name": "instanceName", "ObjVal": "baseline"}
-                )[["instanceName", "baseline"]]
-                # Merge baseline data into the dashboard
-                dashboard_df = pd.merge(
-                    pivot_df, baseline_df, on="instanceName", how="left"
-                )
-                # Set instanceName as index again after merge
-                dashboard_df.set_index("instanceName", inplace=True)
-            else:
-                logging.warning(
-                    "Baseline data file not available. Skipping gap calculation."
-                )
-                dashboard_df = pivot_df.copy()
-                dashboard_df["baseline"] = None
+                # Get column name mapping from the metadata config
+                mapping = self.main_metadata.get("baseline_column_mapping", {})
+                instance_col = mapping.get("instance", "Instance")
+                obj_val_col = mapping.get("obj_val", "UB")
+                obj_bound_col = mapping.get("obj_bound", "LB")
 
-            # Calculate best overall and gaps
-            scenarios_to_compare = [
-                col for col in dashboard_df.columns if col != "baseline"
+                rename_map = {
+                    instance_col: "instanceName",
+                    obj_val_col: "baselineObjVal",
+                    obj_bound_col: "baselineBound",
+                }
+
+                baseline_renamed = self.baseline_df.rename(columns=rename_map)
+
+                dashboard_df = pd.merge(
+                    pivot_df,
+                    baseline_renamed[["instanceName", "baselineObjVal"]],
+                    on="instanceName",
+                    how="left",
+                )
+            else:
+                logging.warning("Baseline data not available. Skipping merge.")
+                dashboard_df = pivot_df
+                dashboard_df["baselineObjVal"] = None
+
+            # 3. Calculate gaps for each scenario
+            scenarios = [col for col in pivot_df.columns if col != "instanceName"]
+            if (
+                "baselineObjVal" in dashboard_df.columns
+                and dashboard_df["baselineObjVal"].notna().any()
+            ):
+                for scenario in scenarios:
+                    gap_col_name = f"gap_{scenario}"
+                    dashboard_df[gap_col_name] = (
+                        dashboard_df[scenario] - dashboard_df["baselineObjVal"]
+                    ) / dashboard_df["baselineObjVal"]
+
+            # 4. Define the desired column order
+            ordered_columns = ["instanceName"]
+            obj_val_cols = [col for col in scenarios]
+            baseline_col = (
+                ["baselineObjVal"] if "baselineObjVal" in dashboard_df.columns else []
+            )
+            rel_diff_cols = [
+                f"gap_{scenario}"
+                for scenario in scenarios
+                if f"gap_{scenario}" in dashboard_df
             ]
-            dashboard_df["best_overall"] = dashboard_df[scenarios_to_compare].min(
-                axis=1
+
+            # Combine lists in the desired order
+            final_column_order = (
+                ordered_columns + obj_val_cols + baseline_col + rel_diff_cols
             )
 
-            if (
-                "baseline" in dashboard_df.columns
-                and dashboard_df["baseline"].notna().any()
-            ):
-                for col in scenarios_to_compare:
-                    dashboard_df[f"gap_vs_baseline_{col}"] = (
-                        dashboard_df[col] - dashboard_df["baseline"]
-                    ) / dashboard_df["baseline"]
+            # Reorder the DataFrame
+            final_dashboard = dashboard_df[final_column_order]
 
-            return (
-                dashboard_df.reset_index()
-            )  # Reset index to make 'instanceName' a column
+            # 5. Add summary statistics at the bottom
+            summary_row: dict[str, Any] = {"instanceName": "Average"}
+            for col in final_dashboard.columns:
+                if col != "instanceName":
+                    if pd.api.types.is_numeric_dtype(final_dashboard[col]):
+                        summary_row[col] = final_dashboard[col].mean()
+
+            summary_df = pd.DataFrame([summary_row])
+            final_dashboard = pd.concat(
+                [final_dashboard, summary_df], ignore_index=True
+            )
+
+            return final_dashboard
 
         except Exception as e:
-            logging.error(
-                f"Failed to create pivot table for dashboard: {e}", exc_info=True
-            )
+            logging.error(f"Failed to create dashboard: {e}", exc_info=True)
             return pd.DataFrame()
 
     def create_info_sheet(self) -> pd.DataFrame:
-        """Creates a DataFrame with information about each scenario."""
+        """Creates a DataFrame with detailed information about each scenario."""
         info_data = []
         for i, config in enumerate(self.scenario_configs):
             scenario_name = config.get("output_subdir", f"scenario_{i + 1}")
             info_data.append(
                 {
-                    "Scenario": scenario_name,
+                    "Scenario": str(scenario_name),
                     "Subroutine Flow": str(config.get("subroutine_flow")),
                     "Stopping Criteria": str(config.get("stopping_criteria")),
                 }
@@ -149,30 +254,131 @@ class HfsMultiScenarioRunner(
         dashboard_df: pd.DataFrame,
         raw_summary_df: pd.DataFrame,
         info_df: pd.DataFrame,
+        baseline_df: pd.DataFrame | None,
     ):
-        """Writes the DataFrames to a styled Excel file."""
-        try:
-            with pd.ExcelWriter(path, engine="openpyxl") as writer:
-                dashboard_df.to_excel(writer, sheet_name="Dashboard", index=False)
-                raw_summary_df.to_excel(writer, sheet_name="Raw_Summary", index=False)
-                info_df.to_excel(writer, sheet_name="Scenario_Info", index=False)
+        """
+        Writes the DataFrames to a styled Excel file using the xlsxwriter engine
+        for robust formatting and auto-adjusted column widths.
 
-                # Auto-adjust column widths for readability
-                for sheet_name in writer.sheets:
-                    worksheet = writer.sheets[sheet_name]
-                    for column in worksheet.columns:
-                        max_length = 0
-                        column_letter = column[0].column_letter
-                        for cell in column:
-                            try:
-                                if len(str(cell.value)) > max_length:
-                                    max_length = len(str(cell.value))
-                            except:
-                                pass
-                        adjusted_width = max_length + 2
-                        worksheet.column_dimensions[
-                            column_letter
-                        ].width = adjusted_width
+        Args:
+            path (Path): Path to save the Excel report.
+            dashboard_df (pd.DataFrame): DataFrame containing the dashboard data.
+            raw_summary_df (pd.DataFrame): DataFrame containing the raw summary data.
+            info_df (pd.DataFrame): DataFrame containing scenario information.
+            baseline_df (pd.DataFrame | None): DataFrame containing baseline data, if available.
+        """
+        try:
+            with pd.ExcelWriter(path, engine="xlsxwriter") as writer:
+                # --- Write sheets in the desired order ---
+                # 1. Dashboard
+                if not dashboard_df.empty:
+                    # Create the multi-level header
+                    header = []
+                    for col in dashboard_df.columns:
+                        if "gap_" in col:
+                            header.append(
+                                ("relDiff between baseline", col.replace("gap_", ""))
+                            )
+                        elif col == "instanceName":
+                            header.append(("", "insId"))
+                        elif col == "baselineObjVal":
+                            header.append(("", "baselineObjVal"))
+                        else:
+                            header.append(("ObjVal", col))
+                    dashboard_df.columns = pd.MultiIndex.from_tuples(header)
+
+                    dashboard_df.to_excel(writer, sheet_name="Dashboard", index=True)
+
+                    # --- Get xlsxwriter objects ---
+                    workbook: Workbook = writer.book
+                    worksheet: Worksheet = writer.sheets["Dashboard"]
+
+                    # --- Create formats ---
+                    percent_format = workbook.add_format({"num_format": "0.00%"})
+
+                    # --- Apply formatting and set column widths for Dashboard ---
+                    # relDiff first_col and last_col
+                    rel_diff_first_col = float("inf")  # Placeholder for first column
+                    rel_diff_last_col = 0
+                    # +1 for the index column
+                    for col_idx, col_name in enumerate(dashboard_df.columns, 1):
+                        # Calculate max width
+                        header_l1 = str(col_name[0])
+                        header_l2 = str(col_name[1])
+                        max_len = (
+                            max(
+                                len(header_l1),
+                                len(header_l2),
+                                dashboard_df[col_name].astype(str).map(len).max(),
+                            )
+                            + 2
+                        )  # Add padding
+
+                        worksheet.set_column(col_idx, col_idx, max_len)
+
+                        if col_name[0] == "relDiff between baseline":
+                            if rel_diff_first_col == float("inf"):
+                                rel_diff_first_col = col_idx
+                            if rel_diff_last_col < col_idx:
+                                rel_diff_last_col = col_idx
+                            worksheet.set_column(
+                                col_idx, col_idx, max_len, percent_format
+                            )
+                    if rel_diff_first_col != float("inf"):
+                        worksheet.conditional_format(
+                            3,
+                            rel_diff_first_col,
+                            len(dashboard_df) + 2,
+                            rel_diff_last_col,
+                            {
+                                "type": "data_bar",
+                                "bar_color": "#638EC6",
+                                "bar_negative_color": "#F8696B",
+                                "bar_axis_position": "middle",
+                            },
+                        )
+
+                # 2. Scenario_Info
+                info_df.to_excel(writer, sheet_name="Scenario_Info", index=False)
+                worksheet = writer.sheets["Scenario_Info"]
+                for col_idx, col_name in enumerate(info_df.columns):
+                    max_len = (
+                        max(
+                            len(str(col_name)),
+                            info_df[col_name].astype(str).map(len).max(),
+                        )
+                        + 2
+                    )
+                    worksheet.set_column(col_idx, col_idx, max_len)
+
+                # 3. Raw_Summary
+                raw_summary_df.to_excel(writer, sheet_name="Raw_Summary", index=False)
+                worksheet = writer.sheets["Raw_Summary"]
+                for col_idx, col_name in enumerate(raw_summary_df.columns):
+                    max_len = (
+                        max(
+                            len(str(col_name)),
+                            raw_summary_df[col_name].astype(str).map(len).max(),
+                        )
+                        + 2
+                    )
+                    worksheet.set_column(col_idx, col_idx, max_len)
+
+                # 4. Baseline_Data
+                if baseline_df is not None and not baseline_df.empty:
+                    baseline_df.to_excel(
+                        writer, sheet_name="Baseline_Data", index=False
+                    )
+                    worksheet = writer.sheets["Baseline_Data"]
+                    for col_idx, col_name in enumerate(baseline_df.columns):
+                        max_len = (
+                            max(
+                                len(str(col_name)),
+                                baseline_df[col_name].astype(str).map(len).max(),
+                            )
+                            + 2
+                        )
+                        worksheet.set_column(col_idx, col_idx, max_len)
 
             logging.info(f"Successfully generated Excel report at: {path}")
         except Exception as e:
