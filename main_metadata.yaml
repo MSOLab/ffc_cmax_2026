@@ -2,15 +2,16 @@
 pra_common_params_rel_path: "resources/pra_common_params.yaml"
 baseline_csv_path: "resources/pra_ref/githubData.csv"
 input_dir : "resources/pra"
-first: 1
-last: 100
+first: 0
+last: 1
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
 dicts_of_i_o_data_path:
-# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_baseCp.yaml"
-#   output_dir : "pra_20s/baseCp"
+- stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_20s/subroutine_flow_baseCp.yaml"
+  output_dir : "pra_20s/baseCp"
+  description: "Base CP"
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_baseCp_block.yaml"
 #   output_dir : "pra_20s/baseCp_block"
@@ -47,9 +48,10 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_dj_tp.yaml"
 #   output_dir : "pra_20s/dj_tp"
-# - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-#   subroutine_flow_rel_path: "configs_20s/subroutine_flow_dj_gupta.yaml"
-#   output_dir : "pra_20s/dj_gupta"
+- stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_20s/subroutine_flow_dj_gupta.yaml"
+  output_dir : "pra_20s/dj_gupta"
+  description: "DJ(Gupta)"
 # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_dj_palmer.yaml"
 #   output_dir : "pra_20s/dj_palmer"
@@ -139,18 +141,22 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dj_shdlb_baseCp.yaml"
 #   output_dir : "pra_600s/dj_shdlb_baseCp"
-- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cj55_shdlb_baseCp.yaml"
-  output_dir : "pra_600s/dispatch_cj55_shdlb_baseCp"
-- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_600s/subroutine_flow_baseCp.yaml"
-  output_dir : "pra_600s/baseCp"
-- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_600s/subroutine_flow_shdlb_baseCp.yaml"
-  output_dir : "pra_600s/shdlb_baseCp"
-- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cj33_shdlb_baseCp.yaml"
-  output_dir : "pra_600s/dispatch_cj33_shdlb_baseCp"
+# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cj55_shdlb_baseCp.yaml"
+#   output_dir : "pra_600s/dispatch_cj55_shdlb_baseCp"
+#   description: "best(8 dispatches, CJ(5,5,Palmer), CJ(5,5,Gupta)) -> improve via base CP with SHD LB"
+# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_baseCp.yaml"
+#   output_dir : "pra_600s/baseCp"
+#   description: "base CP"
+# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_shdlb_baseCp.yaml"
+#   output_dir : "pra_600s/shdlb_baseCp"
+#   description: "base CP w/ SHD LB"
+# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cj33_shdlb_baseCp.yaml"
+#   output_dir : "pra_600s/dispatch_cj33_shdlb_baseCp"
+#   description: "best(8 dispatches, CJ(3,3,Palmer), CJ(3,3,Gupta)) -> improve via base CP with SHD LB"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -168,4 +174,4 @@ progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 
 # Optional metadata for post-processing only
-# analysis_timestamp: "20250715T010212_098500"
+# analysis_timestamp: "20250717T102032_789676"

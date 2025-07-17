@@ -16,6 +16,9 @@ class ScenarioPathConfig(BaseModel):
     output_dir: Path = Field(
         ..., description="Output directory for this specific scenario."
     )
+    description: str | None = Field(
+        default=None, description="Optional description for the scenario."
+    )
 
 
 class BaselineColumnMapping(BaseModel):

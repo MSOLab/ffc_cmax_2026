@@ -27,6 +27,8 @@ class HfsMultiScenarioRunner(
     comprehensive Excel report.
     """
 
+    stat_name_func_pairs = [("Average", "mean"), ("Max", "max"), ("Min", "min")]
+
     def __init__(
         self,
         m_i_runner_class: type[HfsMultiInstanceRunner],
@@ -39,16 +41,6 @@ class HfsMultiScenarioRunner(
         mode: RunMode = RunMode.FULL_RUN,
         main_metadata_dict: dict | None = None,
     ):
-        super().__init__(
-            m_i_runner_class,
-            s_i_runner_class,
-            instances,
-            shared_param_dict,
-            scenario_configs,
-            output_dir,
-            base_output_metadata,
-            mode,
-        )
         super().__init__(
             m_i_runner_class,
             s_i_runner_class,
@@ -217,13 +209,17 @@ class HfsMultiScenarioRunner(
             final_dashboard = dashboard_df[final_column_order]
 
             # 5. Add summary statistics at the bottom
-            summary_row: dict[str, Any] = {"instanceName": "Average"}
-            for col in final_dashboard.columns:
-                if col != "instanceName":
-                    if pd.api.types.is_numeric_dtype(final_dashboard[col]):
-                        summary_row[col] = final_dashboard[col].mean()
 
-            summary_df = pd.DataFrame([summary_row])
+            summary_rows: list[dict[str, Any]] = []
+            for stat_name, stat_func in self.stat_name_func_pairs:
+                row: dict[str, Any] = {"instanceName": stat_name}
+                for col in final_dashboard.columns:
+                    if col != "instanceName":
+                        if pd.api.types.is_numeric_dtype(final_dashboard[col]):
+                            row[col] = getattr(final_dashboard[col], stat_func)()
+                summary_rows.append(row)
+
+            summary_df = pd.DataFrame(summary_rows)
             final_dashboard = pd.concat(
                 [final_dashboard, summary_df], ignore_index=True
             )
@@ -244,6 +240,7 @@ class HfsMultiScenarioRunner(
                     "Scenario": str(scenario_name),
                     "Subroutine Flow": str(config.get("subroutine_flow")),
                     "Stopping Criteria": str(config.get("stopping_criteria")),
+                    "Description": config.get("description", ""),
                 }
             )
         return pd.DataFrame(info_data)
@@ -270,6 +267,10 @@ class HfsMultiScenarioRunner(
         try:
             with pd.ExcelWriter(path, engine="xlsxwriter") as writer:
                 # --- Write sheets in the desired order ---
+                workbook: Workbook = writer.book
+                # --- Create formats ---
+                percent_format = workbook.add_format({"num_format": "0.00%"})
+
                 # 1. Dashboard
                 if not dashboard_df.empty:
                     # Create the multi-level header
@@ -289,17 +290,16 @@ class HfsMultiScenarioRunner(
 
                     dashboard_df.to_excel(writer, sheet_name="Dashboard", index=True)
 
-                    # --- Get xlsxwriter objects ---
-                    workbook: Workbook = writer.book
                     worksheet: Worksheet = writer.sheets["Dashboard"]
-
-                    # --- Create formats ---
-                    percent_format = workbook.add_format({"num_format": "0.00%"})
+                    data_start_row = 3
+                    data_end_row = len(dashboard_df) + data_start_row - 1
 
                     # --- Apply formatting and set column widths for Dashboard ---
+
                     # relDiff first_col and last_col
                     rel_diff_first_col = float("inf")  # Placeholder for first column
                     rel_diff_last_col = 0
+
                     # +1 for the index column
                     for col_idx, col_name in enumerate(dashboard_df.columns, 1):
                         # Calculate max width
@@ -314,7 +314,7 @@ class HfsMultiScenarioRunner(
                             + 2
                         )  # Add padding
 
-                        worksheet.set_column(col_idx, col_idx, max_len)
+                        worksheet.set_column(col_idx, col_idx, width=max_len)
 
                         if col_name[0] == "relDiff between baseline":
                             if rel_diff_first_col == float("inf"):
@@ -324,11 +324,12 @@ class HfsMultiScenarioRunner(
                             worksheet.set_column(
                                 col_idx, col_idx, max_len, percent_format
                             )
+
                     if rel_diff_first_col != float("inf"):
                         worksheet.conditional_format(
-                            3,
+                            data_start_row,
                             rel_diff_first_col,
-                            len(dashboard_df) + 2,
+                            data_end_row,
                             rel_diff_last_col,
                             {
                                 "type": "data_bar",
@@ -349,7 +350,10 @@ class HfsMultiScenarioRunner(
                         )
                         + 2
                     )
-                    worksheet.set_column(col_idx, col_idx, max_len)
+                    if col_name in {"Subroutine Flow", "Stopping Criteria"}:
+                        worksheet.set_column(col_idx, col_idx, options={"hidden": True})
+                    else:
+                        worksheet.set_column(col_idx, col_idx, width=max_len)
 
                 # 3. Raw_Summary
                 raw_summary_df.to_excel(writer, sheet_name="Raw_Summary", index=False)
@@ -362,7 +366,14 @@ class HfsMultiScenarioRunner(
                         )
                         + 2
                     )
-                    worksheet.set_column(col_idx, col_idx, max_len)
+                    if col_name == "methodCallCounts":
+                        worksheet.set_column(col_idx, col_idx, options={"hidden": True})
+                    else:
+                        worksheet.set_column(col_idx, col_idx, width=max_len)
+                    if col_name == "improvementRatio":
+                        worksheet.set_column(
+                            col_idx, col_idx, width=max_len, cell_format=percent_format
+                        )
 
                 # 4. Baseline_Data
                 if baseline_df is not None and not baseline_df.empty:
@@ -378,7 +389,14 @@ class HfsMultiScenarioRunner(
                             )
                             + 2
                         )
-                        worksheet.set_column(col_idx, col_idx, max_len)
+                        worksheet.set_column(col_idx, col_idx, width=max_len)
+                        if col_name in {"Gap", "RPD"}:
+                            worksheet.set_column(
+                                col_idx,
+                                col_idx,
+                                width=max_len,
+                                cell_format=percent_format,
+                            )
 
             logging.info(f"Successfully generated Excel report at: {path}")
         except Exception as e:

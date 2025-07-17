@@ -126,6 +126,7 @@ def main():
                 "subroutine_flow": DynamicDataObject.from_obj(subroutine_flow_obj),
                 "stopping_criteria": StoppingCriteria(stopping_criteria_dict),
                 "output_subdir": path_config.output_dir,
+                "description": path_config.description,
             }
         )
 
