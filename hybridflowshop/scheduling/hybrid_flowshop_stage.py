@@ -39,7 +39,7 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
             stage.create_machine_by_name(mc_name)
         return stage
 
-    # Required getters
+    # Start required getters
 
     @property
     def name(self) -> str:
@@ -58,7 +58,9 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         """
         return list(self._mc_name_2_ins_map.values())
 
-    # Required setters
+    # End required getters
+
+    # Start required setters
 
     def add_resource(self, res: Machine) -> None:
         """
@@ -70,7 +72,9 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         if res.name not in self._mc_name_2_ins_map:
             self._mc_name_2_ins_map[res.name] = res
 
-    # Getters
+    # End required setters
+
+    # Start getters
 
     def select_machine_by_start_idle_idx(
         self, duration: int, release_t: int = 0
@@ -173,7 +177,9 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
                 return_dict[key] = value
         return return_dict
 
-    # Setters
+    # End getters
+
+    # Start setters
 
     def create_machine_by_name(self, mc_name: str) -> None:
         machine = Machine(name=mc_name)
@@ -207,3 +213,5 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         return self.get_machine_by_name(operation.mc_name).add_operation(
             operation, force_add=force_add
         )
+
+    # End setters

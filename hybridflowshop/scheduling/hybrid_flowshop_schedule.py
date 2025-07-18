@@ -40,7 +40,7 @@ class HybridFlowshopSchedule:
             )
         return schedule
 
-    # Getters
+    # Start getters
 
     @property
     def makespan(self) -> int:
@@ -105,7 +105,9 @@ class HybridFlowshopSchedule:
                 return_dict[key] = value
         return return_dict
 
-    # Setters
+    # End getters
+
+    # Start setters
 
     def schedule_operation(
         self,
@@ -245,3 +247,5 @@ class HybridFlowshopSchedule:
             operations.append(operation)
 
         return operations
+
+    # End setters
