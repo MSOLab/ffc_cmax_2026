@@ -5,17 +5,17 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from mbls.cpsat import CpsatSolverReport, CpsatStatus, CpSubroutineController
+from mbls.cpsat import CpsatStatus, CpSubroutineController
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
-from routix.report import SubroutineReportRecorder
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
 from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
+from .painter.gantt import GanttPlotter
 from .report import HfsCpsatSolverReport, HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
-from .solution_manager import SolutionManager
+from .solution_manager import HfsSolutionManager
 
 
 class HybridFlowShopCpLnsController(
@@ -24,24 +24,15 @@ class HybridFlowShopCpLnsController(
     ]
 ):
     """
-    Controller for solving Hybrid Flow Shop problems using CP-based LNS.
-
-    This controller manages the interaction between the problem, the CP solver,
-    and the solution manager, allowing for efficient search and solution management.
+    Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
     """
 
-    # Start controller states
-    # TODO: divide into solution & report
-    last_solution_manager: SolutionManager[HfsSubroutineReport]
-    """Manages the last(most recent) solution."""
-    # TODO: divide into solution & report
-    incumbent_solution_manager: SolutionManager[HfsSubroutineReport]
-    """Manages the incumbent solution."""
-
-    obj_lower_bound: float | None
-    """Best objective bound found so far."""
-
-    # End controller states
+    # Start controller state
+    solution_manager: HfsSolutionManager
+    """Solution manager for Hybrid Flow Shop scheduling solutions."""
+    total_elapsed_time: float
+    """Total elapsed time for the controller."""
+    # End controller state
 
     def __init__(
         self,
@@ -57,14 +48,7 @@ class HybridFlowShopCpLnsController(
             subroutine_flow,
             stopping_criteria,
         )
-        self.obj_lower_bound = None
-
-        # Report
-
-        self.report_recorder: SubroutineReportRecorder[HfsSubroutineReport] = (
-            SubroutineReportRecorder(instance.name)
-        )
-        """Recorder for subroutine reports."""
+        self.solution_manager = HfsSolutionManager()
 
     # Start abstract getters
 
@@ -138,86 +122,40 @@ class HybridFlowShopCpLnsController(
 
     # End stopping condition
 
-    # Start controller state management
+    # Start visualization
 
-    def set_last_solution_as_incumbent(self, draw_gantt: bool = False) -> None:
-        """Set the incumbent solution.
+    def draw_gantt(
+        self, schedule: HybridFlowshopSchedule, output_path: Path | None = None
+    ):
+        """Draws the Gantt chart of the given schedule.
 
         Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the incumbent solution.
-                Defaults to False.
+            schedule (HybridFlowshopSchedule): The schedule to draw.
+            output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
-        # TODO: incumbent_report: HfsSubroutineReport
-        # TODO: incumbent_solution: HybridFlowshopSchedule
-        self.incumbent_solution_manager = self.last_solution_manager
-        if draw_gantt:
-            self.draw_incumbent_gantt()
-
-    def draw_incumbent_gantt(self, output_path: Optional[Path] = None) -> None:
-        # TODO: incumbent_solution: HybridFlowshopSchedule
         if output_path is None:
             output_path = self.get_file_path_for_subroutine("_gantt.png")
-        self.incumbent_solution_manager.save_gantt_as_png(output_path)
+        if isinstance(schedule, HybridFlowshopSchedule):
+            plotter = GanttPlotter()
+            plotter.export_hybrid_flowshop_plot(
+                output_path,
+                schedule.get_start_time_map(),
+                schedule.get_end_time_map(),
+            )
 
-    def update_incumbent_solution(self, draw_gantt: bool = False) -> None:
-        """
-        Update the incumbent solution if the last solution is better.
-        - This method checks if the last solution is better than the incumbent solution.
-        - If it is, it sets the last solution as the incumbent solution and optionally draws the Gantt chart.
-
-        Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution if it is better.
-                Defaults to False.
-        """
-        if self.last_solution_is_better_than_incumbent():
-            self.set_last_solution_as_incumbent(draw_gantt=draw_gantt)
-
-    def last_solution_is_better_than_incumbent(self) -> bool:
-        """
-        Check if the last solution is better than the incumbent solution.
-        - If no incumbent solution exists, the last solution is considered better.
-        """
-        # TODO: incumbent_report: HfsSubroutineReport
-        if not hasattr(self, "last_solution_manager"):
-            raise ValueError("No last solution available to compare.")
-        # If no incumbent solution exists, the last solution is considered better
-        if not hasattr(self, "incumbent_solution_manager"):
-            return True
-        return (
-            self.last_solution_manager.report.obj_value is not None
-            and self.incumbent_solution_manager.report.obj_value is not None
-            and self.last_solution_manager.report.obj_value
-            < self.incumbent_solution_manager.report.obj_value
-        )
-
-    def get_incumbent_solution_dict(self, for_pyyaml: bool = False) -> dict[str, Any]:
-        """
-        Get the incumbent solution as a dictionary.
+    def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
+        """Draws the Gantt chart of the incumbent solution.
 
         Args:
-            for_pyyaml (bool, optional): If true, create start time and end time dictionary for PyYAML.
-                Defaults to False.
+            output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
-        # TODO: incumbent_solution: HybridFlowshopSchedule
-        if not hasattr(self, "incumbent_solution_manager"):
-            raise ValueError("No incumbent solution available.")
-        return self.incumbent_solution_manager.get_solution_dict(for_pyyaml=for_pyyaml)
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if isinstance(incumbent_solution, HybridFlowshopSchedule):
+            self.draw_gantt(incumbent_solution, output_path=output_path)
+        else:
+            logging.warning("No incumbent solution available to draw Gantt chart.")
 
-    def update_obj_bound(self, new_bound: float) -> bool:
-        """Update the objective bound if the new bound is better than the current one.
-
-        Args:
-            new_bound (float): The new objective bound to update.
-
-        Returns:
-            bool: True if the objective bound was updated, False otherwise.
-        """
-        if self.obj_lower_bound is None or self.obj_lower_bound < new_bound:
-            self.obj_lower_bound = new_bound
-            return True
-        return False
-
-    # End controller state management
+    # End visualization
 
     # Start subroutine definition
 
@@ -231,12 +169,7 @@ class HybridFlowShopCpLnsController(
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """
-        Solve the current CP model with the remaining time limit.
-        - Updates the experiment summary with the run summary of the current solution.
-        - Updates the last solution manager with the start and end times extracted from the CP model.
-        - Checks the feasibility of the solution if required.
-        - If the objective value is valid, it updates the incumbent solution.
+        """Solves the current CP model, creates a schedule, and registers the result.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
@@ -253,10 +186,9 @@ class HybridFlowShopCpLnsController(
         """
         _timelimit = self.get_remaining_time_limit(computational_time)
 
-        # If LB for the objective bound is valid for the model, set it in the CP model
-        if obj_value_is_valid:
-            if self.obj_lower_bound is not None:
-                self.cp_model.set_obj_lower_bound(self.obj_lower_bound)
+        # Utilize the objective bound if available
+        if obj_value_is_valid and self.solution_manager.best_obj_bound is not None:
+            self.cp_model.set_obj_lower_bound(self.solution_manager.best_obj_bound)
 
         solver_report = self.solve_current_cp_model(
             _timelimit,
@@ -273,29 +205,31 @@ class HybridFlowShopCpLnsController(
             solver_report, is_init=is_initial_solution
         )
 
-        start_time_map, end_time_map = self.cp_model.extract_start_end_time_map()
+        # Create a new report with None values if the objective or bound is not valid.
+        # This is necessary because the report object is frozen.
+        report_updates: dict[str, Any] = {}
+        if not obj_value_is_valid:
+            report_updates["obj_value"] = None
+        if not obj_bound_is_valid:
+            report_updates["obj_bound"] = None
 
-        if error_if_infeasible:
-            self.check_feasibility(start_time_map)
-        self.report_recorder.append_report(hfs_solver_report)
-        self.last_solution_manager = SolutionManager(
-            start_time_map=start_time_map,
-            end_time_map=end_time_map,
-            report=hfs_solver_report,
-        )
+        if report_updates:
+            hfs_solver_report = hfs_solver_report.replace(**report_updates)
 
-        if obj_value_is_valid:
-            self.update_incumbent_solution(draw_gantt=draw_gantt)
-        if obj_bound_is_valid:
-            if solver_report.obj_bound is not None:
-                self.update_obj_bound(solver_report.obj_bound)
-
-    def feasible_incumbent_solution_exists(self) -> bool:
-        """Check if the incumbent solution is feasible."""
-        return (
-            hasattr(self, "incumbent_solution_manager")
-            and self.incumbent_solution_manager.is_feasible
-        )
+        solution: HybridFlowshopSchedule | None = None
+        if hfs_solver_report.is_feasible:
+            solution = self.cp_model.create_schedule()
+            if error_if_infeasible:
+                self.check_feasibility(solution.get_start_time_map())
+            # Ensure consistency between report and solution
+            if solution.makespan != hfs_solver_report.obj_value:
+                raise ValueError(
+                    "Objective value mismatch between solver report and schedule makespan."
+                )
+        # Register the solution
+        was_updated = self.solution_manager.register(hfs_solver_report, solution)
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     def solve_with_initial_solution(
         self,
@@ -306,38 +240,25 @@ class HybridFlowShopCpLnsController(
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Solve the current CP model with the incumbent solution as the initial solution.
-
-        - If a feasible incumbent solution exists, it clears the hints in the current CP model
-          and applies the incumbent solution as a hint.
-        - Then, it solves the CP model with the given computational time and number of workers.
-
-        Args:
-            computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
-            obj_value_is_valid (bool, optional): If True, adds the objective value log.
-                Defaults to False.
-            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
-                Defaults to False.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
         """
-        cannot_apply_hint = not self.feasible_incumbent_solution_exists()
-        if not cannot_apply_hint:
+        Solves the current CP model using the incumbent solution as a hint.
+        """
+        incumbent_solution = self.solution_manager.get_incumbent()
+        is_initial_run = incumbent_solution is None
+
+        if incumbent_solution:
             self.cp_model.clear_hints()
-            # self.cp_model.add_start_and_present_hints_from_start_time_map(
             self.cp_model.add_start_hints_from_start_time_map(
-                self.incumbent_solution_manager.start_time_map,
+                incumbent_solution.get_start_time_map(),
                 ignore_integrity_check=True,
             )
+
         self.solve_current_cp_remaining_time_limit(
             computational_time,
             num_workers,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
-            is_initial_solution=cannot_apply_hint,
+            is_initial_solution=is_initial_run,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -458,17 +379,30 @@ class HybridFlowShopCpLnsController(
         )
 
     def apply_time_window_operator(self, rho: float):
-        """
-        Apply the Time Window Operator to the current CP model.
+        """Apply the Time Window Operator to the current CP model.
 
         Args:
             rho (float): Fraction of makespan to define the window size.
                 For example, 0.2 means 20% of makespan.
+
+        Raises:
+            ValueError: If no incumbent solution is available.
+            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            ValueError: If no end times are available for Time Window Operator.
+            ValueError: If the window length is not positive.
         """
         logging.info(f"Applying time window operator with rho={rho}")
-
-        start_time_map = self.incumbent_solution_manager.start_time_map
-        end_time_map = self.incumbent_solution_manager.end_time_map
+        if not self.solution_manager.has_incumbent():
+            raise ValueError(
+                "No incumbent solution available for Time Window Operator."
+            )
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+            )
+        start_time_map = incumbent_solution.get_start_time_map()
+        end_time_map = incumbent_solution.get_end_time_map()
 
         # 1. Calculate makespan (C_max)
         all_end_time_map = list(end_time_map.values())
@@ -551,16 +485,29 @@ class HybridFlowShopCpLnsController(
         )
 
     def apply_block_operator(self, rho: float):
-        """
-        Apply the Block Operator to the current CP model.
+        """Apply the Block Operator to the current CP model.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
+
+        Raises:
+            ValueError: If no incumbent solution is available.
+            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            ValueError: If no end times are available for Time Window Operator.
+            ValueError: If the window length is not positive.
         """
         logging.info(f"Applying block operator with rho={rho}")
-
-        start_time_map = self.incumbent_solution_manager.start_time_map
-        end_time_map = self.incumbent_solution_manager.end_time_map
+        if not self.solution_manager.has_incumbent():
+            raise ValueError(
+                "No incumbent solution available for Time Window Operator."
+            )
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+            )
+        start_time_map = incumbent_solution.get_start_time_map()
+        end_time_map = incumbent_solution.get_end_time_map()
 
         if not start_time_map or not end_time_map:
             raise ValueError("No solution available for block operator.")
@@ -620,8 +567,8 @@ class HybridFlowShopCpLnsController(
         draw_gantt: bool = False,
     ):
         """
-        Dispatch jobs in the given job_sequence order.
-        For each job, schedule all its stages in order, assigning each operation to the earliest available machine.
+        Dispatches jobs according to the given sequence and registers the resulting
+        solution with the solution manager.
 
         This is the classic job-major (job -> stage -> time) dispatching strategy.
 
@@ -643,42 +590,26 @@ class HybridFlowShopCpLnsController(
                 j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
             )
             # TODO: uncomment only for debug purpose
-            # start_time_map = schedule.get_start_time_map()
-            # end_time_map = schedule.get_end_time_map()
-            # sub_time = sub_timer.elapsed_sec
-            # obj_value = float(schedule.makespan)
-            # sol_mgr = SolutionManager(
-            #     start_time_map,
-            #     end_time_map,
-            #     HfsSubroutineReport(sub_time, obj_value, None, True),
-            # )
             # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
-            # sol_mgr.save_gantt_as_png(output_path)
+            # self.draw_gantt(schedule, output_path=output_path)
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
-        obj_value = float(schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
+        # Create report and register the new solution
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(schedule.makespan),
+            obj_bound=None,
+            is_init=True,
         )
+        was_updated = self.solution_manager.register(report, schedule)
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = schedule.get_start_time_map()
-        end_time_map = schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Log and draw Gantt chart if the solution is an improvement
+        if was_updated:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(schedule.makespan), is_maximize=False
+            )
+            if draw_gantt:
+                self.draw_incumbent_gantt()
 
     def dispatch_by_stage_time_job(
         self,
@@ -701,49 +632,32 @@ class HybridFlowShopCpLnsController(
         """
         sub_timer = ElapsedTimer()
 
-        # Stage name -> job name -> processing time map
         stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
             self.instance.stage_id_list, self.instance.job_id_list
         )
         for idx, i in enumerate(self.instance.stage_id_list):
             schedule.dispatch_stage_by_jobs(i, job_sequence, stage_2_job_2_p_dict[i])
             # TODO: uncomment only for debug purpose
-            # start_time_map = schedule.get_start_time_map()
-            # end_time_map = schedule.get_end_time_map()
-            # sub_time = sub_timer.elapsed_sec
-            # obj_value = float(schedule.makespan)
-            # sol_mgr = SolutionManager(
-            #     start_time_map,
-            #     end_time_map,
-            #     HfsSubroutineReport(sub_time, obj_value, None, True),
-            # )
-            # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{i}.png")
-            # sol_mgr.save_gantt_as_png(output_path)
+            # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
+            # self.draw_gantt(schedule, output_path=output_path)
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
-        obj_value = float(schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
+        # Create report and register the new solution
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(schedule.makespan),
+            obj_bound=None,
+            is_init=True,
         )
+        was_updated = self.solution_manager.register(report, schedule)
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = schedule.get_start_time_map()
-        end_time_map = schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Log and draw Gantt chart if the solution is an improvement
+        if was_updated:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(schedule.makespan), is_maximize=False
+            )
+            if draw_gantt:
+                self.draw_incumbent_gantt()
 
     def construct_solution_by_incremental_cp(
         self,
@@ -754,7 +668,9 @@ class HybridFlowShopCpLnsController(
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Construct a complete solution by incrementally solving CP submodels.
+        """
+        Constructs a solution by incrementally solving CP submodels and registers
+        the final result.
 
         This method builds a feasible schedule by adding jobs one by one
         according to the provided job sequence. At each step, a sub-CP model
@@ -772,11 +688,8 @@ class HybridFlowShopCpLnsController(
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-
         sub_timer = ElapsedTimer()
-
-        iter_report: CpsatSolverReport | None = None
-        iter_sol_manager: SolutionManager | None = None
+        last_solution: HybridFlowshopSchedule | None = None
 
         sequence_of_job_sublist = [
             job_sequence[i : i + added_batch_size]
@@ -785,16 +698,12 @@ class HybridFlowShopCpLnsController(
 
         job_subset: set[str] = set()
         for job_sublist in sequence_of_job_sublist:
-            # logging.info(f"Add jobs {job_sublist} into {len(job_subset)}-job subset")
-            job_subset.update(job_sublist)  # Add new jobs to the subset
+            job_subset.update(job_sublist)
 
-            # Create CP model with the job subset
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
-            # If this is not the first iteration, freeze jobs in the previous model
-            if iter_sol_manager is not None:
-                # sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
+            if last_solution is not None:
                 sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                    iter_sol_manager.start_time_map, ignore_integrity_check=True
+                    last_solution.get_start_time_map(), ignore_integrity_check=True
                 )
 
             _timelimit = self.get_remaining_time_limit(max_time_per_add)
@@ -806,37 +715,39 @@ class HybridFlowShopCpLnsController(
                 e_timer=self.timer,
             )
 
-            start_time_map, end_time_map = sub_cp_mdl.extract_start_end_time_map()
-            iter_sol_manager = SolutionManager(
-                start_time_map=start_time_map,
-                end_time_map=end_time_map,
-                report=iter_report,
-            )
+            if iter_report.is_feasible:
+                last_solution = sub_cp_mdl.create_schedule()
 
-        assert iter_report is not None, "No summary available after solving CP model."
-        assert iter_report.obj_value is not None, (
-            "No objective value available after solving."
-        )
-        assert iter_sol_manager is not None, "No solution available after solving."
+        if last_solution is None:
+            logging.warning("Incremental CP construction failed to find a solution.")
+            report = HfsSubroutineReport(
+                elapsed_time=sub_timer.elapsed_sec,
+                obj_value=None,
+                obj_bound=None,
+                is_init=True,
+            )
+            self.solution_manager.register(report, None)
+            return
 
         if error_if_infeasible:
-            self.check_feasibility(iter_sol_manager.start_time_map)
+            self.check_feasibility(last_solution.get_start_time_map())
 
-        log_time = self.timer.elapsed_sec
-        obj_value = iter_report.obj_value
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        self.last_solution_manager = SolutionManager(
-            start_time_map=iter_sol_manager.start_time_map,
-            end_time_map=iter_sol_manager.end_time_map,
-            report=report,
+        # Create report for the final solution and register it
+        final_report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(last_solution.makespan),
+            obj_bound=None,
+            is_init=True,
         )
+        was_updated = self.solution_manager.register(final_report, last_solution)
 
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        if was_updated:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(last_solution.makespan), is_maximize=False
+            )
+            if draw_gantt:
+                self.draw_incumbent_gantt()
 
     @staticmethod
     def get_johnsons_rule_sequence(
@@ -1171,8 +1082,9 @@ class HybridFlowShopCpLnsController(
     def apply_shdlb(self) -> None:
         """
         Compute the global lower bound for the Hybrid Flow Shop instance using the method
-        described by Santos et al. (1995) and assign it to `self.obj_bound`.
+        described by Santos et al. (1995) and update the global lower bound.
         """
+        sub_timer = ElapsedTimer()
         instance = self.instance
         jobs: list[str] = instance.job_id_list
         stages: list[str] = instance.stage_id_list
@@ -1200,26 +1112,36 @@ class HybridFlowShopCpLnsController(
             # LSA and RSA: ascending sorted LS and RS values
             LSA = sorted([LS(j, stage_idx) for j in jobs])
             RSA = sorted([RS(j, stage_idx) for j in jobs])
-
             total_processing = sum(p[j, i] for j in jobs)
-
             lhs_sum = sum(LSA[y] for y in range(min(M_i, len(LSA))))
             rhs_sum = sum(RSA[y] for y in range(min(M_i, len(RSA))))
-
             return math.ceil((lhs_sum + total_processing + rhs_sum) / M_i)
 
         lb0 = LB0()
         stage_bounds = [LBj(stage_idx) for stage_idx in range(m)]
         obj_bound = max([lb0] + stage_bounds)
 
-        # Log & update
-
         logging.info(
             f"[SHD LB] LB(0) = {lb0}, LB(j) = {stage_bounds}, LB_MAX = {obj_bound}"
         )
-        if self.update_obj_bound(obj_bound):
+
+        # Log
+        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
             log_time = self.timer.elapsed_sec
             self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_bound_is_valid=True
+            )
+
+        # Create report and register
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=None,
+            obj_bound=obj_bound,
+            is_init=False,
+        )
+        self.solution_manager.register(report, None)
 
     # TODO: remove
     def initialize_by_djq1(self, draw_gantt: bool = False) -> None:
@@ -1288,30 +1210,27 @@ class HybridFlowShopCpLnsController(
             self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(best_schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = best_schedule.get_start_time_map()
-        end_time_map = best_schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     # TODO: remove
     def initialize_by_djq2(self, draw_gantt: bool = False) -> None:
@@ -1380,30 +1299,27 @@ class HybridFlowShopCpLnsController(
             self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(best_schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = best_schedule.get_start_time_map()
-        end_time_map = best_schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     def initialize_by_dj_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1439,30 +1355,27 @@ class HybridFlowShopCpLnsController(
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = schedule.get_start_time_map()
-        end_time_map = schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     def initialize_by_dj_palmer(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1498,30 +1411,27 @@ class HybridFlowShopCpLnsController(
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = schedule.get_start_time_map()
-        end_time_map = schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     # TODO: remove
     def initialize_by_dsq1(self, draw_gantt: bool = False) -> None:
@@ -1586,30 +1496,27 @@ class HybridFlowShopCpLnsController(
             self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(best_schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = best_schedule.get_start_time_map()
-        end_time_map = best_schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     # TODO: remove
     def initialize_by_dsq2(self, draw_gantt: bool = False) -> None:
@@ -1674,30 +1581,27 @@ class HybridFlowShopCpLnsController(
             self.check_feasibility(best_schedule.get_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(best_schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = best_schedule.get_start_time_map()
-        end_time_map = best_schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     def initialize_by_ds_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1731,30 +1635,27 @@ class HybridFlowShopCpLnsController(
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = schedule.get_start_time_map()
-        end_time_map = schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     def initialize_by_ds_palmer(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1788,37 +1689,40 @@ class HybridFlowShopCpLnsController(
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
 
-        # Log
-
-        log_time = self.timer.elapsed_sec
+        # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        total_elapsed_time = self.timer.elapsed_sec
+        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
         )
 
-        # Report
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        # Update controller state
-
-        start_time_map = schedule.get_start_time_map()
-        end_time_map = schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
-        )
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     # End subroutine definition
 
     def post_run_process(self) -> None:
-        # TODO: record total elapsed time & use for report
-        self.check_feasibility(self.incumbent_solution_manager.start_time_map)
+        """
+        Finalizes the run by checking the feasibility of the incumbent solution
+        and releasing log handlers.
+        """
+        incumbent = self.solution_manager.get_incumbent()
+        if incumbent:
+            self.check_feasibility(incumbent.get_start_time_map())
         self.release_log_handlers()
+        self.total_elapsed_time = self.timer.elapsed_sec
 
     def check_feasibility(
         self, start_time_map: dict[tuple[str, str, str], int]

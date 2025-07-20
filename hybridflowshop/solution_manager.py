@@ -1,82 +1,36 @@
-from pathlib import Path
-from typing import Any, Generic
+"""
+Defines the concrete implementation of the solution manager for the Hybrid Flowshop Scheduling problem.
+"""
 
-from routix.report import SubroutineReportT
+from routix.solution_manager import SolutionManager
 
-from .painter import GanttPlotter
-from .utils import tuple_to_pyyaml_key
+from .report import HfsSubroutineReport
+from .scheduling.hybrid_flowshop_schedule import (
+    HybridFlowshopSchedule,
+)
 
 
-# TODO: remove
-class SolutionManager(Generic[SubroutineReportT]):
+class HfsSolutionManager(SolutionManager[HfsSubroutineReport, HybridFlowshopSchedule]):
     """
-    Manages the incumbent solution obtained from the CP model,
-    including summary reporting and visualization.
+    A concrete solution manager for Hybrid Flowshop Scheduling.
+
+    This class specializes the abstract manager by implementing the comparison
+    logic specific to HFS, which is based on minimizing the makespan.
     """
 
-    def __init__(
-        self,
-        start_time_map: dict[tuple[str, str, str], int],
-        end_time_map: dict[tuple[str, str, str], int],
-        report: SubroutineReportT,
-    ):
-        self.start_time_map = start_time_map
-        self.end_time_map = end_time_map
-        self.report = report
-        self.is_feasible = report.obj_value is not None
-        """Indicates whether the solution is feasible based on the report's objective value."""
+    # --- Abstract Methods Implementation ---
 
-    @staticmethod
-    def get_time_dict_pyyaml(
-        time_dict: dict[tuple[str, str, str], int],
-    ) -> dict[str, int]:
-        # TODO: move to HybridFlowshopSchedule
-        """
-        Convert a time dictionary to a format suitable for PyYAML serialization.
+    def _get_obj_value(self, solution: HybridFlowshopSchedule) -> float:
+        return float(solution.makespan)
 
-        Args:
-            time_dict (dict[tuple[str, str, str], int]): The time dictionary to convert
+    def _a_is_better_obj_value(self, value_a: float, value_b: float | None) -> bool:
+        if value_b is None:
+            return True
+        # A smaller makespan is better (minimization).
+        return value_a < value_b
 
-        Returns:
-            dict[str, int]: !!python/tuple [left, center, right] -> time
-        """
-        return tuple_to_pyyaml_key(time_dict)
-
-    def get_solution_dict(self, for_pyyaml: bool = False) -> dict[str, Any]:
-        """
-        Convert the incumbent solution to a dictionary format.
-
-        Args:
-            for_pyyaml (bool, optional): If true, create start time and end time dictionary for PyYAML.
-                Defaults to False.
-
-        Returns:
-            dict[str, Any]: A dictionary representation of the incumbent solution
-        """
-        # TODO: move to HybridFlowshopSchedule
-        start_time_map: dict[Any, int]
-        end_time_map: dict[Any, int]
-        if for_pyyaml:
-            start_time_map = self.get_time_dict_pyyaml(self.start_time_map)
-            end_time_map = self.get_time_dict_pyyaml(self.end_time_map)
-        else:
-            start_time_map = self.start_time_map
-            end_time_map = self.end_time_map
-        return {
-            "start_times": start_time_map,  # TODO: backward compatibility; change to "start_time_map" in future versions
-            "end_times": end_time_map,  # TODO: backward compatibility; change to "end_time_map" in future versions
-        }
-
-    def save_gantt_as_png(self, output_path: Path) -> None:
-        """
-        Save the current incumbent solution as a Gantt chart image.
-
-        Args:
-            filename (str): Filename to save the Gantt chart (relative to output_dir)
-            figsize (tuple): Size of the matplotlib figure
-        """
-        # TODO: move to HybridFlowshopSchedule
-        plotter = GanttPlotter()
-        plotter.export_hybrid_flowshop_plot(
-            output_path, self.start_time_map, self.end_time_map
-        )
+    def _a_is_better_obj_bound(self, bound_a: float, bound_b: float | None) -> bool:
+        if bound_b is None:
+            return True
+        # For a minimization problem, a higher lower bound is better.
+        return bound_a > bound_b

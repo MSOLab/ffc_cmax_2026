@@ -19,7 +19,7 @@ from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.report.hfs_subroutine_report_statistics import (
     HfsSubroutineReportStatistics,
 )
-from hybridflowshop.utils import pyyaml_key_to_tuple
+from hybridflowshop.utils import pyyaml_key_to_tuple, tuple_to_pyyaml_key
 
 
 class HfsSingleInstanceRunner(
@@ -100,7 +100,11 @@ class HfsSingleInstanceRunner(
         self.save_obj_value_bound_store(encoding=encoding)
 
     def save_summary(self, encoding: str = "utf-8") -> None:
-        stats = HfsSubroutineReportStatistics(self.ctrlr.report_recorder)
+        stats = HfsSubroutineReportStatistics(
+            name=self.name,
+            reports=[r.report for r in self.ctrlr.solution_manager.history],
+            method_call_counts=self.ctrlr.method_call_counts,
+        )
         summary = HfsSummary(
             inputs=HfsInputSummary(
                 name=self.name,
@@ -113,8 +117,15 @@ class HfsSingleInstanceRunner(
         summary.save(self.summary_path, encoding=encoding)
 
     def save_solution(self, encoding: str = "utf-8") -> None:
-        solution = self.ctrlr.get_incumbent_solution_dict(for_pyyaml=True)
-        object_to_yaml(solution, self.solution_path, encoding=encoding)
+        incumbent_solution = self.ctrlr.solution_manager.get_incumbent()
+        if incumbent_solution:
+            solution_dict = {
+                "start_times": tuple_to_pyyaml_key(
+                    incumbent_solution.get_start_time_map()
+                ),
+                "end_times": tuple_to_pyyaml_key(incumbent_solution.get_end_time_map()),
+            }
+            object_to_yaml(solution_dict, self.solution_path, encoding=encoding)
 
     def save_obj_value_bound_store(self, encoding: str = "utf-8") -> None:
         self.ctrlr.obj_store.save_yaml(self.obj_log_path, encoding=encoding)
@@ -126,7 +137,6 @@ class HfsSingleInstanceRunner(
             self.from_files_draw_progress_plot(encoding=encoding)
 
     def from_files_draw_gantt_chart(self, encoding: str = "utf-8") -> None:
-        # ... (rest of the method remains the same)
         result_gantt_filename_format = self.output_metadata.get(
             "gantt_filename_format", "{}_gantt.png"
         )
@@ -142,7 +152,6 @@ class HfsSingleInstanceRunner(
             )
 
     def from_files_draw_progress_plot(self, encoding: str = "utf-8") -> None:
-        # ... (rest of the method remains the same)
         progress_plot_filename_format = self.output_metadata.get(
             "progress_plot_filename_format", "{}_progress.png"
         )
