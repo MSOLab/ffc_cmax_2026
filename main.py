@@ -153,7 +153,9 @@ def main():
         base_output_metadata=base_output_metadata,
         mode=run_mode,
     )
-    multi_scenario_runner.set_baseline_df(config.baseline_csv_path)
+    multi_scenario_runner.set_baseline_df(
+        config.baseline_csv_path, config.baseline_column_mapping
+    )
     logging.info("Starting HFS Multi-Scenario Runner.")
     multi_scenario_runner.run()
 

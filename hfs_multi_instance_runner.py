@@ -12,6 +12,11 @@ from hfs_single_instance_runner import HfsSingleInstanceRunner
 class HfsMultiInstanceRunner(
     MultiInstanceConcurrentRunner[HybridFlowshopParameters, HfsSingleInstanceRunner]
 ):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # TODO: Remove this workaround when routix supports max_workers in MultiInstanceConcurrentRunner
+        self._max_workers = 1  # Walkaround: set value for max_workers here
+
     def post_run_process(self) -> pd.DataFrame:
         """
         Aggregates results from all single instance runs into a summary DataFrame

@@ -28,9 +28,7 @@ class BaselineColumnMapping(BaseModel):
         "Instance", description="Column name for the instance identifier."
     )
     obj_val: str = Field("UB", description="Column name for the objective value.")
-    obj_bound: str | None = Field(
-        "LB", description="Optional column name for the objective bound."
-    )
+    obj_bound: str = Field("LB", description="Column name for the objective bound.")
 
 
 class MainMetadata(BaseModel):

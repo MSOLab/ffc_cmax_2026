@@ -12,6 +12,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 from xlsxwriter import Workbook
 from xlsxwriter.worksheet import Worksheet
 
+from hfs_config import BaselineColumnMapping
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 
@@ -39,7 +40,6 @@ class HfsMultiScenarioRunner(
         output_dir: Path,
         base_output_metadata: dict[str, Any],
         mode: RunMode = RunMode.FULL_RUN,
-        main_metadata_dict: dict | None = None,
     ):
         super().__init__(
             m_i_runner_class,
@@ -53,7 +53,6 @@ class HfsMultiScenarioRunner(
         )
         self.baseline_df: pd.DataFrame | None = None
         """DataFrame containing baseline results for comparison in the report."""
-        self.main_metadata = main_metadata_dict if main_metadata_dict else {}
 
         if self.mode == RunMode.FULL_RUN:
             # --- Save scenario-specific config files for reproducibility ---
@@ -78,7 +77,9 @@ class HfsMultiScenarioRunner(
                     stopping_criteria, scenario_output_dir / "stopping_criteria.yaml"
                 )
 
-    def set_baseline_df(self, baseline_csv_path: Path):
+    def set_baseline_df(
+        self, baseline_csv_path: Path, column_mapping: BaselineColumnMapping
+    ):
         """
         Sets the baseline DataFrame for comparison in the report.
         This DataFrame should contain the baseline results for the scenarios.
@@ -86,6 +87,9 @@ class HfsMultiScenarioRunner(
         if baseline_csv_path.exists():
             self.baseline_df = pd.read_csv(baseline_csv_path)
             logging.info(f"Baseline DataFrame loaded from {baseline_csv_path}")
+            self.baseline_instance_col = column_mapping.instance
+            self.baseline_obj_val_col = column_mapping.obj_val
+            self.baseline_obj_bound_col = column_mapping.obj_bound
         else:
             logging.warning(f"Baseline CSV file not found at {baseline_csv_path}")
             self.baseline_df = pd.DataFrame()
@@ -145,39 +149,37 @@ class HfsMultiScenarioRunner(
         """
         try:
             # 1. Pivot the raw data to get scenarios as columns
-            pivot_df = raw_summary_df.pivot_table(
+            best_obj_value_df = raw_summary_df.pivot_table(
                 index="instanceName", columns="scenario", values="bestObj"
             ).reset_index()
 
             # 2. Merge with baseline data if available
             if self.baseline_df is not None and not self.baseline_df.empty:
-                # Get column name mapping from the metadata config
-                mapping = self.main_metadata.get("baseline_column_mapping", {})
-                instance_col = mapping.get("instance", "Instance")
-                obj_val_col = mapping.get("obj_val", "UB")
-                obj_bound_col = mapping.get("obj_bound", "LB")
-
                 rename_map = {
-                    instance_col: "instanceName",
-                    obj_val_col: "baselineObjVal",
-                    obj_bound_col: "baselineBound",
+                    self.baseline_instance_col: "instanceName",
+                    self.baseline_obj_val_col: "baselineObjVal",
+                    self.baseline_obj_bound_col: "baselineBound",
                 }
 
                 baseline_renamed = self.baseline_df.rename(columns=rename_map)
 
                 dashboard_df = pd.merge(
-                    pivot_df,
-                    baseline_renamed[["instanceName", "baselineObjVal"]],
+                    best_obj_value_df,
+                    baseline_renamed[
+                        ["instanceName", "baselineObjVal", "baselineBound"]
+                    ],
                     on="instanceName",
                     how="left",
                 )
             else:
                 logging.warning("Baseline data not available. Skipping merge.")
-                dashboard_df = pivot_df
+                dashboard_df = best_obj_value_df
                 dashboard_df["baselineObjVal"] = None
 
             # 3. Calculate gaps for each scenario
-            scenarios = [col for col in pivot_df.columns if col != "instanceName"]
+            scenarios = [
+                col for col in best_obj_value_df.columns if col != "instanceName"
+            ]
             if (
                 "baselineObjVal" in dashboard_df.columns
                 and dashboard_df["baselineObjVal"].notna().any()
@@ -191,7 +193,7 @@ class HfsMultiScenarioRunner(
             # 4. Define the desired column order
             ordered_columns = ["instanceName"]
             obj_val_cols = [col for col in scenarios]
-            baseline_col = (
+            baseline_obj_val_col = (
                 ["baselineObjVal"] if "baselineObjVal" in dashboard_df.columns else []
             )
             rel_diff_cols = [
@@ -202,7 +204,7 @@ class HfsMultiScenarioRunner(
 
             # Combine lists in the desired order
             final_column_order = (
-                ordered_columns + obj_val_cols + baseline_col + rel_diff_cols
+                ordered_columns + obj_val_cols + baseline_obj_val_col + rel_diff_cols
             )
 
             # Reorder the DataFrame
@@ -271,7 +273,8 @@ class HfsMultiScenarioRunner(
                 # --- Create formats ---
                 percent_format = workbook.add_format({"num_format": "0.00%"})
 
-                # 1. Dashboard
+                # 1. Best objective Dashboard
+                sheet_name = "BestObjDashboard"
                 if not dashboard_df.empty:
                     # Create the multi-level header
                     header = []
@@ -288,13 +291,13 @@ class HfsMultiScenarioRunner(
                             header.append(("ObjVal", col))
                     dashboard_df.columns = pd.MultiIndex.from_tuples(header)
 
-                    dashboard_df.to_excel(writer, sheet_name="Dashboard", index=True)
+                    dashboard_df.to_excel(writer, sheet_name=sheet_name, index=True)
 
-                    worksheet: Worksheet = writer.sheets["Dashboard"]
+                    worksheet: Worksheet = writer.sheets[sheet_name]
                     data_start_row = 3
                     data_end_row = len(dashboard_df) + data_start_row - 1
 
-                    # --- Apply formatting and set column widths for Dashboard ---
+                    # --- Apply formatting and set column widths ---
 
                     # relDiff first_col and last_col
                     rel_diff_first_col = float("inf")  # Placeholder for first column
