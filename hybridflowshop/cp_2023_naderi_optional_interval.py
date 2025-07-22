@@ -117,25 +117,13 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
         i_list = self.i_list
         M_of = self.M_of
 
-        # Constraints: NoOverlap
-
-        for i in i_list:
-            for k in M_of[i]:
-                self.add_no_overlap([self.var_op_intvl[j, i, k] for j in j_list])
-
-        # Constraints: Alternative
-
+        # One machine must be selected for each operation
         for j in j_list:
             for i in i_list:
                 self.add(sum(self.var_op_is_present[j, i, k] for k in M_of[i]) == 1)
 
-        # Constraints: EndBeforeStart
-
-        consecutive_stage_pairs = []
-        for stage_idx, i in enumerate(i_list[:-1]):
-            next_i = i_list[stage_idx + 1]
-            consecutive_stage_pairs.append((i, next_i))
-
+        # Precedence between consecutive stages for each job
+        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
         for j in j_list:
             for i, next_i in consecutive_stage_pairs:
                 for k in M_of[i]:
@@ -149,6 +137,11 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
                             #         self.var_op_is_present[j, next_i, next_k],
                             #     ]
                         )
+
+        # NoOverlap on each machine
+        for i in i_list:
+            for k in M_of[i]:
+                self.add_no_overlap([self.var_op_intvl[j, i, k] for j in j_list])
 
     # Subproblem generation
 
@@ -249,7 +242,7 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
             i (str): stage index
             k (str): machine index
             ignore_integrity_check (bool, optional): Skip data integrity check. Defaults to True.
-        """  # noqa: E501
+        """
         if not ignore_integrity_check:
             assert j1 in self.j_list, f"Job {j1} not in job list."
             assert j2 in self.j_list, f"Job {j2} not in job list."

@@ -16,7 +16,13 @@ from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 class CP2023NaderiCumulative(CpModelWithFixedInterval):
     """
     A specific implementation of the cumulative (pulse in IBM CP Optimizer) CP model
-    for the Hybrid Flowshop problem, based on the 2023 paper by Naderi et al.
+    for the Hybrid Flowshop problem.
+
+    Reference:
+
+    - Naderi, B., Ruiz, R., & Roshanaei, V. (2023).
+      Mixed-integer programming vs. constraint programming for shop scheduling problems: new results and outlook.
+      INFORMS Journal on Computing, 35(4), 817-843.
     """
 
     # Indices & Parameters
@@ -131,22 +137,18 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         j_list = self.j_list
         i_list = self.i_list
 
-        # no overlap machines
+        # Precedence between consecutive stages for each job
+        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
+        for j in j_list:
+            for i, next_i in consecutive_stage_pairs:
+                self.add(self.var_op_end[j, i] <= self.var_op_start[j, next_i])
+
+        # Capacity constraints for each stage
         for i in i_list:
             intervals = [self.var_op_intvl[j, i] for j in j_list]
             demands = [1] * len(j_list)
             capacity = len(self.M_of[i])
             self.add_cumulative(intervals, demands, capacity)
-
-        # no overlap j_list
-        consecutive_stage_pairs = []
-        for stage_idx, i in enumerate(i_list[:-1]):
-            next_i = i_list[stage_idx + 1]
-            consecutive_stage_pairs.append((i, next_i))
-
-        for j in j_list:
-            for i, next_i in consecutive_stage_pairs:
-                self.add(self.var_op_end[j, i] <= self.var_op_start[j, next_i])
 
     # Subproblem generation
 
