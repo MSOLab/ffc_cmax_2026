@@ -162,7 +162,7 @@ class HybridFlowShopCpLnsController(
     def solve_current_cp_remaining_time_limit(
         self,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         is_initial_solution: bool = False,
@@ -173,7 +173,7 @@ class HybridFlowShopCpLnsController(
 
         Args:
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             obj_value_is_valid (bool, optional): If True, adds the objective value log.
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
@@ -192,7 +192,7 @@ class HybridFlowShopCpLnsController(
 
         solver_report = self.solve_current_cp_model(
             _timelimit,
-            num_workers,
+            solver_thread_cnt,
             random_seed=self.random_seed,
             e_timer=self.timer,
             log_level_obj_value=logging.INFO,
@@ -234,7 +234,7 @@ class HybridFlowShopCpLnsController(
     def solve_with_initial_solution(
         self,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -255,7 +255,7 @@ class HybridFlowShopCpLnsController(
 
         self.solve_current_cp_remaining_time_limit(
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             is_initial_solution=is_initial_run,
@@ -268,7 +268,7 @@ class HybridFlowShopCpLnsController(
     def solve_base_cp_model(
         self,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         is_initial_solution: bool = False,
         draw_gantt: bool = False,
     ):
@@ -282,7 +282,7 @@ class HybridFlowShopCpLnsController(
 
         Args:
             computational_time (float): The maximum computational time in seconds for solving the CP model.
-            num_workers (int): The number of parallel workers (threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (threads) to use during search.
             is_initial_solution (bool, optional): If True, marks this run as producing the initial solution (affects summary/logging). Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution after solving. Defaults to False.
         """
@@ -290,7 +290,7 @@ class HybridFlowShopCpLnsController(
         if is_initial_solution:
             self.solve_current_cp_remaining_time_limit(
                 computational_time,
-                num_workers,
+                solver_thread_cnt,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
                 is_initial_solution=True,
@@ -301,7 +301,7 @@ class HybridFlowShopCpLnsController(
             # If it is not an initial solution, apply the incumbent solution as a hint
             self.solve_with_initial_solution(
                 computational_time,
-                num_workers,
+                solver_thread_cnt,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
                 error_if_infeasible=True,
@@ -314,7 +314,7 @@ class HybridFlowShopCpLnsController(
         self,
         freeze_method: Callable,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -325,7 +325,7 @@ class HybridFlowShopCpLnsController(
         Args:
             freeze_method (Callable): A callable that applies the freeze method to the CP model.
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             obj_value_is_valid (bool, optional): If True, adds the objective value log.
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
@@ -338,7 +338,7 @@ class HybridFlowShopCpLnsController(
         freeze_method()
         self.solve_with_initial_solution(
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
@@ -352,7 +352,7 @@ class HybridFlowShopCpLnsController(
         self,
         rho: float,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         error_if_infeasible=False,
         draw_gantt: bool = False,
     ):
@@ -362,7 +362,7 @@ class HybridFlowShopCpLnsController(
             rho (float): Fraction of makespan to define the window size.
                 For example, 0.2 means 20% of makespan.
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -371,7 +371,7 @@ class HybridFlowShopCpLnsController(
         self.freeze_solve_reset(
             lambda: self.apply_time_window_operator(rho),
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -458,7 +458,7 @@ class HybridFlowShopCpLnsController(
         self,
         rho: float,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         error_if_infeasible=False,
         draw_gantt: bool = False,
     ):
@@ -467,7 +467,7 @@ class HybridFlowShopCpLnsController(
         Args:
             rho (float): Fraction of total number of operations to include in the block.
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -477,7 +477,7 @@ class HybridFlowShopCpLnsController(
         self.freeze_solve_reset(
             lambda: self.apply_block_operator(rho),
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -663,7 +663,7 @@ class HybridFlowShopCpLnsController(
         self,
         job_sequence: list[str],
         max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -680,7 +680,7 @@ class HybridFlowShopCpLnsController(
         Args:
             job_sequence (list[str]): The sequence of job IDs to be added.
             max_time_per_add (float): The time limit (in seconds) for solving each incremental subproblem.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             added_batch_size (int, optional): The number of jobs to add in each iteration.
                 Defaults to 1.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
@@ -710,7 +710,7 @@ class HybridFlowShopCpLnsController(
             iter_report = self.solve_cp_model(
                 sub_cp_mdl,
                 _timelimit,
-                num_workers,
+                solver_thread_cnt,
                 random_seed=self.random_seed,
                 e_timer=self.timer,
             )
@@ -953,7 +953,7 @@ class HybridFlowShopCpLnsController(
     def initialize_by_cjq1(
         self,
         max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -966,7 +966,7 @@ class HybridFlowShopCpLnsController(
 
         Args:
             max_time_per_add (float): The maximum computational time per addition in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -976,7 +976,7 @@ class HybridFlowShopCpLnsController(
         self.construct_solution_by_incremental_cp(
             self.get_sequence1(),
             max_time_per_add,
-            num_workers,
+            solver_thread_cnt,
             added_batch_size=added_batch_size,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -986,7 +986,7 @@ class HybridFlowShopCpLnsController(
     def initialize_by_cjq2(
         self,
         max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -999,7 +999,7 @@ class HybridFlowShopCpLnsController(
 
         Args:
             max_time_per_add (float): The maximum computational time per addition in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -1009,7 +1009,7 @@ class HybridFlowShopCpLnsController(
         self.construct_solution_by_incremental_cp(
             self.get_sequence2(),
             max_time_per_add,
-            num_workers,
+            solver_thread_cnt,
             added_batch_size=added_batch_size,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -1018,7 +1018,7 @@ class HybridFlowShopCpLnsController(
     def initialize_by_cjqp(
         self,
         max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -1031,7 +1031,7 @@ class HybridFlowShopCpLnsController(
 
         Args:
             max_time_per_add (float): The maximum computational time per addition in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -1041,7 +1041,7 @@ class HybridFlowShopCpLnsController(
         self.construct_solution_by_incremental_cp(
             self.get_palmer_sequence(),
             max_time_per_add,
-            num_workers,
+            solver_thread_cnt,
             added_batch_size=added_batch_size,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -1050,7 +1050,7 @@ class HybridFlowShopCpLnsController(
     def initialize_by_cjqg(
         self,
         max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -1063,7 +1063,7 @@ class HybridFlowShopCpLnsController(
 
         Args:
             max_time_per_add (float): The maximum computational time per addition in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -1073,7 +1073,7 @@ class HybridFlowShopCpLnsController(
         self.construct_solution_by_incremental_cp(
             self.get_gupta_sequence(),
             max_time_per_add,
-            num_workers,
+            solver_thread_cnt,
             added_batch_size=added_batch_size,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,

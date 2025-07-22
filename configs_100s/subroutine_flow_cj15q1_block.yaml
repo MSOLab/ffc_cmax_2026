@@ -2,7 +2,7 @@
   seed: 42
 - method: initialize_by_cjq1
   max_time_per_add: 10
-  num_workers: 8
+  solver_thread_cnt: 8
   error_if_infeasible: true
 - method: repeat
   params:
@@ -11,5 +11,5 @@
     - method: block_search
       rho: 0.2
       computational_time: 20
-      num_workers: 8
+      solver_thread_cnt: 8
       error_if_infeasible: true
