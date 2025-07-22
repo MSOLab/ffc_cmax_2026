@@ -1354,6 +1354,7 @@ class HybridFlowShopCpLnsController(
 
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1410,6 +1411,7 @@ class HybridFlowShopCpLnsController(
 
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1634,6 +1636,7 @@ class HybridFlowShopCpLnsController(
 
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1688,6 +1691,7 @@ class HybridFlowShopCpLnsController(
 
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
