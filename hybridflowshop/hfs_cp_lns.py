@@ -20,7 +20,7 @@ from .report import HfsCpsatSolverReport, HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from .solution_manager import HfsSolutionManager
 
-HfsMathModel = CP2023NaderiOptionalInterval
+HfsMathModel = CP2023NaderiCumulative
 
 
 class HybridFlowShopCpLnsController(
@@ -1785,6 +1785,78 @@ class HybridFlowShopCpLnsController(
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
+
+    def get_incumbent_midpoint_sequence(self) -> list[str]:
+        """
+        Returns a job sequence based on the incumbent solution, sorted in ascending order by:
+
+        1. midpoint = (start_time at first stage + start_time at last stage) / 2
+        2. tie-break by first stage start_time
+        3. tie-break by original job index
+
+        Raises:
+            ValueError: if no incumbent solution is available.
+
+        Returns:
+            list[str]: A list of job IDs representing the midpoint sequence.
+        """
+        incumbent = self.solution_manager.get_incumbent()
+        if incumbent is None:
+            raise ValueError(
+                "No incumbent solution available to build midpoint sequence."
+            )
+
+        start_map = incumbent.get_start_time_map()
+        jobs = self.instance.job_id_list
+        idx_map = {j: idx for idx, j in enumerate(jobs)}
+        first_stage = self.instance.stage_id_list[0]
+        last_stage = self.instance.stage_id_list[-1]
+
+        seq_info: list[tuple[float, int, int, str]] = []
+        for j in jobs:
+            # find any machine k for first and last stage
+            s_first = next(
+                t
+                for (job, stage, _), t in start_map.items()
+                if job == j and stage == first_stage
+            )
+            s_last = next(
+                t
+                for (job, stage, _), t in start_map.items()
+                if job == j and stage == last_stage
+            )
+            midpoint = (s_first + s_last) / 2
+            seq_info.append((midpoint, s_first, idx_map[j], j))
+
+        seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
+        return [info[3] for info in seq_info]
+
+    def initialize_by_cjims(
+        self,
+        max_time_per_add: float,
+        solver_thread_cnt: int,
+        added_batch_size: int = 1,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        """
+        Builds a CP-guided solution using a midpoint sequence from the incumbent solution.
+
+        Args:
+            max_time_per_add (float): Time limit (sec) per incremental CP subproblem.
+            solver_thread_cnt (int): Number of CP-SAT worker threads.
+            added_batch_size (int): Jobs added per iteration. Defaults to 1.
+            error_if_infeasible (bool): If True, checks final schedule feasibility.
+            draw_gantt (bool): If True, draws Gantt chart of final solution.
+        """
+        self.construct_solution_by_incremental_cp(
+            self.get_incumbent_midpoint_sequence(),
+            max_time_per_add,
+            solver_thread_cnt,
+            added_batch_size=added_batch_size,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
 
     # End subroutine definition
 
