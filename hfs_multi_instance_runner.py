@@ -14,8 +14,6 @@ class HfsMultiInstanceRunner(
 ):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # TODO: Remove this workaround when routix supports max_workers in MultiInstanceConcurrentRunner
-        self._max_workers = 1  # Walkaround: set value for max_workers here
 
     def post_run_process(self) -> pd.DataFrame:
         """

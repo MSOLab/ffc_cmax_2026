@@ -152,6 +152,7 @@ def main():
         output_dir=base_output_dir_path,
         base_output_metadata=base_output_metadata,
         mode=run_mode,
+        instance_worker_cnt=config.instance_worker_cnt,
     )
     multi_scenario_runner.set_baseline_df(
         config.baseline_csv_path, config.baseline_column_mapping

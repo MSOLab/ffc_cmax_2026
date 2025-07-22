@@ -40,6 +40,7 @@ class HfsMultiScenarioRunner(
         output_dir: Path,
         base_output_metadata: dict[str, Any],
         mode: RunMode = RunMode.FULL_RUN,
+        instance_worker_cnt: int = 1,
     ):
         super().__init__(
             m_i_runner_class,
@@ -49,7 +50,8 @@ class HfsMultiScenarioRunner(
             scenario_configs,
             output_dir,
             base_output_metadata,
-            mode,
+            mode=mode,
+            instance_worker_cnt=instance_worker_cnt,
         )
         self.baseline_df: pd.DataFrame | None = None
         """DataFrame containing baseline results for comparison in the report."""

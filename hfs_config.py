@@ -84,7 +84,7 @@ class MainMetadata(BaseModel):
     )
 
     # Execution configuration
-    worker_cnt: int = Field(
+    instance_worker_cnt: int = Field(
         default=1, description="Number of concurrent workers for multi-instance runs."
     )
 
