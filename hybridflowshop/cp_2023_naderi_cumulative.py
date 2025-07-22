@@ -49,16 +49,16 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
     @classmethod
     def from_instance(
         cls, instance: HybridFlowshopParameters, horizon: int
-    ) -> "CP2023NaderiCumulative":
+    ) -> CP2023NaderiCumulative:
         """
-        Create a CP2023NaderiIntervalCumulative model from a HybridFlowshopParameters instance.
+        Create a model from a HybridFlowshopParameters instance.
 
         Args:
             instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
             horizon (int): The time horizon for the scheduling problem.
 
         Returns:
-            CP2023NaderiIntervalCumulative: An instance of the model.
+            CP2023NaderiCumulative: An instance of the model.
         """
         result = cls(horizon)
         result.define_model(instance)
@@ -155,10 +155,20 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
     def create_problem_of_job_subset(
         self, job_subset: set[str]
     ) -> CP2023NaderiCumulative:
+        """Creates a new problem instance with a subset of jobs.
+
+        Args:
+            job_subset (set[str]): A set of job indices to include in the new problem.
+
+        Raises:
+            ValueError: If the job subset is not a subset of the original job list.
+
+        Returns:
+            CP2023NaderiCumulative: A new instance of the model with the specified job subset.
+        """
         if not job_subset.issubset(self.j_list):
             raise ValueError("Job subset must be a subset of the original job list.")
-        # Create a new instance
-        new_model = CP2023NaderiCumulative(self.horizon)
+        new_model = self.__class__(self.horizon)
 
         # Filter parameters based on the job subset
         new_model.j_list = [j for j in self.j_list if j in job_subset]
