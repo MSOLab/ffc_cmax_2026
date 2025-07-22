@@ -12,16 +12,19 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 )
 
 from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
+from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
+from .cp_cumulative_optional_hybrid import CPCumulativeOptionalHybrid
+from .cp_optional_interval_master_timevar import CPOptionalIntervalMasterTimevar
 from .painter.gantt import GanttPlotter
 from .report import HfsCpsatSolverReport, HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from .solution_manager import HfsSolutionManager
 
+HfsMathModel = CP2023NaderiOptionalInterval
+
 
 class HybridFlowShopCpLnsController(
-    CpSubroutineController[
-        HybridFlowshopParameters, CP2023NaderiCumulative, StoppingCriteria
-    ]
+    CpSubroutineController[HybridFlowshopParameters, HfsMathModel, StoppingCriteria]
 ):
     """
     Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
@@ -44,15 +47,21 @@ class HybridFlowShopCpLnsController(
         super().__init__(
             instance,
             shared_param_dict,
-            CP2023NaderiCumulative,
+            HfsMathModel,
             subroutine_flow,
             stopping_criteria,
         )
         self.solution_manager = HfsSolutionManager()
 
+        logging.info(
+            "Using CP model class: %s.%s",
+            self.cp_model_class.__module__,
+            self.cp_model_class.__name__,
+        )
+
     # Start abstract getters
 
-    def create_base_cp_model(self) -> CP2023NaderiCumulative:
+    def create_base_cp_model(self) -> HfsMathModel:
         if "horizon" not in self.shared_param_dict:
             raise ValueError("Horizon not found in shared parameters.")
         horizon = self.shared_param_dict["horizon"]
@@ -248,10 +257,29 @@ class HybridFlowShopCpLnsController(
 
         if incumbent_solution:
             self.cp_model.clear_hints()
-            self.cp_model.add_start_hints_from_start_time_map(
-                incumbent_solution.get_start_time_map(),
-                ignore_integrity_check=True,
+            logging.info(
+                "Applying incumbent solution with objValue "
+                f"{incumbent_solution.makespan} as a hint."
             )
+            if isinstance(self.cp_model, CP2023NaderiCumulative):
+                self.cp_model.add_start_hints_from_start_time_map(
+                    incumbent_solution.get_start_time_map(),
+                    ignore_integrity_check=True,
+                )
+            elif isinstance(
+                self.cp_model,
+                (
+                    CP2023NaderiOptionalInterval,
+                    CPOptionalIntervalMasterTimevar,
+                    CPCumulativeOptionalHybrid,
+                ),
+            ):
+                self.cp_model.add_start_and_present_hints_from_start_time_map(
+                    incumbent_solution.get_start_time_map(),
+                    ignore_integrity_check=True,
+                )
+            else:
+                raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
         self.solve_current_cp_remaining_time_limit(
             computational_time,
@@ -444,8 +472,21 @@ class HybridFlowShopCpLnsController(
             # Start time 기준 정렬
             jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                # self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
-                self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
+                if isinstance(self.cp_model, CP2023NaderiCumulative):
+                    self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
+                elif isinstance(
+                    self.cp_model,
+                    (
+                        CP2023NaderiOptionalInterval,
+                        CPOptionalIntervalMasterTimevar,
+                        CPCumulativeOptionalHybrid,
+                    ),
+                ):
+                    self.cp_model.add_fixed_operation_precedence_constraint(
+                        j1, j2, i, k
+                    )
+                else:
+                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
     @staticmethod
     def is_within_window(time: int, window_start: int, window_end: int) -> bool:
@@ -550,8 +591,21 @@ class HybridFlowShopCpLnsController(
         for (i, k), jobs in stage_mc_to_jobs.items():
             jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                # self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
-                self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
+                if isinstance(self.cp_model, CP2023NaderiCumulative):
+                    self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
+                elif isinstance(
+                    self.cp_model,
+                    (
+                        CP2023NaderiOptionalInterval,
+                        CPOptionalIntervalMasterTimevar,
+                        CPCumulativeOptionalHybrid,
+                    ),
+                ):
+                    self.cp_model.add_fixed_operation_precedence_constraint(
+                        j1, j2, i, k
+                    )
+                else:
+                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -702,9 +756,23 @@ class HybridFlowShopCpLnsController(
 
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
-                sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                    last_solution.get_start_time_map(), ignore_integrity_check=True
-                )
+                if isinstance(sub_cp_mdl, CP2023NaderiCumulative):
+                    sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
+                        last_solution.get_start_time_map(), ignore_integrity_check=True
+                    )
+                elif isinstance(
+                    self.cp_model,
+                    (
+                        CP2023NaderiOptionalInterval,
+                        CPOptionalIntervalMasterTimevar,
+                        CPCumulativeOptionalHybrid,
+                    ),
+                ):
+                    sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
+                        last_solution.get_start_time_map(), ignore_integrity_check=True
+                    )
+                else:
+                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
             _timelimit = self.get_remaining_time_limit(max_time_per_add)
             iter_report = self.solve_cp_model(
@@ -1751,9 +1819,20 @@ class HybridFlowShopCpLnsController(
 
         # Freeze operation start times and machine assignments
         for (j, i, k), start_time in start_time_map.items():
-            # base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
-            # base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
-            base_cp.add(self.cp_model.var_op_start[j, i] == start_time)
+            if isinstance(base_cp, CP2023NaderiCumulative):
+                base_cp.add(self.cp_model.var_op_start[j, i] == start_time)
+            elif isinstance(
+                base_cp,
+                (
+                    CP2023NaderiOptionalInterval,
+                    CPOptionalIntervalMasterTimevar,
+                    CPCumulativeOptionalHybrid,
+                ),
+            ):
+                base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
+                base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
+            else:
+                raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
         # Solve with tight time limit
         try:

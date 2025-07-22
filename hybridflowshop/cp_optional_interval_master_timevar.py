@@ -9,8 +9,11 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from .scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
+from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 
-class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
+
+class CPOptionalIntervalMasterTimevar(CpModelWithOptionalFixedInterval):
     # Indices & Parameters
 
     j_list: list[str]
@@ -43,15 +46,15 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
     @classmethod
     def from_instance(
         cls, instance: HybridFlowshopParameters, horizon: int
-    ) -> "CP2023NaderiOptionalInterval":
-        """Creates a CP2023NaderiOptionalInterval model from a HybridFlowshopParameters instance.
+    ) -> CPOptionalIntervalMasterTimevar:
+        """Creates a model from a HybridFlowshopParameters instance.
 
         Args:
             instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
             horizon (int): The time horizon for the scheduling problem.
 
         Returns:
-            CP2023NaderiOptionalInterval: An instance of the model.
+            CPOptionalIntervalMasterTimevar: An instance of the model.
         """
         result = cls(horizon)
         result.define_model(instance)
@@ -160,7 +163,7 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
 
     def create_problem_of_job_subset(
         self, job_subset: set[str]
-    ) -> CP2023NaderiOptionalInterval:
+    ) -> CPOptionalIntervalMasterTimevar:
         """Creates a new problem instance with a subset of jobs.
 
         Args:
@@ -170,13 +173,11 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
             ValueError: If the job subset is not a subset of the original job list.
 
         Returns:
-            PureCP2023Naderi: A new instance of the PureCP2023Naderi model
-                with the specified job subset.
+            CPOptionalIntervalMasterTimevar: A new instance of the model with the specified job subset.
         """
         if not job_subset.issubset(self.j_list):
             raise ValueError("Job subset must be a subset of the original job list.")
-        # Create a new instance of the model
-        new_model = CP2023NaderiOptionalInterval(self.horizon)
+        new_model = self.__class__(self.horizon)
 
         # Filter parameters based on the job subset
         new_model.j_list = [j for j in self.j_list if j in job_subset]
@@ -222,6 +223,40 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
                         end_time_map[(j, i, k)] = end_value
 
         return start_time_map, end_time_map
+
+    def create_schedule(self) -> HybridFlowshopSchedule:
+        """Creates a HybridFlowshopSchedule from the current model's solution.
+
+        Returns:
+            HybridFlowshopSchedule: A schedule object containing the operations and their timings.
+        """
+        start_time_map, end_time_map = self.extract_start_end_time_map()
+
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(self.M_of)
+
+        for (j, i, k), start_time in start_time_map.items():
+            stage = schedule.get_stage_by_name(i)
+            end_time = end_time_map[(j, i, k)]
+            if start_time is not None and end_time is not None:
+                operation = stage.add_operation(
+                    HybridFlowshopOperation(
+                        job_name=j,
+                        stage_name=i,
+                        mc_name=k,
+                        start=start_time,
+                        end=end_time,
+                    )
+                )
+                if operation is None:
+                    raise RuntimeError(
+                        f"Failed to schedule operation of job {j} at stage {i} on machine {k}"
+                        f" with start time {start_time} and end time {end_time}."
+                    )
+            else:
+                raise ValueError(
+                    f"Start or end time for operation of job {j} at stage {i} on machine {k} is None."
+                )
+        return schedule
 
     # methods to add constraints for LNS
 

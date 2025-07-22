@@ -9,6 +9,9 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from .scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
+from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
+
 
 class CPCumulativeOptionalHybrid(CpModelWithOptionalFixedInterval):
     """
@@ -58,8 +61,16 @@ class CPCumulativeOptionalHybrid(CpModelWithOptionalFixedInterval):
     @classmethod
     def from_instance(
         cls, instance: HybridFlowshopParameters, horizon: int
-    ) -> "CPCumulativeOptionalHybrid":
-        """Creates a CPCumulativeOptionalHybrid model from a HybridFlowshopParameters instance."""
+    ) -> CPCumulativeOptionalHybrid:
+        """Creates a model from a HybridFlowshopParameters instance.
+
+        Args:
+            instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
+            horizon (int): The time horizon for the scheduling problem.
+
+        Returns:
+            CPCumulativeOptionalHybrid: An instance of the model.
+        """
         result = cls(horizon)
         result.define_model(instance)
         return result
@@ -174,21 +185,34 @@ class CPCumulativeOptionalHybrid(CpModelWithOptionalFixedInterval):
 
     def create_problem_of_job_subset(
         self, job_subset: set[str]
-    ) -> "CPCumulativeOptionalHybrid":
-        """Creates a new problem instance with a subset of jobs."""
+    ) -> CPCumulativeOptionalHybrid:
+        """Creates a new problem instance with a subset of jobs.
+
+        Args:
+            job_subset (set[str]): A set of job indices to include in the new problem.
+
+        Raises:
+            ValueError: If the job subset is not a subset of the original job list.
+
+        Returns:
+            CPCumulativeOptionalHybrid: A new instance of the model with the specified job subset.
+        """
         if not job_subset.issubset(self.j_list):
             raise ValueError("Job subset must be a subset of the original job list.")
+        new_model = self.__class__(self.horizon)
 
-        new_model = CPCumulativeOptionalHybrid(self.horizon)
+        # Filter parameters based on the job subset
         new_model.j_list = [j for j in self.j_list if j in job_subset]
         new_model.i_list = self.i_list
         new_model.M_of = {i: [k for k in self.M_of[i]] for i in self.i_list}
         new_model.p = {
             (j, i): self.p[j, i] for j in new_model.j_list for i in new_model.i_list
         }
+        # Define variables, objective, and constraints
         new_model.define_variables()
         new_model.define_makespan_objective()
         new_model.define_constraints()
+
         return new_model
 
     # extraction method for the solution
@@ -210,6 +234,40 @@ class CPCumulativeOptionalHybrid(CpModelWithOptionalFixedInterval):
                         start_time_map[(j, i, k)] = self.solver.Value(start_var)
                         end_time_map[(j, i, k)] = self.solver.Value(end_var)
         return start_time_map, end_time_map
+
+    def create_schedule(self) -> HybridFlowshopSchedule:
+        """Creates a HybridFlowshopSchedule from the current model's solution.
+
+        Returns:
+            HybridFlowshopSchedule: A schedule object containing the operations and their timings.
+        """
+        start_time_map, end_time_map = self.extract_start_end_time_map()
+
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(self.M_of)
+
+        for (j, i, k), start_time in start_time_map.items():
+            stage = schedule.get_stage_by_name(i)
+            end_time = end_time_map[(j, i, k)]
+            if start_time is not None and end_time is not None:
+                operation = stage.add_operation(
+                    HybridFlowshopOperation(
+                        job_name=j,
+                        stage_name=i,
+                        mc_name=k,
+                        start=start_time,
+                        end=end_time,
+                    )
+                )
+                if operation is None:
+                    raise RuntimeError(
+                        f"Failed to schedule operation of job {j} at stage {i} on machine {k}"
+                        f" with start time {start_time} and end time {end_time}."
+                    )
+            else:
+                raise ValueError(
+                    f"Start or end time for operation of job {j} at stage {i} on machine {k} is None."
+                )
+        return schedule
 
     # methods to add constraints for LNS - optional interval variables
 
@@ -345,24 +403,24 @@ class CPCumulativeOptionalHybrid(CpModelWithOptionalFixedInterval):
         self,
         start_time_map: dict[tuple[str, str, str], int],
         ignore_integrity_check: bool = True,
-        fix_machine_assignment: bool = False,
+        fix_machine_assignment: bool = True,
     ) -> None:
         """Adds hints for start times and presence indicators based on a provided start time map.
 
         Args:
             start_time_map (dict[tuple[str, str, str], int]): Mapping of (j, i, k) to start time.
             ignore_integrity_check (bool, optional): Whether to skip integrity checks. Defaults to True.
-            fix_machine_assignment (bool, optional): Whether to fix machine assignments. Defaults to False.
+            fix_machine_assignment (bool, optional): Whether to give machine-level hints. Defaults to True.
         """
         for (j, i, k), s_time in start_time_map.items():
             if not ignore_integrity_check:
                 assert j in self.j_list, f"Job {j} not in job list."
                 assert i in self.i_list, f"Stage {i} not in stage list."
+
+            if fix_machine_assignment:
                 assert k in self.M_of[i], (
                     f"Machine {k} not in machine list for stage {i}."
                 )
-
-            if fix_machine_assignment:
                 self.add_hint(self.var_op_start[j, i, k], s_time)
                 self.add_hint(self.var_op_is_present[j, i, k], 1)
             else:
