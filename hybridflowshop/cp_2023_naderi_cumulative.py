@@ -232,7 +232,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
                 )
                 if earliest_feasible_st > start_time:
                     raise RuntimeError(
-                        f"Operation {j} at stage {i} cannot start at {start_time} "
+                        f"Operation of job {j} at stage {i} cannot start at {start_time} "
                         f"because the earliest feasible start time on machine {mc_name} is {earliest_feasible_st}."
                     )
                 operation = stage.add_operation(
@@ -246,7 +246,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
                 )
                 if operation is None:
                     raise RuntimeError(
-                        f"Failed to schedule operation {j} at stage {i}  during extraction "
+                        f"Failed to schedule operation of job {j} at stage {i} during extraction "
                         f"on machine {mc_name} with start time {start_time} and end time {end_time}."
                     )
         return schedule
