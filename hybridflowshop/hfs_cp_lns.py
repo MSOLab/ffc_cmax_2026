@@ -745,6 +745,7 @@ class HybridFlowShopCpLnsController(
         sub_timer = ElapsedTimer()
         last_solution: HybridFlowshopSchedule | None = None
 
+        job_cnt = len(job_sequence)
         sequence_of_job_sublist = [
             job_sequence[i : i + added_batch_size]
             for i in range(0, len(job_sequence), added_batch_size)
@@ -753,6 +754,7 @@ class HybridFlowShopCpLnsController(
         job_subset: set[str] = set()
         for job_sublist in sequence_of_job_sublist:
             job_subset.update(job_sublist)
+            all_jobs_are_included = len(job_subset) == job_cnt
 
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
@@ -781,6 +783,7 @@ class HybridFlowShopCpLnsController(
                 solver_thread_cnt,
                 random_seed=self.random_seed,
                 e_timer=self.timer,
+                obj_value_is_valid=all_jobs_are_included,
             )
 
             if iter_report.is_feasible:
@@ -1819,10 +1822,10 @@ class HybridFlowShopCpLnsController(
 
         # Freeze operation start times and machine assignments
         for (j, i, k), start_time in start_time_map.items():
-            if isinstance(base_cp, CP2023NaderiCumulative):
+            if isinstance(self.cp_model, CP2023NaderiCumulative):
                 base_cp.add(self.cp_model.var_op_start[j, i] == start_time)
             elif isinstance(
-                base_cp,
+                self.cp_model,
                 (
                     CP2023NaderiOptionalInterval,
                     CPOptionalIntervalMasterTimevar,
