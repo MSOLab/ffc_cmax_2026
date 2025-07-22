@@ -73,20 +73,21 @@ class CP2023NaderiOptionalInterval(CpModelWithOptionalFixedInterval):
         for j in self.j_list:
             for i in self.i_list:
                 for k in self.M_of[i]:
-                    self.define_optional_fixed_interval_var(j, i, k, self.p[j, i])
+                    self.define_optional_fixed_interval_var((j, i, k), self.p[j, i])
 
     # Objective
 
     def define_makespan_objective(self) -> None:
         # alias for readability
         j_list = self.j_list
-        i_list = self.i_list
+        last_i = self.i_list[-1]
         M_of = self.M_of
 
         makespan = self.new_int_var(0, self.horizon, "makespan")
+        # The makespan is the maximum of the end times of the operations in the last stage.
         self.add_max_equality(
             makespan,
-            [self.var_op_end[j, i, k] for j in j_list for i in i_list for k in M_of[i]],
+            [self.var_op_end[j, last_i, k] for j in j_list for k in M_of[last_i]],
         )
 
         self.minimize(makespan)
