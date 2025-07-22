@@ -3,7 +3,7 @@ pra_common_params_rel_path: "resources/pra_common_params.yaml"
 baseline_csv_path: "resources/pra_ref/naderi2023CPOCodeResult.csv"
 input_dir : "resources/pra"
 first: 1
-last: 30
+last: 100
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
@@ -162,18 +162,18 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims55.yaml"
 #   output_dir : "pra_100s/dispatch_cjims55"
-- stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims11_baseCp.yaml"
-  output_dir : "pra_100s/dispatch_cjims11_baseCp"
-- stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims22_baseCp.yaml"
-  output_dir : "pra_100s/dispatch_cjims22_baseCp"
-- stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims33_baseCp.yaml"
-  output_dir : "pra_100s/dispatch_cjims33_baseCp"
-- stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims55_baseCp.yaml"
-  output_dir : "pra_100s/dispatch_cjims55_baseCp"
+# - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims11_baseCp.yaml"
+#   output_dir : "pra_100s/dispatch_cjims11_baseCp"
+# - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims22_baseCp.yaml"
+#   output_dir : "pra_100s/dispatch_cjims22_baseCp"
+# - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims33_baseCp.yaml"
+#   output_dir : "pra_100s/dispatch_cjims33_baseCp"
+# - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims55_baseCp.yaml"
+#   output_dir : "pra_100s/dispatch_cjims55_baseCp"
 
 
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
@@ -209,6 +209,10 @@ dicts_of_i_o_data_path:
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cj33_shdlb_baseCp.yaml"
 #   output_dir : "pra_600s/dispatch_cj33_shdlb_baseCp"
 #   description: "best(8 dispatches, CJ(3,3,Palmer), CJ(3,3,Gupta)) -> improve via base CP with SHD LB"
+- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cjims55_shdlb_baseCp.yaml"
+  output_dir : "pra_100s/dispatch_cjims55_baseCp"
+  description: "best(8 dispatches) -> CJ(5,5,IMS) -> improve via base CP with SHD LB"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
