@@ -67,31 +67,27 @@ class HfsSingleInstanceRunner(
         self.from_files_save_analysis(self.encoding)
 
     def prepare_saved_file_paths(self) -> None:
-        self.summary_filename = self.name + "_summary.csv"
-        if "summary_filename_format" in self.output_metadata:
-            summary_filename_format = self.output_metadata["summary_filename_format"]
-            if isinstance(summary_filename_format, str):
-                self.summary_filename = summary_filename_format.strip().format(
-                    self.name
-                )
+        self.summary_filename = (
+            str(self.output_metadata.get("summary_filename_format", "{}_summary.csv"))
+            .strip()
+            .format(self.name)
+        )
         self.summary_path = self.result_dir / self.summary_filename
 
-        self.solution_filename = self.name + "_solution.yaml"
-        if "solution_filename_format" in self.output_metadata:
-            solution_filename_format = self.output_metadata["solution_filename_format"]
-            if isinstance(solution_filename_format, str):
-                self.solution_filename = solution_filename_format.strip().format(
-                    self.name
-                )
+        self.solution_filename = (
+            str(
+                self.output_metadata.get("solution_filename_format", "{}_solution.yaml")
+            )
+            .strip()
+            .format(self.name)
+        )
         self.solution_path = self.result_dir / self.solution_filename
 
-        self.obj_log_filename = self.name + "_obj_log.yaml"
-        if "obj_log_filename_format" in self.output_metadata:
-            obj_log_filename_format = self.output_metadata["obj_log_filename_format"]
-            if isinstance(obj_log_filename_format, str):
-                self.obj_log_filename = obj_log_filename_format.strip().format(
-                    self.name
-                )
+        self.obj_log_filename = (
+            str(self.output_metadata.get("obj_log_filename_format", "{}_obj_log.yaml"))
+            .strip()
+            .format(self.name)
+        )
         self.obj_log_path = self.result_dir / self.obj_log_filename
 
     def save_files(self, encoding: str = "utf-8") -> None:
@@ -137,10 +133,13 @@ class HfsSingleInstanceRunner(
             self.from_files_draw_progress_plot(encoding=encoding)
 
     def from_files_draw_gantt_chart(self, encoding: str = "utf-8") -> None:
-        result_gantt_filename_format = self.output_metadata.get(
-            "gantt_filename_format", "{}_gantt.png"
+        result_gantt_filename = (
+            str(
+                self.output_metadata.get("result_gantt_filename_format", "{}_gantt.png")
+            )
+            .strip()
+            .format(self.name)
         )
-        result_gantt_filename = result_gantt_filename_format.format(self.name)
         output_path = self.result_dir / result_gantt_filename
 
         with open(self.solution_path, "r", encoding=encoding) as f:
