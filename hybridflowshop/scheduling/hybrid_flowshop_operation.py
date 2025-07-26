@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from schore.schedule.abstract import Activity
 
 
@@ -27,6 +29,14 @@ class HybridFlowshopOperation(Activity):
         """The start time of the operation."""
         self._end: int = end
         """The end time of the operation."""
+
+    def copy(self) -> HybridFlowshopOperation:
+        """
+        Returns a deep (hard) copy of this HybridFlowshopOperation.
+        """
+        return HybridFlowshopOperation(
+            self._job_name, self._stage_name, self._mc_name, self._start, self._end
+        )
 
     # Start required getters
 

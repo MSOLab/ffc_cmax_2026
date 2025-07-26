@@ -14,6 +14,16 @@ class Machine(Resource[HybridFlowshopOperation]):
         self._name: str = name
         """The name of the machine."""
 
+    def deepcopy(self) -> "Machine":
+        """
+        Returns a deep copy of this Machine,
+        including all assigned operations.
+        """
+        new_machine = Machine(self._name)
+        # Deep copy all assigned operations
+        new_machine._activity_list = [op.copy() for op in self.activity_list]
+        return new_machine
+
     # Start required getters
 
     @property

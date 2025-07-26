@@ -39,6 +39,21 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
             stage.create_machine_by_name(mc_name)
         return stage
 
+    def deepcopy(self) -> "HybridFlowshopStage":
+        """
+        Returns a deep copy of this HybridFlowshopStage,
+        including all machines and their state.
+        """
+        from copy import deepcopy
+
+        new_stage = HybridFlowshopStage(self._name)
+        # Deep copy all machines
+        new_stage._mc_name_2_ins_map = {
+            mc_name: mc.deepcopy() if hasattr(mc, "deepcopy") else deepcopy(mc)
+            for mc_name, mc in self._mc_name_2_ins_map.items()
+        }
+        return new_stage
+
     # Start required getters
 
     @property

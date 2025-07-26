@@ -40,6 +40,28 @@ class HybridFlowshopSchedule:
             )
         return schedule
 
+    def deepcopy(self) -> HybridFlowshopSchedule:
+        """
+        Returns a deep copy of this HybridFlowshopSchedule,
+        including all stages and internal state.
+        """
+        from copy import deepcopy
+
+        new_schedule = HybridFlowshopSchedule()
+        # Deep copy stages
+        new_schedule._stages = {
+            k: v.deepcopy() if hasattr(v, "deepcopy") else deepcopy(v)
+            for k, v in self._stages.items()
+        }
+        # Deep copy internal state
+        new_schedule.job_2_last_oper_end_time_map = deepcopy(
+            self.job_2_last_oper_end_time_map
+        )
+        new_schedule.job_2_scheduled_oper_count_map = deepcopy(
+            self.job_2_scheduled_oper_count_map
+        )
+        return new_schedule
+
     # Start getters
 
     @property
