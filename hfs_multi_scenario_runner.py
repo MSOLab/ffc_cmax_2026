@@ -162,14 +162,23 @@ class HfsMultiScenarioRunner(
                     self.baseline_obj_val_col: "baselineObjVal",
                     self.baseline_obj_bound_col: "baselineBound",
                 }
-
-                baseline_renamed = self.baseline_df.rename(columns=rename_map)
+                cols = [
+                    self.baseline_instance_col,
+                    self.baseline_obj_val_col,
+                    self.baseline_obj_bound_col,
+                ]
+                baseline_subset = self.baseline_df.loc[:, cols].copy()
+                baseline_subset.rename(columns=rename_map, inplace=True)
+                if baseline_subset.columns.duplicated().any():
+                    dup = baseline_subset.columns[baseline_subset.columns.duplicated()]
+                    logging.warning(f"Dropping duplicate baseline columns: {list(dup)}")
+                    baseline_subset = baseline_subset.loc[
+                        :, ~baseline_subset.columns.duplicated()
+                    ]
 
                 dashboard_df = pd.merge(
                     best_obj_value_df,
-                    baseline_renamed[
-                        ["instanceName", "baselineObjVal", "baselineBound"]
-                    ],
+                    baseline_subset,
                     on="instanceName",
                     how="left",
                 )
