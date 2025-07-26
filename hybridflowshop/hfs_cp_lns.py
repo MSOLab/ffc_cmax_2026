@@ -53,6 +53,12 @@ class HybridFlowShopCpLnsController(
         )
         self.solution_manager = HfsSolutionManager()
 
+        # Frequently used parameters
+        self.stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
+            self.instance.stage_id_list, self.instance.job_id_list
+        )
+        """Stage name -> job name -> processing time map"""
+
         logging.info(
             "Using CP model class: %s.%s",
             self.cp_model_class.__module__,
@@ -686,11 +692,10 @@ class HybridFlowShopCpLnsController(
         """
         sub_timer = ElapsedTimer()
 
-        stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
         for idx, i in enumerate(self.instance.stage_id_list):
-            schedule.dispatch_stage_by_jobs(i, job_sequence, stage_2_job_2_p_dict[i])
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
             # TODO: uncomment only for debug purpose
             # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
             # self.draw_gantt(schedule, output_path=output_path)
@@ -1539,11 +1544,6 @@ class HybridFlowShopCpLnsController(
         """
         sub_timer = ElapsedTimer()
 
-        # Stage name -> job name -> processing time map
-        stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
-
         best_makespan = float("inf")
         best_schedule: HybridFlowshopSchedule | None = None
         best_k = -1
@@ -1555,7 +1555,7 @@ class HybridFlowShopCpLnsController(
             job_sequence = self.get_cds_sequence(k)
             for i in self.instance.stage_id_list:
                 schedule.dispatch_stage_by_jobs(
-                    i, job_sequence, stage_2_job_2_p_dict[i]
+                    i, job_sequence, self.stage_2_job_2_p_dict[i]
                 )
             makespan = schedule.makespan
             if makespan < best_makespan:
@@ -1624,11 +1624,6 @@ class HybridFlowShopCpLnsController(
         """
         sub_timer = ElapsedTimer()
 
-        # Stage name -> job name -> processing time map
-        stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
-
         best_makespan = float("inf")
         best_schedule: HybridFlowshopSchedule | None = None
         best_k = -1
@@ -1640,7 +1635,7 @@ class HybridFlowShopCpLnsController(
             job_sequence = self.get_tp_sequence(k)
             for i in self.instance.stage_id_list:
                 schedule.dispatch_stage_by_jobs(
-                    i, job_sequence, stage_2_job_2_p_dict[i]
+                    i, job_sequence, self.stage_2_job_2_p_dict[i]
                 )
             makespan = schedule.makespan
             if makespan < best_makespan:
@@ -1691,11 +1686,6 @@ class HybridFlowShopCpLnsController(
         """
         sub_timer = ElapsedTimer()
 
-        # Stage name -> job name -> processing time map
-        stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
-
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
@@ -1703,7 +1693,9 @@ class HybridFlowShopCpLnsController(
         # Dispatch
         job_sequence = self.get_gupta_sequence()
         for i in self.instance.stage_id_list:
-            schedule.dispatch_stage_by_jobs(i, job_sequence, stage_2_job_2_p_dict[i])
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
 
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
@@ -1746,11 +1738,6 @@ class HybridFlowShopCpLnsController(
         """
         sub_timer = ElapsedTimer()
 
-        # Stage name -> job name -> processing time map
-        stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
-
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
@@ -1758,7 +1745,9 @@ class HybridFlowShopCpLnsController(
         # Dispatch
         job_sequence = self.get_palmer_sequence()
         for i in self.instance.stage_id_list:
-            schedule.dispatch_stage_by_jobs(i, job_sequence, stage_2_job_2_p_dict[i])
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
 
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
