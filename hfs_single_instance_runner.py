@@ -83,12 +83,12 @@ class HfsSingleInstanceRunner(
         )
         self.solution_path = self.result_dir / self.solution_filename
 
-        self.obj_log_filename = (
-            str(self.output_metadata.get("obj_log_filename_format", "{}_obj_log.yaml"))
-            .strip()
-            .format(self.name)
+        self.obj_log_filename_format = str(
+            self.output_metadata.get("obj_log_filename_format", "{}_obj_log.yaml")
+        ).strip()
+        self.obj_log_path = self.result_dir / self.obj_log_filename_format.format(
+            self.name
         )
-        self.obj_log_path = self.result_dir / self.obj_log_filename
 
     def save_files(self, encoding: str = "utf-8") -> None:
         self.save_summary(encoding=encoding)
@@ -151,17 +151,60 @@ class HfsSingleInstanceRunner(
             )
 
     def from_files_draw_progress_plot(self, encoding: str = "utf-8") -> None:
-        progress_plot_filename_format = self.output_metadata.get(
-            "progress_plot_filename_format", "{}_progress.png"
-        )
-        progress_plot_filename = progress_plot_filename_format.format(self.name)
-        output_path = self.result_dir / progress_plot_filename
+        """
+        Draws a progress plot from the saved solution files.
+        This method looks for files matching the `obj_log_filename_format` in the working directory
+        and generates a plot based on the objective value records stored in the log.
 
-        drop_first_values_percent = self.output_metadata.get(
-            "drop_first_values_percent", 0.0
-        )
+        Args:
+            encoding (str, optional): The encoding to use when reading files. Defaults to "utf-8".
+        """
+        progress_plot_filename_format = str(
+            self.output_metadata.get("progress_plot_filename_format", "{}_progress.png")
+        ).strip()
 
-        obj_store = ObjValueBoundStore.load_yaml(self.obj_log_path, encoding=encoding)
-        ObjValueBoundPlotter.plot(
-            obj_store, output_path, drop_first_values_percent=drop_first_values_percent
-        )
+        # Find all files that match the progress plot filename format in working_dir
+        # Including all subdirectories
+        for file in self.working_dir.rglob(self.obj_log_filename_format.format("*")):
+            # Define the file's directory, filename prefix, and output path
+            file_dir = file.parent
+            filename_prefix = extract_brace_key_from_filename(
+                self.obj_log_filename_format, file.name
+            )
+            if filename_prefix is None:
+                raise ValueError(
+                    f"Could not extract filename prefix from {file.name}"
+                    f" using pattern {self.obj_log_filename_format}"
+                )
+            output_path = file_dir / progress_plot_filename_format.format(
+                filename_prefix
+            )
+
+            drop_first_values_percent = self.output_metadata.get(
+                "drop_first_values_percent", 0.0
+            )
+
+            obj_store = ObjValueBoundStore.load_yaml(file, encoding=encoding)
+            ObjValueBoundPlotter.plot(
+                obj_store,
+                output_path,
+                drop_first_values_percent=drop_first_values_percent,
+                label_y_offset=2.0,
+                legend_loc="lower right",
+            )
+
+
+def extract_brace_key_from_filename(pattern: str, filename: str) -> str | None:
+    """
+    pattern: e.g. '{}_obj_log.yaml'
+    filename: e.g. '10-initialize_by_cjims_obj_log.yaml'
+    Returns the text that fills the {} in the pattern, or None if not matched.
+    """
+    import re
+
+    # Escape special regex chars except {}
+    regex = re.escape(pattern).replace(r"\{\}", "(.+?)")
+    match = re.match(regex, filename)
+    if match:
+        return match.group(1)
+    return None

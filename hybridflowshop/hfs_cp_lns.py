@@ -5,7 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from mbls.cpsat import CpsatStatus, CpSubroutineController
+from mbls.cpsat import CpsatStatus, CpSubroutineController, ObjValueBoundStore
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
@@ -156,6 +156,7 @@ class HybridFlowShopCpLnsController(
                 output_path,
                 schedule.get_start_time_map(),
                 schedule.get_end_time_map(),
+                self.instance.job_id_list,
             )
 
     def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
@@ -750,6 +751,11 @@ class HybridFlowShopCpLnsController(
         sub_timer = ElapsedTimer()
         last_solution: HybridFlowshopSchedule | None = None
 
+        sub_obj_store = ObjValueBoundStore[float]()
+        """Subroutine-specific objective store"""
+        sub_obj_store.obj_value_series.name = "ObjVal after dispatch"
+        sub_obj_store.obj_bound_series.name = "ObjVal before dispatch"
+
         job_cnt = len(job_sequence)
         sequence_of_job_sublist = [
             job_sequence[i : i + added_batch_size]
@@ -790,9 +796,53 @@ class HybridFlowShopCpLnsController(
                 e_timer=self.timer,
                 obj_value_is_valid=all_jobs_are_included,
             )
+            last_timestamp = sub_timer.elapsed_sec
 
             if iter_report.is_feasible:
+                # Update the last solution
                 last_solution = sub_cp_mdl.create_schedule()
+
+                # Dispatch remaining jobs to create a schedule feasible to the original problem
+                dispatched_sol = last_solution.deepcopy()
+                remaining_jobs = [j for j in job_sequence if j not in job_subset]
+                for i in self.instance.stage_id_list:
+                    dispatched_sol.dispatch_stage_by_jobs(
+                        i, remaining_jobs, self.stage_2_job_2_p_dict[i]
+                    )
+                # TODO: uncomment only for debug purpose
+                # output_path = self.get_file_path_for_subroutine(
+                #     f"_gantt_{len(job_subset)}_before_dispatch.png"
+                # )
+                # self.draw_gantt(last_solution, output_path=output_path)
+                # output_path = self.get_file_path_for_subroutine(
+                #     f"_gantt_{len(job_subset)}_dispatched.png"
+                # )
+                # self.draw_gantt(dispatched_sol, output_path=output_path)
+
+                # Store the objective value logs
+
+                # Obj. value of dispatched solution as a value
+                sub_obj_store.add_obj_value(
+                    last_timestamp, dispatched_sol.makespan, is_maximize=None
+                )
+
+                # Obj. values of Un-dispatched solution as bounds
+                undispatched_obj_value_records = sub_cp_mdl.get_obj_value_records()
+                for elapsed, value in undispatched_obj_value_records:
+                    sub_obj_store.add_obj_bound(elapsed, value, is_maximize=None)
+                if (
+                    last_timestamp,
+                    last_solution.makespan,
+                ) not in undispatched_obj_value_records:
+                    sub_obj_store.add_obj_bound(
+                        last_timestamp, last_solution.makespan, is_maximize=None
+                    )
+                _last_timestamp_note = f"{len(job_subset)}/{job_cnt}"
+                sub_obj_store.add_last_timestamp_note(
+                    _last_timestamp_note,
+                    obj_value_is_valid=True,
+                    obj_bound_is_valid=True,
+                )
 
         if last_solution is None:
             logging.warning("Incremental CP construction failed to find a solution.")
@@ -824,6 +874,11 @@ class HybridFlowShopCpLnsController(
             )
             if draw_gantt:
                 self.draw_incumbent_gantt()
+
+        # Write the objective store to a YAML file
+        # TODO: suffix from output_metadata
+        if sub_obj_store:
+            sub_obj_store.save_yaml(self.get_file_path_for_subroutine("_obj_log.yaml"))
 
     @staticmethod
     def get_johnsons_rule_sequence(

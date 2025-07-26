@@ -165,15 +165,19 @@ dicts_of_i_o_data_path:
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims11_baseCp.yaml"
 #   output_dir : "pra_100s/dispatch_cjims11_baseCp"
+#   description: "best(8 dispatches, CJ(1,1,IMS1)) -> improve via base CP"
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims22_baseCp.yaml"
 #   output_dir : "pra_100s/dispatch_cjims22_baseCp"
+#   description: "best(8 dispatches, CJ(2,2,IMS1)) -> improve via base CP"
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims33_baseCp.yaml"
 #   output_dir : "pra_100s/dispatch_cjims33_baseCp"
+#   description: "best(8 dispatches, CJ(3,3,IMS1)) -> improve via base CP"
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims55_baseCp.yaml"
 #   output_dir : "pra_100s/dispatch_cjims55_baseCp"
+#   description: "best(8 dispatches, CJ(5,5,IMS1)) -> improve via base CP"
 
 
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
@@ -230,4 +234,4 @@ progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 
 # Optional metadata for post-processing only
-# analysis_timestamp: "20250720T213955_830600"
+# analysis_timestamp: "20250726T235926_270610"
