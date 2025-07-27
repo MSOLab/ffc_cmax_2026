@@ -7,9 +7,12 @@ from typing import Any, Callable, Optional
 
 from mbls.cpsat import CpsatStatus, CpSubroutineController, ObjValueBoundStore
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
+from routix.io import object_to_yaml
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
+
+from hybridflowshop.utils import tuple_to_pyyaml_key
 
 from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
 from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
@@ -766,11 +769,50 @@ class HybridFlowShopCpLnsController(
             job_subset.update(job_sublist)
             all_jobs_are_included = len(job_subset) == job_cnt
 
+            # Solution of dispatching job_sublist by jobs to the schedule of last_solution
+            partial_sol_dj: HybridFlowshopSchedule = (
+                HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                    self.instance.stage_2_machines_map
+                )
+                if last_solution is None
+                else last_solution.deepcopy()
+            )
+            for j in job_sublist:
+                partial_sol_dj.dispatch_job_by_stages(
+                    j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+                )
+
+            # Solution of dispatching job_sublist by stages to the schedule of last_solution
+            partial_sol_ds: HybridFlowshopSchedule = (
+                HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                    self.instance.stage_2_machines_map
+                )
+                if last_solution is None
+                else last_solution.deepcopy()
+            )
+            for i in self.instance.stage_id_list:
+                partial_sol_ds.dispatch_stage_by_jobs(
+                    i, job_sublist, self.stage_2_job_2_p_dict[i]
+                )
+
+            # Select the best partial solution
+            partial_sol_best = (
+                partial_sol_dj
+                if partial_sol_dj.makespan <= partial_sol_ds.makespan
+                else partial_sol_ds
+            )
+
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
                 if isinstance(sub_cp_mdl, CP2023NaderiCumulative):
+                    # Freeze
                     sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
                         last_solution.get_start_time_map(), ignore_integrity_check=True
+                    )
+                    # Apply hint
+                    sub_cp_mdl.add_start_hints_from_start_time_map(
+                        partial_sol_best.get_start_time_map(),
+                        ignore_integrity_check=True,
                     )
                 elif isinstance(
                     self.cp_model,
@@ -780,8 +822,14 @@ class HybridFlowShopCpLnsController(
                         CPCumulativeOptionalHybrid,
                     ),
                 ):
+                    # Freeze
                     sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
                         last_solution.get_start_time_map(), ignore_integrity_check=True
+                    )
+                    # Apply hint
+                    sub_cp_mdl.add_start_and_present_hints_from_start_time_map(
+                        partial_sol_best.get_start_time_map(),
+                        ignore_integrity_check=True,
                     )
                 else:
                     raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
@@ -800,29 +848,60 @@ class HybridFlowShopCpLnsController(
             if iter_report.is_feasible:
                 # Update the last solution
                 last_solution = sub_cp_mdl.create_schedule()
+                # If last_solution is not better than partial_dispatched_sol,
+                if last_solution.makespan >= partial_sol_best.makespan:
+                    # Use the partial dispatched solution
+                    last_solution = partial_sol_best
 
                 # Dispatch remaining jobs to create a schedule feasible to the original problem
-                dispatched_sol = last_solution.deepcopy()
+                all_dispatched_sol = last_solution.deepcopy()
                 remaining_jobs = [j for j in job_sequence if j not in job_subset]
                 for i in self.instance.stage_id_list:
-                    dispatched_sol.dispatch_stage_by_jobs(
+                    all_dispatched_sol.dispatch_stage_by_jobs(
                         i, remaining_jobs, self.stage_2_job_2_p_dict[i]
                     )
                 # TODO: uncomment only for debug purpose
-                # output_path = self.get_file_path_for_subroutine(
-                #     f"_gantt_{len(job_subset)}_before_dispatch.png"
-                # )
-                # self.draw_gantt(last_solution, output_path=output_path)
-                # output_path = self.get_file_path_for_subroutine(
-                #     f"_gantt_{len(job_subset)}_dispatched.png"
-                # )
-                # self.draw_gantt(dispatched_sol, output_path=output_path)
+                output_path = self.get_file_path_for_subroutine(
+                    f"_gantt_{len(job_subset)}_applied_hint_solution.yaml"
+                )
+                solution_dict = {
+                    "start_times": tuple_to_pyyaml_key(
+                        partial_sol_best.get_start_time_map()
+                    ),
+                    "end_times": tuple_to_pyyaml_key(
+                        partial_sol_best.get_end_time_map()
+                    ),
+                }
+                object_to_yaml(solution_dict, output_path)
+                output_path = self.get_file_path_for_subroutine(
+                    f"_gantt_{len(job_subset)}_before_dispatch_solution.yaml"
+                )
+                solution_dict = {
+                    "start_times": tuple_to_pyyaml_key(
+                        last_solution.get_start_time_map()
+                    ),
+                    "end_times": tuple_to_pyyaml_key(last_solution.get_end_time_map()),
+                }
+                object_to_yaml(solution_dict, output_path)
+                if remaining_jobs:
+                    output_path = self.get_file_path_for_subroutine(
+                        f"_gantt_{len(job_subset)}_dispatched_solution.yaml"
+                    )
+                    solution_dict = {
+                        "start_times": tuple_to_pyyaml_key(
+                            all_dispatched_sol.get_start_time_map()
+                        ),
+                        "end_times": tuple_to_pyyaml_key(
+                            all_dispatched_sol.get_end_time_map()
+                        ),
+                    }
+                    object_to_yaml(solution_dict, output_path)
 
                 # Store the objective value logs
 
                 # Obj. value of dispatched solution as a value
                 sub_obj_store.add_obj_value(
-                    last_timestamp, dispatched_sol.makespan, is_maximize=None
+                    last_timestamp, all_dispatched_sol.makespan, is_maximize=None
                 )
 
                 # Obj. values of Un-dispatched solution as bounds
