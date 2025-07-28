@@ -134,6 +134,7 @@ def main():
         include={
             "result_dir_name",
             "draw_gantt",
+            "painter_thread_cnt",
             "result_gantt_filename_format",
             "draw_progress_plot",
             "progress_plot_filename_format",

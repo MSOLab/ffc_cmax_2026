@@ -228,6 +228,7 @@ instance_worker_cnt: 2
 
 # Analysis and plotting options
 draw_gantt: true
+painter_thread_cnt: 8
 result_gantt_filename_format: "{}_result_gantt.png"
 draw_progress_plot: true
 progress_plot_filename_format: "{}_progress_plot.png"
