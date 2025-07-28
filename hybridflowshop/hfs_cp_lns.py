@@ -849,20 +849,36 @@ class HybridFlowShopCpLnsController(
                 # Update the last solution
                 last_solution = sub_cp_mdl.create_schedule()
                 # If last_solution is not better than partial_dispatched_sol,
-                if last_solution.makespan >= partial_sol_best.makespan:
+                if last_solution is None:
+                    last_solution = partial_sol_best
+                elif last_solution.makespan >= partial_sol_best.makespan:
                     # Use the partial dispatched solution
                     last_solution = partial_sol_best
 
                 # Dispatch remaining jobs to create a schedule feasible to the original problem
-                all_dispatched_sol = last_solution.deepcopy()
+                all_dispatched_sol_dj = last_solution.deepcopy()
+                remaining_jobs = [j for j in job_sequence if j not in job_subset]
+                for j in remaining_jobs:
+                    all_dispatched_sol_dj.dispatch_job_by_stages(
+                        j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+                    )
+
+                all_dispatched_sol_ds = last_solution.deepcopy()
                 remaining_jobs = [j for j in job_sequence if j not in job_subset]
                 for i in self.instance.stage_id_list:
-                    all_dispatched_sol.dispatch_stage_by_jobs(
+                    all_dispatched_sol_ds.dispatch_stage_by_jobs(
                         i, remaining_jobs, self.stage_2_job_2_p_dict[i]
                     )
+
+                all_dispatched_sol_best = (
+                    all_dispatched_sol_dj
+                    if all_dispatched_sol_dj.makespan <= all_dispatched_sol_ds.makespan
+                    else all_dispatched_sol_ds
+                )
+
                 # TODO: uncomment only for debug purpose
                 output_path = self.get_file_path_for_subroutine(
-                    f"_gantt_{len(job_subset)}_applied_hint_solution.yaml"
+                    f"_gantt_{len(job_subset)}_1_partial_dispatched_solution.yaml"
                 )
                 solution_dict = {
                     "start_times": tuple_to_pyyaml_key(
@@ -873,26 +889,29 @@ class HybridFlowShopCpLnsController(
                     ),
                 }
                 object_to_yaml(solution_dict, output_path)
-                output_path = self.get_file_path_for_subroutine(
-                    f"_gantt_{len(job_subset)}_before_dispatch_solution.yaml"
-                )
-                solution_dict = {
-                    "start_times": tuple_to_pyyaml_key(
-                        last_solution.get_start_time_map()
-                    ),
-                    "end_times": tuple_to_pyyaml_key(last_solution.get_end_time_map()),
-                }
-                object_to_yaml(solution_dict, output_path)
-                if remaining_jobs:
+                if last_solution.makespan < partial_sol_best.makespan:
                     output_path = self.get_file_path_for_subroutine(
-                        f"_gantt_{len(job_subset)}_dispatched_solution.yaml"
+                        f"_gantt_{len(job_subset)}_2_partial_CP_solution.yaml"
                     )
                     solution_dict = {
                         "start_times": tuple_to_pyyaml_key(
-                            all_dispatched_sol.get_start_time_map()
+                            last_solution.get_start_time_map()
                         ),
                         "end_times": tuple_to_pyyaml_key(
-                            all_dispatched_sol.get_end_time_map()
+                            last_solution.get_end_time_map()
+                        ),
+                    }
+                    object_to_yaml(solution_dict, output_path)
+                if remaining_jobs:
+                    output_path = self.get_file_path_for_subroutine(
+                        f"_gantt_{len(job_subset)}_3_all_dispatched_solution.yaml"
+                    )
+                    solution_dict = {
+                        "start_times": tuple_to_pyyaml_key(
+                            all_dispatched_sol_best.get_start_time_map()
+                        ),
+                        "end_times": tuple_to_pyyaml_key(
+                            all_dispatched_sol_best.get_end_time_map()
                         ),
                     }
                     object_to_yaml(solution_dict, output_path)
@@ -901,7 +920,7 @@ class HybridFlowShopCpLnsController(
 
                 # Obj. value of dispatched solution as a value
                 sub_obj_store.add_obj_value(
-                    last_timestamp, all_dispatched_sol.makespan, is_maximize=None
+                    last_timestamp, all_dispatched_sol_best.makespan, is_maximize=None
                 )
 
                 # Obj. values of Un-dispatched solution as bounds
