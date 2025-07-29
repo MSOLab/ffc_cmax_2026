@@ -733,6 +733,7 @@ class HybridFlowShopCpLnsController(
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        is_init: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -752,6 +753,8 @@ class HybridFlowShopCpLnsController(
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
+            is_init (bool, optional): If True, indicates that this is an initial solution.
+                Defaults to False.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -817,12 +820,12 @@ class HybridFlowShopCpLnsController(
             if last_solution is not None:
                 if isinstance(sub_cp_mdl, CP2023NaderiCumulative):
                     # Freeze operation precedences
-                    sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                        last_solution.get_start_time_map(), ignore_integrity_check=True
-                    )
-                    # sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                    #     last_solution, ignore_integrity_check=True
+                    # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
+                    #     last_solution.get_start_time_map(), ignore_integrity_check=True
                     # )
+                    sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                        last_solution, ignore_integrity_check=True
+                    )
                     # Apply hint
                     sub_cp_mdl.add_start_hints_from_start_time_map(
                         partial_sol_best.get_start_time_map(),
@@ -966,7 +969,7 @@ class HybridFlowShopCpLnsController(
                 elapsed_time=sub_timer.elapsed_sec,
                 obj_value=None,
                 obj_bound=None,
-                is_init=True,
+                is_init=is_init,
             )
             self.solution_manager.register(report, None)
             return
@@ -979,7 +982,7 @@ class HybridFlowShopCpLnsController(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=float(last_solution.makespan),
             obj_bound=None,
-            is_init=True,
+            is_init=is_init,
         )
         was_updated = self.solution_manager.register(final_report, last_solution)
 
@@ -1229,6 +1232,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -1265,6 +1269,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -1300,6 +1305,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -1334,6 +1340,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -2010,6 +2017,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            is_init=True,  # TODO: remove this line
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
