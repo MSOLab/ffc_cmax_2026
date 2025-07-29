@@ -859,7 +859,7 @@ class HybridFlowShopCpLnsController(
                 _timelimit,
                 solver_thread_cnt,
                 random_seed=self.random_seed,
-                e_timer=self.timer,
+                e_timer=sub_timer,
                 obj_value_is_valid=all_jobs_are_included,
             )
             last_timestamp = sub_timer.elapsed_sec
