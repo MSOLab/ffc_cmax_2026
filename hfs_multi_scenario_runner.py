@@ -275,7 +275,7 @@ class HfsMultiScenarioRunner(
             dashboard_df (pd.DataFrame): DataFrame containing the dashboard data.
             raw_summary_df (pd.DataFrame): DataFrame containing the raw summary data.
             info_df (pd.DataFrame): DataFrame containing scenario information.
-            baseline_df (pd.DataFrame | None): DataFrame containing baseline data, if available.
+            baseline_df (pd.DataFrame | None, optional): DataFrame containing baseline data, if available.
         """
         try:
             with pd.ExcelWriter(path, engine="xlsxwriter") as writer:

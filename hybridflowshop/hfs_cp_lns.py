@@ -131,15 +131,18 @@ class HybridFlowShopCpLnsController(
     def get_remaining_sec(self) -> float:
         return self.timer.get_remaining_sec(self.stopping_criteria.timelimit)
 
-    def get_remaining_time_limit(self, subroutine_time_limit: float) -> float:
+    def get_remaining_time_limit(self, subroutine_time_limit: float | None) -> float:
         """Get the remaining time limit for the subroutine.
 
         Args:
-            subroutine_time_limit (float): The time limit for the subroutine in seconds.
+            subroutine_time_limit (float | None, optional): The time limit for the subroutine in seconds.
+                If None, the remaining time limit is used.
 
         Returns:
             float: The minimum of the subroutine time limit and the remaining time limit.
         """
+        if subroutine_time_limit is None:
+            return self.get_remaining_sec()
         return min(subroutine_time_limit, self.get_remaining_sec())
 
     # End stopping condition
@@ -727,9 +730,9 @@ class HybridFlowShopCpLnsController(
     def construct_solution_by_incremental_cp(
         self,
         job_sequence: list[str],
-        max_time_per_add: float,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -744,10 +747,11 @@ class HybridFlowShopCpLnsController(
 
         Args:
             job_sequence (list[str]): The sequence of job IDs to be added.
-            max_time_per_add (float): The time limit (in seconds) for solving each incremental subproblem.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             added_batch_size (int, optional): The number of jobs to add in each iteration.
                 Defaults to 1.
+            max_time_per_add (float): The time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -809,13 +813,13 @@ class HybridFlowShopCpLnsController(
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
                 if isinstance(sub_cp_mdl, CP2023NaderiCumulative):
-                    # Freeze
-                    # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                    #     last_solution.get_start_time_map(), ignore_integrity_check=True
-                    # )
-                    sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                        last_solution, ignore_integrity_check=True
+                    # Freeze operation precedences
+                    sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
+                        last_solution.get_start_time_map(), ignore_integrity_check=True
                     )
+                    # sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                    #     last_solution, ignore_integrity_check=True
+                    # )
                     # Apply hint
                     sub_cp_mdl.add_start_hints_from_start_time_map(
                         partial_sol_best.get_start_time_map(),
@@ -829,7 +833,7 @@ class HybridFlowShopCpLnsController(
                         CPCumulativeOptionalHybrid,
                     ),
                 ):
-                    # Freeze
+                    # Freeze operation precedences
                     sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
                         last_solution.get_start_time_map(), ignore_integrity_check=True
                     )
@@ -1192,32 +1196,35 @@ class HybridFlowShopCpLnsController(
     # TODO: remove
     def initialize_by_cjq1(
         self,
-        max_time_per_add: float,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using Q1 sequence.
+        """
+        Build a CP-guided solution using Q1 sequence.
 
         This method computes a job sequence by aggregating processing times from
         the first and last stages (Q1), then incrementally constructs a feasible
         schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
-            max_time_per_add (float): The maximum computational time per addition in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
+            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
+                If not specified, the remaining time limit is used.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
 
         self.construct_solution_by_incremental_cp(
             self.get_sequence1(),
-            max_time_per_add,
             solver_thread_cnt,
             added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -1225,96 +1232,101 @@ class HybridFlowShopCpLnsController(
     # TODO: remove
     def initialize_by_cjq2(
         self,
-        max_time_per_add: float,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using the Q2 sequence.
+        """
+        Build a CP-guided solution using the Q2 sequence.
 
         This method computes a job sequence by aggregating processing times from
         the first half and second half stages (Q2), then incrementally constructs a feasible
-        schedule by solving sub-CP models for each job prefix in the sequence.
 
         Args:
-            max_time_per_add (float): The maximum computational time per addition in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
+            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
+                If not specified, the remaining time limit is used.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
 
         self.construct_solution_by_incremental_cp(
             self.get_sequence2(),
-            max_time_per_add,
             solver_thread_cnt,
             added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
     def initialize_by_cjqp(
         self,
-        max_time_per_add: float,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using Q1 sequence.
+        """
+        Build a CP-guided solution using Palmer sequence.
 
-        This method computes a job sequence by aggregating processing times from
-        the first and last stages (Q1), then incrementally constructs a feasible
-        schedule by solving sub-CP models for each job prefix in the sequence.
+        This method incrementally constructs a feasible schedule by solving sub-CP models
+        for each job prefix in the Palmer sequence.
 
         Args:
-            max_time_per_add (float): The maximum computational time per addition in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
+            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
+                If not specified, the remaining time limit is used.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
 
         self.construct_solution_by_incremental_cp(
             self.get_palmer_sequence(),
-            max_time_per_add,
             solver_thread_cnt,
             added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
     def initialize_by_cjqg(
         self,
-        max_time_per_add: float,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using Q1 sequence.
+        """Build a CP-guided solution using Gupta sequence.
 
-        This method computes a job sequence by aggregating processing times from
-        the first and last stages (Q1), then incrementally constructs a feasible
-        schedule by solving sub-CP models for each job prefix in the sequence.
+        This method incrementally constructs a feasible schedule by solving sub-CP models
+        for each job prefix in the Gupta sequence.
 
         Args:
-            max_time_per_add (float): The maximum computational time per addition in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
+            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
+                If not specified, the remaining time limit is used.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
 
         self.construct_solution_by_incremental_cp(
             self.get_gupta_sequence(),
-            max_time_per_add,
             solver_thread_cnt,
             added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -1966,9 +1978,9 @@ class HybridFlowShopCpLnsController(
 
     def initialize_by_cjims(
         self,
-        max_time_per_add: float,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1976,17 +1988,20 @@ class HybridFlowShopCpLnsController(
         Builds a CP-guided solution using a midpoint sequence from the incumbent solution.
 
         Args:
-            max_time_per_add (float): Time limit (sec) per incremental CP subproblem.
-            solver_thread_cnt (int): Number of CP-SAT worker threads.
-            added_batch_size (int): Jobs added per iteration. Defaults to 1.
-            error_if_infeasible (bool): If True, checks final schedule feasibility.
-            draw_gantt (bool): If True, draws Gantt chart of final solution.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
+            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
+                If not specified, the remaining time limit is used.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
+                Defaults to False.
         """
         self.construct_solution_by_incremental_cp(
             self.get_incumbent_midpoint_sequence(),
-            max_time_per_add,
             solver_thread_cnt,
             added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
