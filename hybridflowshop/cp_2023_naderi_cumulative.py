@@ -343,6 +343,85 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
                             j1, j2, i, ignore_integrity_check=ignore_integrity_check
                         )
 
+    def add_fixed_operation_precedence_constraint(
+        self, j1: str, j2: str, i: str, ignore_integrity_check: bool = True
+    ) -> None:
+        """Adds a precedence constraint between two operations.
+        The operation of job j1 must finish before the operation of job j2 starts.
+
+        Args:
+            j1 (str): preceding job index
+            j2 (str): succeeding job index
+            i (str): stage index
+            ignore_integrity_check (bool, optional): Skip data integrity check. Defaults to True.
+        """
+        if not ignore_integrity_check:
+            assert j1 in self.j_list, f"Job {j1} not in job list."
+            assert j2 in self.j_list, f"Job {j2} not in job list."
+            assert i in self.i_list, f"Stage {i} not in stage list."
+
+        self.add(self.var_op_end[j1, i] <= self.var_op_start[j2, i])
+
+    def add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+        self,
+        current_schedule: HybridFlowshopSchedule,
+        ignore_integrity_check: bool = True,
+    ) -> None:
+        start_time_map = current_schedule.get_start_time_map()
+        end_time_map = current_schedule.get_end_time_map()
+        current_j_set = {j for j, _, _ in start_time_map}
+        current_j_list = [j for j in self.j_list if j in current_j_set]
+        job_to_index = {j: idx for idx, j in enumerate(current_j_list)}
+        for i in self.i_list:
+            # Extract start and end times for jobs at stage i
+            # This is a map of job -> start time at stage i
+            j_2_start_time_map = {
+                j: start_time_map[j, i, k]
+                for j in current_j_list
+                for k in self.M_of[i]
+                if (j, i, k) in start_time_map
+            }
+            # This is a map of job -> end time at stage i
+            j_2_end_time_map = {
+                j: end_time_map[j, i, k]
+                for j in current_j_list
+                for k in self.M_of[i]
+                if (j, i, k) in end_time_map
+            }
+            # List of jobs sorted by their 1) end times 2) start times 3) job index
+            sorted_j_list = sorted(
+                current_j_list,
+                key=lambda j: (
+                    j_2_end_time_map[j],
+                    j_2_start_time_map[j],
+                    job_to_index[j],
+                ),
+            )
+            for idx, j1 in enumerate(sorted_j_list):
+                remaining_jobs = sorted_j_list[idx + 1 :]
+                if not remaining_jobs:
+                    continue
+                j1_end_time = j_2_end_time_map[j1]
+                # Find (the number of machines of stage i) jobs that start earliest after j1_end_time.
+                # Only consider up to the number of machines, since at most that many jobs can start in parallel at this stage.
+                j2_list = sorted(
+                    (
+                        j2
+                        for j2 in remaining_jobs
+                        if j_2_start_time_map.get(j2, float("inf")) >= j1_end_time
+                    ),
+                    key=lambda j2: (
+                        j_2_start_time_map[j2],
+                        j_2_end_time_map[j2],
+                        job_to_index[j2],
+                    ),
+                )[: len(self.M_of[i])]
+                # Add precedence constraints: j1 must finish before each j2 starts
+                for j2 in j2_list:
+                    self.add_fixed_operation_precedence_constraint(
+                        j1, j2, i, ignore_integrity_check=ignore_integrity_check
+                    )
+
     # methods to add hints
 
     def add_start_hints_from_start_time_map(

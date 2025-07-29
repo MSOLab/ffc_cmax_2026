@@ -213,6 +213,9 @@ class HybridFlowShopCpLnsController(
         if obj_value_is_valid and self.solution_manager.best_obj_bound is not None:
             self.cp_model.set_obj_lower_bound(self.solution_manager.best_obj_bound)
 
+        # mdl_txt_path = self.get_file_path_for_subroutine("_cp_sat_model.txt")
+        # self.cp_model.export_to_file(str(mdl_txt_path))
+
         solver_report = self.solve_current_cp_model(
             _timelimit,
             solver_thread_cnt,
@@ -767,7 +770,8 @@ class HybridFlowShopCpLnsController(
         job_subset: set[str] = set()
         for job_sublist in sequence_of_job_sublist:
             job_subset.update(job_sublist)
-            all_jobs_are_included = len(job_subset) == job_cnt
+            job_subset_cnt = len(job_subset)
+            all_jobs_are_included = job_subset_cnt == job_cnt
 
             # Solution of dispatching job_sublist by jobs to the schedule of last_solution
             partial_sol_dj: HybridFlowshopSchedule = (
@@ -806,8 +810,11 @@ class HybridFlowShopCpLnsController(
             if last_solution is not None:
                 if isinstance(sub_cp_mdl, CP2023NaderiCumulative):
                     # Freeze
-                    sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                        last_solution.get_start_time_map(), ignore_integrity_check=True
+                    # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
+                    #     last_solution.get_start_time_map(), ignore_integrity_check=True
+                    # )
+                    sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                        last_solution, ignore_integrity_check=True
                     )
                     # Apply hint
                     sub_cp_mdl.add_start_hints_from_start_time_map(
@@ -833,6 +840,11 @@ class HybridFlowShopCpLnsController(
                     )
                 else:
                     raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+
+            # mdl_txt_path = self.get_file_path_for_subroutine(
+            #     f"_{job_subset_cnt}_cp_sat_model.txt"
+            # )
+            # sub_cp_mdl.export_to_file(str(mdl_txt_path))
 
             _timelimit = self.get_remaining_time_limit(max_time_per_add)
             iter_report = self.solve_cp_model(
@@ -878,7 +890,7 @@ class HybridFlowShopCpLnsController(
 
                 # TODO: uncomment only for debug purpose
                 output_path = self.get_file_path_for_subroutine(
-                    f"_gantt_{len(job_subset)}_1_partial_dispatched_solution.yaml"
+                    f"_gantt_{job_subset_cnt}_1_partial_dispatched_solution.yaml"
                 )
                 solution_dict = {
                     "start_times": tuple_to_pyyaml_key(
@@ -891,7 +903,7 @@ class HybridFlowShopCpLnsController(
                 object_to_yaml(solution_dict, output_path)
                 if last_solution.makespan < partial_sol_best.makespan:
                     output_path = self.get_file_path_for_subroutine(
-                        f"_gantt_{len(job_subset)}_2_partial_CP_solution.yaml"
+                        f"_gantt_{job_subset_cnt}_2_partial_CP_solution.yaml"
                     )
                     solution_dict = {
                         "start_times": tuple_to_pyyaml_key(
@@ -904,7 +916,7 @@ class HybridFlowShopCpLnsController(
                     object_to_yaml(solution_dict, output_path)
                 if remaining_jobs:
                     output_path = self.get_file_path_for_subroutine(
-                        f"_gantt_{len(job_subset)}_3_all_dispatched_solution.yaml"
+                        f"_gantt_{job_subset_cnt}_3_all_dispatched_solution.yaml"
                     )
                     solution_dict = {
                         "start_times": tuple_to_pyyaml_key(
@@ -934,7 +946,7 @@ class HybridFlowShopCpLnsController(
                     sub_obj_store.add_obj_bound(
                         last_timestamp, last_solution.makespan, is_maximize=None
                     )
-                _last_timestamp_note = f"{len(job_subset)}/{job_cnt}"
+                _last_timestamp_note = f"{job_subset_cnt}/{job_cnt}"
                 sub_obj_store.add_last_timestamp_note(
                     _last_timestamp_note,
                     obj_value_is_valid=True,
