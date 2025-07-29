@@ -750,12 +750,15 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             added_batch_size (int, optional): The number of jobs to add in each iteration.
                 Defaults to 1.
-            max_time_per_add (float): The time limit (in seconds) for solving each incremental subproblem.
-                If None, uses the remaining time limit.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
+
+        Raises:
+            TypeError: If this method is called on a CP model that does not support incremental solving.
         """
         sub_timer = ElapsedTimer()
         last_solution: HybridFlowshopSchedule | None = None
@@ -1211,9 +1214,10 @@ class HybridFlowShopCpLnsController(
 
         Args:
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
-            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
-                If not specified, the remaining time limit is used.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1246,9 +1250,10 @@ class HybridFlowShopCpLnsController(
 
         Args:
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
-            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
-                If not specified, the remaining time limit is used.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1280,9 +1285,10 @@ class HybridFlowShopCpLnsController(
 
         Args:
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
-            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
-                If not specified, the remaining time limit is used.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1313,9 +1319,10 @@ class HybridFlowShopCpLnsController(
 
         Args:
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
-            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
-                If not specified, the remaining time limit is used.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1989,9 +1996,10 @@ class HybridFlowShopCpLnsController(
 
         Args:
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each batch. Defaults to 1.
-            max_time_per_add (float | None, optional): The maximum time allowed for each addition in seconds.
-                If not specified, the remaining time limit is used.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.

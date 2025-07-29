@@ -144,6 +144,7 @@ class HfsSingleInstanceRunner(
         draw_gantt_charts_from_solutions(
             working_dir=self.working_dir,
             solution_filename_format=self.solution_filename_format,
+            all_job_id_list=self.instance.job_id_list,
             result_gantt_filename_format=result_gantt_filename_format,
             encoding=encoding,
             painter_thread_cnt=self.output_metadata.get("painter_thread_cnt", 4),

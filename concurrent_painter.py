@@ -12,7 +12,8 @@ from hybridflowshop.utils import extract_prefix_from_filename, pyyaml_key_to_tup
 def draw_gantt_charts_from_solutions(
     working_dir: Path,
     solution_filename_format: str,
-    result_gantt_filename_format: str = "{}_gantt.png",
+    all_job_id_list: list[str] | None = None,
+    result_gantt_filename_format: str | None = None,
     encoding: str = "utf-8",
     painter_thread_cnt: int = 4,
 ):
@@ -21,15 +22,23 @@ def draw_gantt_charts_from_solutions(
     using parallel processing for performance.
 
     Args:
-        working_dir (str | Path): Root directory to search for solution files.
+        working_dir (Path): Root directory to search for solution files.
         solution_filename_format (str): Filename pattern with {} for prefix (e.g., "sol_{}.yaml").
-        result_gantt_filename_format (str): Output chart filename pattern (e.g., "{}_gantt.png").
-        encoding (str): Encoding to use when reading the YAML solution files.
-        painter_thread_cnt (int): Maximum number of threads to use for processing.
+        all_job_id_list (list[str] | None, optional): List of all job IDs in the instance.
+            It is used as a reference to use consistent job color map across multiple Gantt charts.
+            If unspecified, job IDs in the solution files will be used.
+        result_gantt_filename_format (str | None, optional): Output chart filename pattern (e.g., "{}_gantt.png").
+            If unspecified, "{}_gantt.png" will be used.
+        encoding (str, optional): Encoding to use when reading the YAML solution files.
+            Defaults to "utf-8".
+        painter_thread_cnt (int, optional): Maximum number of threads to use for processing.
+            Defaults to 4.
     """
     working_dir = Path(working_dir)
     files = list(working_dir.rglob(solution_filename_format.format("*")))
     max_worker_cnt = min(painter_thread_cnt, len(files))
+
+    _result_gantt_filename_format = result_gantt_filename_format or "{}_gantt.png"
 
     with ProcessPoolExecutor(max_workers=max_worker_cnt) as executor:
         futures = [
@@ -37,7 +46,8 @@ def draw_gantt_charts_from_solutions(
                 _process_solution_file,
                 file,
                 solution_filename_format,
-                result_gantt_filename_format,
+                all_job_id_list,
+                _result_gantt_filename_format,
                 encoding,
             )
             for file in files
@@ -49,6 +59,7 @@ def draw_gantt_charts_from_solutions(
 def _process_solution_file(
     file_path: Path,
     solution_filename_format: str,
+    all_job_id_list: list[str] | None,
     result_gantt_filename_format: str,
     encoding: str,
 ):
@@ -69,7 +80,7 @@ def _process_solution_file(
         start_time_map = pyyaml_key_to_tuple(solution_dict["start_times"])
         end_time_map = pyyaml_key_to_tuple(solution_dict["end_times"])
         GanttPlotter().export_hybrid_flowshop_plot(
-            output_path, start_time_map, end_time_map
+            output_path, start_time_map, end_time_map, job_list=all_job_id_list
         )
 
 
