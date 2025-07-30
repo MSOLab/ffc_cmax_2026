@@ -733,6 +733,7 @@ class HybridFlowShopCpLnsController(
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         is_init: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -753,6 +754,9 @@ class HybridFlowShopCpLnsController(
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             is_init (bool, optional): If True, indicates that this is an initial solution.
                 Defaults to False.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
@@ -862,6 +866,7 @@ class HybridFlowShopCpLnsController(
                 _timelimit,
                 solver_thread_cnt,
                 random_seed=self.random_seed,
+                no_improvement_timelimit=no_improvement_timelimit,
                 e_timer=sub_timer,
                 obj_value_is_valid=all_jobs_are_included,
             )
@@ -1205,6 +1210,7 @@ class HybridFlowShopCpLnsController(
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1221,6 +1227,9 @@ class HybridFlowShopCpLnsController(
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1232,6 +1241,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
             is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -1243,6 +1253,7 @@ class HybridFlowShopCpLnsController(
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1258,6 +1269,9 @@ class HybridFlowShopCpLnsController(
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1269,6 +1283,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
             is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -1279,6 +1294,7 @@ class HybridFlowShopCpLnsController(
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1294,6 +1310,9 @@ class HybridFlowShopCpLnsController(
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1305,6 +1324,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
             is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -1315,6 +1335,7 @@ class HybridFlowShopCpLnsController(
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1329,6 +1350,9 @@ class HybridFlowShopCpLnsController(
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1340,6 +1364,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
             is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -1995,6 +2020,7 @@ class HybridFlowShopCpLnsController(
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -2007,6 +2033,9 @@ class HybridFlowShopCpLnsController(
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -2017,6 +2046,7 @@ class HybridFlowShopCpLnsController(
             solver_thread_cnt,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
             is_init=True,  # TODO: remove this line
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
