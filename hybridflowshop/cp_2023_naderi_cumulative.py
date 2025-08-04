@@ -48,7 +48,10 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
 
     @classmethod
     def from_instance(
-        cls, instance: HybridFlowshopParameters, horizon: int
+        cls,
+        instance: HybridFlowshopParameters,
+        horizon: int,
+        impose_all_stage_capacity_constr: bool = True,
     ) -> CP2023NaderiCumulative:
         """
         Create a model from a HybridFlowshopParameters instance.
@@ -56,19 +59,29 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         Args:
             instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
             horizon (int): The time horizon for the scheduling problem.
+            impose_all_stage_capacity_constr (bool, optional): Whether to impose
+                capacity constraints to all stages. Defaults to True.
 
         Returns:
             CP2023NaderiCumulative: An instance of the model.
         """
         result = cls(horizon)
-        result.define_model(instance)
+        result.define_model(
+            instance, impose_all_stage_capacity_constr=impose_all_stage_capacity_constr
+        )
         return result
 
-    def define_model(self, instance: HybridFlowshopParameters) -> None:
+    def define_model(
+        self,
+        instance: HybridFlowshopParameters,
+        impose_all_stage_capacity_constr: bool = True,
+    ) -> None:
         self.define_parameters(instance)
         self.define_variables()
         self.define_makespan_objective()
-        self.define_constraints()
+        self.define_constraints(
+            impose_all_stage_capacity_constr=impose_all_stage_capacity_constr
+        )
 
     # Parameters
 
@@ -132,7 +145,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
 
     # Constraints
 
-    def define_constraints(self) -> None:
+    def define_constraints(self, impose_all_stage_capacity_constr: bool = True) -> None:
         # Alias for readability
         j_list = self.j_list
         i_list = self.i_list
@@ -144,6 +157,31 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
                 self.add(self.var_op_end[j, i] <= self.var_op_start[j, next_i])
 
         # Capacity constraints for each stage
+        if impose_all_stage_capacity_constr:
+            self.add_stage_capacity_constraints()
+
+    def add_stage_capacity_constraints(
+        self, stage_list: list[str] | None = None
+    ) -> None:
+        """
+        Adds cumulative capacity constraints for the specified stages.
+
+        Args:
+            stage_list (list[str] | None, optional): A list of stage IDs to add constraints to.
+                If None, constraints are added to all stages. Defaults to None.
+        """
+        # Alias for readability
+        j_list = self.j_list
+        i_list: list[str]
+        if stage_list is None:
+            i_list = self.i_list
+        else:
+            assert all(i in self.i_list for i in stage_list), (
+                "All stages in stage_list must be part of the model's"
+                f"i_list({self.i_list}); {set(stage_list) - set(self.i_list)} not in i_list."
+            )
+            i_list = stage_list
+
         for i in i_list:
             intervals = [self.var_op_intvl[j, i] for j in j_list]
             demands = [1] * len(j_list)

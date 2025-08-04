@@ -1,0 +1,10 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: apply_lb_by_stage_relaxation
+  max_time_per_iter: 2
+  solver_thread_cnt: 8
+- method: solve_base_cp_model
+  computational_time: 25
+  solver_thread_cnt: 8
+  is_initial_solution: true

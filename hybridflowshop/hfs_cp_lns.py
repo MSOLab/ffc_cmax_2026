@@ -74,8 +74,14 @@ class HybridFlowShopCpLnsController(
 
     # Start abstract getters
 
-    def create_base_cp_model(self) -> HfsMathModel:
-        return self.cp_model_class.from_instance(self.instance, self.get_horizon())
+    def create_base_cp_model(
+        self, impose_all_stage_capacity_constr: bool = True, **kwargs
+    ) -> HfsMathModel:
+        return self.cp_model_class.from_instance(
+            self.instance,
+            self.get_horizon(),
+            impose_all_stage_capacity_constr=impose_all_stage_capacity_constr,
+        )
 
     # End abstract getters
 
@@ -458,7 +464,7 @@ class HybridFlowShopCpLnsController(
         # 1. Calculate makespan (C_max)
         all_end_time_map = list(end_time_map.values())
         if not all_end_time_map:
-            raise ValueError("No end times available for Time Window Operator.")
+            raise ValueError("No end time is available for Time Window Operator.")
         C_max = max(all_end_time_map)
 
         # 2. Select random time window
@@ -1889,6 +1895,251 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
+    def apply_lb_by_stage_relaxation(
+        self, max_time_per_iter: float, solver_thread_cnt: int
+    ) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance
+        by relaxing all stages' machine count except one stage.
+        Update the global lower bound.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+
+        Raises:
+            ValueError: If no feasible solution is found by any single-stage relaxation.
+        """
+        sub_timer = ElapsedTimer()
+
+        base_cp_mdl_no_capa_constr = self.create_base_cp_model(
+            impose_all_stage_capacity_constr=False
+        )
+        base_cp_mdl_no_capa_constr.set_num_base_constraints()
+
+        # For sub-problem's lower bound calculation
+        instance = self.instance
+        jobs: list[str] = instance.job_id_list
+        stages: list[str] = instance.stage_id_list
+        stage_2_mc_count_map: dict[str, int] = {
+            i: len(instance.stage_2_machines_map[i]) for i in stages
+        }
+        job_stage_2_p: dict[tuple[str, str], int] = (
+            instance.p_manager.job_stage_2_value_map(jobs, stages)
+        )
+
+        def get_lb_by_partial_stage_capa_constr(i: str) -> float | None:
+            """Get the lower bound by relaxing all stages' machine count except the given stages.
+
+            Args:
+                i (str): Stage ID to keep its machine count constraints.
+
+            Returns:
+                float | None: The lower bound for the given stage IDs,
+                    or None if no feasible solution is found.
+            """
+            base_cp_mdl_no_capa_constr.add_stage_capacity_constraints([i])
+            # Stage-specific bound
+            stage_bound = self.get_shdlb_for_stage(
+                i, jobs, stages, stage_2_mc_count_map[i], job_stage_2_p
+            )
+            base_cp_mdl_no_capa_constr.set_obj_lower_bound(stage_bound)
+
+            iter_report = self.solve_cp_model(
+                base_cp_mdl_no_capa_constr,
+                self.get_remaining_time_limit(max_time_per_iter),
+                solver_thread_cnt,
+                random_seed=self.random_seed,
+                e_timer=sub_timer,
+                print_on_obj_bound_update=True,
+                print_on_obj_value_update=True,
+            )
+            base_cp_mdl_no_capa_constr.delete_added_constraints()
+
+            last_timestamp = sub_timer.elapsed_sec
+            if iter_report.status == CpsatStatus.OPTIMAL:
+                logging.info(
+                    f"[SR LB] Lower bound found by optimum of subproblem {i}:"
+                    f" {iter_report.obj_value} at time {last_timestamp:.2f} sec"
+                )
+                return iter_report.obj_value
+            elif iter_report.is_feasible:
+                if iter_report.obj_value is None:
+                    raise ValueError(
+                        "The objective value is None, which should not happen for a feasible solution."
+                    )
+                if iter_report.obj_bound is None:
+                    lb_gap = 0.0
+                else:
+                    lb_gap = (iter_report.obj_value / iter_report.obj_bound) - 1
+                logging.info(
+                    f"[SR LB] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
+                    f" {iter_report.obj_bound} at time {last_timestamp:.2f} sec"
+                )
+                return iter_report.obj_bound
+            return None
+
+        stage_bounds = [
+            get_lb_by_partial_stage_capa_constr(i) for i in self.instance.stage_id_list
+        ]
+        # If all values are None,
+        # it means that the model is infeasible for all single-stage relaxations.
+        if all(b is None for b in stage_bounds):
+            raise ValueError(
+                "The model is infeasible for all single-stage relaxations. "
+                "Check the instance or the model."
+            )
+        else:
+            # At least one stage has a valid bound.
+            obj_bound = max(bound for bound in stage_bounds if bound is not None)
+
+        logging.info(f"[SR LB] LB(i) = {stage_bounds}, LB_MAX = {obj_bound}")
+
+        # Log
+        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
+            log_time = self.timer.elapsed_sec
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_bound_is_valid=True
+            )
+
+        # Create report and register
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=None,
+            obj_bound=obj_bound,
+            is_init=False,
+        )
+        self.solution_manager.register(report, None)
+
+    def apply_lb_by_stage_relaxation2(
+        self, max_time_per_iter: float, solver_thread_cnt: int
+    ) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance
+        by relaxing all stages' machine count except one stage.
+        Update the global lower bound.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+
+        Raises:
+            ValueError: If no feasible solution is found by any single-stage relaxation.
+        """
+        from identical_parallel_machine.cp_cumulative import CPCumulative
+
+        sub_timer = ElapsedTimer()
+        instance = self.instance
+        jobs: list[str] = instance.job_id_list
+        stages: list[str] = instance.stage_id_list
+        stage_2_job_2_p_map = instance.p_manager.stage_2_job_2_value_map(stages, jobs)
+        M_of = instance.stage_2_machines_map
+
+        # For sub-problem's lower bound calculation
+        stage_2_mc_count_map: dict[str, int] = {
+            i: len(instance.stage_2_machines_map[i]) for i in stages
+        }
+        job_stage_2_p_map: dict[tuple[str, str], int] = (
+            instance.p_manager.job_stage_2_value_map(jobs, stages)
+        )
+
+        # Stage -> SHD LB
+        stage_2_shd_lb_map: dict[str, int] = {}
+        for i in stages:
+            stage_2_shd_lb_map[i] = self.get_shdlb_for_stage(
+                i, jobs, stages, stage_2_mc_count_map[i], job_stage_2_p_map
+            )
+
+        def get_lb_by_partial_stage_capa_constr(i: str) -> float | None:
+            """Get the lower bound by relaxing all stages' machine count except the given stages.
+
+            Args:
+                i (str): stage ID
+
+            Returns:
+                float | None: The lower bound for the given stage IDs,
+                    or None if no feasible solution is found.
+            """
+            machines = M_of[i]
+            p = stage_2_job_2_p_map[i]
+            r = {j: 0 for j in jobs}
+            tr = {j: 0 for j in jobs}
+            for ip in stages:
+                if ip < i:
+                    for j in jobs:
+                        r[j] += stage_2_job_2_p_map[ip][j]
+                elif ip == i:
+                    continue
+                elif ip > i:
+                    for j in jobs:
+                        tr[j] += stage_2_job_2_p_map[ip][j]
+
+            sub_cp_mdl = CPCumulative.from_parameters(
+                jobs, machines, p, self.get_horizon(), r_dict=r, tr_dict=tr
+            )
+
+            sub_cp_mdl.set_obj_lower_bound(stage_2_shd_lb_map[i])
+
+            (solver_status, _, obj_value, obj_bound) = sub_cp_mdl.solve_with_callbacks(
+                computational_time=max_time_per_iter,
+                num_workers=solver_thread_cnt,
+                random_seed=self.random_seed,
+                e_timer=sub_timer,
+                print_on_obj_value_update=True,
+                print_on_obj_bound_update=True,
+            )
+
+            last_timestamp = sub_timer.elapsed_sec
+            if solver_status == CpsatStatus.OPTIMAL:
+                logging.info(
+                    f"[SR2 LB] Lower bound found by optimum of subproblem {i}:"
+                    f" {obj_value} at time {last_timestamp:.2f} sec"
+                )
+                return obj_value
+            elif solver_status == CpsatStatus.FEASIBLE:
+                if obj_bound is None:
+                    lb_gap = 0.0
+                else:
+                    lb_gap = (obj_value / obj_bound) - 1
+                logging.info(
+                    f"[SR2 LB] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
+                    f" {obj_bound} at time {last_timestamp:.2f} sec"
+                )
+                return obj_bound
+            return None
+
+        stage_bounds = [
+            get_lb_by_partial_stage_capa_constr(i) for i in self.instance.stage_id_list
+        ]
+        if all(b is None for b in stage_bounds):
+            raise ValueError(
+                "The model is infeasible for all single-stage relaxations. "
+                "Check the instance or the model."
+            )
+        else:
+            obj_bound = max(bound for bound in stage_bounds if bound is not None)
+        logging.info(f"[SR2 LB] LB(i) = {stage_bounds}, LB_MAX = {obj_bound}")
+
+        # Log
+        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
+            log_time = self.timer.elapsed_sec
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_bound_is_valid=True
+            )
+
+        # Create report and register
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=None,
+            obj_bound=obj_bound,
+            is_init=False,
+        )
+        self.solution_manager.register(report, None)
+
     # End subroutine definition
 
     def post_run_process(self) -> None:
@@ -1941,12 +2192,21 @@ class HybridFlowShopCpLnsController(
                 raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
         # Solve with tight time limit
-        try:
-            summary = self.solve_cp_model(base_cp, 1.0, 1)
-        except Exception as e:
-            raise RuntimeError(f"Feasibility check FAILED: {e}") from e
-
-        if summary.status != CpsatStatus.OPTIMAL:
-            raise ValueError(f"Feasibility check FAILED with status: {summary.status}")
-
+        timelimit = 2.0
+        solver_thread_cnt = 1
+        solver_report = self.solve_cp_model(base_cp, timelimit, solver_thread_cnt)
+        if solver_report.status not in (CpsatStatus.FEASIBLE, CpsatStatus.OPTIMAL):
+            mdl_txt_path = self.get_file_path_for_subroutine(
+                "_feasibility_check_failed.txt"
+            )
+            base_cp.export_to_file(str(mdl_txt_path))
+            if solver_report.status == CpsatStatus.INFEASIBLE:
+                raise RuntimeError(
+                    f"Feasibility check failed: INFEASIBLE. Model saved to {mdl_txt_path}"
+                )
+            else:
+                raise ValueError(
+                    f"Feasibility check failed with status {solver_report.status}. "
+                    f"Model saved to {mdl_txt_path}"
+                )
         logging.info("Feasibility check passed")
