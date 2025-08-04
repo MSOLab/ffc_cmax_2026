@@ -870,6 +870,11 @@ class HybridFlowShopCpLnsController(
             # sub_cp_mdl.export_to_file(str(mdl_txt_path))
 
             _timelimit = self.get_remaining_time_limit(max_time_per_add)
+            if (
+                all_jobs_are_included
+                and self.solution_manager.best_obj_bound is not None
+            ):
+                sub_cp_mdl.set_obj_lower_bound(self.solution_manager.best_obj_bound)
             iter_report = self.solve_cp_model(
                 sub_cp_mdl,
                 _timelimit,
@@ -1895,7 +1900,7 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    def apply_lb_by_stage_relaxation(
+    def apply_single_stage_capacity_lb(
         self, max_time_per_iter: float, solver_thread_cnt: int
     ) -> None:
         """
@@ -2013,7 +2018,7 @@ class HybridFlowShopCpLnsController(
         )
         self.solution_manager.register(report, None)
 
-    def apply_lb_by_stage_relaxation2(
+    def apply_single_stage_capacity_lb2(
         self, max_time_per_iter: float, solver_thread_cnt: int
     ) -> None:
         """
