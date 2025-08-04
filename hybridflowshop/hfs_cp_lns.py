@@ -1345,7 +1345,7 @@ class HybridFlowShopCpLnsController(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=None,
             obj_bound=obj_bound,
-            is_init=False,
+            is_init=True,
         )
         self.solution_manager.register(report, None)
 
@@ -2009,7 +2009,7 @@ class HybridFlowShopCpLnsController(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=None,
             obj_bound=obj_bound,
-            is_init=False,
+            is_init=True,
         )
         self.solution_manager.register(report, None)
 
@@ -2136,7 +2136,7 @@ class HybridFlowShopCpLnsController(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=None,
             obj_bound=obj_bound,
-            is_init=False,
+            is_init=True,
         )
         self.solution_manager.register(report, None)
 
