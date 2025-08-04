@@ -75,12 +75,15 @@ class HybridFlowShopCpLnsController(
     # Start abstract getters
 
     def create_base_cp_model(self) -> HfsMathModel:
-        if "horizon" not in self.shared_param_dict:
-            raise ValueError("Horizon not found in shared parameters.")
-        horizon = self.shared_param_dict["horizon"]
-        return self.cp_model_class.from_instance(self.instance, horizon)
+        return self.cp_model_class.from_instance(self.instance, self.get_horizon())
 
     # End abstract getters
+
+    def get_horizon(self) -> int:
+        """Returns the horizon of the scheduling problem."""
+        if "horizon" not in self.shared_param_dict:
+            raise ValueError("Horizon not found in shared parameters.")
+        return self.shared_param_dict["horizon"]
 
     def set_working_dir(self, dir_path: Path | str):
         super().set_working_dir(dir_path)
@@ -1253,6 +1256,43 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
+    @staticmethod
+    def get_shdlb_for_stage(
+        i: str,
+        jobs: list[str],
+        stages: list[str],
+        mc_count: int,
+        p: dict[tuple[str, str], int],
+    ) -> int:
+        """Compute the stage-specific lower bound for the Hybrid Flow Shop instance
+        using the Santos et al. (1995) method.
+
+        Args:
+            i (str): The stage index.
+            jobs (list[str]): The list of job indices.
+            stages (list[str]): The list of stage indices.
+            mc_count (int): The number of machines at the stage.
+            p (dict[tuple[str, str], int]): A mapping from job-stage pairs to processing times.
+
+        Returns:
+            int: The computed lower bound for the stage.
+        """
+        m = len(stages)
+        stage_idx = stages.index(i)
+
+        def RS(j: str) -> int:
+            return sum(p[j, stages[s]] for s in range(stage_idx + 1, m))
+
+        def LS(j: str) -> int:
+            return sum(p[j, stages[s]] for s in range(0, stage_idx))
+
+        LSA = sorted([LS(j) for j in jobs])
+        RSA = sorted([RS(j) for j in jobs])
+        total_processing = sum(p[j, i] for j in jobs)
+        lhs_rum = sum(LSA[y] for y in range(min(mc_count, len(LSA))))
+        rhs_rum = sum(RSA[y] for y in range(min(mc_count, len(RSA))))
+        return math.ceil((lhs_rum + total_processing + rhs_rum) / mc_count)
+
     def apply_shdlb(self) -> None:
         """
         Compute the global lower bound for the Hybrid Flow Shop instance using the method
@@ -1268,31 +1308,17 @@ class HybridFlowShopCpLnsController(
         p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
             jobs, stages
         )
-        m = len(stages)
 
         def LB0() -> int:
             return max(sum(p[j, i] for i in stages) for j in jobs)
 
-        def RS(j: str, stage_idx: int) -> int:
-            return sum(p[j, stages[s]] for s in range(stage_idx + 1, m))
-
-        def LS(j: str, stage_idx: int) -> int:
-            return sum(p[j, stages[s]] for s in range(0, stage_idx))
-
-        def LBj(stage_idx: int) -> float:
-            i = stages[stage_idx]
-            M_i = stage_2_mc_count_map[i]
-
-            # LSA and RSA: ascending sorted LS and RS values
-            LSA = sorted([LS(j, stage_idx) for j in jobs])
-            RSA = sorted([RS(j, stage_idx) for j in jobs])
-            total_processing = sum(p[j, i] for j in jobs)
-            lhs_sum = sum(LSA[y] for y in range(min(M_i, len(LSA))))
-            rhs_sum = sum(RSA[y] for y in range(min(M_i, len(RSA))))
-            return math.ceil((lhs_sum + total_processing + rhs_sum) / M_i)
-
         lb0 = LB0()
-        stage_bounds = [LBj(stage_idx) for stage_idx in range(m)]
+        stage_bounds = [
+            self.get_shdlb_for_stage(
+                stage, jobs, stages, stage_2_mc_count_map[stage], p
+            )
+            for stage in stages
+        ]
         obj_bound = max([lb0] + stage_bounds)
 
         logging.info(
