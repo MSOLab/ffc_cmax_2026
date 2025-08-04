@@ -1047,17 +1047,6 @@ class HybridFlowShopCpLnsController(
         sequence = l1 + l2
         return sequence
 
-    # TODO: remove
-    def get_sequence1(self) -> list[str]:
-        jobs = self.instance.job_id_list
-        stages = self.instance.stage_id_list
-        p_dict: dict[tuple[str, str], int] = (
-            self.instance.p_manager.job_stage_2_value_map(jobs, stages)
-        )
-        p1 = {j: p_dict[j, stages[0]] for j in jobs}  # First stage processing times
-        p2 = {j: p_dict[j, stages[-1]] for j in jobs}  # Last stage processing times
-        return self.get_johnsons_rule_sequence(p1, p2)
-
     def get_cds_sequence(self, k: int) -> list[str]:
         """
         Get Campbell-Dudek-Smith (CDS) sequence given $k$.
@@ -1085,27 +1074,6 @@ class HybridFlowShopCpLnsController(
         p1 = {j: sum(p_dict[j, i] for i in p1_stages) for j in jobs}
         p2 = {j: sum(p_dict[j, i] for i in p2_stages) for j in jobs}
 
-        return self.get_johnsons_rule_sequence(p1, p2)
-
-    # TODO: remove
-    def get_sequence2(self) -> list[str]:
-        jobs = self.instance.job_id_list
-        num_stages = self.instance.stage_count
-        stages = self.instance.stage_id_list
-        p_dict: dict[tuple[str, str], int] = (
-            self.instance.p_manager.job_stage_2_value_map(jobs, stages)
-        )
-        mid = num_stages // 2
-        # First half stage list
-        first_half_stages = stages[:mid]
-        # Second half stage list
-        second_half_stages = stages[mid:]
-        p1 = {
-            j: sum(p_dict[j, s] for s in first_half_stages) for j in jobs
-        }  # Aggregated processing times for first half stages
-        p2 = {
-            j: sum(p_dict[j, s] for s in second_half_stages) for j in jobs
-        }  # Aggregated processing times for second half stages
         return self.get_johnsons_rule_sequence(p1, p2)
 
     def get_tp_sequence(self, k: int) -> list[str]:
@@ -1203,91 +1171,6 @@ class HybridFlowShopCpLnsController(
         # Sort by ascending order: (Palmer score, job id)
         sorted_jobs = sorted(jobs, key=lambda j: (palmer_score[j], j))
         return sorted_jobs
-
-    # TODO: remove
-    def initialize_by_cjq1(
-        self,
-        solver_thread_cnt: int,
-        added_batch_size: int = 1,
-        max_time_per_add: float | None = None,
-        no_improvement_timelimit: float | None = None,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
-    ):
-        """
-        Build a CP-guided solution using Q1 sequence.
-
-        This method computes a job sequence by aggregating processing times from
-        the first and last stages (Q1), then incrementally constructs a feasible
-        schedule by solving sub-CP models for each job prefix in the sequence.
-
-        Args:
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each iteration.
-                Defaults to 1.
-            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
-                If None, uses the remaining time limit. Defaults to None.
-            no_improvement_timelimit (float | None, optional): If there is no improvement for this
-                amount of time, the search will be stopped. If None, no timeout is set.
-                Defaults to None.
-            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
-                Defaults to False.
-        """
-
-        self.construct_solution_by_incremental_cp(
-            self.get_sequence1(),
-            solver_thread_cnt,
-            added_batch_size=added_batch_size,
-            max_time_per_add=max_time_per_add,
-            no_improvement_timelimit=no_improvement_timelimit,
-            is_init=True,
-            error_if_infeasible=error_if_infeasible,
-            draw_gantt=draw_gantt,
-        )
-
-    # TODO: remove
-    def initialize_by_cjq2(
-        self,
-        solver_thread_cnt: int,
-        added_batch_size: int = 1,
-        max_time_per_add: float | None = None,
-        no_improvement_timelimit: float | None = None,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
-    ):
-        """
-        Build a CP-guided solution using the Q2 sequence.
-
-        This method computes a job sequence by aggregating processing times from
-        the first half and second half stages (Q2), then incrementally constructs a feasible
-
-        Args:
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each iteration.
-                Defaults to 1.
-            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
-                If None, uses the remaining time limit. Defaults to None.
-            no_improvement_timelimit (float | None, optional): If there is no improvement for this
-                amount of time, the search will be stopped. If None, no timeout is set.
-                Defaults to None.
-            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
-                Defaults to False.
-        """
-
-        self.construct_solution_by_incremental_cp(
-            self.get_sequence2(),
-            solver_thread_cnt,
-            added_batch_size=added_batch_size,
-            max_time_per_add=max_time_per_add,
-            no_improvement_timelimit=no_improvement_timelimit,
-            is_init=True,
-            error_if_infeasible=error_if_infeasible,
-            draw_gantt=draw_gantt,
-        )
 
     def initialize_by_cjqp(
         self,
@@ -1434,24 +1317,6 @@ class HybridFlowShopCpLnsController(
         )
         self.solution_manager.register(report, None)
 
-    # TODO: remove
-    def initialize_by_djq1(self, draw_gantt: bool = False) -> None:
-        """
-        Uses q1 as the job sequence
-        & dispatches by job - stage - time priority to initialize a schedule.
-
-        Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        self.dispatch_by_job_stage_time(
-            self.get_sequence1(), schedule, draw_gantt=draw_gantt
-        )
-
     def initialize_by_dj_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
@@ -1517,24 +1382,6 @@ class HybridFlowShopCpLnsController(
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
-
-    # TODO: remove
-    def initialize_by_djq2(self, draw_gantt: bool = False) -> None:
-        """
-        Uses q2 as the job sequence
-        & dispatches by job - stage - time priority to initialize a schedule.
-
-        Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        self.dispatch_by_job_stage_time(
-            self.get_sequence2(), schedule, draw_gantt=draw_gantt
-        )
 
     def initialize_by_dj_tp(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1706,24 +1553,6 @@ class HybridFlowShopCpLnsController(
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    # TODO: remove
-    def initialize_by_dsq1(self, draw_gantt: bool = False) -> None:
-        """
-        Uses q1 as the job sequence
-        & dispatches by stage - time - job priority to initialize a schedule.
-
-        Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        self.dispatch_by_stage_time_job(
-            self.get_sequence1(), schedule, draw_gantt=draw_gantt
-        )
-
     def initialize_by_ds_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
@@ -1785,24 +1614,6 @@ class HybridFlowShopCpLnsController(
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
-
-    # TODO: remove
-    def initialize_by_dsq2(self, draw_gantt: bool = False) -> None:
-        """
-        Uses q2 as the job sequence
-        & dispatches by stage - time - job priority to initialize a schedule.
-
-        Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        self.dispatch_by_stage_time_job(
-            self.get_sequence2(), schedule, draw_gantt=draw_gantt
-        )
 
     def initialize_by_ds_tp(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
