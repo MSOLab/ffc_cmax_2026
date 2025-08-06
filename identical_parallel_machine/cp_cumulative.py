@@ -4,7 +4,7 @@ from mbls.cpsat.cp_model_with_fixed_interval import CpModelWithFixedInterval
 from ortools.sat.python.cp_model import IntVar
 
 
-class CPCumulative(CpModelWithFixedInterval):
+class CpCumulative(CpModelWithFixedInterval):
     """
     A specific implementation of the cumulative (pulse in IBM CP Optimizer) CP model
     for the Hybrid Flowshop problem.
@@ -49,7 +49,7 @@ class CPCumulative(CpModelWithFixedInterval):
         horizon: int,
         r_dict: dict[str, int] | None = None,
         tr_dict: dict[str, int] | None = None,
-    ) -> CPCumulative:
+    ) -> CpCumulative:
         result = cls(horizon)
         result.define_model(j_list, i_list, p_dict, r_dict, tr_dict)
         return result
@@ -136,3 +136,7 @@ class CPCumulative(CpModelWithFixedInterval):
         demands = [1] * len(self.j_list)
         capacity = len(self.i_list)
         self.add_cumulative(intervals, demands, capacity)
+
+    def extract_job_2_start_time_map(self) -> dict[str, int]:
+        """Extracts a mapping from job to its start time."""
+        return {j: self.solver.Value(self.var_op_start[j]) for j in self.j_list}

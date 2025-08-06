@@ -222,7 +222,25 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
 
         return new_model
 
-    # extraction method for the solution
+    def extract_stage_2_job_2_start_time_map(self) -> dict[str, dict[str, int]]:
+        start_time_map: dict[str, dict[str, int]] = {}
+        """stage ID -> job ID -> start time"""
+        for i in self.i_list:
+            start_time_map[i] = {}
+            for j in self.j_list:
+                start_value = self.solver.Value(self.var_op_start[j, i])
+                start_time_map[i][j] = start_value
+        return start_time_map
+
+    def extract_stage_2_job_2_end_time_map(self) -> dict[str, dict[str, int]]:
+        end_time_map: dict[str, dict[str, int]] = {}
+        """stage ID -> job ID -> end time"""
+        for i in self.i_list:
+            end_time_map[i] = {}
+            for j in self.j_list:
+                end_value = self.solver.Value(self.var_op_end[j, i])
+                end_time_map[i][j] = end_value
+        return end_time_map
 
     def create_schedule(self) -> HybridFlowshopSchedule:
         """
@@ -245,18 +263,8 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             HybridFlowshopSchedule: A complete schedule object with all operations
                                     assigned to specific machines and time slots.
         """
-        start_time_map: dict[str, dict[str, int]] = {}
-        """stage ID -> job ID -> start time"""
-        end_time_map: dict[str, dict[str, int]] = {}
-        """stage ID -> job ID -> end time"""
-        for i in self.i_list:
-            start_time_map[i] = {}
-            end_time_map[i] = {}
-            for j in self.j_list:
-                start_value = self.solver.Value(self.var_op_start[j, i])
-                end_value = self.solver.Value(self.var_op_end[j, i])
-                start_time_map[i][j] = start_value
-                end_time_map[i][j] = end_value
+        start_time_map = self.extract_stage_2_job_2_start_time_map()
+        end_time_map = self.extract_stage_2_job_2_end_time_map()
 
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(self.M_of)
 
