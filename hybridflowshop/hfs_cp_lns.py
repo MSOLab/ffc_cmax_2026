@@ -1821,7 +1821,7 @@ class HybridFlowShopCpLnsController(
         """
         Returns a job sequence based on the incumbent solution, sorted in ascending order by:
 
-        1. midpoint = (start_time at first stage + start_time at last stage) / 2
+        1. midpoint := (start_time at first stage + end_time at last stage) / 2
         2. tie-break by first stage start_time
         3. tie-break by original job index
 
@@ -1838,6 +1838,7 @@ class HybridFlowShopCpLnsController(
             )
 
         start_map = incumbent.get_start_time_map()
+        end_map = incumbent.get_end_time_map()
         jobs = self.instance.job_id_list
         idx_map = {j: idx for idx, j in enumerate(jobs)}
         first_stage = self.instance.stage_id_list[0]
@@ -1851,12 +1852,12 @@ class HybridFlowShopCpLnsController(
                 for (job, stage, _), t in start_map.items()
                 if job == j and stage == first_stage
             )
-            s_last = next(
+            e_last = next(
                 t
-                for (job, stage, _), t in start_map.items()
+                for (job, stage, _), t in end_map.items()
                 if job == j and stage == last_stage
             )
-            midpoint = (s_first + s_last) / 2
+            midpoint = (s_first + e_last) / 2
             seq_info.append((midpoint, s_first, idx_map[j], j))
 
         seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
