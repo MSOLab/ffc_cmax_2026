@@ -186,10 +186,10 @@ dicts_of_i_o_data_path:
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims55_shdlb_baseCp.yaml"
 #   output_dir : "pra_100s/dispatch_cjims55_shdlb_baseCp"
 #   description: "best(8 dispatches) -> CJ(5,5,IMS) -> improve via base CP with SHD LB"
-- stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims105_shdlb_baseCp.yaml"
-  output_dir : "pra_100s/dispatch_cjims105_shdlb_baseCp"
-  description: "best(8 dispatches) -> CJ(10,5,IMS) -> improve via base CP with SHD LB"
+# - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims105_shdlb_baseCp.yaml"
+#   output_dir : "pra_100s/dispatch_cjims105_shdlb_baseCp"
+#   description: "best(8 dispatches) -> CJ(10,5,IMS) -> improve via base CP with SHD LB"
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims105_ssclb_baseCp.yaml"
 #   output_dir : "pra_100s/dispatch_cjims105_ssclb_baseCp"
@@ -214,6 +214,10 @@ dicts_of_i_o_data_path:
 #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_ssclb2.yaml"
 #   output_dir : "pra_100s/ssclb2"
 #   description: "single stage capacity LB 2"
+- stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_100s/subroutine_flow_tbsclb.yaml"
+  output_dir : "pra_100s/tbsclb"
+  description: "two bottleneck stage capacity LB"
 
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_cj33.yaml"
@@ -252,10 +256,10 @@ dicts_of_i_o_data_path:
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cjims55_shdlb_baseCp.yaml"
 #   output_dir : "pra_600s/dispatch_cjims55_baseCp"
 #   description: "best(8 dispatches) -> CJ(5,5,IMS) -> improve via base CP with SHD LB"
-- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cjims105_shdlb_baseCp.yaml"
-  output_dir : "pra_600s/dispatch_cjims105_shdlb_baseCp"
-  description: "best(8 dispatches) -> CJ(10,5,IMS) -> improve via base CP with SHD LB"
+# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cjims105_shdlb_baseCp.yaml"
+#   output_dir : "pra_600s/dispatch_cjims105_shdlb_baseCp"
+#   description: "best(8 dispatches) -> CJ(10,5,IMS) -> improve via base CP with SHD LB"
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cjims105_ssclb_baseCp.yaml"
 #   output_dir : "pra_600s/dispatch_cjims105_ssclb_baseCp"
@@ -267,7 +271,7 @@ scenario_log_filename: "hfs_multi_scenario_runner.log"
 result_dir_name: "results"
 
 # Execution configuration
-instance_worker_cnt: 2
+instance_worker_cnt: 1
 
 # Analysis and plotting options
 draw_gantt: false

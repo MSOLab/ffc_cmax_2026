@@ -1,0 +1,5 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_two_bottleneck_stage_capacity_lb
+  computational_time: 60
+  solver_thread_cnt: 8

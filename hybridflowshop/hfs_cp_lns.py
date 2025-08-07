@@ -2305,6 +2305,47 @@ class HybridFlowShopCpLnsController(
             log_prefix="SSC2 LB",
         )
 
+    def apply_two_bottleneck_stage_capacity_lb(
+        self,
+        computational_time: float,
+        solver_thread_cnt: int,
+    ) -> None:
+        """
+        Compute the global lower bound by applying capacity constraints only to the two
+        bottleneck stages (those with highest SHD lower bounds).
+
+        Args:
+            computational_time (float): Time limit for the subproblem.
+            solver_thread_cnt (int): Number of solver threads.
+        """
+        # Stage -> SHD LB dict
+        stage_2_shd_lb_map: dict[str, float] = {
+            i: self.get_shdlb_for_stage(i) for i in self.instance.stage_id_list
+        }
+        # Select two stages with the highest SHD LB
+        sorted_stages = sorted(
+            self.instance.stage_id_list,
+            key=lambda i: stage_2_shd_lb_map[i],
+            reverse=True,
+        )
+        if len(sorted_stages) < 2:
+            raise ValueError(
+                "Not enough stages to apply two-bottleneck stage capacity lower bound."
+            )
+        stage_list = sorted_stages[:2]
+        logging.info(
+            f"Applying two-bottleneck stage capacity lower bound for stages {stage_list}."
+        )
+
+        self._apply_stage_capacity_lb_generic(
+            [set(stage_list)],
+            computational_time,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.AVERAGE,
+            log_prefix="TBSC LB",
+        )
+
     # End subroutine definition
 
     def post_run_process(self) -> None:
