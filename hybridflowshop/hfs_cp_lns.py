@@ -3,15 +3,21 @@ import math
 import random
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
-from mbls.cpsat import CpsatStatus, CpSubroutineController, ObjValueBoundStore
+from mbls.cpsat import (
+    CpsatSolverReport,
+    CpsatStatus,
+    CpSubroutineController,
+    ObjValueBoundStore,
+)
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
 from routix.io import object_to_yaml
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from hybridflowshop.lb_enum import AggregationType, LbModelType
 from hybridflowshop.utils import tuple_to_pyyaml_key
 
 from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
@@ -1266,29 +1272,27 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    @staticmethod
-    def get_shdlb_for_stage(
-        i: str,
-        jobs: list[str],
-        stages: list[str],
-        mc_count: int,
-        p: dict[tuple[str, str], int],
-    ) -> int:
-        """Compute the stage-specific lower bound for the Hybrid Flow Shop instance
+    def get_shdlb_for_stage(self, i: str) -> int:
+        """
+        Compute the stage-specific lower bound for the Hybrid Flow Shop instance
         using the Santos et al. (1995) method.
 
         Args:
             i (str): The stage index.
-            jobs (list[str]): The list of job indices.
-            stages (list[str]): The list of stage indices.
-            mc_count (int): The number of machines at the stage.
-            p (dict[tuple[str, str], int]): A mapping from job-stage pairs to processing times.
 
         Returns:
             int: The computed lower bound for the stage.
         """
+        instance = self.instance
+        jobs: list[str] = instance.job_id_list
+        stages: list[str] = instance.stage_id_list
+        p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
+            jobs, stages
+        )
+
         m = len(stages)
         stage_idx = stages.index(i)
+        mc_count = len(instance.stage_2_machines_map[i])
 
         def RS(j: str) -> int:
             return sum(p[j, stages[s]] for s in range(stage_idx + 1, m))
@@ -1312,9 +1316,6 @@ class HybridFlowShopCpLnsController(
         instance = self.instance
         jobs: list[str] = instance.job_id_list
         stages: list[str] = instance.stage_id_list
-        stage_2_mc_count_map: dict[str, int] = {
-            i: len(instance.stage_2_machines_map[i]) for i in stages
-        }
         p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
             jobs, stages
         )
@@ -1323,12 +1324,7 @@ class HybridFlowShopCpLnsController(
             return max(sum(p[j, i] for i in stages) for j in jobs)
 
         lb0 = LB0()
-        stage_bounds = [
-            self.get_shdlb_for_stage(
-                stage, jobs, stages, stage_2_mc_count_map[stage], p
-            )
-            for stage in stages
-        ]
+        stage_bounds = [self.get_shdlb_for_stage(stage) for stage in stages]
         obj_bound = max([lb0] + stage_bounds)
 
         logging.info(
@@ -1900,245 +1896,154 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    def apply_single_stage_capacity_lb(
-        self, max_time_per_iter: float, solver_thread_cnt: int
-    ) -> None:
-        """
-        Compute the global lower bound for the Hybrid Flow Shop instance
-        by relaxing all stages' machine count except one stage.
-        Update the global lower bound.
+    def get_lb_by_partial_stage_capa_constr(
+        self,
+        capacity_stage_set: set[str],
+        relaxed_mdl: CP2023NaderiCumulative,
+        computational_time: float,
+        solver_thread_cnt: int,
+        e_timer: ElapsedTimer | None = None,
+        log_level_obj_value: int | None = None,
+        log_level_obj_bound: int | None = None,
+    ) -> CpsatSolverReport | None:
+        """Get the objective bound from the CP model.
 
         Args:
-            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            capacity_stage_set (set[str]): set of stage IDs to keep their machine count constraints.
+            relaxed_mdl (CP2023NaderiCumulative): CP model to solve.
+            computational_time (float): The maximum computational time in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            e_timer (ElapsedTimer | None, optional): ElapsedTimer for callbacks.
+                Defaults to None.
+            log_level_obj_value (int | None, optional): Log level for objective value updates.
+                Defaults to None.
+            log_level_obj_bound (int | None, optional): Log level for objective bound updates.
+                Defaults to None.
 
-        Raises:
-            ValueError: If no feasible solution is found by any single-stage relaxation.
+        Returns:
+            CpsatSolverReport | None: Solver report, or None if infeasible.
         """
-        sub_timer = ElapsedTimer()
+        if e_timer is None:
+            e_timer = ElapsedTimer()
 
-        base_cp_mdl_no_capa_constr = self.create_base_cp_model(
-            impose_all_stage_capacity_constr=False
+        # Add constraints
+        relaxed_mdl.add_stage_capacity_constraints(capacity_stage_set)
+        obj_bound = max(self.get_shdlb_for_stage(i) for i in capacity_stage_set)
+        relaxed_mdl.set_obj_lower_bound(obj_bound)
+
+        report = self.solve_cp_model(
+            relaxed_mdl,
+            computational_time,
+            solver_thread_cnt,
+            random_seed=self.random_seed,
+            e_timer=e_timer,
+            log_level_obj_value=log_level_obj_value,
+            log_level_obj_bound=log_level_obj_bound,
+            obj_bound_is_valid=True,
         )
-        base_cp_mdl_no_capa_constr.set_num_base_constraints()
+        relaxed_mdl.delete_added_constraints()
 
-        # For sub-problem's lower bound calculation
-        instance = self.instance
-        jobs: list[str] = instance.job_id_list
-        stages: list[str] = instance.stage_id_list
-        stage_2_mc_count_map: dict[str, int] = {
-            i: len(instance.stage_2_machines_map[i]) for i in stages
-        }
-        job_stage_2_p_map: dict[tuple[str, str], int] = (
-            instance.p_manager.job_stage_2_value_map(jobs, stages)
-        )
+        if report.is_feasible:
+            return report
+        return None
 
-        # Stage -> SHD LB
-        stage_2_shd_lb_map: dict[str, int] = {}
-        for i in stages:
-            stage_2_shd_lb_map[i] = self.get_shdlb_for_stage(
-                i, jobs, stages, stage_2_mc_count_map[i], job_stage_2_p_map
+    def _solve_stage_capacity_subproblem(
+        self,
+        capacity_stage_set: set[str],
+        max_time: float,
+        solver_thread_cnt: int,
+        sub_timer: ElapsedTimer,
+        model_type: LbModelType,
+        log_prefix: str = "SCL LB",
+    ) -> tuple[float | None, list[dict[str, int]] | None]:
+        """
+        Solve a subproblem with capacity constraints only for the given stages.
+
+        Args:
+            capacity_stage_set (set[str]): Set of stage IDs to keep capacity constraints.
+            max_time (float): Time limit for the subproblem.
+            solver_thread_cnt (int): Number of solver threads.
+            sub_timer (ElapsedTimer): Timer for logging.
+            model_type (LbModelType): RELAXED or PARALLEL_MC.
+            log_prefix (str): Prefix for log messages.
+
+        Returns:
+            tuple[float | None, list[dict[str, int]] | None]: (bound, start_time_maps) or (None, None).
+        """
+        if model_type == LbModelType.RELAXED:
+            relaxed_mdl = self.create_base_cp_model(
+                impose_all_stage_capacity_constr=False
             )
+            relaxed_mdl.set_num_base_constraints()
 
-        def get_lb_by_partial_stage_capa_constr(
-            i: str,
-        ) -> tuple[float | None, dict[str, int] | None]:
-            """Get the lower bound by relaxing all stages' machine count except the given stages.
-
-            Args:
-                i (str): Stage ID to keep its machine count constraints.
-
-            Returns:
-                float | None: The lower bound for the given stage IDs,
-                    or None if no feasible solution is found.
-                dict[str, int] | None: The start time map of the solution,
-                    or None if no feasible solution is found.
-            """
-            # Add constraints
-            base_cp_mdl_no_capa_constr.add_stage_capacity_constraints([i])
-            base_cp_mdl_no_capa_constr.set_obj_lower_bound(stage_2_shd_lb_map[i])
-
-            iter_report = self.solve_cp_model(
-                base_cp_mdl_no_capa_constr,
-                self.get_remaining_time_limit(max_time_per_iter),
+            iter_report = self.get_lb_by_partial_stage_capa_constr(
+                capacity_stage_set,
+                relaxed_mdl,
+                self.get_remaining_time_limit(max_time),
                 solver_thread_cnt,
-                random_seed=self.random_seed,
                 e_timer=sub_timer,
                 log_level_obj_value=logging.INFO,
                 log_level_obj_bound=logging.INFO,
             )
-            # Delete above constraints
-            base_cp_mdl_no_capa_constr.delete_added_constraints()
+            if iter_report is None:
+                logging.warning(
+                    f"[{log_prefix}] No feasible solution found for subproblem {capacity_stage_set} within time limit."
+                )
+                return None, None
 
             last_timestamp = sub_timer.elapsed_sec
             if iter_report.status == CpsatStatus.OPTIMAL:
-                j_2_start_time_map = (
-                    base_cp_mdl_no_capa_constr.extract_stage_2_job_2_start_time_map()[i]
+                # Extract start time maps for all stages in the capacity list
+                stage_2_job_2_start_time_map = (
+                    relaxed_mdl.extract_stage_2_job_2_start_time_map()
                 )
+                start_time_maps = [
+                    stage_2_job_2_start_time_map[stage] for stage in capacity_stage_set
+                ]
                 logging.info(
-                    f"[SSC LB] Lower bound found by optimum of subproblem {i}:"
+                    f"[{log_prefix}] Lower bound found by optimum of subproblem {capacity_stage_set}:"
                     f" {iter_report.obj_value} at time {last_timestamp:.2f} sec"
                 )
-                return iter_report.obj_value, j_2_start_time_map
-            elif iter_report.is_feasible:
-                if iter_report.obj_value is None:
-                    raise ValueError(
-                        "The objective value is None, which should not happen for a feasible solution."
-                    )
-                j_2_start_time_map = (
-                    base_cp_mdl_no_capa_constr.extract_stage_2_job_2_start_time_map()[i]
+                return iter_report.obj_value, start_time_maps
+
+            if iter_report.obj_value is None:
+                raise ValueError(
+                    "The objective value is None, which should not happen for a feasible solution."
                 )
-                if iter_report.obj_bound is None:
-                    lb_gap = 0.0
-                else:
-                    lb_gap = (iter_report.obj_value / iter_report.obj_bound) - 1
-                logging.info(
-                    f"[SSC LB] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
-                    f" {iter_report.obj_bound} at time {last_timestamp:.2f} sec"
+            stage_2_job_2_start_time_map = (
+                relaxed_mdl.extract_stage_2_job_2_start_time_map()
+            )
+            start_time_maps = [
+                stage_2_job_2_start_time_map[stage] for stage in capacity_stage_set
+            ]
+            if iter_report.obj_bound is None:
+                lb_gap = 0.0
+            else:
+                lb_gap = (iter_report.obj_value / iter_report.obj_bound) - 1
+            logging.info(
+                f"[{log_prefix}] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {capacity_stage_set}:"
+                f" {iter_report.obj_bound} at time {last_timestamp:.2f} sec"
+            )
+            return iter_report.obj_bound, start_time_maps
+
+        elif model_type == LbModelType.PARALLEL_MC:
+            from identical_parallel_machine.cp_cumulative import CpCumulative
+
+            # Only supports single stage for cumulative model
+            if len(capacity_stage_set) != 1:
+                raise ValueError(
+                    "Cumulative model only supports single stage capacity constraints"
                 )
-                return iter_report.obj_bound, j_2_start_time_map
-            return None, None
 
-        stage_bounds = []
-        best_bound = None
-        best_start_time_map: dict[str, int] | None = None
-        for i in self.instance.stage_id_list:
-            new_bound, new_start_time_map = get_lb_by_partial_stage_capa_constr(i)
-            if new_bound is not None:
-                stage_bounds.append(new_bound)
-                if best_bound is None or new_bound > best_bound:
-                    best_bound = new_bound
-                    best_start_time_map = new_start_time_map
-
-        # If all values are None,
-        # it means that the model is infeasible for all single-stage relaxations.
-        if best_bound is None:
-            raise ValueError(
-                "The model is infeasible for all single-stage relaxations. "
-                "Check the instance or the model."
+            i = capacity_stage_set.pop()
+            instance = self.instance
+            jobs: list[str] = instance.job_id_list
+            stages: list[str] = instance.stage_id_list
+            stage_2_job_2_p_map = instance.p_manager.stage_2_job_2_value_map(
+                stages, jobs
             )
-        else:
-            # At least one stage has a valid bound.
-            obj_bound = max(bound for bound in stage_bounds if bound is not None)
+            M_of = instance.stage_2_machines_map
 
-        logging.info(f"[SR LB] LB(i) = {stage_bounds}, LB_MAX = {obj_bound}")
-
-        # Log
-        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
-            log_time = self.timer.elapsed_sec
-            self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
-            _last_timestamp_note = self._get_call_context_of_current_method()
-            self.obj_store.add_last_timestamp_note(
-                _last_timestamp_note, obj_bound_is_valid=True
-            )
-
-        # Create a schedule from the best start time map
-        # Sort jobs by 1) earliest start time at best_start_time_map 2) least job index
-        if best_start_time_map is None:
-            raise ValueError(
-                "No best start time map found, which should not happen if the model is feasible."
-            )
-        sorted_jobs = sorted(
-            self.instance.job_id_list,
-            key=lambda j: (
-                best_start_time_map.get(j, float("inf")),
-                self.instance.job_id_list.index(j),
-            ),
-        )
-        schedule_dj = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        for j in sorted_jobs:
-            schedule_dj.dispatch_job_by_stages(
-                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-            )
-        schedule_ds = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        for i in self.instance.stage_id_list:
-            schedule_ds.dispatch_stage_by_jobs(
-                i, sorted_jobs, self.stage_2_job_2_p_dict[i]
-            )
-        # Choose the best schedule
-        if schedule_dj.makespan <= schedule_ds.makespan:
-            best_schedule = schedule_dj
-        else:
-            best_schedule = schedule_ds
-        obj_value = float(best_schedule.makespan)
-        logging.info(
-            f"Best schedule found with makespan={obj_value} (DJ: {schedule_dj.makespan}, DS: {schedule_ds.makespan})"
-        )
-
-        # Create report and register the new solution
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=obj_value,
-            obj_bound=obj_bound,
-            is_init=True,
-        )
-        self.solution_manager.register(report, best_schedule)
-
-        # Log
-        log_time = self.timer.elapsed_sec
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
-        )
-
-    def apply_single_stage_capacity_lb2(
-        self, max_time_per_iter: float, solver_thread_cnt: int
-    ) -> None:
-        """
-        Compute the global lower bound for the Hybrid Flow Shop instance
-        by relaxing all stages' machine count except one stage.
-        Update the global lower bound.
-
-        Args:
-            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-
-        Raises:
-            ValueError: If no feasible solution is found by any single-stage relaxation.
-        """
-        from identical_parallel_machine.cp_cumulative import CpCumulative
-
-        sub_timer = ElapsedTimer()
-        instance = self.instance
-        jobs: list[str] = instance.job_id_list
-        stages: list[str] = instance.stage_id_list
-        stage_2_job_2_p_map = instance.p_manager.stage_2_job_2_value_map(stages, jobs)
-        M_of = instance.stage_2_machines_map
-
-        # For sub-problem's lower bound calculation
-        stage_2_mc_count_map: dict[str, int] = {
-            i: len(instance.stage_2_machines_map[i]) for i in stages
-        }
-        job_stage_2_p_map: dict[tuple[str, str], int] = (
-            instance.p_manager.job_stage_2_value_map(jobs, stages)
-        )
-
-        # Stage -> SHD LB
-        stage_2_shd_lb_map: dict[str, int] = {}
-        for i in stages:
-            stage_2_shd_lb_map[i] = self.get_shdlb_for_stage(
-                i, jobs, stages, stage_2_mc_count_map[i], job_stage_2_p_map
-            )
-
-        def get_lb_by_partial_stage_capa_constr(
-            i: str,
-        ) -> tuple[float | None, dict[str, int] | None]:
-            """Get the lower bound by solving a identical parallel machine scheduling problem.
-
-            Args:
-                i (str): Stage ID to keep its machine count constraints.
-
-            Returns:
-                float | None: The lower bound for the given stage IDs,
-                    or None if no feasible solution is found.
-                dict[str, int] | None: The start time map of the solution,
-                    or None if no feasible solution is found.
-            """
             machines = M_of[i]
             p = stage_2_job_2_p_map[i]
             r = {j: 0 for j in jobs}
@@ -2156,10 +2061,10 @@ class HybridFlowShopCpLnsController(
             sub_cp_mdl = CpCumulative.from_parameters(
                 jobs, machines, p, self.get_horizon(), r_dict=r, tr_dict=tr
             )
-            sub_cp_mdl.set_obj_lower_bound(stage_2_shd_lb_map[i])
+            sub_cp_mdl.set_obj_lower_bound(self.get_shdlb_for_stage(i))
 
             (solver_status, _, obj_value, obj_bound) = sub_cp_mdl.solve_with_callbacks(
-                computational_time=max_time_per_iter,
+                computational_time=max_time,
                 num_workers=solver_thread_cnt,
                 random_seed=self.random_seed,
                 e_timer=sub_timer,
@@ -2171,10 +2076,10 @@ class HybridFlowShopCpLnsController(
             if solver_status == CpsatStatus.OPTIMAL:
                 j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
                 logging.info(
-                    f"[SSC2 LB] Lower bound found by optimum of subproblem {i}:"
+                    f"[{log_prefix}] Lower bound found by optimum of subproblem {i}:"
                     f" {obj_value} at time {last_timestamp:.2f} sec"
                 )
-                return obj_value, j_2_start_time_map
+                return obj_value, [j_2_start_time_map]
             elif solver_status == CpsatStatus.FEASIBLE:
                 j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
                 if obj_bound is None:
@@ -2182,49 +2087,57 @@ class HybridFlowShopCpLnsController(
                 else:
                     lb_gap = (obj_value / obj_bound) - 1
                 logging.info(
-                    f"[SSC2 LB] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
+                    f"[{log_prefix}] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
                     f" {obj_bound} at time {last_timestamp:.2f} sec"
                 )
-                return obj_bound, j_2_start_time_map
+                return obj_bound, [j_2_start_time_map]
             return None, None
-
-        stage_bounds = []
-        best_bound = None
-        best_start_time_map: dict[str, int] | None = None
-        for i in self.instance.stage_id_list:
-            new_bound, new_start_time_map = get_lb_by_partial_stage_capa_constr(i)
-            if new_bound is not None:
-                stage_bounds.append(new_bound)
-                if best_bound is None or new_bound > best_bound:
-                    best_bound = new_bound
-                    best_start_time_map = new_start_time_map
-
-        # If all values are None,
-        # it means that the model is infeasible for all single-stage relaxations.
-        if best_bound is None:
-            raise ValueError(
-                "The model is infeasible for all single-stage relaxations. "
-                "Check the instance or the model."
-            )
         else:
-            # At least one stage has a valid bound.
-            obj_bound = max(bound for bound in stage_bounds if bound is not None)
+            raise ValueError(f"Unknown model_type: {model_type}")
 
-        logging.info(f"[SSC2 LB] LB(i) = {stage_bounds}, LB_MAX = {obj_bound}")
+    def _create_schedule_from_start_times(
+        self,
+        start_time_maps: list[dict[str, int]],
+        aggregation_type: AggregationType,
+    ) -> tuple[HybridFlowshopSchedule, float]:
+        """
+        Create a schedule from start time maps.
 
-        # Create a schedule from the best start time map
-        # Sort jobs by 1) earliest start time at best_start_time_map 2) least job index
-        if best_start_time_map is None:
-            raise ValueError(
-                "No best start time map found, which should not happen if the model is feasible."
-            )
+        Args:
+            start_time_maps (list[dict[str, int]]): Start time maps (per stage) from the subproblem.
+            aggregation_type (str): "best" (use best map) or "average" (average maps).
+
+        Returns:
+            tuple[HybridFlowshopSchedule, float]: (best_schedule, obj_value).
+        """
+        start_time_map_for_sorting: Mapping[str, int | float]
+        if aggregation_type == AggregationType.FIRST:
+            # Use the first stage's map for sorting
+            start_time_map_for_sorting = start_time_maps[0]
+        elif aggregation_type == AggregationType.AVERAGE:
+            if len(start_time_maps) == 1:
+                start_time_map_for_sorting = start_time_maps[0]
+            else:
+                # Average the start times across stages
+                start_time_map_for_sorting = {}
+                for j in self.instance.job_id_list:
+                    avg_start = sum(m.get(j, 0) for m in start_time_maps) / len(
+                        start_time_maps
+                    )
+                    start_time_map_for_sorting[j] = avg_start
+        else:
+            raise ValueError(f"Unknown aggregation_type: {aggregation_type}")
+
+        # Sort jobs by start time
         sorted_jobs = sorted(
             self.instance.job_id_list,
             key=lambda j: (
-                best_start_time_map.get(j, float("inf")),
+                start_time_map_for_sorting.get(j, float("inf")),
                 self.instance.job_id_list.index(j),
             ),
         )
+
+        # Create two schedules and pick the best
         schedule_dj = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
         )
@@ -2239,14 +2152,90 @@ class HybridFlowShopCpLnsController(
             schedule_ds.dispatch_stage_by_jobs(
                 i, sorted_jobs, self.stage_2_job_2_p_dict[i]
             )
-        # Choose the best schedule
+
         if schedule_dj.makespan <= schedule_ds.makespan:
             best_schedule = schedule_dj
         else:
             best_schedule = schedule_ds
         obj_value = float(best_schedule.makespan)
+
         logging.info(
             f"Best schedule found with makespan={obj_value} (DJ: {schedule_dj.makespan}, DS: {schedule_ds.makespan})"
+        )
+        return best_schedule, obj_value
+
+    def _apply_stage_capacity_lb_generic(
+        self,
+        stage_sets: list[set[str]],
+        max_time_per_iter: float,
+        solver_thread_cnt: int,
+        model_type: LbModelType,
+        aggregation_type: AggregationType,
+        log_prefix: str = "SCL LB",
+    ) -> None:
+        """Generic stage capacity lower bound computation.
+
+        Args:
+            stage_sets (list[set[str]]): List of stage sets (per relaxation).
+            max_time_per_iter (float): Time limit per subproblem.
+            solver_thread_cnt (int): Number of solver threads.
+            model_type (LbModelType): CUMULATIVE or PARALLEL_MC.
+            aggregation_type (AggregationType): FIRST or AVERAGE.
+            log_prefix (str): Prefix for log messages.
+        """
+        sub_timer = ElapsedTimer()
+
+        all_bounds: list[float] = []
+        all_start_time_maps_list: list[list[dict[str, int]]] = []
+        best_bound: float | None = None
+        best_idx: int | None = None
+
+        for stage_set in stage_sets:
+            # Convert list of stage ids to set for subproblem
+            bound, start_time_maps = self._solve_stage_capacity_subproblem(
+                stage_set,
+                max_time_per_iter,
+                solver_thread_cnt,
+                sub_timer,
+                model_type,
+                log_prefix,
+            )
+            if bound is not None and start_time_maps is not None:
+                all_bounds.append(bound)
+                all_start_time_maps_list.append(start_time_maps)
+                # track index of best subproblem
+                if best_bound is None or bound > best_bound:
+                    best_bound = bound
+                    # best_idx relative to appended list
+                    best_idx = len(all_bounds) - 1
+
+        if best_bound is None:
+            raise ValueError(
+                "The model is infeasible for all stage capacity relaxations. "
+                "Check the instance or the model."
+            )
+
+        obj_bound = max(all_bounds)
+        logging.info(
+            f"[{log_prefix}] LB(stage_sets) = {all_bounds}, LB_MAX = {obj_bound}"
+        )
+
+        # Log bound update
+        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
+            log_time = self.timer.elapsed_sec
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_bound_is_valid=True
+            )
+
+        # Create schedule from the start_time_maps of the best subproblem
+        if best_idx is None:
+            # should not happen as best_bound checked above
+            raise RuntimeError("No valid start time maps for scheduling")
+        best_start_maps = all_start_time_maps_list[best_idx]
+        best_schedule, obj_value = self._create_schedule_from_start_times(
+            best_start_maps, aggregation_type
         )
 
         # Create report and register the new solution
@@ -2258,12 +2247,62 @@ class HybridFlowShopCpLnsController(
         )
         self.solution_manager.register(report, best_schedule)
 
-        # Log
+        # Log value update
         log_time = self.timer.elapsed_sec
         self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
+        )
+
+    def apply_single_stage_capacity_lb(
+        self, max_time_per_iter: float, solver_thread_cnt: int
+    ) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance
+        by relaxing all stages' machine count except one stage.
+        Update the global lower bound.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+
+        Raises:
+            ValueError: If no feasible solution is found by any single-stage relaxation.
+        """
+        stage_sets = [{i} for i in self.instance.stage_id_list]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.FIRST,
+            log_prefix="SSC LB",
+        )
+
+    def apply_single_stage_capacity_lb2(
+        self, max_time_per_iter: float, solver_thread_cnt: int
+    ) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance
+        by relaxing all stages' machine count except one stage using CpCumulative.
+        Update the global lower bound.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+
+        Raises:
+            ValueError: If no feasible solution is found by any single-stage relaxation.
+        """
+        stage_sets = [{i} for i in self.instance.stage_id_list]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.PARALLEL_MC,
+            AggregationType.FIRST,
+            log_prefix="SSC2 LB",
         )
 
     # End subroutine definition

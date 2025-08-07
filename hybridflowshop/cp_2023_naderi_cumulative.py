@@ -160,27 +160,25 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         if impose_all_stage_capacity_constr:
             self.add_stage_capacity_constraints()
 
-    def add_stage_capacity_constraints(
-        self, stage_list: list[str] | None = None
-    ) -> None:
+    def add_stage_capacity_constraints(self, stage_set: set[str] | None = None) -> None:
         """
         Adds cumulative capacity constraints for the specified stages.
 
         Args:
-            stage_list (list[str] | None, optional): A list of stage IDs to add constraints to.
+            stage_set (set[str] | None, optional): A set of stage IDs to add constraints to.
                 If None, constraints are added to all stages. Defaults to None.
         """
         # Alias for readability
         j_list = self.j_list
         i_list: list[str]
-        if stage_list is None:
+        if stage_set is None:
             i_list = self.i_list
         else:
-            assert all(i in self.i_list for i in stage_list), (
-                "All stages in stage_list must be part of the model's"
-                f"i_list({self.i_list}); {set(stage_list) - set(self.i_list)} not in i_list."
+            assert all(i in self.i_list for i in stage_set), (
+                "All stages in stage_set must be part of the model's"
+                f"i_list {self.i_list}; {stage_set - set(self.i_list)} stages not in i_list."
             )
-            i_list = stage_list
+            i_list = [i for i in self.i_list if i in stage_set]
 
         for i in i_list:
             intervals = [self.var_op_intvl[j, i] for j in j_list]
