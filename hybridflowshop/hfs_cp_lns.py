@@ -1404,8 +1404,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, best_schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1470,8 +1470,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, best_schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1522,8 +1522,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1574,8 +1574,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1636,8 +1636,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, best_schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1698,8 +1698,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, best_schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1750,8 +1750,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1802,8 +1802,8 @@ class HybridFlowShopCpLnsController(
         was_updated = self.solution_manager.register(report, schedule)
 
         # Log
-        total_elapsed_time = self.timer.elapsed_sec
-        self.add_obj_value_log(total_elapsed_time, obj_value, is_maximize=False)
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -1939,7 +1939,6 @@ class HybridFlowShopCpLnsController(
             e_timer=e_timer,
             log_level_obj_value=log_level_obj_value,
             log_level_obj_bound=log_level_obj_bound,
-            obj_bound_is_valid=True,
         )
         relaxed_mdl.delete_added_constraints()
 
@@ -1955,7 +1954,7 @@ class HybridFlowShopCpLnsController(
         sub_timer: ElapsedTimer,
         model_type: LbModelType,
         log_prefix: str = "SCL LB",
-    ) -> tuple[float | None, list[dict[str, int]] | None]:
+    ) -> tuple[CpsatSolverReport | None, list[dict[str, int]] | None]:
         """
         Solve a subproblem with capacity constraints only for the given stages.
 
@@ -1968,7 +1967,7 @@ class HybridFlowShopCpLnsController(
             log_prefix (str): Prefix for log messages.
 
         Returns:
-            tuple[float | None, list[dict[str, int]] | None]: (bound, start_time_maps) or (None, None).
+            tuple[CpsatSolverReport | None, list[dict[str, int]] | None]: (report, start_time_maps) or (None, None).
         """
         if model_type == LbModelType.RELAXED:
             relaxed_mdl = self.create_base_cp_model(
@@ -2004,7 +2003,7 @@ class HybridFlowShopCpLnsController(
                     f"[{log_prefix}] Lower bound found by optimum of subproblem {capacity_stage_set}:"
                     f" {iter_report.obj_value} at time {last_timestamp:.2f} sec"
                 )
-                return iter_report.obj_value, start_time_maps
+                return iter_report, start_time_maps
 
             if iter_report.obj_value is None:
                 raise ValueError(
@@ -2024,74 +2023,74 @@ class HybridFlowShopCpLnsController(
                 f"[{log_prefix}] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {capacity_stage_set}:"
                 f" {iter_report.obj_bound} at time {last_timestamp:.2f} sec"
             )
-            return iter_report.obj_bound, start_time_maps
+            return iter_report, start_time_maps
 
-        elif model_type == LbModelType.PARALLEL_MC:
-            from identical_parallel_machine.cp_cumulative import CpCumulative
+        # elif model_type == LbModelType.PARALLEL_MC:
+        #     from identical_parallel_machine.cp_cumulative import CpCumulative
 
-            # Only supports single stage for cumulative model
-            if len(capacity_stage_set) != 1:
-                raise ValueError(
-                    "Cumulative model only supports single stage capacity constraints"
-                )
+        #     # Only supports single stage for cumulative model
+        #     if len(capacity_stage_set) != 1:
+        #         raise ValueError(
+        #             "Cumulative model only supports single stage capacity constraints"
+        #         )
 
-            i = capacity_stage_set.pop()
-            instance = self.instance
-            jobs: list[str] = instance.job_id_list
-            stages: list[str] = instance.stage_id_list
-            stage_2_job_2_p_map = instance.p_manager.stage_2_job_2_value_map(
-                stages, jobs
-            )
-            M_of = instance.stage_2_machines_map
+        #     i = capacity_stage_set.pop()
+        #     instance = self.instance
+        #     jobs: list[str] = instance.job_id_list
+        #     stages: list[str] = instance.stage_id_list
+        #     stage_2_job_2_p_map = instance.p_manager.stage_2_job_2_value_map(
+        #         stages, jobs
+        #     )
+        #     M_of = instance.stage_2_machines_map
 
-            machines = M_of[i]
-            p = stage_2_job_2_p_map[i]
-            r = {j: 0 for j in jobs}
-            tr = {j: 0 for j in jobs}
-            for ip in stages:
-                if ip < i:
-                    for j in jobs:
-                        r[j] += stage_2_job_2_p_map[ip][j]
-                elif ip == i:
-                    continue
-                elif ip > i:
-                    for j in jobs:
-                        tr[j] += stage_2_job_2_p_map[ip][j]
+        #     machines = M_of[i]
+        #     p = stage_2_job_2_p_map[i]
+        #     r = {j: 0 for j in jobs}
+        #     tr = {j: 0 for j in jobs}
+        #     for ip in stages:
+        #         if ip < i:
+        #             for j in jobs:
+        #                 r[j] += stage_2_job_2_p_map[ip][j]
+        #         elif ip == i:
+        #             continue
+        #         elif ip > i:
+        #             for j in jobs:
+        #                 tr[j] += stage_2_job_2_p_map[ip][j]
 
-            sub_cp_mdl = CpCumulative.from_parameters(
-                jobs, machines, p, self.get_horizon(), r_dict=r, tr_dict=tr
-            )
-            sub_cp_mdl.set_obj_lower_bound(self.get_shdlb_for_stage(i))
+        #     sub_cp_mdl = CpCumulative.from_parameters(
+        #         jobs, machines, p, self.get_horizon(), r_dict=r, tr_dict=tr
+        #     )
+        #     sub_cp_mdl.set_obj_lower_bound(self.get_shdlb_for_stage(i))
 
-            (solver_status, _, obj_value, obj_bound) = sub_cp_mdl.solve_with_callbacks(
-                computational_time=max_time,
-                num_workers=solver_thread_cnt,
-                random_seed=self.random_seed,
-                e_timer=sub_timer,
-                log_level_obj_value=logging.INFO,
-                log_level_obj_bound=logging.INFO,
-            )
+        #     (solver_status, _, obj_value, obj_bound) = sub_cp_mdl.solve_with_callbacks(
+        #         computational_time=max_time,
+        #         num_workers=solver_thread_cnt,
+        #         random_seed=self.random_seed,
+        #         e_timer=sub_timer,
+        #         log_level_obj_value=logging.INFO,
+        #         log_level_obj_bound=logging.INFO,
+        #     )
 
-            last_timestamp = sub_timer.elapsed_sec
-            if solver_status == CpsatStatus.OPTIMAL:
-                j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
-                logging.info(
-                    f"[{log_prefix}] Lower bound found by optimum of subproblem {i}:"
-                    f" {obj_value} at time {last_timestamp:.2f} sec"
-                )
-                return obj_value, [j_2_start_time_map]
-            elif solver_status == CpsatStatus.FEASIBLE:
-                j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
-                if obj_bound is None:
-                    lb_gap = 0.0
-                else:
-                    lb_gap = (obj_value / obj_bound) - 1
-                logging.info(
-                    f"[{log_prefix}] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
-                    f" {obj_bound} at time {last_timestamp:.2f} sec"
-                )
-                return obj_bound, [j_2_start_time_map]
-            return None, None
+        #     last_timestamp = sub_timer.elapsed_sec
+        #     if solver_status == CpsatStatus.OPTIMAL:
+        #         j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
+        #         logging.info(
+        #             f"[{log_prefix}] Lower bound found by optimum of subproblem {i}:"
+        #             f" {obj_value} at time {last_timestamp:.2f} sec"
+        #         )
+        #         return obj_value, [j_2_start_time_map]
+        #     elif solver_status == CpsatStatus.FEASIBLE:
+        #         j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
+        #         if obj_bound is None:
+        #             lb_gap = 0.0
+        #         else:
+        #             lb_gap = (obj_value / obj_bound) - 1
+        #         logging.info(
+        #             f"[{log_prefix}] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
+        #             f" {obj_bound} at time {last_timestamp:.2f} sec"
+        #         )
+        #         return obj_bound, [j_2_start_time_map]
+        #     return None, None
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 
@@ -2185,14 +2184,14 @@ class HybridFlowShopCpLnsController(
         """
         sub_timer = ElapsedTimer()
 
-        all_bounds: list[float] = []
+        all_reports: list[CpsatSolverReport] = []
         all_start_time_maps_list: list[list[dict[str, int]]] = []
         best_bound: float | None = None
         best_idx: int | None = None
 
         for stage_set in stage_sets:
             # Convert list of stage ids to set for subproblem
-            bound, start_time_maps = self._solve_stage_capacity_subproblem(
+            sub_report, start_time_maps = self._solve_stage_capacity_subproblem(
                 stage_set,
                 max_time_per_iter,
                 solver_thread_cnt,
@@ -2200,14 +2199,18 @@ class HybridFlowShopCpLnsController(
                 model_type,
                 log_prefix,
             )
-            if bound is not None and start_time_maps is not None:
-                all_bounds.append(bound)
+            if sub_report is not None and start_time_maps is not None:
+                if sub_report.obj_bound is None:
+                    raise ValueError(
+                        "The objective bound is None, which should not happen for a feasible solution."
+                    )
+                all_reports.append(sub_report)
                 all_start_time_maps_list.append(start_time_maps)
                 # track index of best subproblem
-                if best_bound is None or bound > best_bound:
-                    best_bound = bound
+                if best_bound is None or sub_report.obj_bound > best_bound:
+                    best_bound = sub_report.obj_bound
                     # best_idx relative to appended list
-                    best_idx = len(all_bounds) - 1
+                    best_idx = len(all_reports) - 1
 
         if best_bound is None:
             raise ValueError(
@@ -2215,19 +2218,10 @@ class HybridFlowShopCpLnsController(
                 "Check the instance or the model."
             )
 
-        obj_bound = max(all_bounds)
-        logging.info(
-            f"[{log_prefix}] LB(stage_sets) = {all_bounds}, LB_MAX = {obj_bound}"
+        obj_bound = max(
+            report.obj_bound for report in all_reports if report.obj_bound is not None
         )
-
-        # Log bound update
-        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
-            log_time = self.timer.elapsed_sec
-            self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
-            _last_timestamp_note = self._get_call_context_of_current_method()
-            self.obj_store.add_last_timestamp_note(
-                _last_timestamp_note, obj_bound_is_valid=True
-            )
+        logging.info(f"[{log_prefix}] max(LB by stage subsets) = {obj_bound}")
 
         # Create schedule from the start_time_maps of the best subproblem
         if best_idx is None:
@@ -2238,22 +2232,35 @@ class HybridFlowShopCpLnsController(
             best_start_maps, aggregation_type
         )
 
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        # Extend the objective bound log with all subproblem records
+        all_obj_bound_records = []
+        for sub_report in all_reports:
+            all_obj_bound_records.extend(sub_report.obj_bound_records)
+        self.extend_obj_bound_log(all_obj_bound_records, is_maximize=False)
+        if (
+            obj_bound == self.obj_store.get_last_obj_bound()
+            and (log_time, obj_bound) not in all_obj_bound_records
+        ):
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=None)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True, obj_bound_is_valid=True
+        )
+
         # Create report and register the new solution
-        report = HfsSubroutineReport(
+        report = HfsCpsatSolverReport(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=obj_bound,
             is_init=True,
+            status=CpsatStatus.FEASIBLE,
+            obj_bound_records=all_obj_bound_records,
+            obj_value_records=[(log_time, obj_value)],
         )
         self.solution_manager.register(report, best_schedule)
-
-        # Log value update
-        log_time = self.timer.elapsed_sec
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
-        )
 
     def apply_single_stage_capacity_lb(
         self, max_time_per_iter: float, solver_thread_cnt: int
@@ -2305,7 +2312,7 @@ class HybridFlowShopCpLnsController(
             log_prefix="SSC2 LB",
         )
 
-    def apply_two_bottleneck_stage_capacity_lb(
+    def apply_tbsc_lb(
         self,
         computational_time: float,
         solver_thread_cnt: int,
@@ -2344,6 +2351,51 @@ class HybridFlowShopCpLnsController(
             LbModelType.RELAXED,
             AggregationType.AVERAGE,
             log_prefix="TBSC LB",
+        )
+
+    def apply_npsc_lb(self, max_time_per_iter: float, solver_thread_cnt: int) -> None:
+        """
+        Compute the global lower bound by applying capacity constraints to all consecutive pairs of stages.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+        """
+        stage_id_list = self.instance.stage_id_list
+        stage_sets = [
+            {stage_id_list[i], stage_id_list[i + 1]}
+            for i in range(len(stage_id_list) - 1)
+        ]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.AVERAGE,
+            log_prefix="NPSC LB",
+        )
+
+    def apply_apsc_lb(self, max_time_per_iter: float, solver_thread_cnt: int) -> None:
+        """
+        Compute the global lower bound by applying capacity constraints to all pairs of stages.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+        """
+        stage_id_list = self.instance.stage_id_list
+        stage_sets = [
+            {stage_id_list[i], stage_id_list[j]}
+            for i in range(len(stage_id_list))
+            for j in range(i + 1, len(stage_id_list))
+        ]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.AVERAGE,
+            log_prefix="APSC LB",
         )
 
     # End subroutine definition
