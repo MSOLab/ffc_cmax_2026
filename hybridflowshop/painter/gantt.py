@@ -27,9 +27,10 @@ class GanttPlotter:
         self,
         start_time_map: dict[tuple[str, str, str], int],
         end_time_map: dict[tuple[str, str, str], int],
-        job_list: list[str] = [],
-        stage_list: list[str] = [],
-        machine_list_per_stage: dict[str, list[str]] = {},
+        job_list: list[str] | None = None,
+        stage_list: list[str] | None = None,
+        machine_list_per_stage: dict[str, list[str]] | None = None,
+        all_job_list: list[str] | None = None,
     ):
         self.plot_hybrid_flowshop(
             start_time_map,
@@ -37,6 +38,7 @@ class GanttPlotter:
             job_list=job_list,
             stage_list=stage_list,
             machine_list_per_stage=machine_list_per_stage,
+            all_job_list=all_job_list,
         )
         plt.show()
 
@@ -45,9 +47,10 @@ class GanttPlotter:
         file_path: Path,
         start_time_map: dict[tuple[str, str, str], int],
         end_time_map: dict[tuple[str, str, str], int],
-        job_list: list[str] = [],
-        stage_list: list[str] = [],
-        machine_list_per_stage: dict[str, list[str]] = {},
+        job_list: list[str] | None = None,
+        stage_list: list[str] | None = None,
+        machine_list_per_stage: dict[str, list[str]] | None = None,
+        all_job_list: list[str] | None = None,
     ):
         self.plot_hybrid_flowshop(
             start_time_map,
@@ -55,6 +58,7 @@ class GanttPlotter:
             job_list=job_list,
             stage_list=stage_list,
             machine_list_per_stage=machine_list_per_stage,
+            all_job_list=all_job_list,
         )
         plt.savefig(file_path, bbox_inches="tight", dpi=300)
         logging.info(f"Gantt chart saved to {file_path}")
@@ -64,9 +68,10 @@ class GanttPlotter:
         self,
         start_time_map: dict[tuple[str, str, str], int],
         end_time_map: dict[tuple[str, str, str], int],
-        job_list: list[str] = [],
-        stage_list: list[str] = [],
-        machine_list_per_stage: dict[str, list[str]] = {},
+        job_list: list[str] | None = None,
+        stage_list: list[str] | None = None,
+        machine_list_per_stage: dict[str, list[str]] | None = None,
+        all_job_list: list[str] | None = None,
     ):
         """
         Plot a Gantt chart for a Hybrid Flow Shop solution.
@@ -82,11 +87,11 @@ class GanttPlotter:
 
         # list of jobs, stages, & machines
 
-        if len(job_list) == 0:
+        if job_list is None or len(job_list) == 0:
             _job_list = sorted({j for (j, _, _) in start_time_map.keys()})
         else:
             _job_list = job_list.copy()
-        if len(stage_list) == 0:
+        if stage_list is None or len(stage_list) == 0:
             _stage_list = sorted({i for (_, i, _) in start_time_map.keys()})
         else:
             _stage_list = stage_list.copy()
@@ -94,8 +99,8 @@ class GanttPlotter:
         _machine_list_per_stage: dict[str, list[str]] = {
             stage: [] for stage in _stage_list
         }
-        for stage in stage_list:
-            if not machine_list_per_stage.get(stage):
+        for stage in _stage_list:
+            if machine_list_per_stage is None or not machine_list_per_stage.get(stage):
                 _machine_list_per_stage[stage] = sorted(
                     {mc for (_, stg, mc) in start_time_map.keys() if stg == stage}
                 )
@@ -103,7 +108,10 @@ class GanttPlotter:
                 _machine_list_per_stage[stage] = machine_list_per_stage[stage].copy()
 
         # Color map
-        job_to_color = self.create_job_to_color_map(_job_list)
+        if all_job_list:
+            job_to_color = self.create_job_to_color_map(all_job_list)
+        else:
+            job_to_color = self.create_job_to_color_map(_job_list)
 
         # Prepare machine lanes & labels
         machine_lanes, machine_labels = GanttPlotter.create_machine_lanes(

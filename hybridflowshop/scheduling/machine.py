@@ -14,10 +14,26 @@ class Machine(Resource[HybridFlowshopOperation]):
         self._name: str = name
         """The name of the machine."""
 
+    def deepcopy(self) -> "Machine":
+        """
+        Returns a deep copy of this Machine,
+        including all assigned operations.
+        """
+        new_machine = Machine(self._name)
+        # Deep copy all assigned operations
+        new_machine._activity_list = [op.copy() for op in self.activity_list]
+        return new_machine
+
+    # Start required getters
+
     @property
     def name(self) -> str:
         """Returns the name of the machine."""
         return self._name
+
+    # End required getters
+
+    # Start getters
 
     @property
     def operations(self) -> list[HybridFlowshopOperation]:
@@ -27,28 +43,6 @@ class Machine(Resource[HybridFlowshopOperation]):
             list[HybridFlowshopOperation]: The list of operations.
         """
         return self.activity_list
-
-    def add_operation(
-        self, operation: HybridFlowshopOperation, force_add: bool = False
-    ) -> HybridFlowshopOperation | None:
-        """Add an operation to the machine.
-
-        Args:
-            operation (HybridFlowshopOperation): The operation to add.
-            force_add (bool, optional): If True, force add the operation even if it conflicts with existing operations.
-                Defaults to False.
-
-        Returns:
-            HybridFlowshopOperation | None: The operation if added successfully, otherwise None.
-        """
-        if operation.mc_name != self.name:
-            raise ValueError(
-                f"Operation's machine name {operation.mc_name} does not match"
-                f" this machine's name {self.name}."
-            )
-        if self.add_activity(operation, force_add=force_add) is None:
-            return None
-        return operation
 
     def get_start_time_map(self) -> dict[tuple[str, str, str], int]:
         """Get a map of (job_name, stage_name, mc_name) to start time.
@@ -81,3 +75,34 @@ class Machine(Resource[HybridFlowshopOperation]):
                 )
             return_dict[key] = operation.end
         return return_dict
+
+    # End getters
+
+    # Start setters
+
+    def add_operation(
+        self, operation: HybridFlowshopOperation, force_add: bool = False
+    ) -> HybridFlowshopOperation | None:
+        """Add an operation to the machine.
+
+        Args:
+            operation (HybridFlowshopOperation): The operation to add.
+            force_add (bool, optional): If True, force add the operation even if it conflicts with existing operations.
+                Defaults to False.
+
+        Raises:
+            ValueError: If the operation's machine name does not match this machine's name.
+
+        Returns:
+            HybridFlowshopOperation | None: The operation if added successfully, otherwise None.
+        """
+        if operation.mc_name != self.name:
+            raise ValueError(
+                f"Operation's machine name {operation.mc_name} does not match"
+                f" this machine's name {self.name}."
+            )
+        if self.add_activity(operation, force_add=force_add) is None:
+            return None
+        return operation
+
+    # End setters

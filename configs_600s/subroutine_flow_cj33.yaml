@@ -1,0 +1,12 @@
+- method: set_random_seed
+  seed: 42
+- method: initialize_by_cjqp
+  max_time_per_add: 3
+  solver_thread_cnt: 8
+  added_batch_size: 3
+  error_if_infeasible: true
+- method: initialize_by_cjqg
+  max_time_per_add: 3
+  solver_thread_cnt: 8
+  added_batch_size: 3
+  error_if_infeasible: true

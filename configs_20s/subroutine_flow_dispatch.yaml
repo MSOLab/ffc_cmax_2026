@@ -1,0 +1,16 @@
+- method: initialize_by_dj_cds
+  error_if_infeasible: true
+- method: initialize_by_dj_tp
+  error_if_infeasible: true
+- method: initialize_by_dj_gupta
+  error_if_infeasible: true
+- method: initialize_by_dj_palmer
+  error_if_infeasible: true
+- method: initialize_by_ds_cds
+  error_if_infeasible: true
+- method: initialize_by_ds_tp
+  error_if_infeasible: true
+- method: initialize_by_ds_gupta
+  error_if_infeasible: true
+- method: initialize_by_ds_palmer
+  error_if_infeasible: true

@@ -39,7 +39,22 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
             stage.create_machine_by_name(mc_name)
         return stage
 
-    # Required getters
+    def deepcopy(self) -> "HybridFlowshopStage":
+        """
+        Returns a deep copy of this HybridFlowshopStage,
+        including all machines and their state.
+        """
+        from copy import deepcopy
+
+        new_stage = HybridFlowshopStage(self._name)
+        # Deep copy all machines
+        new_stage._mc_name_2_ins_map = {
+            mc_name: mc.deepcopy() if hasattr(mc, "deepcopy") else deepcopy(mc)
+            for mc_name, mc in self._mc_name_2_ins_map.items()
+        }
+        return new_stage
+
+    # Start required getters
 
     @property
     def name(self) -> str:
@@ -58,7 +73,9 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         """
         return list(self._mc_name_2_ins_map.values())
 
-    # Required setters
+    # End required getters
+
+    # Start required setters
 
     def add_resource(self, res: Machine) -> None:
         """
@@ -70,12 +87,54 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         if res.name not in self._mc_name_2_ins_map:
             self._mc_name_2_ins_map[res.name] = res
 
-    # Getters
+    # End required setters
 
-    def get_earliest_start_mc_name_and_time(
+    # Start getters
+
+    def select_machine_by_start_idle_idx(
         self, duration: int, release_t: int = 0
     ) -> tuple[str, int]:
-        return self.get_earliest_start_resource_name_and_time(duration, release_t)
+        """
+        Find the machine name and earliest feasible start time for a new activity.
+
+        1. Machines having the earliest start time are preferred.
+        2. If multiple machines have the same earliest start time,
+           machines with the smallest idle time (earliest start time - makespan) are preferred.
+        3. If multiple machines have the same earliest start time and idle time,
+           the first machine in the order they were added is chosen.
+
+        Args:
+            duration (int): Duration of the new activity (must be positive).
+            release_t (int, optional): Earliest time the activity may start. Defaults to 0.
+
+        Raises:
+            ValueError: If `duration` is not positive.
+            ValueError: If no resource is available to start the activity.
+
+        Returns:
+            tuple[str, int]: A tuple of (machine name, earliest feasible start time).
+        """
+        if duration <= 0:
+            raise ValueError("Duration must be greater than 0")
+
+        candidate_info = []
+        for res in self.resources:
+            start_time = res.get_earliest_start_time(duration, release_t)
+            idle = start_time - res.makespan
+            candidate_info.append((start_time, idle, res))
+
+        if not candidate_info:
+            raise ValueError("No resource available to start the activity")
+
+        # 1. Find machines with the earliest start time
+        min_start = min(c[0] for c in candidate_info)
+        earliest_start_candidates = [c for c in candidate_info if c[0] == min_start]
+        # 2. Among them, find machines with the smallest idle time
+        min_idle = min(c[1] for c in earliest_start_candidates)
+        min_idle_candidates = [c for c in earliest_start_candidates if c[1] == min_idle]
+        # 3. Pick the first one (order of addition)
+        selected = min_idle_candidates[0]
+        return selected[2].name, int(selected[0])
 
     def get_machine_by_name(self, mc_name: str) -> Machine:
         """Get a machine by its ID.
@@ -133,7 +192,9 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
                 return_dict[key] = value
         return return_dict
 
-    # Setters
+    # End getters
+
+    # Start setters
 
     def create_machine_by_name(self, mc_name: str) -> None:
         machine = Machine(name=mc_name)
@@ -167,3 +228,5 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
         return self.get_machine_by_name(operation.mc_name).add_operation(
             operation, force_add=force_add
         )
+
+    # End setters

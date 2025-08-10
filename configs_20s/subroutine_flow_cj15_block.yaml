@@ -1,0 +1,19 @@
+- method: set_random_seed
+  seed: 42
+- method: initialize_by_cjq1
+  max_time_per_add: 5
+  solver_thread_cnt: 8
+  error_if_infeasible: true
+- method: initialize_by_cjq2
+  max_time_per_add: 5
+  solver_thread_cnt: 8
+  error_if_infeasible: true
+- method: repeat
+  params:
+    n_repeats: 999
+    routine_data:
+    - method: block_search
+      rho: 0.2
+      computational_time: 5
+      solver_thread_cnt: 8
+      error_if_infeasible: true

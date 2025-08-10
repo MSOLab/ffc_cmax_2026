@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from schore.schedule.abstract import Activity
 
 
@@ -5,14 +7,14 @@ class HybridFlowshopOperation(Activity):
     def __init__(
         self, job_name: str, stage_name: str, mc_name: str, start: int, end: int
     ) -> None:
-        """
-        Initialize a HybridFlowshopOperation.
+        """Initialize a HybridFlowshopOperation.
 
         Args:
             job_name (str): The name of the job this operation belongs to.
             stage_name (str): The name of the stage this operation belongs to.
-            eligible_mc_name_list (list[str]): List of machine IDs that can process this operation.
-
+            mc_name (str): The name of the machine that processes this operation.
+            start (int): The start time of the operation.
+            end (int): The end time of the operation.
         """
         super().__init__()
 
@@ -28,7 +30,15 @@ class HybridFlowshopOperation(Activity):
         self._end: int = end
         """The end time of the operation."""
 
-    # Required getters
+    def copy(self) -> HybridFlowshopOperation:
+        """
+        Returns a deep (hard) copy of this HybridFlowshopOperation.
+        """
+        return HybridFlowshopOperation(
+            self._job_name, self._stage_name, self._mc_name, self._start, self._end
+        )
+
+    # Start required getters
 
     @property
     def name(self) -> str:
@@ -54,7 +64,9 @@ class HybridFlowshopOperation(Activity):
         """
         return self._end
 
-    # Getters
+    # End required getters
+
+    # Start getters
 
     @property
     def job_name(self) -> str:
@@ -79,3 +91,5 @@ class HybridFlowshopOperation(Activity):
             str: The name of the machine that processes this operation.
         """
         return self._mc_name
+
+    # End getters

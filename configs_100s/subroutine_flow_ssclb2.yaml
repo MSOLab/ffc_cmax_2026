@@ -1,0 +1,5 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_single_stage_capacity_lb2
+  max_time_per_iter: 2
+  solver_thread_cnt: 8

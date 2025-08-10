@@ -1,12 +1,10 @@
-import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-from mbls import DynamicDataObject, StoppingCriteria, utils
-from mbls.cpsat import ObjValueBoundStore
-from mbls.painter import ObjValueBoundPlotter
+from routix import DynamicDataObject, StoppingCriteria
+from routix.io import object_to_yaml
 from routix.runner import SingleInstanceRunner
+from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
@@ -14,12 +12,10 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
 from hybridflowshop.hfs_summary import HfsSummary
-from hybridflowshop.painter.gantt import GanttPlotter
-from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
 from hybridflowshop.report.hfs_subroutine_report_statistics import (
     HfsSubroutineReportStatistics,
 )
-from hybridflowshop.utils import pyyaml_key_to_tuple
+from hybridflowshop.utils import tuple_to_pyyaml_key
 
 
 class HfsSingleInstanceRunner(
@@ -33,6 +29,7 @@ class HfsSingleInstanceRunner(
         stopping_criteria: StoppingCriteria,
         output_dir: Path,
         output_metadata: dict[str, Any],
+        mode: RunMode = RunMode.FULL_RUN,
     ):
         super().__init__(
             instance=instance,
@@ -41,7 +38,14 @@ class HfsSingleInstanceRunner(
             stopping_criteria=stopping_criteria,
             output_dir=output_dir,
             output_metadata=output_metadata,
+            mode=mode,
         )
+        self.name = self.instance.name
+        self.encoding = self.output_metadata.get("encoding", "utf-8")
+        result_dir_name = self.output_metadata.get("result_dir_name", "results")
+        self.result_dir = self.working_dir / result_dir_name
+        self.result_dir.mkdir(parents=True, exist_ok=True)
+        self.prepare_saved_file_paths()
 
     def get_controller(self) -> HybridFlowShopCpLnsController:
         """Initialize the controller with the given instance and parameters."""
@@ -53,144 +57,121 @@ class HfsSingleInstanceRunner(
         )
 
     def post_run_process(self) -> None:
-        self.name = self.instance.name
-        result_dir_name = self.output_metadata.get("result_dir_name", "results")
-        self.result_dir = self.working_dir / result_dir_name
-
-        self.prepare_saved_file_paths()
-        if not self.output_metadata.get(
-            "single_instance_from_files_save_analysis_only", False
-        ):
+        if self.mode == RunMode.FULL_RUN:
             self.save_files(self.encoding)
+
         self.from_files_save_analysis(self.encoding)
 
     def prepare_saved_file_paths(self) -> None:
-        self.encoding = self.output_metadata.get("encoding", "utf-8")
-
-        self.summary_filename = self.name + "_summary.csv"
-        if "summary_filename_format" in self.output_metadata:
-            summary_filename_format = self.output_metadata["summary_filename_format"]
-            if isinstance(summary_filename_format, str):
-                summary_filename_format = summary_filename_format.strip()
-                self.summary_filename = summary_filename_format.format(self.name)
+        self.summary_filename = (
+            str(self.output_metadata.get("summary_filename_format", "{}_summary.csv"))
+            .strip()
+            .format(self.name)
+        )
         self.summary_path = self.result_dir / self.summary_filename
 
-        self.solution_filename = self.name + "_solution.yaml"
-        if "solution_filename_format" in self.output_metadata:
-            solution_filename_format = self.output_metadata["solution_filename_format"]
-            if isinstance(solution_filename_format, str):
-                solution_filename_format = solution_filename_format.strip()
-                self.solution_filename = solution_filename_format.format(self.name)
-        self.solution_path = self.result_dir / self.solution_filename
+        self.solution_filename_format = str(
+            self.output_metadata.get("solution_filename_format", "{}_solution.yaml")
+        ).strip()
+        self.solution_path = self.result_dir / self.solution_filename_format.format(
+            self.name
+        )
 
-        self.obj_log_filename = self.name + "_obj_log.yaml"
-        if "obj_log_filename_format" in self.output_metadata:
-            obj_log_filename_format = self.output_metadata["obj_log_filename_format"]
-            if isinstance(obj_log_filename_format, str):
-                obj_log_filename_format = obj_log_filename_format.strip()
-                self.obj_log_filename = obj_log_filename_format.format(self.name)
-        self.obj_log_path = self.result_dir / self.obj_log_filename
+        self.obj_log_filename_format = str(
+            self.output_metadata.get("obj_log_filename_format", "{}_obj_log.yaml")
+        ).strip()
+        self.obj_log_path = self.result_dir / self.obj_log_filename_format.format(
+            self.name
+        )
 
     def save_files(self, encoding: str = "utf-8") -> None:
-        """
-        Save the files generated during the run.
-        This method is called after the run is complete.
-
-        Args:
-            encoding (str, optional): The encoding to use when saving files. Defaults to "utf-8".
-        """
         self.save_summary(encoding=encoding)
         self.save_solution(encoding=encoding)
         self.save_obj_value_bound_store(encoding=encoding)
 
     def save_summary(self, encoding: str = "utf-8") -> None:
-        input_summary = HfsInputSummary(
+        stats = HfsSubroutineReportStatistics(
             name=self.name,
-            job_count=self.instance.job_count,
-            stage_count=self.instance.stage_count,
-            timelimit=self.stopping_criteria.timelimit,
+            reports=[r.report for r in self.ctrlr.solution_manager.history],
+            method_call_counts=self.ctrlr.method_call_counts,
         )
-        report_stats: HfsSubroutineReportStatistics[HfsSubroutineReport] = (
-            HfsSubroutineReportStatistics(self.ctrlr.report_recorder)
+        summary = HfsSummary(
+            inputs=HfsInputSummary(
+                name=self.name,
+                job_count=self.instance.job_count,
+                stage_count=self.instance.stage_count,
+                timelimit=self.stopping_criteria.timelimit,
+            ),
+            outputs=stats,
         )
-        summary = HfsSummary(inputs=input_summary, outputs=report_stats)
         summary.save(self.summary_path, encoding=encoding)
 
     def save_solution(self, encoding: str = "utf-8") -> None:
-        solution = self.ctrlr.get_incumbent_solution_dict(for_pyyaml=True)
-        utils.object_to_yaml(solution, self.solution_path, encoding=encoding)
+        incumbent_solution = self.ctrlr.solution_manager.get_incumbent()
+        if incumbent_solution:
+            solution_dict = {
+                "start_times": tuple_to_pyyaml_key(
+                    incumbent_solution.get_start_time_map()
+                ),
+                "end_times": tuple_to_pyyaml_key(incumbent_solution.get_end_time_map()),
+            }
+            object_to_yaml(solution_dict, self.solution_path, encoding=encoding)
 
     def save_obj_value_bound_store(self, encoding: str = "utf-8") -> None:
         self.ctrlr.obj_store.save_yaml(self.obj_log_path, encoding=encoding)
 
     def from_files_save_analysis(self, encoding: str = "utf-8") -> None:
-        self.from_files_draw_gantt_chart(encoding=encoding)
-        self.from_files_draw_progress_plot(encoding=encoding)
+        if self.output_metadata.get("draw_gantt", False):
+            self.from_files_draw_gantt_chart(encoding=encoding)
+        if self.output_metadata.get("draw_progress_plot", False):
+            self.from_files_draw_progress_plot(encoding=encoding)
 
     def from_files_draw_gantt_chart(self, encoding: str = "utf-8") -> None:
-        # Prepare the Gantt chart file path
-        result_gantt_filename_format = "{}_result_gantt.png"
-        if "result_gantt_filename_format" in self.output_metadata:
-            result_gantt_filename_format = self.output_metadata[
-                "result_gantt_filename_format"
-            ]
-            if isinstance(result_gantt_filename_format, str):
-                result_gantt_filename_format = result_gantt_filename_format.strip()
-        result_gantt_filename = result_gantt_filename_format.format(self.name)
-        output_path = self.result_dir / result_gantt_filename
+        """
+        Draws Gantt charts from the saved solution files.
+        This method looks for files matching the `solution_filename_format` in the working directory
+        and generates Gantt charts based on the start and end times stored in the solution files.
 
-        # Read saved solution file to create dictionary of start and end times
-        with open(self.solution_path, "r", encoding=encoding) as f:
-            solution_dict = yaml.load(f, Loader=yaml.UnsafeLoader)
-            # TODO: backward compatibility; change to "start_time_map" in future versions
-            start_time_map = pyyaml_key_to_tuple(solution_dict["start_times"])
-            # TODO: backward compatibility; change to "end_time_map" in future versions
-            end_time_map = pyyaml_key_to_tuple(solution_dict["end_times"])
+        Args:
+            encoding (str, optional): The encoding to use when reading files. Defaults to "utf-8".
+        """
+        result_gantt_filename_format = str(
+            self.output_metadata.get("result_gantt_filename_format", "{}_gantt.png")
+        ).strip()
 
-            GanttPlotter().export_hybrid_flowshop_plot(
-                output_path, start_time_map, end_time_map
-            )
+        from concurrent_painter import draw_gantt_charts_from_solutions
+
+        draw_gantt_charts_from_solutions(
+            working_dir=self.working_dir,
+            solution_filename_format=self.solution_filename_format,
+            all_job_id_list=self.instance.job_id_list,
+            result_gantt_filename_format=result_gantt_filename_format,
+            encoding=encoding,
+            painter_thread_cnt=self.output_metadata.get("painter_thread_cnt", 4),
+        )
 
     def from_files_draw_progress_plot(self, encoding: str = "utf-8") -> None:
         """
-        Read the saved obj_log file and draw the progress plot.
+        Draws a progress plot from the saved objective log files.
+        This method looks for files matching the `obj_log_filename_format` in the working directory
+        and generates a plot based on the objective value records stored in the log.
+
+        Args:
+            encoding (str, optional): The encoding to use when reading files. Defaults to "utf-8".
         """
+        progress_plot_filename_format = str(
+            self.output_metadata.get("progress_plot_filename_format", "{}_progress.png")
+        ).strip()
 
-        progress_plot_filename_format = "{}_progress_plot.png"
-        if "progress_plot_filename_format" in self.output_metadata:
-            progress_plot_filename_format = self.output_metadata[
-                "progress_plot_filename_format"
-            ]
-            if isinstance(progress_plot_filename_format, str):
-                progress_plot_filename_format = progress_plot_filename_format.strip()
-            else:
-                logging.warning(
-                    "Invalid type for 'progress_plot_filename_format': "
-                    f"{type(progress_plot_filename_format)}. Using default format."
-                )
-                progress_plot_filename_format = "{}_progress_plot.png"
+        from concurrent_painter import draw_progress_plots_from_logs
 
-        drop_first_values_percent = 0.0
-        if "drop_first_values_percent" in self.output_metadata:
-            drop_first_values_percent = self.output_metadata[
-                "drop_first_values_percent"
-            ]
-            if isinstance(drop_first_values_percent, (int, float)):
-                drop_first_values_percent = float(drop_first_values_percent)
-            else:
-                logging.warning(
-                    "Invalid type for 'drop_first_values_percent': "
-                    f"{type(drop_first_values_percent)}. Using default value of 0.0."
-                )
-                drop_first_values_percent = 0.0
-
-        # Prepare the progress plot file path
-        progress_plot_filename = progress_plot_filename_format.format(self.name)
-        output_path = self.result_dir / progress_plot_filename
-
-        # Read the saved obj_log file
-        obj_store = ObjValueBoundStore.load_yaml(self.obj_log_path, encoding=encoding)
-        # Plot the objective progress
-        ObjValueBoundPlotter.plot(
-            obj_store, output_path, drop_first_values_percent=drop_first_values_percent
+        draw_progress_plots_from_logs(
+            working_dir=self.working_dir,
+            obj_log_filename_format=self.obj_log_filename_format,
+            progress_plot_filename_format=progress_plot_filename_format,
+            drop_first_values_percent=self.output_metadata.get(
+                "drop_first_values_percent", 0.0
+            ),
+            encoding=encoding,
+            painter_thread_cnt=self.output_metadata.get("painter_thread_cnt", 4),
         )

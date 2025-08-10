@@ -3,43 +3,48 @@ import math
 import random
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
-from mbls import DynamicDataObject, ElapsedTimer, StoppingCriteria
-from mbls.cpsat import CpsatSolverReport, CpsatStatus, CpSubroutineController
-from routix.report import SubroutineReportRecorder
+from mbls.cpsat import (
+    CpsatSolverReport,
+    CpsatStatus,
+    CpSubroutineController,
+    ObjValueBoundStore,
+)
+from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
+from routix.io import object_to_yaml
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from .pure_cp_2023_naderi import PureCP2023Naderi
+from hybridflowshop.lb_enum import AggregationType, LbModelType
+from hybridflowshop.utils import tuple_to_pyyaml_key
+
+from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
+from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
+from .cp_cumulative_optional_hybrid import CPCumulativeOptionalHybrid
+from .cp_optional_interval_master_timevar import CPOptionalIntervalMasterTimevar
+from .painter.gantt import GanttPlotter
 from .report import HfsCpsatSolverReport, HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
-from .solution_manager import SolutionManager
+from .solution_manager import HfsSolutionManager
+
+HfsMathModel = CP2023NaderiCumulative
 
 
 class HybridFlowShopCpLnsController(
-    CpSubroutineController[HybridFlowshopParameters, PureCP2023Naderi, StoppingCriteria]
+    CpSubroutineController[HybridFlowshopParameters, HfsMathModel, StoppingCriteria]
 ):
     """
-    Controller for solving Hybrid Flow Shop problems using CP-based LNS.
-
-    This controller manages the interaction between the problem, the CP solver,
-    and the solution manager, allowing for efficient search and solution management.
+    Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
     """
 
-    # Start internal states
-    # TODO: divide into solution & report
-    last_solution_manager: SolutionManager[HfsSubroutineReport]
-    """Manages the last(most recent) solution."""
-    # TODO: divide into solution & report
-    incumbent_solution_manager: SolutionManager[HfsSubroutineReport]
-    """Manages the incumbent solution."""
-
-    obj_lower_bound: float | None
-    """Best objective bound found so far."""
-
-    # End internal states
+    # Start controller state
+    solution_manager: HfsSolutionManager
+    """Solution manager for Hybrid Flow Shop scheduling solutions."""
+    total_elapsed_time: float
+    """Total elapsed time for the controller."""
+    # End controller state
 
     def __init__(
         self,
@@ -51,28 +56,45 @@ class HybridFlowShopCpLnsController(
         super().__init__(
             instance,
             shared_param_dict,
-            PureCP2023Naderi,
+            HfsMathModel,
             subroutine_flow,
             stopping_criteria,
         )
-        self.obj_lower_bound = None
+        self.solution_manager = HfsSolutionManager()
 
-        # Report
-
-        self.report_recorder: SubroutineReportRecorder[HfsSubroutineReport] = (
-            SubroutineReportRecorder(instance.name)
+        # Frequently used parameters
+        self.job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
+            self.instance.job_id_list, self.instance.stage_id_list
         )
-        """Recorder for subroutine reports."""
+        """Job name -> stage name -> processing time map"""
+        self.stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
+            self.instance.stage_id_list, self.instance.job_id_list
+        )
+        """Stage name -> job name -> processing time map"""
+
+        logging.info(
+            f"Start solving {self.instance.name} using CP model class:"
+            f" {self.cp_model_class.__module__}.{self.cp_model_class.__name__}",
+        )
 
     # Start abstract getters
 
-    def create_base_cp_model(self) -> PureCP2023Naderi:
-        if "horizon" not in self.shared_param_dict:
-            raise ValueError("Horizon not found in shared parameters.")
-        horizon = self.shared_param_dict["horizon"]
-        return self.cp_model_class.from_instance(self.instance, horizon)
+    def create_base_cp_model(
+        self, impose_all_stage_capacity_constr: bool = True, **kwargs
+    ) -> HfsMathModel:
+        return self.cp_model_class.from_instance(
+            self.instance,
+            self.get_horizon(),
+            impose_all_stage_capacity_constr=impose_all_stage_capacity_constr,
+        )
 
     # End abstract getters
+
+    def get_horizon(self) -> int:
+        """Returns the horizon of the scheduling problem."""
+        if "horizon" not in self.shared_param_dict:
+            raise ValueError("Horizon not found in shared parameters.")
+        return self.shared_param_dict["horizon"]
 
     def set_working_dir(self, dir_path: Path | str):
         super().set_working_dir(dir_path)
@@ -123,122 +145,75 @@ class HybridFlowShopCpLnsController(
     def get_remaining_sec(self) -> float:
         return self.timer.get_remaining_sec(self.stopping_criteria.timelimit)
 
-    def get_remaining_time_limit(self, subroutine_time_limit: float) -> float:
+    def get_remaining_time_limit(self, subroutine_time_limit: float | None) -> float:
         """Get the remaining time limit for the subroutine.
 
         Args:
-            subroutine_time_limit (float): The time limit for the subroutine in seconds.
+            subroutine_time_limit (float | None, optional): The time limit for the subroutine in seconds.
+                If None, the remaining time limit is used.
 
         Returns:
             float: The minimum of the subroutine time limit and the remaining time limit.
         """
+        if subroutine_time_limit is None:
+            return self.get_remaining_sec()
         return min(subroutine_time_limit, self.get_remaining_sec())
 
     # End stopping condition
 
-    # Start internal state management
+    # Start visualization
 
-    def set_last_solution_as_incumbent(self, draw_gantt: bool = False) -> None:
-        """Set the incumbent solution.
+    def draw_gantt(
+        self, schedule: HybridFlowshopSchedule, output_path: Path | None = None
+    ):
+        """Draws the Gantt chart of the given schedule.
 
         Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the incumbent solution.
-                Defaults to False.
+            schedule (HybridFlowshopSchedule): The schedule to draw.
+            output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
-        # TODO: incumbent_report: HfsSubroutineReport
-        # TODO: incumbent_solution: HybridFlowshopSchedule
-        self.incumbent_solution_manager = self.last_solution_manager
-        if draw_gantt:
-            self.draw_incumbent_gantt()
-
-    def draw_incumbent_gantt(self, output_path: Optional[Path] = None) -> None:
-        # TODO: incumbent_solution: HybridFlowshopSchedule
         if output_path is None:
             output_path = self.get_file_path_for_subroutine("_gantt.png")
-        self.incumbent_solution_manager.save_gantt_as_png(output_path)
+        if isinstance(schedule, HybridFlowshopSchedule):
+            plotter = GanttPlotter()
+            plotter.export_hybrid_flowshop_plot(
+                output_path,
+                schedule.get_start_time_map(),
+                schedule.get_end_time_map(),
+                self.instance.job_id_list,
+            )
 
-    def update_incumbent_solution(self, draw_gantt: bool = False) -> None:
-        """
-        Update the incumbent solution if the last solution is better.
-        - This method checks if the last solution is better than the incumbent solution.
-        - If it is, it sets the last solution as the incumbent solution and optionally draws the Gantt chart.
-
-        Args:
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution if it is better.
-                Defaults to False.
-        """
-        if self.last_solution_is_better_than_incumbent():
-            self.set_last_solution_as_incumbent(draw_gantt=draw_gantt)
-
-    def last_solution_is_better_than_incumbent(self) -> bool:
-        """
-        Check if the last solution is better than the incumbent solution.
-        - If no incumbent solution exists, the last solution is considered better.
-        """
-        # TODO: incumbent_report: HfsSubroutineReport
-        if not hasattr(self, "last_solution_manager"):
-            raise ValueError("No last solution available to compare.")
-        # If no incumbent solution exists, the last solution is considered better
-        if not hasattr(self, "incumbent_solution_manager"):
-            return True
-        return (
-            self.last_solution_manager.report.obj_value is not None
-            and self.incumbent_solution_manager.report.obj_value is not None
-            and self.last_solution_manager.report.obj_value
-            < self.incumbent_solution_manager.report.obj_value
-        )
-
-    def get_incumbent_solution_dict(self, for_pyyaml: bool = False) -> dict[str, Any]:
-        """
-        Get the incumbent solution as a dictionary.
+    def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
+        """Draws the Gantt chart of the incumbent solution.
 
         Args:
-            for_pyyaml (bool, optional): If true, create start time and end time dictionary for PyYAML.
-                Defaults to False.
+            output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
-        # TODO: incumbent_solution: HybridFlowshopSchedule
-        if not hasattr(self, "incumbent_solution_manager"):
-            raise ValueError("No incumbent solution available.")
-        return self.incumbent_solution_manager.get_solution_dict(for_pyyaml=for_pyyaml)
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if isinstance(incumbent_solution, HybridFlowshopSchedule):
+            self.draw_gantt(incumbent_solution, output_path=output_path)
+        else:
+            logging.warning("No incumbent solution available to draw Gantt chart.")
 
-    def update_obj_bound(self, new_bound: float) -> bool:
-        """Update the objective bound if the new bound is better than the current one.
-
-        Args:
-            new_bound (float): The new objective bound to update.
-
-        Returns:
-            bool: True if the objective bound was updated, False otherwise.
-        """
-        if self.obj_lower_bound is None or self.obj_lower_bound < new_bound:
-            self.obj_lower_bound = new_bound
-            return True
-        return False
-
-    # End internal state management
+    # End visualization
 
     # Start subroutine definition
 
     def solve_current_cp_remaining_time_limit(
         self,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         is_initial_solution: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """
-        Solve the current CP model with the remaining time limit.
-        - Updates the experiment summary with the run summary of the current solution.
-        - Updates the last solution manager with the start and end times extracted from the CP model.
-        - Checks the feasibility of the solution if required.
-        - If the objective value is valid, it updates the incumbent solution.
+        """Solves the current CP model, creates a schedule, and registers the result.
 
         Args:
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             obj_value_is_valid (bool, optional): If True, adds the objective value log.
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
@@ -251,14 +226,16 @@ class HybridFlowShopCpLnsController(
         """
         _timelimit = self.get_remaining_time_limit(computational_time)
 
-        # If LB for the objective bound is valid for the model, set it in the CP model
-        if obj_value_is_valid:
-            if self.obj_lower_bound is not None:
-                self.cp_model.set_obj_lower_bound(self.obj_lower_bound)
+        # Utilize the objective bound if available
+        if obj_value_is_valid and self.solution_manager.best_obj_bound is not None:
+            self.cp_model.set_obj_lower_bound(self.solution_manager.best_obj_bound)
+
+        # mdl_txt_path = self.get_file_path_for_subroutine("_cp_sat_model.txt")
+        # self.cp_model.export_to_file(str(mdl_txt_path))
 
         solver_report = self.solve_current_cp_model(
             _timelimit,
-            num_workers,
+            solver_thread_cnt,
             random_seed=self.random_seed,
             e_timer=self.timer,
             log_level_obj_value=logging.INFO,
@@ -271,67 +248,79 @@ class HybridFlowShopCpLnsController(
             solver_report, is_init=is_initial_solution
         )
 
-        start_time_map, end_time_map = self.cp_model.extract_start_end_time_map()
+        # Create a new report with None values if the objective or bound is not valid.
+        # This is necessary because the report object is frozen.
+        report_updates: dict[str, Any] = {}
+        if not obj_value_is_valid:
+            report_updates["obj_value"] = None
+        if not obj_bound_is_valid:
+            report_updates["obj_bound"] = None
 
-        if error_if_infeasible:
-            self.check_feasibility(start_time_map)
-        self.report_recorder.append_report(hfs_solver_report)
-        self.last_solution_manager = SolutionManager(
-            start_time_map=start_time_map,
-            end_time_map=end_time_map,
-            report=hfs_solver_report,
-        )
+        if report_updates:
+            hfs_solver_report = hfs_solver_report.replace(**report_updates)
 
-        if obj_value_is_valid:
-            self.update_incumbent_solution(draw_gantt=draw_gantt)
-        if obj_bound_is_valid:
-            if solver_report.obj_bound is not None:
-                self.update_obj_bound(solver_report.obj_bound)
-
-    def feasible_incumbent_solution_exists(self) -> bool:
-        """Check if the incumbent solution is feasible."""
-        return (
-            hasattr(self, "incumbent_solution_manager")
-            and self.incumbent_solution_manager.is_feasible
-        )
+        solution: HybridFlowshopSchedule | None = None
+        if hfs_solver_report.is_feasible:
+            solution = self.cp_model.create_schedule()
+            if error_if_infeasible:
+                self.check_feasibility(solution.get_start_time_map())
+            # Ensure consistency between report and solution
+            if solution.makespan != hfs_solver_report.obj_value:
+                raise ValueError(
+                    "Objective value mismatch between solver report and schedule makespan."
+                )
+        # Register the solution
+        was_updated = self.solution_manager.register(hfs_solver_report, solution)
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     def solve_with_initial_solution(
         self,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Solve the current CP model with the incumbent solution as the initial solution.
-
-        - If a feasible incumbent solution exists, it clears the hints in the current CP model
-          and applies the incumbent solution as a hint.
-        - Then, it solves the CP model with the given computational time and number of workers.
-
-        Args:
-            computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
-            obj_value_is_valid (bool, optional): If True, adds the objective value log.
-                Defaults to False.
-            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
-                Defaults to False.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
         """
-        cannot_apply_hint = not self.feasible_incumbent_solution_exists()
-        if not cannot_apply_hint:
+        Solves the current CP model using the incumbent solution as a hint.
+        """
+        incumbent_solution = self.solution_manager.get_incumbent()
+        is_initial_run = incumbent_solution is None
+
+        if incumbent_solution:
             self.cp_model.clear_hints()
-            self.incumbent_solution_manager.apply_start_and_present_hints(self.cp_model)
+            logging.info(
+                "Applying incumbent solution with objValue "
+                f"{incumbent_solution.makespan} as a hint."
+            )
+            if isinstance(self.cp_model, CP2023NaderiCumulative):
+                self.cp_model.add_start_hints_from_start_time_map(
+                    incumbent_solution.get_start_time_map(),
+                    ignore_integrity_check=True,
+                )
+            elif isinstance(
+                self.cp_model,
+                (
+                    CP2023NaderiOptionalInterval,
+                    CPOptionalIntervalMasterTimevar,
+                    CPCumulativeOptionalHybrid,
+                ),
+            ):
+                self.cp_model.add_start_and_present_hints_from_start_time_map(
+                    incumbent_solution.get_start_time_map(),
+                    ignore_integrity_check=True,
+                )
+            else:
+                raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+
         self.solve_current_cp_remaining_time_limit(
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
-            is_initial_solution=cannot_apply_hint,
+            is_initial_solution=is_initial_run,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
@@ -341,7 +330,7 @@ class HybridFlowShopCpLnsController(
     def solve_base_cp_model(
         self,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         is_initial_solution: bool = False,
         draw_gantt: bool = False,
     ):
@@ -355,7 +344,7 @@ class HybridFlowShopCpLnsController(
 
         Args:
             computational_time (float): The maximum computational time in seconds for solving the CP model.
-            num_workers (int): The number of parallel workers (threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (threads) to use during search.
             is_initial_solution (bool, optional): If True, marks this run as producing the initial solution (affects summary/logging). Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution after solving. Defaults to False.
         """
@@ -363,7 +352,7 @@ class HybridFlowShopCpLnsController(
         if is_initial_solution:
             self.solve_current_cp_remaining_time_limit(
                 computational_time,
-                num_workers,
+                solver_thread_cnt,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
                 is_initial_solution=True,
@@ -374,7 +363,7 @@ class HybridFlowShopCpLnsController(
             # If it is not an initial solution, apply the incumbent solution as a hint
             self.solve_with_initial_solution(
                 computational_time,
-                num_workers,
+                solver_thread_cnt,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
                 error_if_infeasible=True,
@@ -387,7 +376,7 @@ class HybridFlowShopCpLnsController(
         self,
         freeze_method: Callable,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -398,7 +387,7 @@ class HybridFlowShopCpLnsController(
         Args:
             freeze_method (Callable): A callable that applies the freeze method to the CP model.
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             obj_value_is_valid (bool, optional): If True, adds the objective value log.
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
@@ -411,7 +400,7 @@ class HybridFlowShopCpLnsController(
         freeze_method()
         self.solve_with_initial_solution(
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
@@ -425,7 +414,7 @@ class HybridFlowShopCpLnsController(
         self,
         rho: float,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         error_if_infeasible=False,
         draw_gantt: bool = False,
     ):
@@ -435,7 +424,7 @@ class HybridFlowShopCpLnsController(
             rho (float): Fraction of makespan to define the window size.
                 For example, 0.2 means 20% of makespan.
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -444,7 +433,7 @@ class HybridFlowShopCpLnsController(
         self.freeze_solve_reset(
             lambda: self.apply_time_window_operator(rho),
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -452,22 +441,35 @@ class HybridFlowShopCpLnsController(
         )
 
     def apply_time_window_operator(self, rho: float):
-        """
-        Apply the Time Window Operator to the current CP model.
+        """Apply the Time Window Operator to the current CP model.
 
         Args:
             rho (float): Fraction of makespan to define the window size.
                 For example, 0.2 means 20% of makespan.
+
+        Raises:
+            ValueError: If no incumbent solution is available.
+            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            ValueError: If no end times are available for Time Window Operator.
+            ValueError: If the window length is not positive.
         """
         logging.info(f"Applying time window operator with rho={rho}")
-
-        start_time_map = self.incumbent_solution_manager.start_time_map
-        end_time_map = self.incumbent_solution_manager.end_time_map
+        if not self.solution_manager.has_incumbent():
+            raise ValueError(
+                "No incumbent solution available for Time Window Operator."
+            )
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+            )
+        start_time_map = incumbent_solution.get_start_time_map()
+        end_time_map = incumbent_solution.get_end_time_map()
 
         # 1. Calculate makespan (C_max)
         all_end_time_map = list(end_time_map.values())
         if not all_end_time_map:
-            raise ValueError("No end times available for Time Window Operator.")
+            raise ValueError("No end time is available for Time Window Operator.")
         C_max = max(all_end_time_map)
 
         # 2. Select random time window
@@ -497,14 +499,28 @@ class HybridFlowShopCpLnsController(
         stage_mc_to_jobs: dict[tuple[str, str], list[str]] = defaultdict(list)
 
         for j, i, k in out_of_window_ops:
-            self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
+            # self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
             stage_mc_to_jobs[(i, k)].append(j)
 
         for (i, k), jobs in stage_mc_to_jobs.items():
             # Start time 기준 정렬
             jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+                if isinstance(self.cp_model, CP2023NaderiCumulative):
+                    self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
+                elif isinstance(
+                    self.cp_model,
+                    (
+                        CP2023NaderiOptionalInterval,
+                        CPOptionalIntervalMasterTimevar,
+                        CPCumulativeOptionalHybrid,
+                    ),
+                ):
+                    self.cp_model.add_fixed_operation_precedence_constraint(
+                        j1, j2, i, k
+                    )
+                else:
+                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
     @staticmethod
     def is_within_window(time: int, window_start: int, window_end: int) -> bool:
@@ -517,7 +533,7 @@ class HybridFlowShopCpLnsController(
         self,
         rho: float,
         computational_time: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         error_if_infeasible=False,
         draw_gantt: bool = False,
     ):
@@ -526,7 +542,7 @@ class HybridFlowShopCpLnsController(
         Args:
             rho (float): Fraction of total number of operations to include in the block.
             computational_time (float): The maximum computational time in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
@@ -536,7 +552,7 @@ class HybridFlowShopCpLnsController(
         self.freeze_solve_reset(
             lambda: self.apply_block_operator(rho),
             computational_time,
-            num_workers,
+            solver_thread_cnt,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -544,16 +560,29 @@ class HybridFlowShopCpLnsController(
         )
 
     def apply_block_operator(self, rho: float):
-        """
-        Apply the Block Operator to the current CP model.
+        """Apply the Block Operator to the current CP model.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
+
+        Raises:
+            ValueError: If no incumbent solution is available.
+            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            ValueError: If no end times are available for Time Window Operator.
+            ValueError: If the window length is not positive.
         """
         logging.info(f"Applying block operator with rho={rho}")
-
-        start_time_map = self.incumbent_solution_manager.start_time_map
-        end_time_map = self.incumbent_solution_manager.end_time_map
+        if not self.solution_manager.has_incumbent():
+            raise ValueError(
+                "No incumbent solution available for Time Window Operator."
+            )
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+            )
+        start_time_map = incumbent_solution.get_start_time_map()
+        end_time_map = incumbent_solution.get_end_time_map()
 
         if not start_time_map or not end_time_map:
             raise ValueError("No solution available for block operator.")
@@ -590,13 +619,27 @@ class HybridFlowShopCpLnsController(
         stage_mc_to_jobs = defaultdict(list)
 
         for j, i, k in out_of_block_ops:
-            self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
+            # self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
             stage_mc_to_jobs[(i, k)].append(j)
 
         for (i, k), jobs in stage_mc_to_jobs.items():
             jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                self.cp_model.add_fixed_operation_precedence_constraint(j1, j2, i, k)
+                if isinstance(self.cp_model, CP2023NaderiCumulative):
+                    self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
+                elif isinstance(
+                    self.cp_model,
+                    (
+                        CP2023NaderiOptionalInterval,
+                        CPOptionalIntervalMasterTimevar,
+                        CPCumulativeOptionalHybrid,
+                    ),
+                ):
+                    self.cp_model.add_fixed_operation_precedence_constraint(
+                        j1, j2, i, k
+                    )
+                else:
+                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -605,74 +648,113 @@ class HybridFlowShopCpLnsController(
 
     # Subroutine: Johnson-based Heuristic for initialization
 
-    def dispatch_sequentially(
+    def dispatch_by_job_stage_time(
         self,
         job_sequence: list[str],
         schedule: HybridFlowshopSchedule,
         draw_gantt: bool = False,
     ):
-        """Dispatch jobs sequentially to the schedule.
+        """
+        Dispatches jobs according to the given sequence and registers the resulting
+        solution with the solution manager.
+
+        This is the classic job-major (job -> stage -> time) dispatching strategy.
 
         Args:
-            job_sequence (list[str]): The sequence of job IDs to be dispatched.
+            job_sequence (list[str]): The sequence of job IDs to be dispatched (dispatch order).
             schedule (HybridFlowshopSchedule): The schedule to which jobs are dispatched.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
         sub_timer = ElapsedTimer()
 
-        # Job name -> stage name -> processing time map
-        job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
-            self.instance.job_id_list, self.instance.stage_id_list
-        )
-
         for idx, j in enumerate(job_sequence):
-            schedule.dispatch_job_earliest(
-                j, self.instance.stage_id_list, job_2_stage_2_p_dict[j]
+            schedule.dispatch_job_by_stages(
+                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
             )
             # TODO: uncomment only for debug purpose
-            # start_time_map = schedule.get_start_time_map()
-            # end_time_map = schedule.get_end_time_map()
-            # sub_time = sub_timer.elapsed_sec
-            # obj_value = float(schedule.makespan)
-            # sol_mgr = SolutionManager(
-            #     start_time_map,
-            #     end_time_map,
-            #     HfsSubroutineReport(sub_time, obj_value, None, True),
-            # )
             # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
-            # sol_mgr.save_gantt_as_png(output_path)
+            # self.draw_gantt(schedule, output_path=output_path)
 
-        log_time = self.timer.elapsed_sec
-        obj_value = float(schedule.makespan)
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
+        # Create report and register the new solution
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(schedule.makespan),
+            obj_bound=None,
+            is_init=True,
         )
+        was_updated = self.solution_manager.register(report, schedule)
 
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
+        # Log and draw Gantt chart if the solution is an improvement
+        if was_updated:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(schedule.makespan), is_maximize=False
+            )
+            if draw_gantt:
+                self.draw_incumbent_gantt()
 
-        start_time_map = schedule.get_start_time_map()
-        end_time_map = schedule.get_end_time_map()
-        self.last_solution_manager = SolutionManager(
-            start_time_map, end_time_map, report
+    def dispatch_by_stage_time_job(
+        self,
+        job_sequence: list[str],
+        schedule: HybridFlowshopSchedule,
+        draw_gantt: bool = False,
+    ):
+        """
+        For each stage (in order), dispatch jobs in the given job_sequence order.
+        For each job in the sequence, schedule its operation in the current stage to the earliest available machine.
+
+        This is the stage-major (stage -> job -> time) dispatching strategy.
+        In hybrid flowshop, this is equivalent to dispatching jobs by stage, then by job, then by earliest time.
+
+        Args:
+            job_sequence (list[str]): The sequence of job IDs to be dispatched (dispatch order).
+            schedule (HybridFlowshopSchedule): The schedule to which jobs are dispatched.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        for idx, i in enumerate(self.instance.stage_id_list):
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
+            # TODO: uncomment only for debug purpose
+            # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
+            # self.draw_gantt(schedule, output_path=output_path)
+
+        # Create report and register the new solution
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(schedule.makespan),
+            obj_bound=None,
+            is_init=True,
         )
+        was_updated = self.solution_manager.register(report, schedule)
 
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        # Log and draw Gantt chart if the solution is an improvement
+        if was_updated:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(schedule.makespan), is_maximize=False
+            )
+            if draw_gantt:
+                self.draw_incumbent_gantt()
 
     def construct_solution_by_incremental_cp(
         self,
         job_sequence: list[str],
-        max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
+        is_init: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Construct a complete solution by incrementally solving CP submodels.
+        """
+        Constructs a solution by incrementally solving CP submodels and registers
+        the final result.
 
         This method builds a feasible schedule by adding jobs one by one
         according to the provided job sequence. At each step, a sub-CP model
@@ -681,21 +763,33 @@ class HybridFlowShopCpLnsController(
 
         Args:
             job_sequence (list[str]): The sequence of job IDs to be added.
-            max_time_per_add (float): The time limit (in seconds) for solving each incremental subproblem.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             added_batch_size (int, optional): The number of jobs to add in each iteration.
                 Defaults to 1.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
+            is_init (bool, optional): If True, indicates that this is an initial solution.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
+                Defaults to False.
+
+        Raises:
+            TypeError: If this method is called on a CP model that does not support incremental solving.
         """
-
         sub_timer = ElapsedTimer()
+        last_solution: HybridFlowshopSchedule | None = None
 
-        iter_report: CpsatSolverReport | None = None
-        iter_sol_manager: SolutionManager | None = None
+        sub_obj_store = ObjValueBoundStore[float]()
+        """Subroutine-specific objective store"""
+        sub_obj_store.obj_value_series.name = "ObjVal after dispatch"
+        sub_obj_store.obj_bound_series.name = "ObjVal before dispatch"
 
+        job_cnt = len(job_sequence)
         sequence_of_job_sublist = [
             job_sequence[i : i + added_batch_size]
             for i in range(0, len(job_sequence), added_batch_size)
@@ -703,61 +797,235 @@ class HybridFlowShopCpLnsController(
 
         job_subset: set[str] = set()
         for job_sublist in sequence_of_job_sublist:
-            logging.info(f"Add jobs {job_sublist} into {len(job_subset)}-job subset")
-            job_subset.update(job_sublist)  # Add new jobs to the subset
+            job_subset.update(job_sublist)
+            job_subset_cnt = len(job_subset)
+            all_jobs_are_included = job_subset_cnt == job_cnt
 
-            # Create CP model with the job subset
-            sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
-            # If this is not the first iteration, freeze jobs in the previous model
-            if iter_sol_manager is not None:
-                iter_sol_manager.apply_fixed_machine_and_ops_precedence_constraints(
-                    sub_cp_mdl
+            # Solution of dispatching job_sublist by jobs to the schedule of last_solution
+            partial_sol_dj: HybridFlowshopSchedule = (
+                HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                    self.instance.stage_2_machines_map
+                )
+                if last_solution is None
+                else last_solution.deepcopy()
+            )
+            for j in job_sublist:
+                partial_sol_dj.dispatch_job_by_stages(
+                    j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
                 )
 
+            # Solution of dispatching job_sublist by stages to the schedule of last_solution
+            partial_sol_ds: HybridFlowshopSchedule = (
+                HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                    self.instance.stage_2_machines_map
+                )
+                if last_solution is None
+                else last_solution.deepcopy()
+            )
+            for i in self.instance.stage_id_list:
+                partial_sol_ds.dispatch_stage_by_jobs(
+                    i, job_sublist, self.stage_2_job_2_p_dict[i]
+                )
+
+            # Select the best partial solution
+            partial_sol_best = (
+                partial_sol_dj
+                if partial_sol_dj.makespan <= partial_sol_ds.makespan
+                else partial_sol_ds
+            )
+
+            sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
+            if last_solution is not None:
+                if isinstance(sub_cp_mdl, CP2023NaderiCumulative):
+                    # Freeze operation precedences
+                    # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
+                    #     last_solution.get_start_time_map(), ignore_integrity_check=True
+                    # )
+                    sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                        last_solution, ignore_integrity_check=True
+                    )
+                    # Apply hint
+                    sub_cp_mdl.add_start_hints_from_start_time_map(
+                        partial_sol_best.get_start_time_map(),
+                        ignore_integrity_check=True,
+                    )
+                elif isinstance(
+                    self.cp_model,
+                    (
+                        CP2023NaderiOptionalInterval,
+                        CPOptionalIntervalMasterTimevar,
+                        CPCumulativeOptionalHybrid,
+                    ),
+                ):
+                    # Freeze operation precedences
+                    sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
+                        last_solution.get_start_time_map(), ignore_integrity_check=True
+                    )
+                    # Apply hint
+                    sub_cp_mdl.add_start_and_present_hints_from_start_time_map(
+                        partial_sol_best.get_start_time_map(),
+                        ignore_integrity_check=True,
+                    )
+                else:
+                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+
+            # mdl_txt_path = self.get_file_path_for_subroutine(
+            #     f"_{job_subset_cnt}_cp_sat_model.txt"
+            # )
+            # sub_cp_mdl.export_to_file(str(mdl_txt_path))
+
             _timelimit = self.get_remaining_time_limit(max_time_per_add)
+            if (
+                all_jobs_are_included
+                and self.solution_manager.best_obj_bound is not None
+            ):
+                sub_cp_mdl.set_obj_lower_bound(self.solution_manager.best_obj_bound)
             iter_report = self.solve_cp_model(
                 sub_cp_mdl,
                 _timelimit,
-                num_workers,
+                solver_thread_cnt,
                 random_seed=self.random_seed,
-                e_timer=self.timer,
+                no_improvement_timelimit=no_improvement_timelimit,
+                e_timer=sub_timer,
+                obj_value_is_valid=all_jobs_are_included,
             )
+            last_timestamp = sub_timer.elapsed_sec
 
-            start_time_map, end_time_map = sub_cp_mdl.extract_start_end_time_map()
-            iter_sol_manager = SolutionManager(
-                start_time_map=start_time_map,
-                end_time_map=end_time_map,
-                report=iter_report,
+            if iter_report.is_feasible:
+                # Update the last solution
+                last_solution = sub_cp_mdl.create_schedule()
+                # If last_solution is not better than partial_dispatched_sol,
+                if last_solution is None:
+                    last_solution = partial_sol_best
+                elif last_solution.makespan >= partial_sol_best.makespan:
+                    # Use the partial dispatched solution
+                    last_solution = partial_sol_best
+
+                # Dispatch remaining jobs to create a schedule feasible to the original problem
+                all_dispatched_sol_dj = last_solution.deepcopy()
+                remaining_jobs = [j for j in job_sequence if j not in job_subset]
+                for j in remaining_jobs:
+                    all_dispatched_sol_dj.dispatch_job_by_stages(
+                        j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+                    )
+
+                all_dispatched_sol_ds = last_solution.deepcopy()
+                remaining_jobs = [j for j in job_sequence if j not in job_subset]
+                for i in self.instance.stage_id_list:
+                    all_dispatched_sol_ds.dispatch_stage_by_jobs(
+                        i, remaining_jobs, self.stage_2_job_2_p_dict[i]
+                    )
+
+                all_dispatched_sol_best = (
+                    all_dispatched_sol_dj
+                    if all_dispatched_sol_dj.makespan <= all_dispatched_sol_ds.makespan
+                    else all_dispatched_sol_ds
+                )
+
+                # TODO: uncomment only for debug purpose
+                output_path = self.get_file_path_for_subroutine(
+                    f"_gantt_{job_subset_cnt}_1_partial_dispatched_solution.yaml"
+                )
+                solution_dict = {
+                    "start_times": tuple_to_pyyaml_key(
+                        partial_sol_best.get_start_time_map()
+                    ),
+                    "end_times": tuple_to_pyyaml_key(
+                        partial_sol_best.get_end_time_map()
+                    ),
+                }
+                object_to_yaml(solution_dict, output_path)
+                if last_solution.makespan < partial_sol_best.makespan:
+                    output_path = self.get_file_path_for_subroutine(
+                        f"_gantt_{job_subset_cnt}_2_partial_CP_solution.yaml"
+                    )
+                    solution_dict = {
+                        "start_times": tuple_to_pyyaml_key(
+                            last_solution.get_start_time_map()
+                        ),
+                        "end_times": tuple_to_pyyaml_key(
+                            last_solution.get_end_time_map()
+                        ),
+                    }
+                    object_to_yaml(solution_dict, output_path)
+                if remaining_jobs:
+                    output_path = self.get_file_path_for_subroutine(
+                        f"_gantt_{job_subset_cnt}_3_all_dispatched_solution.yaml"
+                    )
+                    solution_dict = {
+                        "start_times": tuple_to_pyyaml_key(
+                            all_dispatched_sol_best.get_start_time_map()
+                        ),
+                        "end_times": tuple_to_pyyaml_key(
+                            all_dispatched_sol_best.get_end_time_map()
+                        ),
+                    }
+                    object_to_yaml(solution_dict, output_path)
+
+                # Store the objective value logs
+
+                # Obj. value of dispatched solution as a value
+                sub_obj_store.add_obj_value(
+                    last_timestamp, all_dispatched_sol_best.makespan, is_maximize=None
+                )
+
+                # Obj. values of Un-dispatched solution as bounds
+                undispatched_obj_value_records = sub_cp_mdl.get_obj_value_records()
+                for elapsed, value in undispatched_obj_value_records:
+                    sub_obj_store.add_obj_bound(elapsed, value, is_maximize=None)
+                if (
+                    last_timestamp,
+                    last_solution.makespan,
+                ) not in undispatched_obj_value_records:
+                    sub_obj_store.add_obj_bound(
+                        last_timestamp, last_solution.makespan, is_maximize=None
+                    )
+                _last_timestamp_note = f"{job_subset_cnt}/{job_cnt}"
+                sub_obj_store.add_last_timestamp_note(
+                    _last_timestamp_note,
+                    obj_value_is_valid=True,
+                    obj_bound_is_valid=True,
+                )
+
+        if last_solution is None:
+            logging.warning("Incremental CP construction failed to find a solution.")
+            report = HfsSubroutineReport(
+                elapsed_time=sub_timer.elapsed_sec,
+                obj_value=None,
+                obj_bound=None,
+                is_init=is_init,
             )
-
-        assert iter_report is not None, "No summary available after solving CP model."
-        assert iter_report.obj_value is not None, (
-            "No objective value available after solving."
-        )
-        assert iter_sol_manager is not None, "No solution available after solving."
+            self.solution_manager.register(report, None)
+            return
 
         if error_if_infeasible:
-            self.check_feasibility(iter_sol_manager.start_time_map)
+            self.check_feasibility(last_solution.get_start_time_map())
 
-        log_time = self.timer.elapsed_sec
-        obj_value = iter_report.obj_value
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-
-        sub_time = sub_timer.elapsed_sec
-        report = HfsSubroutineReport(sub_time, obj_value, None, True)
-        self.report_recorder.append_report(report)
-
-        self.last_solution_manager = SolutionManager(
-            start_time_map=iter_sol_manager.start_time_map,
-            end_time_map=iter_sol_manager.end_time_map,
-            report=report,
+        # Create report for the final solution and register it
+        final_report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(last_solution.makespan),
+            obj_bound=None,
+            is_init=is_init,
         )
+        was_updated = self.solution_manager.register(final_report, last_solution)
 
-        self.update_incumbent_solution(draw_gantt=draw_gantt)
+        if was_updated:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(last_solution.makespan), is_maximize=False
+            )
+            if draw_gantt:
+                self.draw_incumbent_gantt()
+
+        # Write the objective store to a YAML file
+        # TODO: suffix from output_metadata
+        if sub_obj_store:
+            sub_obj_store.save_yaml(self.get_file_path_for_subroutine("_obj_log.yaml"))
 
     @staticmethod
-    def johnson_rule_permutation(
-        aggregated_p1: dict[str, int], aggregated_p2: dict[str, int]
+    def get_johnsons_rule_sequence(
+        job_name_2_p1_map: dict[str, int], job_name_2_p2_map: dict[str, int]
     ) -> list[str]:
         """
         Apply Johnson's rule to determine the job sequence.
@@ -765,235 +1033,1383 @@ class HybridFlowShopCpLnsController(
         for two stages and returns a job sequence based on the Johnson's rule.
 
         Args:
-            aggregated_p1 (dict[str, int]): job ID -> aggregated processing time for the 1st stage
-            aggregated_p2 (dict[str, int]): job ID -> aggregated processing time for the 2nd stage
+            job_name_2_p1_map (dict[str, int]): job ID -> processing time for the 1st stage
+            job_name_2_p2_map (dict[str, int]): job ID -> processing time for the 2nd stage
 
         Returns:
             list[str]: A list of job IDs ordered according to Johnson's rule.
         """
-        jobs = list(aggregated_p1.keys())
-        # n = len(jobs)
-        # sequence: list[str] = [""] * n  # Initialize sequence with empty strings
-        # left = 0
-        # right = n - 1
+        jobs = list(job_name_2_p1_map.keys())
 
-        # # Pre-sort jobs based on aggregated processing times
-        # jobs.sort(
-        #     key=lambda j: (min(aggregated_p1[j], aggregated_p2[j]), j)
-        # )  # Sort by min processing time first, then by job ID
-
-        # while jobs:
-        #     job = jobs.pop(0)  # Remove the first job from the sorted list
-        #     if aggregated_p1[job] <= aggregated_p2[job]:
-        #         sequence[left] = job  # Last of the front
-        #         left += 1
-        #     else:
-        #         sequence[right] = job  # First of the back
-        #         right -= 1
         l1: list[str] = []
         l2: list[str] = []
 
         for job in jobs:
-            if aggregated_p1[job] <= aggregated_p2[job]:
+            if job_name_2_p1_map[job] <= job_name_2_p2_map[job]:
                 l1.append(job)
             else:
                 l2.append(job)
             # logging.info(
-            #     f"Job {job} with p1={aggregated_p1[job]}, p2={aggregated_p2[job]}"
-            #     f"; Min={min(aggregated_p1[job], aggregated_p2[job])}"
-            #     f"; p1<=p2: {aggregated_p1[job] <= aggregated_p2[job]}"
+            #     f"Job {job} with p1={job_name_2_p1_map[job]}, p2={job_name_2_p2_map[job]}"
+            #     f"; Min={min(job_name_2_p1_map[job], job_name_2_p2_map[job])}"
+            #     f"; p1<=p2: {job_name_2_p1_map[job] <= job_name_2_p2_map[job]}"
             # )
 
         # Sort by increasing order of p_1j, tie-breaking by job-ID (ascending)
-        l1.sort(key=lambda j: (aggregated_p1[j], j))
+        l1.sort(key=lambda j: (job_name_2_p1_map[j], j))
 
         # Sort by decreasing order of p_2j, tie-breaking by job-ID (descending)
-        l2.sort(key=lambda j: (aggregated_p2[j], j), reverse=True)
+        l2.sort(key=lambda j: (job_name_2_p2_map[j], j), reverse=True)
 
-        logging.info(f"Job sequence by Johnson's rule: {l1}+{l2}")
+        # logging.info(f"Job sequence by Johnson's rule: {l1}+{l2}")
 
         sequence = l1 + l2
         return sequence
 
-    def get_jh1_sequence(self) -> list[str]:
+    def get_cds_sequence(self, k: int) -> list[str]:
+        """
+        Get Campbell-Dudek-Smith (CDS) sequence given $k$.
+
+        The sequence is originally for the permultation flow shop problem
+        to minimize the makespan.
+
+        When k=1, result is the same as get_sequence1().
+
+        Args:
+            k (int): Index between 1 and m-1, where m is the number of stages.
+
+        Returns:
+            list[str]: A list of job IDs ordered according to the CDS rule.
+        """
         jobs = self.instance.job_id_list
         stages = self.instance.stage_id_list
         p_dict: dict[tuple[str, str], int] = (
             self.instance.p_manager.job_stage_2_value_map(jobs, stages)
         )
-        p1 = {j: p_dict[j, stages[0]] for j in jobs}  # First stage processing times
-        p2 = {j: p_dict[j, stages[-1]] for j in jobs}  # Last stage processing times
-        return self.johnson_rule_permutation(p1, p2)
 
-    def get_jh2_sequence(self) -> list[str]:
+        m = self.instance.stage_count
+        p1_stages = stages[:k]  # Sum over stages 0 ~ k-1 (1~k on paper)
+        p2_stages = stages[m - k :]  # Sum over stages m-k ~ m-1 (m-k+1 ~ m on paper)
+        p1 = {j: sum(p_dict[j, i] for i in p1_stages) for j in jobs}
+        p2 = {j: sum(p_dict[j, i] for i in p2_stages) for j in jobs}
+
+        return self.get_johnsons_rule_sequence(p1, p2)
+
+    def get_tp_sequence(self, k: int) -> list[str]:
+        """
+        Get two-partition sequence given $k$.
+
+        - For each job, consider the sum of processing times of stages 0 to k-1
+          as the first part (p1),
+        - and the sum of processing times of stages k to m-1 as the second part
+          (p2).
+        - Create a job sequence by applying Johnson's rule for F2||C_max.
+
+        When k = num_stages // 2, result is the same as get_sequence2().
+
+        Args:
+            k (int): Index between 1 and m-1, where m is the number of stages.
+
+        Returns:
+            list[str]: A list of job IDs ordered according to the TP rule.
+        """
         jobs = self.instance.job_id_list
-        num_stages = self.instance.stage_count
         stages = self.instance.stage_id_list
         p_dict: dict[tuple[str, str], int] = (
             self.instance.p_manager.job_stage_2_value_map(jobs, stages)
         )
-        mid = num_stages // 2
-        # First half stage list
-        first_half_stages = stages[:mid]
-        # Second half stage list
-        second_half_stages = stages[mid:]
-        p1 = {
-            j: sum(p_dict[j, s] for s in first_half_stages) for j in jobs
-        }  # Aggregated processing times for first half stages
-        p2 = {
-            j: sum(p_dict[j, s] for s in second_half_stages) for j in jobs
-        }  # Aggregated processing times for second half stages
-        return self.johnson_rule_permutation(p1, p2)
 
-    def build_jh1_solution(
+        p1_stages = stages[:k]  # Sum over stages 0 ~ k-1
+        p2_stages = stages[k:]  # Sum over stages k ~ m-1
+        p1 = {j: sum(p_dict[j, i] for i in p1_stages) for j in jobs}
+        p2 = {j: sum(p_dict[j, i] for i in p2_stages) for j in jobs}
+
+        return self.get_johnsons_rule_sequence(p1, p2)
+
+    def get_gupta_sequence(self) -> list[str]:
+        """
+        Return the job sequence according to Gupta's functional heuristic algorithm.
+
+        - For each job, calculate:
+            f(j) = A / min_{1 <= m <= M-1} (p_{j,m} + p_{j,m+1})
+            where
+                A = 1 if p_{j,M} <= p_{j,1}
+                A = -1 otherwise
+        - Sort jobs in ascending order of f(j).
+        (Break ties by total processing time, then by job ID)
+
+        Returns:
+            list[str]: A list of job IDs in Gupta heuristic order.
+        """
+        jobs = self.instance.job_id_list
+        stages = self.instance.stage_id_list
+        m = len(stages)
+        p_dict: dict[tuple[str, str], int] = (
+            self.instance.p_manager.job_stage_2_value_map(jobs, stages)
+        )
+
+        gupta_score = {}
+        total_p = {}
+
+        for j in jobs:
+            # min over all adjacent pairs (m=0 to m-2)
+            min_sum = min(
+                p_dict[j, stages[m1]] + p_dict[j, stages[m1 + 1]] for m1 in range(m - 1)
+            )
+            A = 1 if p_dict[j, stages[-1]] <= p_dict[j, stages[0]] else -1
+            f_j = A / min_sum if min_sum != 0 else float("inf")  # avoid div by zero
+            gupta_score[j] = f_j
+            total_p[j] = sum(p_dict[j, s] for s in stages)
+
+        # Sort by ascending order: (f_j, total processing time, job id)
+        sorted_jobs = sorted(jobs, key=lambda j: (gupta_score[j], total_p[j], j))
+        return sorted_jobs
+
+    def get_palmer_sequence(self) -> list[str]:
+        """
+        Return the job sequence according to Palmer's slope index heuristic.
+
+        Returns:
+            list[str]: Job ID list in Palmer slope order (descending s_i).
+        """
+        jobs = self.instance.job_id_list
+        stages = self.instance.stage_id_list
+        m = len(stages)
+        p_dict: dict[tuple[str, str], int] = (
+            self.instance.p_manager.job_stage_2_value_map(jobs, stages)
+        )
+
+        palmer_score = {}
+        for j in jobs:
+            s = sum(
+                (m - 2 * (stage_idx + 1) + 1) * p_dict[j, stages[stage_idx]]
+                for stage_idx in range(m)
+            )
+            palmer_score[j] = s
+
+        # Sort by ascending order: (Palmer score, job id)
+        sorted_jobs = sorted(jobs, key=lambda j: (palmer_score[j], j))
+        return sorted_jobs
+
+    def initialize_by_cjqp(
         self,
-        max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using the Johnson-based Heuristic 1 (jh1) sequence.
+        """
+        Build a CP-guided solution using Palmer sequence.
 
-        This method computes a job sequence by aggregating processing times from
-        the first and last stages (jh1 rule), then incrementally constructs a feasible
-        schedule by solving sub-CP models for each job prefix in the sequence.
+        This method incrementally constructs a feasible schedule by solving sub-CP models
+        for each job prefix in the Palmer sequence.
 
         Args:
-            max_time_per_add (float): The maximum computational time per addition in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
 
         self.construct_solution_by_incremental_cp(
-            self.get_jh1_sequence(),
-            max_time_per_add,
-            num_workers,
+            self.get_palmer_sequence(),
+            solver_thread_cnt,
             added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
+            is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
-    def build_jh2_solution(
+    def initialize_by_cjqg(
         self,
-        max_time_per_add: float,
-        num_workers: int,
+        solver_thread_cnt: int,
         added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Build a CP-guided solution using the Johnson-based Heuristic 2 (jh2) sequence.
+        """Build a CP-guided solution using Gupta sequence.
 
-        This method computes a job sequence by aggregating processing times from
-        the first half and second half stages (jh2 rule), then incrementally constructs a feasible
-        schedule by solving sub-CP models for each job prefix in the sequence.
+        This method incrementally constructs a feasible schedule by solving sub-CP models
+        for each job prefix in the Gupta sequence.
 
         Args:
-            max_time_per_add (float): The maximum computational time per addition in seconds.
-            num_workers (int): The number of parallel workers (i.e. threads) to use during search.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
 
         self.construct_solution_by_incremental_cp(
-            self.get_jh2_sequence(),
-            max_time_per_add,
-            num_workers,
+            self.get_gupta_sequence(),
+            solver_thread_cnt,
             added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
+            is_init=True,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
-    def init_shdlb(self) -> None:
+    def get_shdlb_for_stage(self, i: str) -> int:
         """
-        Compute the global lower bound for the Hybrid Flow Shop instance using the method
-        described by Santos et al. (1995) and assign it to `self.obj_bound`.
+        Compute the stage-specific lower bound for the Hybrid Flow Shop instance
+        using the Santos et al. (1995) method.
+
+        Args:
+            i (str): The stage index.
+
+        Returns:
+            int: The computed lower bound for the stage.
         """
         instance = self.instance
         jobs: list[str] = instance.job_id_list
         stages: list[str] = instance.stage_id_list
-        stage_2_mc_count_map: dict[str, int] = {
-            i: len(instance.stage_2_machines_map[i]) for i in stages
-        }
         p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
             jobs, stages
         )
+
         m = len(stages)
+        stage_idx = stages.index(i)
+        mc_count = len(instance.stage_2_machines_map[i])
+
+        def RS(j: str) -> int:
+            return sum(p[j, stages[s]] for s in range(stage_idx + 1, m))
+
+        def LS(j: str) -> int:
+            return sum(p[j, stages[s]] for s in range(0, stage_idx))
+
+        LSA = sorted([LS(j) for j in jobs])
+        RSA = sorted([RS(j) for j in jobs])
+        total_processing = sum(p[j, i] for j in jobs)
+        lhs_rum = sum(LSA[y] for y in range(min(mc_count, len(LSA))))
+        rhs_rum = sum(RSA[y] for y in range(min(mc_count, len(RSA))))
+        return math.ceil((lhs_rum + total_processing + rhs_rum) / mc_count)
+
+    def apply_shdlb(self) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance using the method
+        described by Santos et al. (1995) and update the global lower bound.
+        """
+        sub_timer = ElapsedTimer()
+        instance = self.instance
+        jobs: list[str] = instance.job_id_list
+        stages: list[str] = instance.stage_id_list
+        p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
+            jobs, stages
+        )
 
         def LB0() -> int:
             return max(sum(p[j, i] for i in stages) for j in jobs)
 
-        def RS(j: str, stage_idx: int) -> int:
-            return sum(p[j, stages[s]] for s in range(stage_idx + 1, m))
-
-        def LS(j: str, stage_idx: int) -> int:
-            return sum(p[j, stages[s]] for s in range(0, stage_idx))
-
-        def LBj(stage_idx: int) -> float:
-            i = stages[stage_idx]
-            M_i = stage_2_mc_count_map[i]
-
-            # LSA and RSA: ascending sorted LS and RS values
-            LSA = sorted([LS(j, stage_idx) for j in jobs])
-            RSA = sorted([RS(j, stage_idx) for j in jobs])
-
-            total_processing = sum(p[j, i] for j in jobs)
-
-            lhs_sum = sum(LSA[y] for y in range(min(M_i, len(LSA))))
-            rhs_sum = sum(RSA[y] for y in range(min(M_i, len(RSA))))
-
-            return math.ceil((lhs_sum + total_processing + rhs_sum) / M_i)
-
         lb0 = LB0()
-        stage_bounds = [LBj(stage_idx) for stage_idx in range(m)]
+        stage_bounds = [self.get_shdlb_for_stage(stage) for stage in stages]
         obj_bound = max([lb0] + stage_bounds)
-
-        # Log & update
 
         logging.info(
             f"[SHD LB] LB(0) = {lb0}, LB(j) = {stage_bounds}, LB_MAX = {obj_bound}"
         )
-        if self.update_obj_bound(obj_bound):
+
+        # Log
+        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
             log_time = self.timer.elapsed_sec
             self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_bound_is_valid=True
+            )
 
-    def dispatch_by_jh1(self, draw_gantt: bool = False) -> None:
+        # Create report and register
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=None,
+            obj_bound=obj_bound,
+            is_init=True,
+        )
+        self.solution_manager.register(report, None)
+
+    def initialize_by_dj_cds(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
-        Dispatch jobs in the order determined by Johnson's rule for the first and last stages.
-        This method computes the job sequence using the Johnson-based Heuristic 1 (jh1) and
-        dispatches jobs sequentially to create a feasible schedule.
+        Uses the Campbell-Dudek-Smith (CDS) sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
-        job_sequence = self.get_jh1_sequence()
+        sub_timer = ElapsedTimer()
+
+        # Subroutine states
+        best_makespan = float("inf")
+        best_schedule: HybridFlowshopSchedule | None = None
+        best_k = -1
+
+        for k in range(1, self.instance.stage_count):
+            # Create an empty schedule
+            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                self.instance.stage_2_machines_map
+            )
+            # Dispatch
+            job_sequence = self.get_cds_sequence(k)
+            for j in job_sequence:
+                schedule.dispatch_job_by_stages(
+                    j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+                )
+            # Update subroutine states
+            makespan = schedule.makespan
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_schedule = schedule
+                best_k = k
+
+        if best_schedule is None:
+            raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
+        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(best_schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_dj_tp(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses the two-partition sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        # Subroutine states
+        best_makespan = float("inf")
+        best_schedule: HybridFlowshopSchedule | None = None
+        best_k = -1
+
+        for k in range(0, self.instance.stage_count):
+            # Create an empty schedule
+            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                self.instance.stage_2_machines_map
+            )
+            # Dispatch
+            job_sequence = self.get_tp_sequence(k)
+            for j in job_sequence:
+                schedule.dispatch_job_by_stages(
+                    j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+                )
+            # Update subroutine states
+            makespan = schedule.makespan
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_schedule = schedule
+                best_k = k
+
+        if best_schedule is None:
+            raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
+        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(best_schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_dj_gupta(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses the gupta sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
         )
-        self.dispatch_sequentially(job_sequence, schedule, draw_gantt=draw_gantt)
+        # Dispatch
+        job_sequence = self.get_gupta_sequence()
+        for j in job_sequence:
+            schedule.dispatch_job_by_stages(
+                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+            )
 
-    def dispatch_by_jh2(self, draw_gantt: bool = False) -> None:
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_dj_palmer(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
         """
-        Dispatch jobs in the order determined by Johnson's rule for the first half and second half stages.
-        This method computes the job sequence using the Johnson-based Heuristic 2 (jh2) and
-        dispatches jobs sequentially to create a feasible schedule.
+        Uses the gupta sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
         """
-        job_sequence = self.get_jh2_sequence()
+        sub_timer = ElapsedTimer()
+
         # Create an empty schedule
         schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
             self.instance.stage_2_machines_map
         )
-        self.dispatch_sequentially(job_sequence, schedule, draw_gantt=draw_gantt)
+        # Dispatch
+        job_sequence = self.get_palmer_sequence()
+        for j in job_sequence:
+            schedule.dispatch_job_by_stages(
+                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+            )
+
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_ds_cds(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses the Campbell-Dudek-Smith (CDS) sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        best_makespan = float("inf")
+        best_schedule: HybridFlowshopSchedule | None = None
+        best_k = -1
+        for k in range(1, self.instance.stage_count):
+            # Create an empty schedule
+            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                self.instance.stage_2_machines_map
+            )
+            job_sequence = self.get_cds_sequence(k)
+            for i in self.instance.stage_id_list:
+                schedule.dispatch_stage_by_jobs(
+                    i, job_sequence, self.stage_2_job_2_p_dict[i]
+                )
+            makespan = schedule.makespan
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_schedule = schedule
+                best_k = k
+
+        if best_schedule is None:
+            raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
+        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(best_schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_ds_tp(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses the two-partition sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        best_makespan = float("inf")
+        best_schedule: HybridFlowshopSchedule | None = None
+        best_k = -1
+        for k in range(0, self.instance.stage_count):
+            # Create an empty schedule
+            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                self.instance.stage_2_machines_map
+            )
+            job_sequence = self.get_tp_sequence(k)
+            for i in self.instance.stage_id_list:
+                schedule.dispatch_stage_by_jobs(
+                    i, job_sequence, self.stage_2_job_2_p_dict[i]
+                )
+            makespan = schedule.makespan
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_schedule = schedule
+                best_k = k
+
+        if best_schedule is None:
+            raise ValueError("No schedule found after applying CDS sequence.")
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_start_time_map())
+        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(best_schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_ds_gupta(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses the two-partition sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        # Create an empty schedule
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        # Dispatch
+        job_sequence = self.get_gupta_sequence()
+        for i in self.instance.stage_id_list:
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
+
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_ds_palmer(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses the two-partition sequence as the job sequence
+        & dispatches by job - stage - time priority to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        # Create an empty schedule
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        # Dispatch
+        job_sequence = self.get_palmer_sequence()
+        for i in self.instance.stage_id_list:
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
+
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
+        logging.info(f"Schedule found with makespan={schedule.makespan}")
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def get_incumbent_midpoint_sequence(self) -> list[str]:
+        """
+        Returns a job sequence based on the incumbent solution, sorted in ascending order by:
+
+        1. midpoint := (start_time at first stage + end_time at last stage) / 2
+        2. tie-break by first stage start_time
+        3. tie-break by original job index
+
+        Raises:
+            ValueError: if no incumbent solution is available.
+
+        Returns:
+            list[str]: A list of job IDs representing the midpoint sequence.
+        """
+        incumbent = self.solution_manager.get_incumbent()
+        if incumbent is None:
+            raise ValueError(
+                "No incumbent solution available to build midpoint sequence."
+            )
+
+        start_map = incumbent.get_start_time_map()
+        end_map = incumbent.get_end_time_map()
+        jobs = self.instance.job_id_list
+        idx_map = {j: idx for idx, j in enumerate(jobs)}
+        first_stage = self.instance.stage_id_list[0]
+        last_stage = self.instance.stage_id_list[-1]
+
+        seq_info: list[tuple[float, int, int, str]] = []
+        for j in jobs:
+            # find any machine k for first and last stage
+            s_first = next(
+                t
+                for (job, stage, _), t in start_map.items()
+                if job == j and stage == first_stage
+            )
+            e_last = next(
+                t
+                for (job, stage, _), t in end_map.items()
+                if job == j and stage == last_stage
+            )
+            midpoint = (s_first + e_last) / 2
+            seq_info.append((midpoint, s_first, idx_map[j], j))
+
+        seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
+        return [info[3] for info in seq_info]
+
+    def initialize_by_cjims(
+        self,
+        solver_thread_cnt: int,
+        added_batch_size: int = 1,
+        max_time_per_add: float | None = None,
+        no_improvement_timelimit: float | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        """
+        Builds a CP-guided solution using a midpoint sequence from the incumbent solution.
+
+        Args:
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            added_batch_size (int, optional): The number of jobs to add in each iteration.
+                Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
+                If None, uses the remaining time limit. Defaults to None.
+            no_improvement_timelimit (float | None, optional): If there is no improvement for this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
+            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
+                Defaults to False.
+        """
+        self.construct_solution_by_incremental_cp(
+            self.get_incumbent_midpoint_sequence(),
+            solver_thread_cnt,
+            added_batch_size=added_batch_size,
+            max_time_per_add=max_time_per_add,
+            no_improvement_timelimit=no_improvement_timelimit,
+            is_init=True,  # TODO: remove this line
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def get_lb_by_partial_stage_capa_constr(
+        self,
+        capacity_stage_set: set[str],
+        relaxed_mdl: CP2023NaderiCumulative,
+        computational_time: float,
+        solver_thread_cnt: int,
+        e_timer: ElapsedTimer | None = None,
+        log_level_obj_value: int | None = None,
+        log_level_obj_bound: int | None = None,
+    ) -> CpsatSolverReport | None:
+        """Get the objective bound from the CP model.
+
+        Args:
+            capacity_stage_set (set[str]): set of stage IDs to keep their machine count constraints.
+            relaxed_mdl (CP2023NaderiCumulative): CP model to solve.
+            computational_time (float): The maximum computational time in seconds.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            e_timer (ElapsedTimer | None, optional): ElapsedTimer for callbacks.
+                Defaults to None.
+            log_level_obj_value (int | None, optional): Log level for objective value updates.
+                Defaults to None.
+            log_level_obj_bound (int | None, optional): Log level for objective bound updates.
+                Defaults to None.
+
+        Returns:
+            CpsatSolverReport | None: Solver report, or None if infeasible.
+        """
+        if e_timer is None:
+            e_timer = ElapsedTimer()
+
+        # Add constraints
+        relaxed_mdl.add_stage_capacity_constraints(capacity_stage_set)
+        obj_bound = max(self.get_shdlb_for_stage(i) for i in capacity_stage_set)
+        relaxed_mdl.set_obj_lower_bound(obj_bound)
+
+        report = self.solve_cp_model(
+            relaxed_mdl,
+            computational_time,
+            solver_thread_cnt,
+            random_seed=self.random_seed,
+            e_timer=e_timer,
+            log_level_obj_value=log_level_obj_value,
+            log_level_obj_bound=log_level_obj_bound,
+        )
+        relaxed_mdl.delete_added_constraints()
+
+        if report.is_feasible:
+            return report
+        return None
+
+    def _solve_stage_capacity_subproblem(
+        self,
+        capacity_stage_set: set[str],
+        max_time: float,
+        solver_thread_cnt: int,
+        sub_timer: ElapsedTimer,
+        model_type: LbModelType,
+        log_prefix: str = "SCL LB",
+    ) -> tuple[CpsatSolverReport | None, list[dict[str, int]] | None]:
+        """
+        Solve a subproblem with capacity constraints only for the given stages.
+
+        Args:
+            capacity_stage_set (set[str]): Set of stage IDs to keep capacity constraints.
+            max_time (float): Time limit for the subproblem.
+            solver_thread_cnt (int): Number of solver threads.
+            sub_timer (ElapsedTimer): Timer for logging.
+            model_type (LbModelType): RELAXED or PARALLEL_MC.
+            log_prefix (str): Prefix for log messages.
+
+        Returns:
+            tuple[CpsatSolverReport | None, list[dict[str, int]] | None]: (report, start_time_maps) or (None, None).
+        """
+        if model_type == LbModelType.RELAXED:
+            relaxed_mdl = self.create_base_cp_model(
+                impose_all_stage_capacity_constr=False
+            )
+            relaxed_mdl.set_num_base_constraints()
+
+            iter_report = self.get_lb_by_partial_stage_capa_constr(
+                capacity_stage_set,
+                relaxed_mdl,
+                self.get_remaining_time_limit(max_time),
+                solver_thread_cnt,
+                e_timer=sub_timer,
+                log_level_obj_value=logging.INFO,
+                log_level_obj_bound=logging.INFO,
+            )
+            if iter_report is None:
+                logging.warning(
+                    f"[{log_prefix}] No feasible solution found for subproblem {capacity_stage_set} within time limit."
+                )
+                return None, None
+
+            last_timestamp = sub_timer.elapsed_sec
+            if iter_report.status == CpsatStatus.OPTIMAL:
+                # Extract start time maps for all stages in the capacity list
+                stage_2_job_2_start_time_map = (
+                    relaxed_mdl.extract_stage_2_job_2_start_time_map()
+                )
+                start_time_maps = [
+                    stage_2_job_2_start_time_map[stage] for stage in capacity_stage_set
+                ]
+                logging.info(
+                    f"[{log_prefix}] Lower bound found by optimum of subproblem {capacity_stage_set}:"
+                    f" {iter_report.obj_value} at time {last_timestamp:.2f} sec"
+                )
+                return iter_report, start_time_maps
+
+            if iter_report.obj_value is None:
+                raise ValueError(
+                    "The objective value is None, which should not happen for a feasible solution."
+                )
+            stage_2_job_2_start_time_map = (
+                relaxed_mdl.extract_stage_2_job_2_start_time_map()
+            )
+            start_time_maps = [
+                stage_2_job_2_start_time_map[stage] for stage in capacity_stage_set
+            ]
+            if iter_report.obj_bound is None:
+                lb_gap = 0.0
+            else:
+                lb_gap = (iter_report.obj_value / iter_report.obj_bound) - 1
+            logging.info(
+                f"[{log_prefix}] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {capacity_stage_set}:"
+                f" {iter_report.obj_bound} at time {last_timestamp:.2f} sec"
+            )
+            return iter_report, start_time_maps
+
+        # elif model_type == LbModelType.PARALLEL_MC:
+        #     from identical_parallel_machine.cp_cumulative import CpCumulative
+
+        #     # Only supports single stage for cumulative model
+        #     if len(capacity_stage_set) != 1:
+        #         raise ValueError(
+        #             "Cumulative model only supports single stage capacity constraints"
+        #         )
+
+        #     i = capacity_stage_set.pop()
+        #     instance = self.instance
+        #     jobs: list[str] = instance.job_id_list
+        #     stages: list[str] = instance.stage_id_list
+        #     stage_2_job_2_p_map = instance.p_manager.stage_2_job_2_value_map(
+        #         stages, jobs
+        #     )
+        #     M_of = instance.stage_2_machines_map
+
+        #     machines = M_of[i]
+        #     p = stage_2_job_2_p_map[i]
+        #     r = {j: 0 for j in jobs}
+        #     tr = {j: 0 for j in jobs}
+        #     for ip in stages:
+        #         if ip < i:
+        #             for j in jobs:
+        #                 r[j] += stage_2_job_2_p_map[ip][j]
+        #         elif ip == i:
+        #             continue
+        #         elif ip > i:
+        #             for j in jobs:
+        #                 tr[j] += stage_2_job_2_p_map[ip][j]
+
+        #     sub_cp_mdl = CpCumulative.from_parameters(
+        #         jobs, machines, p, self.get_horizon(), r_dict=r, tr_dict=tr
+        #     )
+        #     sub_cp_mdl.set_obj_lower_bound(self.get_shdlb_for_stage(i))
+
+        #     (solver_status, _, obj_value, obj_bound) = sub_cp_mdl.solve_with_callbacks(
+        #         computational_time=max_time,
+        #         num_workers=solver_thread_cnt,
+        #         random_seed=self.random_seed,
+        #         e_timer=sub_timer,
+        #         log_level_obj_value=logging.INFO,
+        #         log_level_obj_bound=logging.INFO,
+        #     )
+
+        #     last_timestamp = sub_timer.elapsed_sec
+        #     if solver_status == CpsatStatus.OPTIMAL:
+        #         j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
+        #         logging.info(
+        #             f"[{log_prefix}] Lower bound found by optimum of subproblem {i}:"
+        #             f" {obj_value} at time {last_timestamp:.2f} sec"
+        #         )
+        #         return obj_value, [j_2_start_time_map]
+        #     elif solver_status == CpsatStatus.FEASIBLE:
+        #         j_2_start_time_map = sub_cp_mdl.extract_job_2_start_time_map()
+        #         if obj_bound is None:
+        #             lb_gap = 0.0
+        #         else:
+        #             lb_gap = (obj_value / obj_bound) - 1
+        #         logging.info(
+        #             f"[{log_prefix}] Lower bound found by feasible (CP LB gap={lb_gap:.2%}) subproblem {i}:"
+        #             f" {obj_bound} at time {last_timestamp:.2f} sec"
+        #         )
+        #         return obj_bound, [j_2_start_time_map]
+        #     return None, None
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
+
+    def _create_schedule_from_start_times(
+        self,
+        start_time_maps: list[dict[str, int]],
+        aggregation_type: AggregationType,
+    ) -> tuple[HybridFlowshopSchedule, float]:
+        """
+        Create a schedule from start time maps.
+
+        Args:
+            start_time_maps (list[dict[str, int]]): Start time maps (per stage) from the subproblem.
+            aggregation_type (str): "best" (use best map) or "average" (average maps).
+
+        Returns:
+            tuple[HybridFlowshopSchedule, float]: (best_schedule, obj_value).
+        """
+        start_time_map_for_sorting: Mapping[str, int | float]
+        if aggregation_type == AggregationType.FIRST:
+            # Use the first stage's map for sorting
+            start_time_map_for_sorting = start_time_maps[0]
+        elif aggregation_type == AggregationType.AVERAGE:
+            if len(start_time_maps) == 1:
+                start_time_map_for_sorting = start_time_maps[0]
+            else:
+                # Average the start times across stages
+                start_time_map_for_sorting = {}
+                for j in self.instance.job_id_list:
+                    avg_start = sum(m.get(j, 0) for m in start_time_maps) / len(
+                        start_time_maps
+                    )
+                    start_time_map_for_sorting[j] = avg_start
+        else:
+            raise ValueError(f"Unknown aggregation_type: {aggregation_type}")
+
+        # Sort jobs by start time
+        sorted_jobs = sorted(
+            self.instance.job_id_list,
+            key=lambda j: (
+                start_time_map_for_sorting.get(j, float("inf")),
+                self.instance.job_id_list.index(j),
+            ),
+        )
+
+        # Create two schedules and pick the best
+        schedule_dj = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        for j in sorted_jobs:
+            schedule_dj.dispatch_job_by_stages(
+                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+            )
+        schedule_ds = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        for i in self.instance.stage_id_list:
+            schedule_ds.dispatch_stage_by_jobs(
+                i, sorted_jobs, self.stage_2_job_2_p_dict[i]
+            )
+
+        if schedule_dj.makespan <= schedule_ds.makespan:
+            best_schedule = schedule_dj
+        else:
+            best_schedule = schedule_ds
+        obj_value = float(best_schedule.makespan)
+
+        logging.info(
+            f"Best schedule found with makespan={obj_value} (DJ: {schedule_dj.makespan}, DS: {schedule_ds.makespan})"
+        )
+        return best_schedule, obj_value
+
+    def _apply_stage_capacity_lb_generic(
+        self,
+        stage_sets: list[set[str]],
+        max_time_per_iter: float,
+        solver_thread_cnt: int,
+        model_type: LbModelType,
+        aggregation_type: AggregationType,
+        log_prefix: str = "SCL LB",
+    ) -> None:
+        """Generic stage capacity lower bound computation.
+
+        Args:
+            stage_sets (list[set[str]]): List of stage sets (per relaxation).
+            max_time_per_iter (float): Time limit per subproblem.
+            solver_thread_cnt (int): Number of solver threads.
+            model_type (LbModelType): CUMULATIVE or PARALLEL_MC.
+            aggregation_type (AggregationType): FIRST or AVERAGE.
+            log_prefix (str): Prefix for log messages.
+        """
+        sub_timer = ElapsedTimer()
+
+        all_reports: list[CpsatSolverReport] = []
+        all_start_time_maps_list: list[list[dict[str, int]]] = []
+        best_bound: float | None = None
+        best_idx: int | None = None
+
+        for stage_set in stage_sets:
+            # Convert list of stage ids to set for subproblem
+            sub_report, start_time_maps = self._solve_stage_capacity_subproblem(
+                stage_set,
+                max_time_per_iter,
+                solver_thread_cnt,
+                sub_timer,
+                model_type,
+                log_prefix,
+            )
+            if sub_report is not None and start_time_maps is not None:
+                if sub_report.obj_bound is None:
+                    raise ValueError(
+                        "The objective bound is None, which should not happen for a feasible solution."
+                    )
+                all_reports.append(sub_report)
+                all_start_time_maps_list.append(start_time_maps)
+                # track index of best subproblem
+                if best_bound is None or sub_report.obj_bound > best_bound:
+                    best_bound = sub_report.obj_bound
+                    # best_idx relative to appended list
+                    best_idx = len(all_reports) - 1
+
+        if best_bound is None:
+            raise ValueError(
+                "The model is infeasible for all stage capacity relaxations. "
+                "Check the instance or the model."
+            )
+
+        obj_bound = max(
+            report.obj_bound for report in all_reports if report.obj_bound is not None
+        )
+        logging.info(f"[{log_prefix}] max(LB by stage subsets) = {obj_bound}")
+
+        # Create schedule from the start_time_maps of the best subproblem
+        if best_idx is None:
+            # should not happen as best_bound checked above
+            raise RuntimeError("No valid start time maps for scheduling")
+        best_start_maps = all_start_time_maps_list[best_idx]
+        best_schedule, obj_value = self._create_schedule_from_start_times(
+            best_start_maps, aggregation_type
+        )
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        # Extend the objective bound log with all subproblem records
+        all_obj_bound_records = []
+        for sub_report in all_reports:
+            all_obj_bound_records.extend(sub_report.obj_bound_records)
+        self.extend_obj_bound_log(all_obj_bound_records, is_maximize=False)
+        if (
+            obj_bound == self.obj_store.get_last_obj_bound()
+            and (log_time, obj_bound) not in all_obj_bound_records
+        ):
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=None)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True, obj_bound_is_valid=True
+        )
+
+        # Create report and register the new solution
+        report = HfsCpsatSolverReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=obj_bound,
+            is_init=True,
+            status=CpsatStatus.FEASIBLE,
+            obj_bound_records=all_obj_bound_records,
+            obj_value_records=[(log_time, obj_value)],
+        )
+        self.solution_manager.register(report, best_schedule)
+
+    def apply_single_stage_capacity_lb(
+        self, max_time_per_iter: float, solver_thread_cnt: int
+    ) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance
+        by relaxing all stages' machine count except one stage.
+        Update the global lower bound.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+
+        Raises:
+            ValueError: If no feasible solution is found by any single-stage relaxation.
+        """
+        stage_sets = [{i} for i in self.instance.stage_id_list]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.FIRST,
+            log_prefix="SSC LB",
+        )
+
+    def apply_single_stage_capacity_lb2(
+        self, max_time_per_iter: float, solver_thread_cnt: int
+    ) -> None:
+        """
+        Compute the global lower bound for the Hybrid Flow Shop instance
+        by relaxing all stages' machine count except one stage using CpCumulative.
+        Update the global lower bound.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+
+        Raises:
+            ValueError: If no feasible solution is found by any single-stage relaxation.
+        """
+        stage_sets = [{i} for i in self.instance.stage_id_list]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.PARALLEL_MC,
+            AggregationType.FIRST,
+            log_prefix="SSC2 LB",
+        )
+
+    def apply_tbsc_lb(
+        self,
+        computational_time: float,
+        solver_thread_cnt: int,
+    ) -> None:
+        """
+        Compute the global lower bound by applying capacity constraints only to the two
+        bottleneck stages (those with highest SHD lower bounds).
+
+        Args:
+            computational_time (float): Time limit for the subproblem.
+            solver_thread_cnt (int): Number of solver threads.
+        """
+        # Stage -> SHD LB dict
+        stage_2_shd_lb_map: dict[str, float] = {
+            i: self.get_shdlb_for_stage(i) for i in self.instance.stage_id_list
+        }
+        # Select two stages with the highest SHD LB
+        sorted_stages = sorted(
+            self.instance.stage_id_list,
+            key=lambda i: stage_2_shd_lb_map[i],
+            reverse=True,
+        )
+        if len(sorted_stages) < 2:
+            raise ValueError(
+                "Not enough stages to apply two-bottleneck stage capacity lower bound."
+            )
+        stage_list = sorted_stages[:2]
+        logging.info(
+            f"Applying two-bottleneck stage capacity lower bound for stages {stage_list}."
+        )
+
+        self._apply_stage_capacity_lb_generic(
+            [set(stage_list)],
+            computational_time,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.AVERAGE,
+            log_prefix="TBSC LB",
+        )
+
+    def apply_npsc_lb(self, max_time_per_iter: float, solver_thread_cnt: int) -> None:
+        """
+        Compute the global lower bound by applying capacity constraints to all consecutive pairs of stages.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+        """
+        stage_id_list = self.instance.stage_id_list
+        stage_sets = [
+            {stage_id_list[i], stage_id_list[i + 1]}
+            for i in range(len(stage_id_list) - 1)
+        ]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.AVERAGE,
+            log_prefix="NPSC LB",
+        )
+
+    def apply_apsc_lb(self, max_time_per_iter: float, solver_thread_cnt: int) -> None:
+        """
+        Compute the global lower bound by applying capacity constraints to all pairs of stages.
+
+        Args:
+            max_time_per_iter (float): Time limit (in seconds) for each iteration of the solver.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+        """
+        stage_id_list = self.instance.stage_id_list
+        stage_sets = [
+            {stage_id_list[i], stage_id_list[j]}
+            for i in range(len(stage_id_list))
+            for j in range(i + 1, len(stage_id_list))
+        ]
+        self._apply_stage_capacity_lb_generic(
+            stage_sets,
+            max_time_per_iter,
+            solver_thread_cnt,
+            LbModelType.RELAXED,
+            AggregationType.AVERAGE,
+            log_prefix="APSC LB",
+        )
 
     # End subroutine definition
 
     def post_run_process(self) -> None:
-        # TODO: record total elapsed time & use for report
-        self.check_feasibility(self.incumbent_solution_manager.start_time_map)
+        """
+        Finalizes the run by checking the feasibility of the incumbent solution
+        and releasing log handlers.
+        """
+        incumbent = self.solution_manager.get_incumbent()
+        if incumbent:
+            self.check_feasibility(incumbent.get_start_time_map())
         self.release_log_handlers()
+        self.total_elapsed_time = self.timer.elapsed_sec
 
     def check_feasibility(
         self, start_time_map: dict[tuple[str, str, str], int]
@@ -1018,16 +2434,37 @@ class HybridFlowShopCpLnsController(
 
         # Freeze operation start times and machine assignments
         for (j, i, k), start_time in start_time_map.items():
-            base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
-            base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
+            if isinstance(self.cp_model, CP2023NaderiCumulative):
+                base_cp.add(self.cp_model.var_op_start[j, i] == start_time)
+            elif isinstance(
+                self.cp_model,
+                (
+                    CP2023NaderiOptionalInterval,
+                    CPOptionalIntervalMasterTimevar,
+                    CPCumulativeOptionalHybrid,
+                ),
+            ):
+                base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
+                base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
+            else:
+                raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
         # Solve with tight time limit
-        try:
-            summary = self.solve_cp_model(base_cp, 1.0, 1)
-        except Exception as e:
-            raise RuntimeError(f"Feasibility check FAILED: {e}") from e
-
-        if summary.status != CpsatStatus.OPTIMAL:
-            raise ValueError(f"Feasibility check FAILED with status: {summary.status}")
-
+        timelimit = 2.0
+        solver_thread_cnt = 1
+        solver_report = self.solve_cp_model(base_cp, timelimit, solver_thread_cnt)
+        if solver_report.status not in (CpsatStatus.FEASIBLE, CpsatStatus.OPTIMAL):
+            mdl_txt_path = self.get_file_path_for_subroutine(
+                "_feasibility_check_failed.txt"
+            )
+            base_cp.export_to_file(str(mdl_txt_path))
+            if solver_report.status == CpsatStatus.INFEASIBLE:
+                raise RuntimeError(
+                    f"Feasibility check failed: INFEASIBLE. Model saved to {mdl_txt_path}"
+                )
+            else:
+                raise ValueError(
+                    f"Feasibility check failed with status {solver_report.status}. "
+                    f"Model saved to {mdl_txt_path}"
+                )
         logging.info("Feasibility check passed")

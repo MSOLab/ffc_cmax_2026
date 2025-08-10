@@ -1,0 +1,15 @@
+- method: set_random_seed
+  seed: 42
+- method: solve_base_cp_model
+  computational_time: 5
+  solver_thread_cnt: 8
+  is_initial_solution: true
+- method: repeat
+  params:
+    n_repeats: 10
+    routine_data:
+    - method: block_search
+      rho: 0.2
+      computational_time: 5
+      solver_thread_cnt: 8
+      error_if_infeasible: true

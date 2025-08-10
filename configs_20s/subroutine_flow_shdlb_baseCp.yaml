@@ -1,0 +1,7 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: solve_base_cp_model
+  computational_time: 25
+  solver_thread_cnt: 8
+  is_initial_solution: true

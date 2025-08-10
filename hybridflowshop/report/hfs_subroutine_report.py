@@ -116,6 +116,50 @@ class HfsCpsatSolverReport(HfsSubroutineReport):
             is_init=is_init,
         )
 
+    @property
+    def is_feasible(self) -> bool:
+        """Check if the solution is feasible.
+
+        Returns:
+            bool: True if an objective value is available and the status indicates feasibility.
+        """
+        if self.obj_value is None:
+            return False
+        return self.status.is_feasible
+
+    def replace(
+        self,
+        elapsed_time: float | None = None,
+        obj_value: float | None = None,
+        obj_bound: float | None = None,
+        status: CpsatStatus | None = None,
+        is_init: bool | None = None,
+    ) -> HfsCpsatSolverReport:
+        """
+        Create a new instance with updated fields.
+
+        Args:
+            elapsed_time (float, optional): New elapsed time.
+            obj_value (float, optional): New objective value.
+            obj_bound (float, optional): New objective bound.
+            status (CpsatStatus, optional): New solver status.
+            is_init (bool, optional): If this report corresponds to initialization, not improvement.
+
+        Returns:
+            HfsCpsatSolverReport: A new instance with updated fields.
+        """
+        return HfsCpsatSolverReport(
+            elapsed_time=elapsed_time
+            if elapsed_time is not None
+            else self.elapsed_time,
+            obj_value=obj_value if obj_value is not None else self.obj_value,
+            obj_bound=obj_bound if obj_bound is not None else self.obj_bound,
+            status=status if status is not None else self.status,
+            obj_value_records=self.obj_value_records,
+            obj_bound_records=self.obj_bound_records,
+            is_init=is_init if is_init is not None else self.is_init,
+        )
+
 
 HfsSubroutineReportT = TypeVar("HfsSubroutineReportT", bound=HfsSubroutineReport)
 """

@@ -49,6 +49,24 @@ This repository is a Python project for solving Hybrid Flowshop (HFS) problems u
         ├── 0.txt, 1.txt, ...
 ```
 
+## Configuration
+
+Experiment settings are managed via `main_metadata.yaml`. This file defines the problem instances, algorithm configurations (scenarios), and output settings. The structure is validated by a Pydantic model in `hybridflowshop/hfs_config.py` for robustness.
+
+### Post-Processing Mode
+
+To re-run the analysis on existing results without executing the algorithm again, you can use the `analysis_timestamp` field in `main_metadata.yaml`.
+
+1. Find the timestamp of a previous run in the `Outputs_scenarios/` directory (e.g., `20250713T221328_430388`).
+2. Un-comment and set the `analysis_timestamp` in `main_metadata.yaml`:
+
+    ```yaml
+    # ANALYSIS METADATA
+    analysis_timestamp: "20250713T221328_430388"
+    ```
+
+3. Run `uv run python main.py`. The script will automatically detect the timestamp and run in `POST_PROCESS_ONLY` mode. If the timestamp is `null` or the directory does not exist, a new full run will be executed.
+
 ## Installation and Usage (with uv)
 
 - Python 3.11 only

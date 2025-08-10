@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
+
+from .exception import SchedulingFailureException
 from .hybrid_flowshop_operation import HybridFlowshopOperation
 from .hybrid_flowshop_stage import HybridFlowshopStage
 
@@ -7,7 +10,15 @@ from .hybrid_flowshop_stage import HybridFlowshopStage
 class HybridFlowshopSchedule:
     def __init__(self) -> None:
         self._stages: dict[str, HybridFlowshopStage] = {}
-        """Map from stage name to HybridFlowshopStage instance."""
+        """Stage name -> HybridFlowshopStage instance."""
+
+        # Internal states
+
+        self.job_2_last_oper_end_time_map: dict[str, int] = defaultdict(int)
+        """Job name -> end time of the last operation scheduled for that job."""
+
+        self.job_2_scheduled_oper_count_map: dict[str, int] = defaultdict(int)
+        """Job name -> count of operations scheduled for that job."""
 
     @classmethod
     def from_stage_name_2_mc_name_list_map(
@@ -29,7 +40,29 @@ class HybridFlowshopSchedule:
             )
         return schedule
 
-    # Getters
+    def deepcopy(self) -> HybridFlowshopSchedule:
+        """
+        Returns a deep copy of this HybridFlowshopSchedule,
+        including all stages and internal state.
+        """
+        from copy import deepcopy
+
+        new_schedule = HybridFlowshopSchedule()
+        # Deep copy stages
+        new_schedule._stages = {
+            k: v.deepcopy() if hasattr(v, "deepcopy") else deepcopy(v)
+            for k, v in self._stages.items()
+        }
+        # Deep copy internal state
+        new_schedule.job_2_last_oper_end_time_map = deepcopy(
+            self.job_2_last_oper_end_time_map
+        )
+        new_schedule.job_2_scheduled_oper_count_map = deepcopy(
+            self.job_2_scheduled_oper_count_map
+        )
+        return new_schedule
+
+    # Start getters
 
     @property
     def makespan(self) -> int:
@@ -57,25 +90,6 @@ class HybridFlowshopSchedule:
         if stage_name not in self._stages:
             raise ValueError(f"Stage {stage_name} not found in schedule")
         return self._stages[stage_name]
-
-    def get_earliest_start_mc_name_and_time(
-        self, stage_name: str, p: int, release_t: int = 0
-    ) -> tuple[str, int]:
-        """Get the earliest available machine name and start time for a given stage.
-
-        Args:
-            stage_name (str): The name of the stage to check.
-            p (int): The processing time required for the operation.
-            release_t (int, optional): The earliest time the operation can start.
-                Defaults to 0.
-
-        Returns:
-            tuple[str, int]: A tuple containing the name of the earliest available machine
-                and the time it can start processing the operation.
-        """
-        return self.get_stage_by_name(stage_name).get_earliest_start_mc_name_and_time(
-            p, release_t
-        )
 
     def get_start_time_map(self) -> dict[tuple[str, str, str], int]:
         """
@@ -113,7 +127,9 @@ class HybridFlowshopSchedule:
                 return_dict[key] = value
         return return_dict
 
-    # Setters
+    # End getters
+
+    # Start setters
 
     def schedule_operation(
         self,
@@ -126,7 +142,7 @@ class HybridFlowshopSchedule:
 
     def dispatch_operation_earliest(
         self, job_name: str, stage_name: str, p: int, release_t: int = 0
-    ) -> HybridFlowshopOperation | None:
+    ) -> HybridFlowshopOperation:
         """
         Dispatch an operation to the earliest available machine in the specified stage.
 
@@ -136,22 +152,39 @@ class HybridFlowshopSchedule:
             p (int): The processing time required for this operation.
             release_t (int, optional): The earliest time the operation can start. Defaults to 0.
 
+        Raises:
+            SchedulingFailureException: If the operation is not scheduled.
+
         Returns:
-            HybridFlowshopOperation | None: The operation if added successfully, otherwise None.
+            HybridFlowshopOperation: Scheduled operation.
         """
         stage = self.get_stage_by_name(stage_name)
-        mc_name, start_time = stage.get_earliest_start_mc_name_and_time(p, release_t)
-        return stage.add_operation(
+        _release_t = max(release_t, self.job_2_last_oper_end_time_map[job_name])
+        mc_name, start_time = stage.select_machine_by_start_idle_idx(p, _release_t)
+        # integer casting to ensure start_time is an integer
+        # (not np.int64 for YAML compatibility)
+        end_time = int(start_time + p)
+        operation = stage.add_operation(
             HybridFlowshopOperation(
                 job_name=job_name,
                 stage_name=stage_name,
                 mc_name=mc_name,
                 start=start_time,
-                end=start_time + p,
+                end=end_time,
             )
         )
+        if operation is None:
+            raise SchedulingFailureException(
+                f"{job_name}.{stage_name}", p, mc_name, start_time
+            )
 
-    def dispatch_job_earliest(
+        # Update internal states
+        self.job_2_last_oper_end_time_map[job_name] = operation.end
+        self.job_2_scheduled_oper_count_map[job_name] += 1
+
+        return operation
+
+    def dispatch_job_by_stages(
         self,
         job_name: str,
         stage_name_list: list[str],
@@ -165,7 +198,7 @@ class HybridFlowshopSchedule:
         Args:
             job_name (str): The name of the job to be dispatched.
             stage_name_list (list[str]): List of stage names in the order they should be processed.
-            stage_name_2_p_map (dict[str, int]): Mapping of stage names to their processing times.
+            stage_name_2_p_map (dict[str, int]): Stage name -> processing time.
             release_t (int, optional): The earliest time the job can start processing at the 1st stage.
                 Defaults to 0.
 
@@ -175,46 +208,66 @@ class HybridFlowshopSchedule:
         Returns:
             list[HybridFlowshopOperation]: A list of scheduled operations for the job across all stages.
         """
-        stage_name_2_mc_name_map: dict[str, str] = {}
-        stage_name_2_start_time_map: dict[str, int] = {}
-
-        # calculate target machine and start time for each stage
-        _release_t = max(release_t, 0)
-        for stage_name in stage_name_list:
-            if stage_name not in self._stages:
-                raise ValueError(f"Stage {stage_name} not found in schedule")
-            p = stage_name_2_p_map[stage_name]
-            mc_name, start_time = self.get_earliest_start_mc_name_and_time(
-                stage_name, p, _release_t
-            )
-
-            stage_name_2_mc_name_map[stage_name] = mc_name
-            stage_name_2_start_time_map[stage_name] = start_time
-
-            # Update _release_t to the end time of the last operation scheduled
-            _release_t = start_time + p
-
-        # Create operations for each stage
         operations = []
-        for stage_name in stage_name_list:
-            mc_name = stage_name_2_mc_name_map[stage_name]
-            start_time = stage_name_2_start_time_map[stage_name]
-            # integer casting to ensure start_time is an integer
-            # (not np.int64 for YAML compatibility)
-            end_time = int(start_time + stage_name_2_p_map[stage_name])
+        last_end_time = max(self.job_2_last_oper_end_time_map[job_name], release_t)
 
-            operation = HybridFlowshopOperation(
-                job_name=job_name,
-                stage_name=stage_name,
-                mc_name=mc_name,
-                start=start_time,
-                end=end_time,
+        for stage_name in stage_name_list:
+            operation = self.dispatch_operation_earliest(
+                job_name, stage_name, stage_name_2_p_map[stage_name], last_end_time
             )
-            scheduled_operation = self.schedule_operation(operation)
-            if scheduled_operation is not None:
-                operations.append(scheduled_operation)
-            else:
-                raise ValueError(
-                    f"Failed to schedule operation for job {job_name} in stage {stage_name}"
-                )
+            operations.append(operation)
+            last_end_time = operation.end
+
         return operations
+
+    def dispatch_stage_by_jobs(
+        self,
+        stage_name: str,
+        job_name_list: list[str],
+        job_name_2_p_map: dict[str, int],
+        release_t: int = 0,
+    ) -> list[HybridFlowshopOperation]:
+        """
+        Dispatch operations for a given stage, scheduling jobs in the order
+        determined by job_priority_queue.
+
+        The job_priority_queue is sorted by:
+        1. Jobs with smaller last operation end time are scheduled earlier.
+        2. If two jobs have the same last operation end time,
+           jobs that come earlier in job_name_list are scheduled earlier.
+
+        Args:
+            stage_name (str): Target stage name.
+            job_name_list (list[str]): List of job names to be dispatched in this stage.
+            job_name_2_p_map (dict[str, int]): Job name -> processing time.
+            release_t (int, optional): The earliest time the stage can start.
+                Defaults to 0.
+
+        Returns:
+            list[HybridFlowshopOperation]: A list of scheduled operations for the jobs
+                in the specified stage, in job_priority_queue order.
+        """
+        operations = []
+
+        # Make a job priority queue.
+        # 1. Jobs having smaller last operation end time are scheduled earlier.
+        # 2. If two jobs have the same last operation end time,
+        #    jobs that comes earlier in job_name_list are scheduled earlier.
+        job_priority_queue = sorted(
+            job_name_list,
+            key=lambda job_name: (
+                self.job_2_last_oper_end_time_map[job_name],
+                job_name_list.index(job_name),
+            ),
+        )
+        # logging.info(f"Dispatching stage {stage_name} for jobs {job_priority_queue}")
+
+        for job_name in job_priority_queue:
+            operation = self.dispatch_operation_earliest(
+                job_name, stage_name, job_name_2_p_map[job_name], release_t
+            )
+            operations.append(operation)
+
+        return operations
+
+    # End setters
