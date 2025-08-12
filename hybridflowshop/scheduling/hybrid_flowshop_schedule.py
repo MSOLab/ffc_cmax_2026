@@ -270,4 +270,44 @@ class HybridFlowshopSchedule:
 
         return operations
 
+    def remove_operation_from_machine_by_job_name(
+        self, stage_name: str, mc_name: str, job_name: str
+    ) -> bool:
+        """
+        Remove an operation from a stage by job name.
+
+        Args:
+            stage_name (str): The name of the stage from which to remove the operation.
+            job_name (str): The job name of the operation to remove.
+
+        Returns:
+            bool: True if the operation was removed, False if it was not found.
+        """
+        return (
+            self.get_stage_by_name(stage_name)
+            .get_machine_by_name(mc_name)
+            .remove_operation_by_job_name(job_name)
+        )
+
+    def remove_operations_by_list_of_job_stage_mc_names(
+        self, job_stage_mc_names: list[tuple[str, str, str]]
+    ) -> bool:
+        """
+        Remove a list of operations from stages by job name, stage name, and machine name.
+
+        Args:
+            job_stage_mc_names (list[tuple[str, str, str]]): A list of tuples containing
+                (job_name, stage_name, mc_name) for the operations to remove.
+
+        Returns:
+            bool: True if all operations were removed, False if any were not found.
+        """
+        all_removed = True
+        for job_name, stage_name, mc_name in job_stage_mc_names:
+            removed = self.remove_operation_from_machine_by_job_name(
+                stage_name, mc_name, job_name
+            )
+            all_removed = all_removed and removed
+        return all_removed
+
     # End setters

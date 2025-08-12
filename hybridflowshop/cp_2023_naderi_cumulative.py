@@ -413,10 +413,10 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
     ) -> None:
         start_time_map = current_schedule.get_start_time_map()
         end_time_map = current_schedule.get_end_time_map()
-        current_j_set = {j for j, _, _ in start_time_map}
-        current_j_list = [j for j in self.j_list if j in current_j_set]
-        job_to_index = {j: idx for idx, j in enumerate(current_j_list)}
         for i in self.i_list:
+            current_j_set = {j for j, ip, _ in start_time_map if ip == i}
+            current_j_list = [j for j in self.j_list if j in current_j_set]
+            job_to_index = {j: idx for idx, j in enumerate(current_j_list)}
             # Extract start and end times for jobs at stage i
             # This is a map of job -> start time at stage i
             j_2_start_time_map = {

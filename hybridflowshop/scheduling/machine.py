@@ -105,4 +105,16 @@ class Machine(Resource[HybridFlowshopOperation]):
             return None
         return operation
 
+    def remove_operation_by_job_name(self, job_name: str) -> bool:
+        """Remove an operation from the machine by job name.
+
+        Args:
+            job_name (str): The job name of the operation to remove.
+        """
+        for operation in self._activity_list:
+            if operation.job_name == job_name:
+                self._activity_list.remove(operation)
+                return True
+        return False
+
     # End setters
