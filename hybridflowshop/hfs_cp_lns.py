@@ -253,16 +253,28 @@ class HybridFlowShopCpLnsController(
             solver_report, is_init=is_initial_solution
         )
 
-        # Create a new report with None values if the objective or bound is not valid.
-        # This is necessary because the report object is frozen.
+        # If the objective value or bound is not valid, use the best known values.
         report_updates: dict[str, Any] = {}
-        if not obj_value_is_valid:
-            report_updates["obj_value"] = None
-        if not obj_bound_is_valid:
-            report_updates["obj_bound"] = None
+        if obj_value_is_valid:
+            report_updates["obj_value"] = hfs_solver_report.obj_value
+        else:
+            report_updates["obj_value"] = self.solution_manager.best_obj_value
+        if obj_bound_is_valid:
+            report_updates["obj_bound"] = hfs_solver_report.obj_bound
+        else:
+            report_updates["obj_bound"] = self.solution_manager.best_obj_bound
 
         if report_updates:
-            hfs_solver_report = hfs_solver_report.replace(**report_updates)
+            new_hfs_solver_report = HfsCpsatSolverReport(
+                elapsed_time=hfs_solver_report.elapsed_time,
+                obj_value=report_updates.get("obj_value"),
+                obj_bound=report_updates.get("obj_bound"),
+                status=hfs_solver_report.status,
+                obj_value_records=hfs_solver_report.obj_value_records,
+                obj_bound_records=hfs_solver_report.obj_bound_records,
+                is_init=hfs_solver_report.is_init,
+            )
+            hfs_solver_report = new_hfs_solver_report
 
         solution: HybridFlowshopSchedule | None = None
         if hfs_solver_report.is_feasible:
