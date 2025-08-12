@@ -685,6 +685,75 @@ class HybridFlowShopCpLnsController(
         """Check if two time intervals overlap."""
         return not (e1 <= s2 or e2 <= s1)
 
+    # Subroutine: Stage neighbor
+
+    def stage_ns(
+        self,
+        free_stage_cnt: int,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        self.freeze_solve_reset(
+            lambda: self.apply_stage_operator(free_stage_cnt),
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def apply_stage_operator(
+        self, free_stage_cnt: int, randomize_stage_selection: bool = True
+    ):
+        logging.info("Applying stage operator")
+        if not self.solution_manager.has_incumbent():
+            raise ValueError("No incumbent solution available for stage operator.")
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+            )
+
+        all_stage_list = self.instance.stage_id_list
+        selected_stages: set[str]
+        # Choose {free_stage_cnt} consecutive stages
+        if free_stage_cnt > len(all_stage_list):
+            selected_stages = set(all_stage_list)
+        else:
+            if randomize_stage_selection:
+                start_idx = random.randint(0, len(all_stage_list) - free_stage_cnt)
+                selected_stages = set(
+                    all_stage_list[start_idx : start_idx + free_stage_cnt]
+                )
+            else:
+                raise NotImplementedError(
+                    "Deterministic stage selection is not implemented."
+                )
+        logging.info(f"Selected stages: {sorted(selected_stages)}")
+
+        all_ops = list(incumbent_solution.get_start_time_map().keys())
+        selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
+
+        # 선택되지 않은 operation freeze
+        # Deep copy the incumbent solution
+        out_of_block_ops_sch = incumbent_solution.deepcopy()
+        # Remove selected operations
+        out_of_block_ops_sch.remove_operations_by_list_of_job_stage_mc_names(
+            [(j, i, k) for j, i, k in selected_ops]
+        )
+
+        if isinstance(self.cp_model, CP2023NaderiCumulative):
+            self.cp_model.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                out_of_block_ops_sch
+            )
+        else:
+            raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+
     # Subroutine: Johnson-based Heuristic for initialization
 
     def dispatch_by_job_stage_time(
