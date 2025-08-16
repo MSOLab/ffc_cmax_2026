@@ -619,6 +619,8 @@ class HybridFlowShopCpLnsController(
             ValueError: If no end times are available for Time Window Operator.
             ValueError: If the window length is not positive.
         """
+        if rho <= 0:
+            raise ValueError(f"Invalid value for Rho {rho}; it must be positive.")
         logging.info(f"Applying block operator with rho={rho}")
         if not self.solution_manager.has_incumbent():
             raise ValueError("No incumbent solution available for block operator.")
@@ -689,7 +691,7 @@ class HybridFlowShopCpLnsController(
 
     def stage_ns(
         self,
-        free_stage_cnt: int,
+        rho: float,
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
@@ -697,7 +699,7 @@ class HybridFlowShopCpLnsController(
         draw_gantt: bool = False,
     ) -> None:
         self.freeze_solve_reset(
-            lambda: self.apply_stage_operator(free_stage_cnt),
+            lambda: self.apply_stage_operator(rho),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
@@ -707,10 +709,13 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    def apply_stage_operator(
-        self, free_stage_cnt: int, randomize_stage_selection: bool = True
-    ):
-        logging.info("Applying stage operator")
+    def apply_stage_operator(self, rho: float, randomize_stage_selection: bool = True):
+        if rho <= 0:
+            raise ValueError(f"Invalid value for Rho {rho}; it must be positive.")
+        free_stage_cnt: int = math.floor(self.instance.stage_count * rho)
+        logging.info(
+            f"Applying stage operator with {free_stage_cnt} free stages (rho={rho})"
+        )
         if not self.solution_manager.has_incumbent():
             raise ValueError("No incumbent solution available for stage operator.")
         incumbent_solution = self.solution_manager.get_incumbent()

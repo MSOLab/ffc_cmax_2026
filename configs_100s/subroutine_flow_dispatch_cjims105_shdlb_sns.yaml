@@ -26,10 +26,10 @@
 - method: apply_shdlb
 - method: repeat
   params:
-    n_repeats: 10
+    n_repeats: 99
     routine_data:
     - method: stage_ns
-      free_stage_cnt: 2
+      rho: 0.4
       computational_time: 30
       no_improvement_timelimit: 5
       solver_thread_cnt: 8
