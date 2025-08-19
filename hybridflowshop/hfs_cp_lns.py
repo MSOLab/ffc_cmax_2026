@@ -601,7 +601,7 @@ class HybridFlowShopCpLnsController(
         """Check if a given time is within the specified window."""
         return window_start <= time <= window_end
 
-    # Subroutine: Operations block neighbor (Block operator in 2025 EJOR paper)
+    # Subroutine: Operations block neighbor search (Block operator in 2025 EJOR paper)
 
     def ops_block_ns(
         self,
@@ -626,7 +626,6 @@ class HybridFlowShopCpLnsController(
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-
         self.freeze_solve_reset(
             lambda: self.apply_ops_block_operator(rho),
             computational_time,
@@ -649,21 +648,20 @@ class HybridFlowShopCpLnsController(
                 Defaults to True.
 
         Raises:
-            ValueError: If the parameter is not positive.
+            ValueError: If rho is not strictly positive.
             ValueError: If no incumbent solution is available.
             ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
             ValueError: If no start or end times are available.
         """
         if rho <= 0:
-            raise ValueError(f"Invalid value for Rho {rho}; it must be positive.")
-        logging.info(f"Applying ops block operator with rho={rho}")
+            raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
+        _rho = min(rho, 1)
+        logging.info(f"Applying ops block operator with rho={_rho}")
         if not self.solution_manager.has_incumbent():
             raise ValueError("No incumbent solution available for ops block operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopSchedule):
-            raise ValueError(
-                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
-            )
+            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
         start_time_map = incumbent_solution.get_start_time_map()
         end_time_map = incumbent_solution.get_end_time_map()
 
@@ -710,7 +708,7 @@ class HybridFlowShopCpLnsController(
         """Check if two time intervals overlap."""
         return not (e1 <= s2 or e2 <= s1)
 
-    # Subroutine: Stage neighbor
+    # Subroutine: Stage neighbor search
 
     def stage_ns(
         self,
@@ -733,9 +731,26 @@ class HybridFlowShopCpLnsController(
         )
 
     def apply_stage_operator(self, rho: float, randomize_stage_selection: bool = True):
+        """
+        Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
+        operations on those stages to be rescheduled) and freeze all other operations
+        according to the current incumbent schedule.
+
+        Args:
+            rho (float): The proportion of stages to free (must be between 0 and 1).
+                randomize_stage_selection (bool, optional): Whether to randomize the selection
+                of stages to free. Defaults to True.
+
+        Raises:
+            ValueError: If rho is not strictly positive.
+            ValueError: If no incumbent solution is available.
+            ValueError: If the incumbent solution is not a HybridFlowshopSchedule.
+            NotImplementedError: If deterministic stage selection is requested.
+        """
         if rho <= 0:
-            raise ValueError(f"Invalid value for Rho {rho}; it must be positive.")
-        free_stage_cnt: int = math.floor(self.instance.stage_count * rho)
+            raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
+        _rho = min(rho, 1)
+        free_stage_cnt: int = math.floor(self.instance.stage_count * _rho)
         logging.info(
             f"Applying stage operator with {free_stage_cnt} free stages (rho={rho})"
         )
@@ -743,9 +758,7 @@ class HybridFlowShopCpLnsController(
             raise ValueError("No incumbent solution available for stage operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopSchedule):
-            raise ValueError(
-                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
-            )
+            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
 
         all_stage_list = self.instance.stage_id_list
         selected_stages: set[str]
@@ -766,6 +779,84 @@ class HybridFlowShopCpLnsController(
 
         all_ops = list(incumbent_solution.get_start_time_map().keys())
         selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
+
+        # Freeze out-of-block operations
+        self._freeze_operations_except_selected(selected_ops)
+
+    # Subroutine: Jobs block neighbor search
+
+    def jobs_block_ns(
+        self,
+        rho: float,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        self.freeze_solve_reset(
+            lambda: self.apply_jobs_block_operator(rho),
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def apply_jobs_block_operator(
+        self, rho: float, randomize_ops_selection: bool = True
+    ) -> None:
+        if rho <= 0:
+            raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
+        logging.info(f"Applying jobs block operator with rho={rho}")
+        if not self.solution_manager.has_incumbent():
+            raise ValueError("No incumbent solution available for jobs block operator.")
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
+        start_time_map = incumbent_solution.get_start_time_map()
+        end_time_map = incumbent_solution.get_end_time_map()
+
+        if not start_time_map or not end_time_map:
+            raise ValueError("No solution available for jobs block operator.")
+
+        all_ops = list(start_time_map.keys())
+        total_ops = len(all_ops)
+        num_to_select = max(1, int(rho * total_ops))
+
+        # Choose an operation
+        if randomize_ops_selection:
+            seed_op = random.choice(all_ops)
+        else:
+            # if not random, choose center operation
+            seed_op = all_ops[total_ops // 2]
+        # Select all operations of the selected job
+        selected_ops = set(op2 for op2 in all_ops if op2[0] == seed_op[0])
+        selected_jobs = set([seed_op[0]])
+        queue = [seed_op]
+
+        # Expand to overlapping operations
+        while queue and len(selected_ops) < num_to_select:
+            current_op = queue.pop(0)
+            cs, ce = start_time_map[current_op], end_time_map[current_op]
+            for op in all_ops:
+                if op in selected_ops:
+                    continue
+                os, oe = start_time_map[op], end_time_map[op]
+                if self.is_overlap(cs, ce, os, oe):
+                    # Select all operations of each overlapping operation
+                    selected_ops.update([op2 for op2 in all_ops if op2[0] == op[0]])
+                    selected_jobs.add(op[0])
+                    queue.append(op)
+                if len(selected_ops) >= num_to_select:
+                    break
+        logging.info(
+            f"Jobs block operator selected {len(selected_ops)} overlapping ops"
+            f" of {len(selected_jobs)} jobs"
+            f" (target={num_to_select}; total={total_ops})"
+        )
 
         # Freeze out-of-block operations
         self._freeze_operations_except_selected(selected_ops)

@@ -239,9 +239,9 @@ dicts_of_i_o_data_path:
 #   output_dir : "pra_100s/dispatch_cjims105_shdlb_sns"
 #   description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via stage neighbor search"
 # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
-#   subroutine_flow_rel_path: "configs_100s/subroutine_flow_dispatch_cjims105_shdlb_obns_sns.yaml"
-#   output_dir : "pra_100s/dispatch_cjims105_shdlb_obns_sns"
-#   description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS)"
+#   subroutine_flow_rel_path: "configs_100s/subroutine_flow_20250819111600.yaml"
+#   output_dir : "pra_100s/dispatch_cjims105_shdlb_obns_sns_jbns"
+#   description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS, JBNS)"
 
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_cj33.yaml"
@@ -300,14 +300,18 @@ dicts_of_i_o_data_path:
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_dispatch_cjims105_shdlb_obns_sns.yaml"
 #   output_dir : "pra_600s/dispatch_cjims105_shdlb_obns_sns"
 #   description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS)"
-- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250818234200.yaml"
-  output_dir : "pra_600s/dispatch_cjims105_shdlb_obns_sns4"
-  description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS)"
+# - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+#   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250818234200.yaml"
+#   output_dir : "pra_600s/dispatch_cjims105_shdlb_obns_sns4"
+#   description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS)"
 # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
 #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250818235500.yaml"
 #   output_dir : "pra_600s/dispatch_cjims105_shdlb_obns_sns6"
 #   description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS)"
+- stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250819111600.yaml"
+  output_dir : "pra_600s/dispatch_cjims105_shdlb_obns_sns_jbns"
+  description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS, JBNS)"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -326,4 +330,4 @@ progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 
 # Optional metadata for post-processing only
-# analysis_timestamp: "20250801T165618_964722"
+# analysis_timestamp: "20250819T000123_343274"
