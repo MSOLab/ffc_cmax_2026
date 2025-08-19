@@ -449,6 +449,39 @@ class HybridFlowShopCpLnsController(
         )
         self.cp_model.delete_added_constraints()
 
+    def _freeze_operations_except_selected(
+        self,
+        rescheduled_ops: set[tuple[str, str, str]],
+    ) -> None:
+        """
+        Helper to deep-copy incumbent solution and remove operations to be rescheduled,
+        and add the CP model constraints that enforce precedences/machine assignments for
+        the frozen operations.
+
+        Args:
+            rescheduled_ops (set[tuple[str, str, str]]): set of (job, stage, machine) tuples
+                that are not frozen (i.e., they will be re-optimized).
+
+        Raises:
+            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            TypeError: If CP model does not support precedences/machine assignment enforcement constraints.
+        """
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+            )
+        out_of_block_ops_sch = incumbent_solution.deepcopy()
+        out_of_block_ops_sch.remove_operations_by_list_of_job_stage_mc_names(
+            [(j, i, k) for (j, i, k) in rescheduled_ops]
+        )
+        if isinstance(self.cp_model, CP2023NaderiCumulative):
+            self.cp_model.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                out_of_block_ops_sch
+            )
+        else:
+            raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+
     # Subroutine: Time window operator
 
     def time_window_search(
@@ -579,7 +612,7 @@ class HybridFlowShopCpLnsController(
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        """Block search with incumbent solution as the hint.
+        """Operations block neighbor search with incumbent solution as the hint.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
@@ -595,7 +628,7 @@ class HybridFlowShopCpLnsController(
         """
 
         self.freeze_solve_reset(
-            lambda: self.apply_block_operator(rho),
+            lambda: self.apply_ops_block_operator(rho),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
@@ -605,8 +638,10 @@ class HybridFlowShopCpLnsController(
             draw_gantt=draw_gantt,
         )
 
-    def apply_block_operator(self, rho: float, randomize_ops_selection: bool = True):
-        """Apply the Block Operator to the current CP model.
+    def apply_ops_block_operator(
+        self, rho: float, randomize_ops_selection: bool = True
+    ) -> None:
+        """Apply the operations block operator to the current CP model.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
@@ -614,16 +649,16 @@ class HybridFlowShopCpLnsController(
                 Defaults to True.
 
         Raises:
+            ValueError: If the parameter is not positive.
             ValueError: If no incumbent solution is available.
             ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
-            ValueError: If no end times are available for Time Window Operator.
-            ValueError: If the window length is not positive.
+            ValueError: If no start or end times are available.
         """
         if rho <= 0:
             raise ValueError(f"Invalid value for Rho {rho}; it must be positive.")
-        logging.info(f"Applying block operator with rho={rho}")
+        logging.info(f"Applying ops block operator with rho={rho}")
         if not self.solution_manager.has_incumbent():
-            raise ValueError("No incumbent solution available for block operator.")
+            raise ValueError("No incumbent solution available for ops block operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopSchedule):
             raise ValueError(
@@ -633,13 +668,13 @@ class HybridFlowShopCpLnsController(
         end_time_map = incumbent_solution.get_end_time_map()
 
         if not start_time_map or not end_time_map:
-            raise ValueError("No solution available for block operator.")
+            raise ValueError("No solution available for ops block operator.")
 
         all_ops = list(start_time_map.keys())  # TODO: 순서 유지되는지 확인
         total_ops = len(all_ops)
         num_to_select = max(1, int(rho * total_ops))
 
-        # Step 1: Choose an operation
+        # Choose an operation
         if randomize_ops_selection:
             seed_op = random.choice(all_ops)
         else:
@@ -648,7 +683,7 @@ class HybridFlowShopCpLnsController(
         selected_ops = set([seed_op])
         queue = [seed_op]
 
-        # Step 2: Expand to overlapping operations
+        # Expand to overlapping operations
         while queue and len(selected_ops) < num_to_select:
             current_op = queue.pop(0)
             cs, ce = start_time_map[current_op], end_time_map[current_op]
@@ -663,24 +698,12 @@ class HybridFlowShopCpLnsController(
                     break
 
         logging.info(
-            f"[Block Operator] Selected {len(selected_ops)} overlapping ops"
+            f"Ops block operator selected {len(selected_ops)} overlapping ops"
             f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Step 3: Freeze out-of-block operations
-        # Deep copy the incumbent solution
-        out_of_block_ops_sch = incumbent_solution.deepcopy()
-        # Remove selected operations
-        out_of_block_ops_sch.remove_operations_by_list_of_job_stage_mc_names(
-            [(j, i, k) for j, i, k in selected_ops]
-        )
-
-        if isinstance(self.cp_model, CP2023NaderiCumulative):
-            self.cp_model.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                out_of_block_ops_sch
-            )
-        else:
-            raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+        # Freeze out-of-block operations
+        self._freeze_operations_except_selected(selected_ops)
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -744,20 +767,8 @@ class HybridFlowShopCpLnsController(
         all_ops = list(incumbent_solution.get_start_time_map().keys())
         selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
 
-        # 선택되지 않은 operation freeze
-        # Deep copy the incumbent solution
-        out_of_block_ops_sch = incumbent_solution.deepcopy()
-        # Remove selected operations
-        out_of_block_ops_sch.remove_operations_by_list_of_job_stage_mc_names(
-            [(j, i, k) for j, i, k in selected_ops]
-        )
-
-        if isinstance(self.cp_model, CP2023NaderiCumulative):
-            self.cp_model.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                out_of_block_ops_sch
-            )
-        else:
-            raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+        # Freeze out-of-block operations
+        self._freeze_operations_except_selected(selected_ops)
 
     # Subroutine: Johnson-based Heuristic for initialization
 
