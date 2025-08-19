@@ -1,0 +1,44 @@
+- method: set_random_seed
+  seed: 42
+- method: initialize_by_dj_cds
+  error_if_infeasible: true
+- method: initialize_by_dj_tp
+  error_if_infeasible: true
+- method: initialize_by_dj_gupta
+  error_if_infeasible: true
+- method: initialize_by_dj_palmer
+  error_if_infeasible: true
+- method: initialize_by_ds_cds
+  error_if_infeasible: true
+- method: initialize_by_ds_tp
+  error_if_infeasible: true
+- method: initialize_by_ds_gupta
+  error_if_infeasible: true
+- method: initialize_by_ds_palmer
+  error_if_infeasible: true
+- method: initialize_by_cjims
+  added_batch_size: 10
+  max_time_per_add: 5
+  no_improvement_timelimit: 3
+  solver_thread_cnt: 8
+  error_if_infeasible: true
+  draw_gantt: true
+- method: apply_shdlb
+- method: repeat
+  params:
+    n_repeats: 99
+    routine_data:
+    - method: ops_block_ns
+      rho: 0.5
+      computational_time: 120
+      no_improvement_timelimit: 20
+      solver_thread_cnt: 8
+      error_if_infeasible: true
+      draw_gantt: true
+    - method: stage_ns
+      rho: 0.6
+      computational_time: 120
+      no_improvement_timelimit: 20
+      solver_thread_cnt: 8
+      error_if_infeasible: true
+      draw_gantt: true
