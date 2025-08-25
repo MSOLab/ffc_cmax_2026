@@ -12,7 +12,7 @@
       rho: 0.2
       computational_time: 30
       solver_thread_cnt: 8
-    - method: block_search
+    - method: ops_block_ns
       rho: 0.2
       computational_time: 30
       solver_thread_cnt: 8

@@ -413,10 +413,10 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
     ) -> None:
         start_time_map = current_schedule.get_start_time_map()
         end_time_map = current_schedule.get_end_time_map()
-        current_j_set = {j for j, _, _ in start_time_map}
-        current_j_list = [j for j in self.j_list if j in current_j_set]
-        job_to_index = {j: idx for idx, j in enumerate(current_j_list)}
         for i in self.i_list:
+            current_j_set = {j for j, ip, _ in start_time_map if ip == i}
+            current_j_list = [j for j in self.j_list if j in current_j_set]
+            stage_job_2_index_map = {j: idx for idx, j in enumerate(current_j_list)}
             # Extract start and end times for jobs at stage i
             # This is a map of job -> start time at stage i
             j_2_start_time_map = {
@@ -436,17 +436,18 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             sorted_j_list = sorted(
                 current_j_list,
                 key=lambda j: (
-                    j_2_end_time_map[j],
-                    j_2_start_time_map[j],
-                    job_to_index[j],
+                    j_2_end_time_map.get(j, float("inf")),
+                    j_2_start_time_map.get(j, float("inf")),
+                    stage_job_2_index_map.get(j, float("inf")),
                 ),
             )
             for idx, j1 in enumerate(sorted_j_list):
                 remaining_jobs = sorted_j_list[idx + 1 :]
                 if not remaining_jobs:
                     continue
-                j1_end_time = j_2_end_time_map[j1]
+                j1_end_time = j_2_end_time_map.get(j1, float("inf"))
                 # Find (the number of machines of stage i) jobs that start earliest after j1_end_time.
+                max_candidates = min(len(self.M_of[i]), len(remaining_jobs))
                 # Only consider up to the number of machines, since at most that many jobs can start in parallel at this stage.
                 j2_list = sorted(
                     (
@@ -457,9 +458,9 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
                     key=lambda j2: (
                         j_2_start_time_map[j2],
                         j_2_end_time_map[j2],
-                        job_to_index[j2],
+                        stage_job_2_index_map[j2],
                     ),
-                )[: len(self.M_of[i])]
+                )[:max_candidates]
                 # Add precedence constraints: j1 must finish before each j2 starts
                 for j2 in j2_list:
                     self.add_fixed_operation_precedence_constraint(

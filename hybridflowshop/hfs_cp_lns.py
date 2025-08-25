@@ -203,6 +203,7 @@ class HybridFlowShopCpLnsController(
         self,
         computational_time: float,
         solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         is_initial_solution: bool = False,
@@ -214,6 +215,9 @@ class HybridFlowShopCpLnsController(
         Args:
             computational_time (float): The maximum computational time in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            no_improvement_timelimit (float | None, optional): If there is no improvement in this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             obj_value_is_valid (bool, optional): If True, adds the objective value log.
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
@@ -236,6 +240,7 @@ class HybridFlowShopCpLnsController(
         solver_report = self.solve_current_cp_model(
             _timelimit,
             solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
             random_seed=self.random_seed,
             e_timer=self.timer,
             log_level_obj_value=logging.INFO,
@@ -248,16 +253,23 @@ class HybridFlowShopCpLnsController(
             solver_report, is_init=is_initial_solution
         )
 
-        # Create a new report with None values if the objective or bound is not valid.
-        # This is necessary because the report object is frozen.
+        # If the objective value or bound is not valid, use the best known values.
         report_updates: dict[str, Any] = {}
-        if not obj_value_is_valid:
-            report_updates["obj_value"] = None
-        if not obj_bound_is_valid:
-            report_updates["obj_bound"] = None
+        if obj_value_is_valid:
+            report_updates["obj_value"] = hfs_solver_report.obj_value
+        else:
+            report_updates["obj_value"] = self.solution_manager.best_obj_value
+        if obj_bound_is_valid:
+            report_updates["obj_bound"] = hfs_solver_report.obj_bound
+        else:
+            report_updates["obj_bound"] = self.solution_manager.best_obj_bound
 
         if report_updates:
-            hfs_solver_report = hfs_solver_report.replace(**report_updates)
+            new_hfs_solver_report = hfs_solver_report.copy(
+                obj_value=report_updates.get("obj_value"),
+                obj_bound=report_updates.get("obj_bound"),
+            )
+            hfs_solver_report = new_hfs_solver_report
 
         solution: HybridFlowshopSchedule | None = None
         if hfs_solver_report.is_feasible:
@@ -278,13 +290,31 @@ class HybridFlowShopCpLnsController(
         self,
         computational_time: float,
         solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """
-        Solves the current CP model using the incumbent solution as a hint.
+        """Solves the current CP model using the incumbent solution as a hint.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            no_improvement_timelimit (float | None, optional): If there is no improvement in this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
+            obj_value_is_valid (bool, optional): If True, adds the objective value log.
+                Defaults to False.
+            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
+                Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+
+        Raises:
+            TypeError: If the incumbent solution is not compatible with the CP model.
         """
         incumbent_solution = self.solution_manager.get_incumbent()
         is_initial_run = incumbent_solution is None
@@ -318,6 +348,7 @@ class HybridFlowShopCpLnsController(
         self.solve_current_cp_remaining_time_limit(
             computational_time,
             solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             is_initial_solution=is_initial_run,
@@ -377,6 +408,7 @@ class HybridFlowShopCpLnsController(
         freeze_method: Callable,
         computational_time: float,
         solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -388,6 +420,9 @@ class HybridFlowShopCpLnsController(
             freeze_method (Callable): A callable that applies the freeze method to the CP model.
             computational_time (float): The maximum computational time in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            no_improvement_timelimit (float | None, optional): If there is no improvement in this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             obj_value_is_valid (bool, optional): If True, adds the objective value log.
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
@@ -401,12 +436,46 @@ class HybridFlowShopCpLnsController(
         self.solve_with_initial_solution(
             computational_time,
             solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
         self.cp_model.delete_added_constraints()
+
+    def _freeze_operations_except_selected(
+        self,
+        rescheduled_ops: set[tuple[str, str, str]],
+    ) -> None:
+        """
+        Helper to deep-copy incumbent solution and remove operations to be rescheduled,
+        and add the CP model constraints that enforce precedences/machine assignments for
+        the frozen operations.
+
+        Args:
+            rescheduled_ops (set[tuple[str, str, str]]): set of (job, stage, machine) tuples
+                that are not frozen (i.e., they will be re-optimized).
+
+        Raises:
+            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            TypeError: If CP model does not support precedences/machine assignment enforcement constraints.
+        """
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+            )
+        out_of_block_ops_sch = incumbent_solution.deepcopy()
+        out_of_block_ops_sch.remove_operations_by_list_of_job_stage_mc_names(
+            [(j, i, k) for (j, i, k) in rescheduled_ops]
+        )
+        if isinstance(self.cp_model, CP2023NaderiCumulative):
+            self.cp_model.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                out_of_block_ops_sch
+            )
+        else:
+            raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
 
     # Subroutine: Time window operator
 
@@ -415,7 +484,7 @@ class HybridFlowShopCpLnsController(
         rho: float,
         computational_time: float,
         solver_thread_cnt: int,
-        error_if_infeasible=False,
+        error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
         """Time window search with incumbent solution as the hint.
@@ -527,76 +596,87 @@ class HybridFlowShopCpLnsController(
         """Check if a given time is within the specified window."""
         return window_start <= time <= window_end
 
-    # Subroutine: Block operator
+    # Subroutine: Operations block neighbor search (Block operator in 2025 EJOR paper)
 
-    def block_search(
+    def ops_block_ns(
         self,
         rho: float,
         computational_time: float,
         solver_thread_cnt: int,
-        error_if_infeasible=False,
+        no_improvement_timelimit: float | None = None,
+        error_if_infeasible: bool = False,
         draw_gantt: bool = False,
-    ):
-        """Block search with incumbent solution as the hint.
+    ) -> None:
+        """Operations block neighbor search with incumbent solution as the hint.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
             computational_time (float): The maximum computational time in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            no_improvement_timelimit (float | None, optional): If there is no improvement in this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
             error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-
         self.freeze_solve_reset(
-            lambda: self.apply_block_operator(rho),
+            lambda: self.apply_ops_block_operator(rho),
             computational_time,
             solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
-    def apply_block_operator(self, rho: float):
-        """Apply the Block Operator to the current CP model.
+    def apply_ops_block_operator(
+        self, rho: float, randomize_ops_selection: bool = True
+    ) -> None:
+        """Apply the operations block operator to the current CP model.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
+            randomize_ops_selection (bool, optional): If True, randomizes the selection of operations.
+                Defaults to True.
 
         Raises:
+            ValueError: If rho is not strictly positive.
             ValueError: If no incumbent solution is available.
             ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
-            ValueError: If no end times are available for Time Window Operator.
-            ValueError: If the window length is not positive.
+            ValueError: If no start or end times are available.
         """
-        logging.info(f"Applying block operator with rho={rho}")
+        if rho <= 0:
+            raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
+        _rho = min(rho, 1)
+        logging.info(f"Applying ops block operator with rho={_rho}")
         if not self.solution_manager.has_incumbent():
-            raise ValueError(
-                "No incumbent solution available for Time Window Operator."
-            )
+            raise ValueError("No incumbent solution available for ops block operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopSchedule):
-            raise ValueError(
-                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
-            )
+            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
         start_time_map = incumbent_solution.get_start_time_map()
         end_time_map = incumbent_solution.get_end_time_map()
 
         if not start_time_map or not end_time_map:
-            raise ValueError("No solution available for block operator.")
+            raise ValueError("No solution available for ops block operator.")
 
         all_ops = list(start_time_map.keys())  # TODO: 순서 유지되는지 확인
         total_ops = len(all_ops)
         num_to_select = max(1, int(rho * total_ops))
 
-        # Step 1: Start from a random operation
-        seed_op = random.choice(all_ops)
+        # Choose an operation
+        if randomize_ops_selection:
+            seed_op = random.choice(all_ops)
+        else:
+            # if not random, choose center operation
+            seed_op = all_ops[total_ops // 2]
         selected_ops = set([seed_op])
         queue = [seed_op]
 
-        # Step 2: Expand to overlapping operations
+        # Expand to overlapping operations
         while queue and len(selected_ops) < num_to_select:
             current_op = queue.pop(0)
             cs, ce = start_time_map[current_op], end_time_map[current_op]
@@ -611,40 +691,170 @@ class HybridFlowShopCpLnsController(
                     break
 
         logging.info(
-            f"[Block Operator] Selected {len(selected_ops)} overlapping ops (target={num_to_select})"
+            f"Ops block operator selected {len(selected_ops)} overlapping ops"
+            f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Step 3: Out-of-block 작업들에 대해 고정 제약 추가
-        out_of_block_ops = set(all_ops) - selected_ops
-        stage_mc_to_jobs = defaultdict(list)
-
-        for j, i, k in out_of_block_ops:
-            # self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
-            stage_mc_to_jobs[(i, k)].append(j)
-
-        for (i, k), jobs in stage_mc_to_jobs.items():
-            jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
-            for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                if isinstance(self.cp_model, CP2023NaderiCumulative):
-                    self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
-                elif isinstance(
-                    self.cp_model,
-                    (
-                        CP2023NaderiOptionalInterval,
-                        CPOptionalIntervalMasterTimevar,
-                        CPCumulativeOptionalHybrid,
-                    ),
-                ):
-                    self.cp_model.add_fixed_operation_precedence_constraint(
-                        j1, j2, i, k
-                    )
-                else:
-                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+        # Freeze out-of-block operations
+        self._freeze_operations_except_selected(selected_ops)
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
         """Check if two time intervals overlap."""
         return not (e1 <= s2 or e2 <= s1)
+
+    # Subroutine: Stage neighbor search
+
+    def stage_ns(
+        self,
+        rho: float,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        self.freeze_solve_reset(
+            lambda: self.apply_stage_operator(rho),
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def apply_stage_operator(self, rho: float, randomize_stage_selection: bool = True):
+        """
+        Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
+        operations on those stages to be rescheduled) and freeze all other operations
+        according to the current incumbent schedule.
+
+        Args:
+            rho (float): The proportion of stages to free (must be between 0 and 1).
+                randomize_stage_selection (bool, optional): Whether to randomize the selection
+                of stages to free. Defaults to True.
+
+        Raises:
+            ValueError: If rho is not strictly positive.
+            ValueError: If no incumbent solution is available.
+            ValueError: If the incumbent solution is not a HybridFlowshopSchedule.
+            NotImplementedError: If deterministic stage selection is requested.
+        """
+        if rho <= 0:
+            raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
+        _rho = min(rho, 1)
+        free_stage_cnt: int = math.floor(self.instance.stage_count * _rho)
+        logging.info(
+            f"Applying stage operator with {free_stage_cnt} free stages (rho={rho})"
+        )
+        if not self.solution_manager.has_incumbent():
+            raise ValueError("No incumbent solution available for stage operator.")
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
+
+        all_stage_list = self.instance.stage_id_list
+        selected_stages: set[str]
+        # Choose {free_stage_cnt} consecutive stages
+        if free_stage_cnt > len(all_stage_list):
+            selected_stages = set(all_stage_list)
+        else:
+            if randomize_stage_selection:
+                start_idx = random.randint(0, len(all_stage_list) - free_stage_cnt)
+                selected_stages = set(
+                    all_stage_list[start_idx : start_idx + free_stage_cnt]
+                )
+            else:
+                raise NotImplementedError(
+                    "Deterministic stage selection is not implemented."
+                )
+        logging.info(f"Selected stages: {sorted(selected_stages)}")
+
+        all_ops = list(incumbent_solution.get_start_time_map().keys())
+        selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
+
+        # Freeze out-of-block operations
+        self._freeze_operations_except_selected(selected_ops)
+
+    # Subroutine: Jobs block neighbor search
+
+    def jobs_block_ns(
+        self,
+        rho: float,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        self.freeze_solve_reset(
+            lambda: self.apply_jobs_block_operator(rho),
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def apply_jobs_block_operator(
+        self, rho: float, randomize_ops_selection: bool = True
+    ) -> None:
+        if rho <= 0:
+            raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
+        logging.info(f"Applying jobs block operator with rho={rho}")
+        if not self.solution_manager.has_incumbent():
+            raise ValueError("No incumbent solution available for jobs block operator.")
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
+        start_time_map = incumbent_solution.get_start_time_map()
+        end_time_map = incumbent_solution.get_end_time_map()
+
+        if not start_time_map or not end_time_map:
+            raise ValueError("No solution available for jobs block operator.")
+
+        all_ops = list(start_time_map.keys())
+        total_ops = len(all_ops)
+        num_to_select = max(1, int(rho * total_ops))
+
+        # Choose an operation
+        if randomize_ops_selection:
+            seed_op = random.choice(all_ops)
+        else:
+            # if not random, choose center operation
+            seed_op = all_ops[total_ops // 2]
+        # Select all operations of the selected job
+        selected_ops = set(op2 for op2 in all_ops if op2[0] == seed_op[0])
+        selected_jobs = set([seed_op[0]])
+        queue = [seed_op]
+
+        # Expand to overlapping operations
+        while queue and len(selected_ops) < num_to_select:
+            current_op = queue.pop(0)
+            cs, ce = start_time_map[current_op], end_time_map[current_op]
+            for op in all_ops:
+                if op in selected_ops:
+                    continue
+                os, oe = start_time_map[op], end_time_map[op]
+                if self.is_overlap(cs, ce, os, oe):
+                    # Select all operations of each overlapping operation
+                    selected_ops.update([op2 for op2 in all_ops if op2[0] == op[0]])
+                    selected_jobs.add(op[0])
+                    queue.append(op)
+                if len(selected_ops) >= num_to_select:
+                    break
+        logging.info(
+            f"Jobs block operator selected {len(selected_ops)} overlapping ops"
+            f" of {len(selected_jobs)} jobs"
+            f" (target={num_to_select}; total={total_ops})"
+        )
+
+        # Freeze out-of-block operations
+        self._freeze_operations_except_selected(selected_ops)
 
     # Subroutine: Johnson-based Heuristic for initialization
 

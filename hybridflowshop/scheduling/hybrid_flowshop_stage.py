@@ -229,4 +229,12 @@ class HybridFlowshopStage(ParallelResourceGroup[Machine]):
             operation, force_add=force_add
         )
 
+    def remove_operation_from_mc_by_job_name(self, mc_name: str, job_name: str) -> bool:
+        """Remove an operation from the stage by job name.
+
+        Args:
+            job_name (str): The job name of the operation to remove.
+        """
+        return self.get_machine_by_name(mc_name).remove_operation_by_job_name(job_name)
+
     # End setters
