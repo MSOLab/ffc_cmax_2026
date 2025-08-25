@@ -116,6 +116,25 @@ class HfsCpsatSolverReport(HfsSubroutineReport):
             is_init=is_init,
         )
 
+    def copy(self, **kwargs) -> HfsCpsatSolverReport:
+        """Create a copy of the report, optionally updating fields with new values.
+
+        Args:
+            **kwargs: Keyword arguments to update specific fields.
+
+        Returns:
+            HfsCpsatSolverReport: A new instance of HfsCpsatSolverReport with copied or updated fields.
+        """
+        return HfsCpsatSolverReport(
+            elapsed_time=kwargs.get("elapsed_time", self.elapsed_time),
+            obj_value=kwargs.get("obj_value", self.obj_value),
+            obj_bound=kwargs.get("obj_bound", self.obj_bound),
+            obj_value_records=kwargs.get("obj_value_records", self.obj_value_records),
+            obj_bound_records=kwargs.get("obj_bound_records", self.obj_bound_records),
+            status=kwargs.get("status", self.status),
+            is_init=kwargs.get("is_init", self.is_init),
+        )
+
     @property
     def is_feasible(self) -> bool:
         """Check if the solution is feasible.

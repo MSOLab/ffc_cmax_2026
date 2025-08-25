@@ -265,14 +265,9 @@ class HybridFlowShopCpLnsController(
             report_updates["obj_bound"] = self.solution_manager.best_obj_bound
 
         if report_updates:
-            new_hfs_solver_report = HfsCpsatSolverReport(
-                elapsed_time=hfs_solver_report.elapsed_time,
+            new_hfs_solver_report = hfs_solver_report.copy(
                 obj_value=report_updates.get("obj_value"),
                 obj_bound=report_updates.get("obj_bound"),
-                status=hfs_solver_report.status,
-                obj_value_records=hfs_solver_report.obj_value_records,
-                obj_bound_records=hfs_solver_report.obj_bound_records,
-                is_init=hfs_solver_report.is_init,
             )
             hfs_solver_report = new_hfs_solver_report
 
