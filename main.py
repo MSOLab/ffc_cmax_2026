@@ -104,10 +104,7 @@ def main():
             )
         pra_common_params_dict = read_yaml(pra_common_params_dump_path)
 
-    benchmark_filenames = [
-        config.benchmark_filename_format.format(i)
-        for i in range(config.first, config.last + 1)
-    ]
+    benchmark_filenames = config.get_benchmark_filename_list()
     instances = load_list_of_instances(config.input_dir, benchmark_filenames)
 
     # --- Prepare scenario configurations ---

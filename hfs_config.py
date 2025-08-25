@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ScenarioPathConfig(BaseModel):
@@ -46,8 +46,11 @@ class MainMetadata(BaseModel):
     input_dir: Path = Field(
         ..., description="Directory containing benchmark instance files."
     )
-    first: int = Field(..., description="First instance ID to run.")
-    last: int = Field(..., description="Last instance ID to run.")
+    benchmark_idx_list: list[int] | None = Field(
+        default=None, description="List of instance IDs to run."
+    )
+    first: int | None = Field(default=None, description="First instance ID to run.")
+    last: int | None = Field(default=None, description="Last instance ID to run.")
     benchmark_filename_format: str = Field(
         ..., description="Format string for instance filenames, e.g., '{}.txt'."
     )
@@ -110,6 +113,37 @@ class MainMetadata(BaseModel):
         description="If a valid timestamp string is provided, the runner will operate in POST_PROCESS_ONLY mode for that specific run.",
     )
 
+    @model_validator(mode="after")
+    def _check_index_inputs(self):
+        """
+        Require either:
+         - benchmark_idx_list (preferred), or
+         - both first and last (with first <= last).
+        """
+        if self.benchmark_idx_list is None:
+            if self.first is None or self.last is None:
+                raise ValueError(
+                    "Either 'benchmark_idx_list' must be provided, or both 'first' and 'last'."
+                )
+            if self.first > self.last:
+                raise ValueError("'first' must be <= 'last'.")
+        return self
+
     def to_dict(self) -> dict[str, Any]:
         """Returns a dictionary representation with Path objects converted to strings."""
         return self.model_dump(mode="json")
+
+    def get_benchmark_idx_list(self) -> list[int]:
+        """Generates a list of benchmark instance indices from benchmark_idx_list or first..last."""
+        if self.benchmark_idx_list:
+            return self.benchmark_idx_list
+        if self.first is not None and self.last is not None and self.first <= self.last:
+            return list(range(self.first, self.last + 1))
+        raise ValueError("Invalid benchmark index configuration.")
+
+    def get_benchmark_filename_list(self) -> list[str]:
+        """Generates a list of benchmark filenames based on the indices and filename format."""
+        return [
+            self.benchmark_filename_format.format(i)
+            for i in self.get_benchmark_idx_list()
+        ]
