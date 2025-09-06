@@ -2,200 +2,29 @@ import logging
 import math
 import random
 from collections import defaultdict
-from pathlib import Path
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Mapping
 
 from mbls.cpsat import (
     CpsatSolverReport,
     CpsatStatus,
-    CpSubroutineController,
     ObjValueBoundStore,
 )
-from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
+from routix import ElapsedTimer
 from routix.io import object_to_yaml
-from schore.parameters_examples.parallel_shop.identical_flow import (
-    HybridFlowshopParameters,
-)
 
 from hybridflowshop.lb_enum import AggregationType, LbModelType
 from hybridflowshop.utils import tuple_to_pyyaml_key
 
+from .controller_core import HybridFlowShopCpLnsControllerCore
 from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
-from .cp_2023_naderi_optional_interval import CP2023NaderiOptionalInterval
-from .cp_cumulative_optional_hybrid import CPCumulativeOptionalHybrid
-from .cp_optional_interval_master_timevar import CPOptionalIntervalMasterTimevar
-from .painter.gantt import GanttPlotter
 from .report import HfsCpsatSolverReport, HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
-from .solution_manager import HfsSolutionManager
-
-HfsMathModel = CP2023NaderiCumulative
 
 
-class HybridFlowShopCpLnsController(
-    CpSubroutineController[HybridFlowshopParameters, HfsMathModel, StoppingCriteria]
-):
+class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     """
     Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
     """
-
-    # Start controller state
-    solution_manager: HfsSolutionManager
-    """Solution manager for Hybrid Flow Shop scheduling solutions."""
-    total_elapsed_time: float
-    """Total elapsed time for the controller."""
-    # End controller state
-
-    def __init__(
-        self,
-        instance: HybridFlowshopParameters,
-        shared_param_dict: dict,
-        subroutine_flow: DynamicDataObject,
-        stopping_criteria: StoppingCriteria,
-    ):
-        super().__init__(
-            instance,
-            shared_param_dict,
-            HfsMathModel,
-            subroutine_flow,
-            stopping_criteria,
-        )
-        self.solution_manager = HfsSolutionManager()
-
-        # Frequently used parameters
-        self.job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
-            self.instance.job_id_list, self.instance.stage_id_list
-        )
-        """Job name -> stage name -> processing time map"""
-        self.stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
-        """Stage name -> job name -> processing time map"""
-
-        logging.info(
-            f"Start solving {self.instance.name} using CP model class:"
-            f" {self.cp_model_class.__module__}.{self.cp_model_class.__name__}",
-        )
-
-    # Start abstract getters
-
-    def create_base_cp_model(
-        self, impose_all_stage_capacity_constr: bool = True, **kwargs
-    ) -> HfsMathModel:
-        return self.cp_model_class.from_instance(
-            self.instance,
-            self.get_horizon(),
-            impose_all_stage_capacity_constr=impose_all_stage_capacity_constr,
-        )
-
-    # End abstract getters
-
-    def get_horizon(self) -> int:
-        """Returns the horizon of the scheduling problem."""
-        if "horizon" not in self.shared_param_dict:
-            raise ValueError("Horizon not found in shared parameters.")
-        return self.shared_param_dict["horizon"]
-
-    def set_working_dir(self, dir_path: Path | str):
-        super().set_working_dir(dir_path)
-        self.log_handlers: list[logging.StreamHandler] = []
-        self.add_file_handler()
-
-    def add_file_handler(
-        self,
-        log_filename: Optional[str] = None,
-        level=logging.INFO,
-        fmt="%(asctime)s - %(levelname)s - %(message)s",
-    ):
-        logger = logging.getLogger()
-        _log_filename = log_filename or "subroutine_controller.log"
-        if self._working_dir_path is not None:
-            log_path = self._working_dir_path / _log_filename
-            # 이미 같은 파일 핸들러가 등록되어 있는지 확인 (중복 방지)
-            for handler in logger.handlers:
-                if isinstance(
-                    handler, logging.FileHandler
-                ) and handler.baseFilename == str(log_path):
-                    return  # 이미 등록되어 있으면 추가하지 않음
-
-            file_handler = logging.FileHandler(log_path)
-            file_handler.setLevel(level)
-            file_handler.setFormatter(logging.Formatter(fmt))
-            logger.addHandler(file_handler)
-            self.log_handlers = [file_handler]
-
-    def release_log_handlers(self) -> None:
-        logger = logging.getLogger()
-        for handler in self.log_handlers:
-            logger.removeHandler(handler)
-            handler.close()
-
-    # Start stopping condition
-
-    def is_stopping_condition(self) -> bool:
-        return self.time_is_up()
-
-    def time_is_up(self) -> bool:
-        # If total elapsed time exceeds the stopping criteria
-        if self.timer.elapsed_sec >= self.stopping_criteria.timelimit:
-            logging.info("Stop by timelimit")
-            return True
-        return False
-
-    def get_remaining_sec(self) -> float:
-        return self.timer.get_remaining_sec(self.stopping_criteria.timelimit)
-
-    def get_remaining_time_limit(self, subroutine_time_limit: float | None) -> float:
-        """Get the remaining time limit for the subroutine.
-
-        Args:
-            subroutine_time_limit (float | None, optional): The time limit for the subroutine in seconds.
-                If None, the remaining time limit is used.
-
-        Returns:
-            float: The minimum of the subroutine time limit and the remaining time limit.
-        """
-        if subroutine_time_limit is None:
-            return self.get_remaining_sec()
-        return min(subroutine_time_limit, self.get_remaining_sec())
-
-    # End stopping condition
-
-    # Start visualization
-
-    def draw_gantt(
-        self, schedule: HybridFlowshopSchedule, output_path: Path | None = None
-    ):
-        """Draws the Gantt chart of the given schedule.
-
-        Args:
-            schedule (HybridFlowshopSchedule): The schedule to draw.
-            output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
-        """
-        if output_path is None:
-            output_path = self.get_file_path_for_subroutine("_gantt.png")
-        if isinstance(schedule, HybridFlowshopSchedule):
-            plotter = GanttPlotter()
-            plotter.export_hybrid_flowshop_plot(
-                output_path,
-                schedule.get_start_time_map(),
-                schedule.get_end_time_map(),
-                self.instance.job_id_list,
-            )
-
-    def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
-        """Draws the Gantt chart of the incumbent solution.
-
-        Args:
-            output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
-        """
-        incumbent_solution = self.solution_manager.get_incumbent()
-        if isinstance(incumbent_solution, HybridFlowshopSchedule):
-            self.draw_gantt(incumbent_solution, output_path=output_path)
-        else:
-            logging.warning("No incumbent solution available to draw Gantt chart.")
-
-    # End visualization
 
     # Start subroutine definition
 
@@ -325,25 +154,10 @@ class HybridFlowShopCpLnsController(
                 "Applying incumbent solution with objValue "
                 f"{incumbent_solution.makespan} as a hint."
             )
-            if isinstance(self.cp_model, CP2023NaderiCumulative):
-                self.cp_model.add_start_hints_from_start_time_map(
-                    incumbent_solution.get_start_time_map(),
-                    ignore_integrity_check=True,
-                )
-            elif isinstance(
-                self.cp_model,
-                (
-                    CP2023NaderiOptionalInterval,
-                    CPOptionalIntervalMasterTimevar,
-                    CPCumulativeOptionalHybrid,
-                ),
-            ):
-                self.cp_model.add_start_and_present_hints_from_start_time_map(
-                    incumbent_solution.get_start_time_map(),
-                    ignore_integrity_check=True,
-                )
-            else:
-                raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+            self.cp_model.add_start_hints_from_start_time_map(
+                incumbent_solution.get_start_time_map(),
+                ignore_integrity_check=True,
+            )
 
         self.solve_current_cp_remaining_time_limit(
             computational_time,
@@ -470,12 +284,9 @@ class HybridFlowShopCpLnsController(
         out_of_block_ops_sch.remove_operations_by_list_of_job_stage_mc_names(
             [(j, i, k) for (j, i, k) in rescheduled_ops]
         )
-        if isinstance(self.cp_model, CP2023NaderiCumulative):
-            self.cp_model.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                out_of_block_ops_sch
-            )
-        else:
-            raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+        self.cp_model.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+            out_of_block_ops_sch
+        )
 
     # Subroutine: Time window operator
 
@@ -575,21 +386,7 @@ class HybridFlowShopCpLnsController(
             # Start time 기준 정렬
             jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
             for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                if isinstance(self.cp_model, CP2023NaderiCumulative):
-                    self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
-                elif isinstance(
-                    self.cp_model,
-                    (
-                        CP2023NaderiOptionalInterval,
-                        CPOptionalIntervalMasterTimevar,
-                        CPCumulativeOptionalHybrid,
-                    ),
-                ):
-                    self.cp_model.add_fixed_operation_precedence_constraint(
-                        j1, j2, i, k
-                    )
-                else:
-                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+                self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
 
     @staticmethod
     def is_within_window(time: int, window_start: int, window_end: int) -> bool:
@@ -1046,38 +843,18 @@ class HybridFlowShopCpLnsController(
 
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
-                if isinstance(sub_cp_mdl, CP2023NaderiCumulative):
-                    # Freeze operation precedences
-                    # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                    #     last_solution.get_start_time_map(), ignore_integrity_check=True
-                    # )
-                    sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                        last_solution, ignore_integrity_check=True
-                    )
-                    # Apply hint
-                    sub_cp_mdl.add_start_hints_from_start_time_map(
-                        partial_sol_best.get_start_time_map(),
-                        ignore_integrity_check=True,
-                    )
-                elif isinstance(
-                    self.cp_model,
-                    (
-                        CP2023NaderiOptionalInterval,
-                        CPOptionalIntervalMasterTimevar,
-                        CPCumulativeOptionalHybrid,
-                    ),
-                ):
-                    # Freeze operation precedences
-                    sub_cp_mdl.add_fixed_machine_and_ops_precedence_constraints_from_start_time_map(
-                        last_solution.get_start_time_map(), ignore_integrity_check=True
-                    )
-                    # Apply hint
-                    sub_cp_mdl.add_start_and_present_hints_from_start_time_map(
-                        partial_sol_best.get_start_time_map(),
-                        ignore_integrity_check=True,
-                    )
-                else:
-                    raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
+                # Freeze operation precedences
+                # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
+                #     last_solution.get_start_time_map(), ignore_integrity_check=True
+                # )
+                sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                    last_solution, ignore_integrity_check=True
+                )
+                # Apply hint
+                sub_cp_mdl.add_start_hints_from_start_time_map(
+                    partial_sol_best.get_start_time_map(),
+                    ignore_integrity_check=True,
+                )
 
             # mdl_txt_path = self.get_file_path_for_subroutine(
             #     f"_{job_subset_cnt}_cp_sat_model.txt"
@@ -2609,72 +2386,3 @@ class HybridFlowShopCpLnsController(
         )
 
     # End subroutine definition
-
-    def post_run_process(self) -> None:
-        """
-        Finalizes the run by checking the feasibility of the incumbent solution
-        and releasing log handlers.
-        """
-        incumbent = self.solution_manager.get_incumbent()
-        if incumbent:
-            self.check_feasibility(incumbent.get_start_time_map())
-        self.release_log_handlers()
-        self.total_elapsed_time = self.timer.elapsed_sec
-
-    def check_feasibility(
-        self, start_time_map: dict[tuple[str, str, str], int]
-    ) -> None:
-        """Check the feasibility of the given start times.
-
-        Args:
-            start_time_map (dict[tuple[str, str, str], int]): _description_
-
-        Raises:
-            ValueError: If any start time is negative or invalid.
-            RuntimeError: If the feasibility check fails while solving the model.
-            ValueError: If the feasibility check fails with an unexpected status.
-        """
-        logging.info("Feasibility check starts")
-        for (j, i, k), start_time in start_time_map.items():
-            if start_time < 0:
-                raise ValueError(
-                    f"Invalid start time for job {j}, stage {i}, machine {k}: {start_time}"
-                )
-        base_cp = self.create_base_cp_model()
-
-        # Freeze operation start times and machine assignments
-        for (j, i, k), start_time in start_time_map.items():
-            if isinstance(self.cp_model, CP2023NaderiCumulative):
-                base_cp.add(self.cp_model.var_op_start[j, i] == start_time)
-            elif isinstance(
-                self.cp_model,
-                (
-                    CP2023NaderiOptionalInterval,
-                    CPOptionalIntervalMasterTimevar,
-                    CPCumulativeOptionalHybrid,
-                ),
-            ):
-                base_cp.add(self.cp_model.var_op_is_present[j, i, k] == 1)
-                base_cp.add(self.cp_model.var_op_start[j, i, k] == start_time)
-            else:
-                raise TypeError(f"Unsupported CP model type: {type(self.cp_model)}")
-
-        # Solve with tight time limit
-        timelimit = 2.0
-        solver_thread_cnt = 1
-        solver_report = self.solve_cp_model(base_cp, timelimit, solver_thread_cnt)
-        if solver_report.status not in (CpsatStatus.FEASIBLE, CpsatStatus.OPTIMAL):
-            mdl_txt_path = self.get_file_path_for_subroutine(
-                "_feasibility_check_failed.txt"
-            )
-            base_cp.export_to_file(str(mdl_txt_path))
-            if solver_report.status == CpsatStatus.INFEASIBLE:
-                raise RuntimeError(
-                    f"Feasibility check failed: INFEASIBLE. Model saved to {mdl_txt_path}"
-                )
-            else:
-                raise ValueError(
-                    f"Feasibility check failed with status {solver_report.status}. "
-                    f"Model saved to {mdl_txt_path}"
-                )
-        logging.info("Feasibility check passed")
