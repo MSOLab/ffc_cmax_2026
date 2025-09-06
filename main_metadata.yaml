@@ -2,25 +2,25 @@
 pra_common_params_rel_path: "resources/pra_common_params.yaml"
 baseline_csv_path: "resources/pra_ref/naderi2023CPOCodeResult.csv"
 input_dir: "resources/pra"
-benchmark_idx_list:
-  - 1
-  - 91
-  - 181
-  - 271
-  - 361
-  - 451
-  - 541
-  - 631
-  - 721
-  - 811
-  - 901
-  - 991
-  - 1081
-  - 1171
-  - 1261
-  - 1351
-# first: 1
-# last: 1440
+# benchmark_idx_list:
+#   - 1
+#   - 91
+#   - 181
+#   - 271
+#   - 361
+#   - 451
+#   - 541
+#   - 631
+#   - 721
+#   - 811
+#   - 901
+#   - 991
+#   - 1081
+#   - 1171
+#   - 1261
+#   - 1351
+first: 1
+last: 1440
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
@@ -331,8 +331,8 @@ dicts_of_i_o_data_path:
   #   description: "best(8 dispatches) -> CJ(10,5,IMS) -> apply SHD LB -> improve via (OBNS, SNS, JBNS)"
   - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
     subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250826012400.yaml"
-    output_dir: "pra_600s/dispatch_icIms105_shdLb_baseCp10"
-    description: "best(8 dispatches) -> IC(10,5,3,IMS) -> apply SHD LB -> improve via base CP 10s"
+    output_dir: "pra_600s/dispatch_icIms105_shdLb_baseCp5"
+    description: "apply SHD LB -> best(8 dispatches) -> IC(10,5,3,IMS) -> improve via base CP 5s"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"

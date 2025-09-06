@@ -1,5 +1,6 @@
 - method: set_random_seed
   seed: 42
+- method: apply_shdlb
 - method: initialize_by_dj_cds
   error_if_infeasible: true
 - method: initialize_by_dj_tp
@@ -22,7 +23,6 @@
   no_improvement_timelimit: 3
   solver_thread_cnt: 8
   error_if_infeasible: true
-- method: apply_shdlb
 - method: solve_base_cp_model
-  computational_time: 10
+  computational_time: 5
   solver_thread_cnt: 8
