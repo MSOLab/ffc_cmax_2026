@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import pandas as pd
-from routix.io import object_to_yaml
+from routix import DynamicDataObject, StoppingCriteria
 from routix.runner import MultiScenarioRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -59,12 +59,14 @@ class HfsMultiScenarioRunner(
         if self.mode == RunMode.FULL_RUN:
             # --- Save scenario-specific config files for reproducibility ---
             for i, scenario_config in enumerate(self.scenario_configs):
-                subroutine_flow = scenario_config.get("subroutine_flow")
-                stopping_criteria = scenario_config.get("stopping_criteria")
-
+                subroutine_flow: DynamicDataObject | None = scenario_config.get(
+                    "subroutine_flow"
+                )
+                stopping_criteria: StoppingCriteria | None = scenario_config.get(
+                    "stopping_criteria"
+                )
                 if subroutine_flow is None or stopping_criteria is None:
                     continue
-
                 # Use a specific output subdir from config, or create a default one
                 scenario_output_dir = self.output_dir / f"scenario_{i + 1}"
                 if "output_subdir" in scenario_config:
@@ -72,10 +74,10 @@ class HfsMultiScenarioRunner(
                         scenario_config["output_subdir"]
                     )
                 scenario_output_dir.mkdir(parents=True, exist_ok=True)
-                object_to_yaml(
+                DynamicDataObject.safe_save_yaml(
                     subroutine_flow, scenario_output_dir / "subroutine_flow.yaml"
                 )
-                object_to_yaml(
+                DynamicDataObject.safe_save_yaml(
                     stopping_criteria, scenario_output_dir / "stopping_criteria.yaml"
                 )
 
