@@ -1,12 +1,12 @@
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import yaml
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
 
+from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
 from hybridflowshop.painter.gantt import GanttPlotter
-from hybridflowshop.utils import extract_prefix_from_filename, pyyaml_key_to_tuple
+from hybridflowshop.utils import extract_prefix_from_filename
 
 
 def draw_gantt_charts_from_solutions(
@@ -75,13 +75,11 @@ def _process_solution_file(
 
     output_path = file_dir / result_gantt_filename_format.format(filename_prefix)
 
-    with open(file_path, "r", encoding=encoding) as f:
-        solution_dict = yaml.load(f, Loader=yaml.UnsafeLoader)
-        start_time_map = pyyaml_key_to_tuple(solution_dict["start_times"])
-        end_time_map = pyyaml_key_to_tuple(solution_dict["end_times"])
-        GanttPlotter().export_hybrid_flowshop_plot(
-            output_path, start_time_map, end_time_map, job_list=all_job_id_list
-        )
+    start_time_map = get_start_time_dict(file_path, encoding=encoding)
+    end_time_map = get_end_time_dict(file_path, encoding=encoding)
+    GanttPlotter().export_hybrid_flowshop_plot(
+        output_path, start_time_map, end_time_map, job_list=all_job_id_list
+    )
 
 
 def draw_progress_plots_from_logs(
