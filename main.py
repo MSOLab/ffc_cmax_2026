@@ -21,12 +21,15 @@ from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_multi_scenario_runner import HfsMultiScenarioRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
+from output_filenames import OutputFilenames
 
-MAIN_METADATA_FILENAME = "main_metadata.yaml"
+MAIN_METADATA_FILENAME = "main_metadata_temp_resume.yaml"
 
 
 def main():
     e_timer = ElapsedTimer()
+    prev_flow = None
+    resume_dir = None
 
     # --- Load and validate metadata ---
     try:
@@ -36,12 +39,13 @@ def main():
         logging.error(f"Metadata file not found at '{MAIN_METADATA_FILENAME}'")
         return
     except ValidationError as e:
-        logging.error(f"Metadata validation failed:\n{e}")
+        logging.error(f"Metadata validation failed: {e}", exc_info=True)
         return
 
     # --- Determine RunMode and base_output_dir_path ---
     run_mode = RunMode.FULL_RUN
     if config.analysis_timestamp:
+        # (1) Determine post-process-only mode if analysis_timestamp is provided and valid
         potential_path = config.output_dir_scenarios / config.analysis_timestamp
         if potential_path.is_dir():
             run_mode = RunMode.POST_PROCESS_ONLY
@@ -51,7 +55,29 @@ def main():
             base_output_dir_path = init_timestamped_working_dir(
                 base_output_dir=config.output_dir_scenarios, e_timer=e_timer
             )
+    elif config.resume_dir_path:
+        # (2) Determine RESUME mode if resume_path is provided
+        run_mode = RunMode.RESUME
+        # Load resume directory or timestamped directory
+        resume_dir = Path(config.resume_dir_path)
+        if not resume_dir.exists():
+            logging.error(f"Resume directory not found: {resume_dir}")
+            return
+        # Attempt to read previous subroutine_flow from resume_dir/subroutine_flow.yaml
+        try:
+            prev_flow = DynamicDataObject.from_yaml(
+                resume_dir / OutputFilenames.SUBROUTINE_FLOW_CACHE_FN
+            )
+        except Exception as e:
+            logging.error(f"Failed to load resume subroutine flow: {e}", exc_info=True)
+            return
+        logging.info(f"Running in RESUME mode using resume dir: {resume_dir}")
+        # Create a new timestamped working directory for this resumed experiment
+        base_output_dir_path = init_timestamped_working_dir(
+            base_output_dir=config.output_dir_scenarios, e_timer=e_timer
+        )
     else:
+        # (3) Default to FULL_RUN mode
         base_output_dir_path = init_timestamped_working_dir(
             base_output_dir=config.output_dir_scenarios, e_timer=e_timer
         )
@@ -73,7 +99,7 @@ def main():
                 "Proceeding with a new FULL_RUN."
             )
         else:
-            logging.info("Running in FULL_RUN mode.")
+            logging.info(f"Running in {run_mode.name} mode.")
 
     # --- Load data common to all scenarios ---
     pra_common_params_dict = read_yaml(config.pra_common_params_rel_path)
@@ -86,7 +112,7 @@ def main():
         base_output_dir_path / config.pra_common_params_rel_path.name
     )
     # if run_mode is RunMode.FULL_RUN:
-    if run_mode == RunMode.FULL_RUN:
+    if run_mode in {RunMode.FULL_RUN, RunMode.RESUME}:
         object_to_yaml(config.to_dict(), main_metadata_dump_path)
         object_to_yaml(pra_common_params_dict, pra_common_params_dump_path)
     elif run_mode is RunMode.POST_PROCESS_ONLY:
@@ -113,18 +139,47 @@ def main():
         subroutine_flow_obj = read_yaml(path_config.subroutine_flow_rel_path)
         stopping_criteria_dict = read_yaml(path_config.stopping_criteria_rel_path)
 
-        if run_mode == RunMode.FULL_RUN:
-            validator = SubroutineFlowValidator(HybridFlowShopCpLnsController)
-            validator.validate(DynamicDataObject.from_obj(subroutine_flow_obj))
-
-        scenario_configs.append(
-            {
-                "subroutine_flow": DynamicDataObject.from_obj(subroutine_flow_obj),
-                "stopping_criteria": StoppingCriteria(stopping_criteria_dict),
-                "output_subdir": path_config.output_dir,
-                "description": path_config.description,
-            }
-        )
+        # Validate the flow if FULL_RUN or RESUME
+        validator = SubroutineFlowValidator(HybridFlowShopCpLnsController)
+        if run_mode in {RunMode.FULL_RUN, RunMode.RESUME}:
+            try:
+                validator.validate(DynamicDataObject.from_obj(subroutine_flow_obj))
+                logging.info(
+                    f"Subroutine flow validated for scenario {path_config.output_dir}."
+                )
+            except Exception as e:
+                logging.error(
+                    f"Subroutine flow validation failed for scenario {path_config.output_dir}: {e}",
+                    exc_info=True,
+                )
+                return
+        # Validate prefix against previous flow in RESUME mode
+        flow_resume_idx = -1
+        if run_mode == RunMode.RESUME:
+            try:
+                flow_resume_idx = validator.validate_subroutine_flow_prefix(
+                    DynamicDataObject.from_obj(prev_flow),
+                    DynamicDataObject.from_obj(subroutine_flow_obj),
+                )
+                logging.info(
+                    f"Resume prefix validated for scenario {path_config.output_dir}; flow resume index={flow_resume_idx}"
+                )
+            except Exception as e:
+                logging.error(
+                    f"Resume validation failed for scenario {path_config.output_dir}: {e}",
+                    exc_info=True,
+                )
+                return
+        scenario_config_dict = {
+            "subroutine_flow": DynamicDataObject.from_obj(subroutine_flow_obj),
+            "stopping_criteria": StoppingCriteria(stopping_criteria_dict),
+            "output_subdir": path_config.output_dir,
+            "description": path_config.description,
+        }
+        if run_mode == RunMode.RESUME:
+            # In RESUME mode, also provide flow_resume_idx
+            scenario_config_dict["flow_resume_idx"] = flow_resume_idx
+        scenario_configs.append(scenario_config_dict)
 
     # --- Base output metadata ---
     base_output_metadata = config.model_dump(
@@ -139,6 +194,21 @@ def main():
         }
     )
     base_output_metadata["start_dt"] = e_timer.start_dt
+    # Provide filename formats
+    base_output_metadata["summary_fn_format"] = OutputFilenames.SUMMARY_FN_FORMAT
+    base_output_metadata["solution_fn_format"] = OutputFilenames.SOLUTION_FN_FORMAT
+    base_output_metadata["obj_log_fn_format"] = OutputFilenames.OBJ_LOG_FN_FORMAT
+    # If running in RESUME mode, include resume info for runners to locate previous artifacts
+    if run_mode == RunMode.RESUME:
+        # Provide resume_root and resume_timestamp so runners can find per-instance files
+        base_output_metadata["resume_root"] = str(resume_dir)
+        # Try to extract timestamp from resume_dir name if possible
+        if resume_dir is not None:
+            base_output_metadata["resume_timestamp"] = resume_dir.name
+        else:
+            base_output_metadata["resume_timestamp"] = None
+    # ask runners to be strict by default when resuming
+    base_output_metadata["resume_strict"] = True
 
     # --- Create and run the multi-scenario runner ---
     multi_scenario_runner = HfsMultiScenarioRunner(

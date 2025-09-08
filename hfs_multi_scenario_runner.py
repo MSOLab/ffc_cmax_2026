@@ -15,6 +15,7 @@ from xlsxwriter.worksheet import Worksheet
 from hfs_config import BaselineColumnMapping
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
+from output_filenames import OutputFilenames
 
 
 class HfsMultiScenarioRunner(
@@ -56,7 +57,7 @@ class HfsMultiScenarioRunner(
         self.baseline_df: pd.DataFrame | None = None
         """DataFrame containing baseline results for comparison in the report."""
 
-        if self.mode == RunMode.FULL_RUN:
+        if self.mode in {RunMode.FULL_RUN, RunMode.RESUME}:
             # --- Save scenario-specific config files for reproducibility ---
             for i, scenario_config in enumerate(self.scenario_configs):
                 subroutine_flow: DynamicDataObject | None = scenario_config.get(
@@ -75,10 +76,12 @@ class HfsMultiScenarioRunner(
                     )
                 scenario_output_dir.mkdir(parents=True, exist_ok=True)
                 DynamicDataObject.safe_save_yaml(
-                    subroutine_flow, scenario_output_dir / "subroutine_flow.yaml"
+                    subroutine_flow,
+                    scenario_output_dir / OutputFilenames.SUBROUTINE_FLOW_CACHE_FN,
                 )
                 DynamicDataObject.safe_save_yaml(
-                    stopping_criteria, scenario_output_dir / "stopping_criteria.yaml"
+                    stopping_criteria,
+                    scenario_output_dir / OutputFilenames.STOPPING_CRITERIA_CACHE_FN,
                 )
 
     def set_baseline_df(

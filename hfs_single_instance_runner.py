@@ -1,6 +1,9 @@
+import datetime
+import logging
 from pathlib import Path
 from typing import Any
 
+from mbls.cpsat import ObjValueBoundStore
 from routix import DynamicDataObject, StoppingCriteria
 from routix.io import object_to_yaml
 from routix.runner import SingleInstanceRunner
@@ -12,15 +15,28 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
 from hybridflowshop.hfs_summary import HfsSummary
+from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
 from hybridflowshop.report.hfs_subroutine_report_statistics import (
     HfsSubroutineReportStatistics,
 )
+from hybridflowshop.scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
+from hybridflowshop.scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from hybridflowshop.utils import tuple_to_pyyaml_key
 
 
 class HfsSingleInstanceRunner(
     SingleInstanceRunner[HybridFlowshopParameters, HybridFlowShopCpLnsController]
 ):
+    # Optional member variables for RunMode.RESUME
+    resume_start_time_map: dict | None = None
+    """Start time map loaded from a resume solution file, if applicable."""
+    resume_end_time_map: dict | None = None
+    """End time map loaded from a resume solution file, if applicable."""
+    resume_obj_store: ObjValueBoundStore | None = None
+    """Objective value bound store loaded from a resume solution file, if applicable."""
+    resume_summary_dict: dict[str, Any] | None = None
+    """Summary dictionary loaded from a resume summary file, if applicable."""
+
     def __init__(
         self,
         instance: HybridFlowshopParameters,
@@ -56,8 +72,77 @@ class HfsSingleInstanceRunner(
             self.stopping_criteria,
         )
 
+    def _try_apply_resume(self) -> None:
+        # Use resume data injected by the multi-instance runner
+        if (
+            self.resume_start_time_map is not None
+            and self.resume_end_time_map is not None
+            and self.resume_obj_store is not None
+            and self.resume_summary_dict is not None
+        ):
+            logging.info(f"Applying injected resume data for instance '{self.name}'")
+            self.ctrlr.obj_store = self.resume_obj_store
+            init_report = HfsSubroutineReport(
+                elapsed_time=0.0,
+                obj_value=self.resume_summary_dict.get("initObj", None),
+                obj_bound=self.resume_summary_dict.get("initBound", None),
+                is_init=True,
+            )
+            self.ctrlr.solution_manager.register(init_report, None)
+
+            last_report = HfsSubroutineReport(
+                elapsed_time=self.resume_summary_dict.get("totalElapsedTime", 0.0),
+                obj_value=self.resume_summary_dict.get("bestObj", None),
+                obj_bound=self.resume_summary_dict.get("bestBound", None),
+                is_init=False,
+            )
+            last_solution = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+                self.ctrlr.instance.stage_2_machines_map
+            )
+            for key, start_time in self.resume_start_time_map.items():
+                end_time = self.resume_end_time_map[key]
+                j, i, k = key
+                stage = last_solution.get_stage_by_name(i)
+                operation = stage.add_operation(
+                    HybridFlowshopOperation(
+                        job_name=j,
+                        stage_name=i,
+                        mc_name=k,
+                        start=start_time,
+                        end=end_time,
+                    )
+                )
+                if operation is None:
+                    raise RuntimeError(
+                        f"Failed to schedule operation of job {j} at stage {i} during extraction "
+                        f"on machine {k} with start time {start_time} and end time {end_time}."
+                    )
+            self.ctrlr.solution_manager.register(last_report, last_solution)
+
+            # current datetime - last_report.elapsed_time
+            virtual_dt = datetime.datetime.now() - datetime.timedelta(
+                seconds=last_report.elapsed_time
+            )
+            self.ctrlr.timer.set_start_time(virtual_dt)
+
+    def run(self):
+        """
+        Run the subroutine controller for the instance.
+
+        - This method initializes the controller and runs it if the mode is FULL_RUN.
+        - If the mode is POST_PROCESS_ONLY, it skips the controller run and directly
+        calls the post_run_process method.
+        """
+        if self.mode == RunMode.RESUME:
+            self.ctrlr = self.get_controller()
+            self.ctrlr.set_working_dir(self.working_dir)
+            self._try_apply_resume()
+            self.ctrlr.run(flow_resume_idx=self.flow_resume_idx)
+
+        return super().run()
+
     def post_run_process(self) -> None:
-        if self.mode == RunMode.FULL_RUN:
+        if self.mode in {RunMode.FULL_RUN, RunMode.RESUME}:
             self.save_files(self.encoding)
 
         self.from_files_save_analysis(self.encoding)

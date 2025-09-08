@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from mbls.cpsat import (
     CpsatStatus,
@@ -184,6 +184,20 @@ class HybridFlowShopCpLnsControllerCore(
 
     # End visualization
 
+    def run(self, flow_resume_idx: int = -1) -> None:
+        """Overrides the run method to execute the subroutine flow.
+
+        Args:
+            flow_resume_idx (int, optional): The index to resume the flow from. Defaults to -1.
+        """
+        if isinstance(self._subroutine_flow, Sequence) and not isinstance(
+            self._subroutine_flow, (str, bytes)
+        ):
+            for idx, subroutine_data in enumerate(self._subroutine_flow):
+                skip_method_call = idx < flow_resume_idx
+                self._run_flow(subroutine_data, skip_method_call=skip_method_call)
+        self.post_run_process()
+
     # Start post-run process
 
     def post_run_process(self) -> None:
@@ -199,16 +213,19 @@ class HybridFlowShopCpLnsControllerCore(
 
     def check_feasibility(
         self, start_time_map: dict[tuple[str, str, str], int]
-    ) -> None:
+    ) -> float:
         """Check the feasibility of the given start times.
 
         Args:
-            start_time_map (dict[tuple[str, str, str], int]): _description_
+            start_time_map (dict[tuple[str, str, str], int]): A mapping of (job, stage, machine) to start time.
 
         Raises:
             ValueError: If any start time is negative or invalid.
             RuntimeError: If the feasibility check fails while solving the model.
             ValueError: If the feasibility check fails with an unexpected status.
+
+        Returns:
+            float: The objective value of the solution if feasible.
         """
         logging.info("Feasibility check starts")
         for (j, i, k), start_time in start_time_map.items():
@@ -241,5 +258,8 @@ class HybridFlowShopCpLnsControllerCore(
                     f"Model saved to {mdl_txt_path}"
                 )
         logging.info("Feasibility check passed")
+        if solver_report.obj_value is None:
+            raise ValueError("Feasibility check did not return an objective value.")
+        return solver_report.obj_value
 
     # End post-run process
