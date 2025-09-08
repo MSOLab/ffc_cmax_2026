@@ -1,4 +1,5 @@
 import logging
+import math
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -120,9 +121,46 @@ class HybridFlowShopCpLnsControllerCore(
     # Start stopping condition
 
     def is_stopping_condition(self) -> bool:
-        return self.time_is_up()
+        return self.ub_equals_lb() or self.time_is_up()
+
+    def ub_equals_lb(self) -> bool:
+        """Checks if the current best objective equals the best objective bound.
+
+        Raises:
+            ValueError: If the current best objective is better than the best objective bound.
+
+        Returns:
+            bool: True if the current best objective equals the best objective bound,
+                False otherwise.
+        """
+        best_obj_value = self.solution_manager.best_obj_value
+        best_obj_bound = self.solution_manager.best_obj_bound
+
+        if best_obj_value is None or best_obj_bound is None:
+            # Case 1: Either ObjValue or ObjBound is None
+            return False
+        # best_obj_value is not None and best_obj_bound is not None
+
+        # Case 2: ObjValue equals ObjBound
+        # Considered equal if close enough (considering floating point precision)
+        if math.isclose(best_obj_value, best_obj_bound, rel_tol=1e-9, abs_tol=1e-12):
+            logging.info(
+                f"Stop by UB == LB: best objective value ({best_obj_value}) "
+                f"equals best objective bound ({best_obj_bound})."
+            )
+            return True
+        # Case 3: ObjValue is strictly better than ObjBound
+        if self.solution_manager._a_is_better_obj_value(best_obj_value, best_obj_bound):
+            raise ValueError(
+                f"Inconsistent state: best objective value ({best_obj_value}) "
+                f"is strictly better than best objective bound ({best_obj_bound})."
+            )
+        # Case 4: ObjValue is worse than ObjBound
+        return False
 
     def time_is_up(self) -> bool:
+        if self.stopping_criteria.timelimit is None:
+            return False
         # If total elapsed time exceeds the stopping criteria
         if self.timer.elapsed_sec >= self.stopping_criteria.timelimit:
             logging.info("Stop by timelimit")
@@ -196,6 +234,11 @@ class HybridFlowShopCpLnsControllerCore(
             for idx, subroutine_data in enumerate(self._subroutine_flow):
                 skip_method_call = idx < flow_resume_idx
                 self._run_flow(subroutine_data, skip_method_call=skip_method_call)
+        else:
+            logging.warning(
+                "Subroutine flow is not a sequence; running as a single step."
+            )
+            self._run_flow(self._subroutine_flow)
         self.post_run_process()
 
     # Start post-run process
