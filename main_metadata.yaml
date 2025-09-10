@@ -5,21 +5,21 @@ input_dir: "resources/pra"
 benchmark_idx_list:
   # - 0
   - 1
-  # - 91
-  # - 181
-  # - 271
-  # - 361
-  # - 451
-  # - 541
-  # - 631
-  # - 721
-  # - 811
-  # - 901
-  # - 991
-  # - 1081
-  # - 1171
-  # - 1261
-  # - 1351
+  - 91
+  - 181
+  - 271
+  - 361
+  - 451
+  - 541
+  - 631
+  - 721
+  - 811
+  - 901
+  - 991
+  - 1081
+  - 1171
+  - 1261
+  - 1351
 # first: 1
 # last: 1440
 benchmark_filename_format: "{}.txt"
@@ -342,26 +342,26 @@ dicts_of_i_o_data_path:
     subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-1.yaml"
     output_dir : "pra_20s/20250910-1"
     description: "SHD LB -> 8 dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS) -> base CP 5s"
-  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-2.yaml"
-  #   output_dir : "pra_20s/20250910-1"
-  #   description: "SHD LB -> 8 dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(JBNS) -> base CP 5s"
-  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-3.yaml"
-  #   output_dir : "pra_20s/20250910-1"
-  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(SNS) -> base CP 5s"
-  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-4.yaml"
-  #   output_dir : "pra_20s/20250910-1"
-  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS) -> base CP 5s"
-  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-5.yaml"
-  #   output_dir : "pra_20s/20250910-1"
-  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS) -> base CP 5s"
-  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-6.yaml"
-  #   output_dir : "pra_20s/20250910-1"
-  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(JBNS, SNS) -> base CP 5s"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-2.yaml"
+    output_dir : "pra_20s/20250910-1"
+    description: "SHD LB -> 8 dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(JBNS) -> base CP 5s"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-3.yaml"
+    output_dir : "pra_20s/20250910-1"
+    description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(SNS) -> base CP 5s"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-4.yaml"
+    output_dir : "pra_20s/20250910-1"
+    description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS) -> base CP 5s"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-5.yaml"
+    output_dir : "pra_20s/20250910-1"
+    description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS) -> base CP 5s"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-6.yaml"
+    output_dir : "pra_20s/20250910-1"
+    description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(JBNS, SNS) -> base CP 5s"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
