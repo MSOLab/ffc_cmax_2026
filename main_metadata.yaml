@@ -3,7 +3,7 @@ pra_common_params_rel_path: "resources/pra_common_params.yaml"
 baseline_csv_path: "resources/pra_ref/naderi2023CPOCodeResult.csv"
 input_dir: "resources/pra"
 benchmark_idx_list:
-  - 0
+  # - 0
   - 1
   # - 91
   # - 181
@@ -119,10 +119,10 @@ dicts_of_i_o_data_path:
   # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_everything.yaml"
   #   output_dir : "pra_20s/everything"
-  - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
-    subroutine_flow_rel_path: "configs_20s/subroutine_flow_20250910152600.yaml"
-    output_dir : "pra_20s/20250910152600"
-    description: "DS(CDS) -> reactive loop(OBNS)"
+  # - stopping_criteria_rel_path: "configs_20s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_20s/subroutine_flow_20250910152600.yaml"
+  #   output_dir : "pra_20s/20250910152600"
+  #   description: "DS(CDS) -> reactive loop(OBNS)"
 
   # - stopping_criteria_rel_path: "configs_100s/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_100s/subroutine_flow_cj15q1_block.yaml"
@@ -338,6 +338,30 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250826012400.yaml"
   #   output_dir: "pra_600s/dispatch_icIms105_shdLb_baseCp5"
   #   description: "apply SHD LB -> best(8 dispatches) -> IC(10,5,3,IMS) -> improve via base CP 5s"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-1.yaml"
+    output_dir : "pra_20s/20250910-1"
+    description: "SHD LB -> 8 dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS) -> base CP 5s"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-2.yaml"
+  #   output_dir : "pra_20s/20250910-1"
+  #   description: "SHD LB -> 8 dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(JBNS) -> base CP 5s"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-3.yaml"
+  #   output_dir : "pra_20s/20250910-1"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(SNS) -> base CP 5s"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-4.yaml"
+  #   output_dir : "pra_20s/20250910-1"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS) -> base CP 5s"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-5.yaml"
+  #   output_dir : "pra_20s/20250910-1"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS) -> base CP 5s"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250910-6.yaml"
+  #   output_dir : "pra_20s/20250910-1"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(JBNS, SNS) -> base CP 5s"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -356,3 +380,4 @@ progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
 # analysis_timestamp: "20250819T000123_343274"
+resume_dir_path: resources/pra_prev_calc/20250906T212736_116407

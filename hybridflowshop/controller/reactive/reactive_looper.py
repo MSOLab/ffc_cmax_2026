@@ -248,15 +248,19 @@ class ReactiveLooper:
                 else:
                     logging.info("Last solution was timeout & not improved.")
                     self.no_improvement_step_count += 1
-
-                    tuner.decrement("rho")
-                    tuner.increment("computational_time")
+                    if tuner.current_value_hits_ub("computational_time"):
+                        tuner.increment("rho")
+                    else:
+                        tuner.decrement("rho")
+                        tuner.increment("computational_time")
             else:
                 logging.info("Last solution was timeout & not improved.")
                 self.no_improvement_step_count += 1
-
-                tuner.decrement("rho")
-                tuner.increment("computational_time")
+                if tuner.current_value_hits_ub("computational_time"):
+                    tuner.increment("rho")
+                else:
+                    tuner.decrement("rho")
+                    tuner.increment("computational_time")
 
     def run(self) -> None:
         def call_and_true_if_stop(
