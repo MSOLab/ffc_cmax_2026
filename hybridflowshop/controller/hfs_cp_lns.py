@@ -543,7 +543,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if rho <= 0:
             raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
         _rho = min(rho, 1)
-        free_stage_cnt: int = math.floor(self.instance.stage_count * _rho)
+        free_stage_cnt: int = math.ceil(self.instance.stage_count * _rho)
         logging.info(
             f"Applying stage operator with {free_stage_cnt} free stages (rho={rho})"
         )
@@ -911,44 +911,44 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
 
                 # TODO: uncomment only for debug purpose
-                output_path = self.get_file_path_for_subroutine(
-                    f"_gantt_{job_subset_cnt}_1_partial_dispatched_solution.yaml"
-                )
-                solution_dict = {
-                    "start_times": tuple_to_pyyaml_key(
-                        partial_sol_best.get_start_time_map()
-                    ),
-                    "end_times": tuple_to_pyyaml_key(
-                        partial_sol_best.get_end_time_map()
-                    ),
-                }
-                object_to_yaml(solution_dict, output_path)
-                if last_solution.makespan < partial_sol_best.makespan:
-                    output_path = self.get_file_path_for_subroutine(
-                        f"_gantt_{job_subset_cnt}_2_partial_CP_solution.yaml"
-                    )
-                    solution_dict = {
-                        "start_times": tuple_to_pyyaml_key(
-                            last_solution.get_start_time_map()
-                        ),
-                        "end_times": tuple_to_pyyaml_key(
-                            last_solution.get_end_time_map()
-                        ),
-                    }
-                    object_to_yaml(solution_dict, output_path)
-                if remaining_jobs:
-                    output_path = self.get_file_path_for_subroutine(
-                        f"_gantt_{job_subset_cnt}_3_all_dispatched_solution.yaml"
-                    )
-                    solution_dict = {
-                        "start_times": tuple_to_pyyaml_key(
-                            all_dispatched_sol_best.get_start_time_map()
-                        ),
-                        "end_times": tuple_to_pyyaml_key(
-                            all_dispatched_sol_best.get_end_time_map()
-                        ),
-                    }
-                    object_to_yaml(solution_dict, output_path)
+                # output_path = self.get_file_path_for_subroutine(
+                #     f"_gantt_{job_subset_cnt}_1_partial_dispatched_solution.yaml"
+                # )
+                # solution_dict = {
+                #     "start_times": tuple_to_pyyaml_key(
+                #         partial_sol_best.get_start_time_map()
+                #     ),
+                #     "end_times": tuple_to_pyyaml_key(
+                #         partial_sol_best.get_end_time_map()
+                #     ),
+                # }
+                # object_to_yaml(solution_dict, output_path)
+                # if last_solution.makespan < partial_sol_best.makespan:
+                #     output_path = self.get_file_path_for_subroutine(
+                #         f"_gantt_{job_subset_cnt}_2_partial_CP_solution.yaml"
+                #     )
+                #     solution_dict = {
+                #         "start_times": tuple_to_pyyaml_key(
+                #             last_solution.get_start_time_map()
+                #         ),
+                #         "end_times": tuple_to_pyyaml_key(
+                #             last_solution.get_end_time_map()
+                #         ),
+                #     }
+                #     object_to_yaml(solution_dict, output_path)
+                # if remaining_jobs:
+                #     output_path = self.get_file_path_for_subroutine(
+                #         f"_gantt_{job_subset_cnt}_3_all_dispatched_solution.yaml"
+                #     )
+                #     solution_dict = {
+                #         "start_times": tuple_to_pyyaml_key(
+                #             all_dispatched_sol_best.get_start_time_map()
+                #         ),
+                #         "end_times": tuple_to_pyyaml_key(
+                #             all_dispatched_sol_best.get_end_time_map()
+                #         ),
+                #     }
+                #     object_to_yaml(solution_dict, output_path)
 
                 # Store the objective value logs
 

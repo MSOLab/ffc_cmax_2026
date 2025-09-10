@@ -148,4 +148,5 @@ def _process_progress_log_file(
         drop_first_values_percent=drop_first_values_percent,
         label_y_offset=2.0,
         legend_loc="lower right",
+        show_markers=False,
     )
