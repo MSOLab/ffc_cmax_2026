@@ -23,7 +23,7 @@ from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
-MAIN_METADATA_FILENAME = "main_metadata_temp_resume.yaml"
+MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
 
 def main():

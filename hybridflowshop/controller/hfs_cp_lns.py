@@ -15,10 +15,11 @@ from routix.io import object_to_yaml
 from hybridflowshop.lb_enum import AggregationType, LbModelType
 from hybridflowshop.utils import tuple_to_pyyaml_key
 
-from .controller_core import HybridFlowShopCpLnsControllerCore
 from ..cp_2023_naderi_cumulative import CP2023NaderiCumulative
 from ..report import HfsCpsatSolverReport, HfsSubroutineReport
 from ..scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
+from .controller_core import HybridFlowShopCpLnsControllerCore
+from .reactive.reactive_looper import ReactiveLooper
 
 
 class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
@@ -2384,5 +2385,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             AggregationType.AVERAGE,
             log_prefix="APSC LB",
         )
+
+    def run_reactive_loop(
+        self,
+        subroutine_names: list[str],
+        opening_kwargs: dict,
+        reactive_param_tuner_dict: dict,
+        stopping_criteria: dict,
+    ):
+        looper = ReactiveLooper(
+            self,
+            subroutine_names,
+            opening_kwargs,
+            reactive_param_tuner_dict,
+            stopping_criteria,
+        )
+        looper.run()
 
     # End subroutine definition
