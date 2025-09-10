@@ -7,7 +7,7 @@
     subroutine_names: [ops_block_ns, stage_ns]
     opening_kwargs:
       rho: 0.1
-      computational_time: 2
+      computational_time: 0.5
       solver_thread_cnt: 8
       # error_if_infeasible: true
     reactive_param_tuner_dict:
@@ -16,13 +16,17 @@
         min: 0.1
         max: 0.9
       computational_time:
-        step_size: 1
-        min: 1
+        step_size: 0.5
+        min: 0.5
         max: 10
     stopping_criteria:
-      max_loop_count: 10
-      max_no_improvement_steps: 5
+      max_loop_count: null
+      max_no_improvement_steps: null
       rho_is_geq: 0.9
-      stop_at_global_timelimit_minus: 2
+      stop_at_global_timelimit_minus: 5.0
       lb_gap_is_leq: 0.000001
       on_exception: "stop"
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8
+  is_initial_solution: false

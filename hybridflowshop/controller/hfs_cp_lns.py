@@ -2402,4 +2402,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         looper.run()
 
+        # TODO: suffix from output_metadata
+        csv_report_path = self.get_file_path_for_subroutine("_report.csv")
+        looper.write_report_csv(csv_report_path)
+        # yaml_report_path = self.get_file_path_for_subroutine("_report.yaml")
+        # looper.write_report_yaml(yaml_report_path)
+
     # End subroutine definition

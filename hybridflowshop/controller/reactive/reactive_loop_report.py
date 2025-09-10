@@ -1,8 +1,5 @@
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
-
-from routix.concurrent_util import append_data_to_yaml, append_data_to_csv
 
 
 @dataclass
@@ -19,45 +16,30 @@ class ReactiveLoopReportEntry:
 
     def get_row_dict(self) -> dict[str, Any]:
         row = {
-            "iter_count": self.iter_count,
-            "subroutine_name": self.subroutine_name,
-            "time_start": self.time_start,
-            "time_elapsed": self.time_elapsed,
-            "obj_value": self.obj_value,
-            "is_optimal": self.is_optimal,
-            "is_improved": self.is_improved,
+            "iterCount": self.iter_count,
+            "subroutineName": self.subroutine_name,
+            "timeStart": self.time_start,
+            "timeElapsed": self.time_elapsed,
+            "objValue": self.obj_value,
+            "isOptimal": self.is_optimal,
+            "isImproved": self.is_improved,
         }
         if "rho" in self.kwargs:
             row["rho"] = self.kwargs["rho"]
         if "computational_time" in self.kwargs:
-            row["computational_time"] = self.kwargs["computational_time"]
+            row["timelimit"] = self.kwargs["computational_time"]
         return row
 
     @staticmethod
     def get_header() -> list[str]:
         return [
-            "iter_count",
-            "subroutine_name",
-            "time_start",
-            "time_elapsed",
-            "obj_value",
-            "is_optimal",
-            "is_improved",
+            "iterCount",
+            "subroutineName",
             "rho",
-            "computational_time",
+            "timelimit",
+            "timeStart",
+            "timeElapsed",
+            "objValue",
+            "isOptimal",
+            "isImproved",
         ]
-
-
-def append_entry_to_yaml(
-    yaml_path: Path, entry: ReactiveLoopReportEntry, encoding: str = "utf-8"
-) -> None:
-    row = entry.get_row_dict()
-    append_data_to_yaml(yaml_path, row, encoding=encoding)
-
-
-def append_entry_to_csv(
-    csv_path: Path, entry: ReactiveLoopReportEntry, encoding: str = "utf-8-sig"
-) -> None:
-    row = entry.get_row_dict()
-    header = ReactiveLoopReportEntry.get_header()
-    append_data_to_csv(csv_path, row, header, encoding=encoding)

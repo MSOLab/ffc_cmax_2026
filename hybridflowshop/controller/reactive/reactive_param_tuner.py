@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -23,10 +24,8 @@ class TunerParams:
 
 class ReactiveParamTuner:
     _method: Callable[..., Any]
-    _opening_kwargs: dict[str, Any]
     _tuner_param_dict: dict[str, TunerParams]
-
-    _current_kwargs: dict[str, Any]
+    current_kwargs: dict[str, Any]
 
     def __init__(
         self,
@@ -35,37 +34,41 @@ class ReactiveParamTuner:
         tuner_param_dict: dict[str, TunerParams],
     ):
         self._method = method
-        self._opening_kwargs = {
-            k: v for k, v in opening_kwargs.items() if k in tuner_param_dict
-        }
-        self._tuner_param_dict = tuner_param_dict.copy()
-
-        self._current_kwargs = {k: v for k, v in opening_kwargs.items()}
+        self._tuner_param_dict = tuner_param_dict
+        self.current_kwargs = deepcopy(opening_kwargs)
 
     def get_current_value(self, param_name: str) -> Any:
-        if param_name not in self._current_kwargs:
+        if param_name not in self.current_kwargs:
             raise ValueError(f"Parameter {param_name} is not in current kwargs.")
-        return self._current_kwargs[param_name]
+        return self.current_kwargs[param_name]
 
-    def call_method(self) -> Any:
-        return self._method(**self._current_kwargs)
+    def call_method(self, timelimit_by_global: float | None = None) -> Any:
+        if timelimit_by_global is not None:
+            if "computational_time" in self.current_kwargs:
+                self.current_kwargs["computational_time"] = min(
+                    self.current_kwargs["computational_time"],
+                    timelimit_by_global,
+                )
+            else:
+                self.current_kwargs["computational_time"] = timelimit_by_global
+        return self._method(**self.current_kwargs)
 
     def decrement(self, param_name: str) -> None:
         if param_name not in self._tuner_param_dict:
             raise ValueError(f"Parameter {param_name} is not tunable.")
-        if param_name not in self._current_kwargs:
+        if param_name not in self.current_kwargs:
             raise ValueError(f"Parameter {param_name} is not in current kwargs.")
         tuner = self._tuner_param_dict[param_name]
-        self._current_kwargs[param_name] = tuner.decrement(
-            self._current_kwargs[param_name]
+        self.current_kwargs[param_name] = tuner.decrement(
+            self.current_kwargs[param_name]
         )
 
     def increment(self, param_name: str) -> None:
         if param_name not in self._tuner_param_dict:
             raise ValueError(f"Parameter {param_name} is not tunable.")
-        if param_name not in self._current_kwargs:
+        if param_name not in self.current_kwargs:
             raise ValueError(f"Parameter {param_name} is not in current kwargs.")
         tuner = self._tuner_param_dict[param_name]
-        self._current_kwargs[param_name] = tuner.increment(
-            self._current_kwargs[param_name]
+        self.current_kwargs[param_name] = tuner.increment(
+            self.current_kwargs[param_name]
         )
