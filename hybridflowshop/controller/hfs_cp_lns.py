@@ -16,9 +16,9 @@ from hybridflowshop.lb_enum import AggregationType, LbModelType
 from hybridflowshop.utils import tuple_to_pyyaml_key
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
-from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
-from .report import HfsCpsatSolverReport, HfsSubroutineReport
-from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
+from ..cp_2023_naderi_cumulative import CP2023NaderiCumulative
+from ..report import HfsCpsatSolverReport, HfsSubroutineReport
+from ..scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 
 
 class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):

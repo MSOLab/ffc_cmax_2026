@@ -12,7 +12,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
+from hybridflowshop.controller import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
 from hybridflowshop.hfs_summary import HfsSummary
 from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport

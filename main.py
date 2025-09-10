@@ -20,7 +20,7 @@ from hfs_config import MainMetadata
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_multi_scenario_runner import HfsMultiScenarioRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
-from hybridflowshop.hfs_cp_lns import HybridFlowShopCpLnsController
+from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
 MAIN_METADATA_FILENAME = "main_metadata_temp_resume.yaml"

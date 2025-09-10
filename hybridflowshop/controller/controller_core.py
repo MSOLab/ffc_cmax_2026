@@ -12,10 +12,10 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from .cp_2023_naderi_cumulative import CP2023NaderiCumulative
-from .painter.gantt import GanttPlotter
-from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
-from .solution_manager import HfsSolutionManager
+from ..cp_2023_naderi_cumulative import CP2023NaderiCumulative
+from ..painter.gantt import GanttPlotter
+from ..scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
+from ..solution_manager import HfsSolutionManager
 
 
 class HybridFlowShopCpLnsControllerCore(
