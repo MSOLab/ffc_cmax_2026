@@ -1,0 +1,20 @@
+obj_value:
+  name: obj_value
+  data:
+    '0.19020737800747156': 3787.0
+    '0.4497950568329543': 3755.0
+    '0.8356614199001342': 3746.0
+    '85.5727287819609': 3746.0
+  notes:
+    '0.19020737800747156': 3-initialize_by_dj_cds
+    '0.4497950568329543': 6-initialize_by_dj_palmer
+    '0.8356614199001342': 10-initialize_by_ds_palmer
+    '85.5727287819609': 12-solve_base_cp_model
+obj_bound:
+  name: obj_bound
+  data:
+    '0.0673196348361671': 3692
+    '85.5727287819609': 3692.0
+  notes:
+    '0.0673196348361671': 2-apply_shdlb
+    '85.5727287819609': 12-solve_base_cp_model

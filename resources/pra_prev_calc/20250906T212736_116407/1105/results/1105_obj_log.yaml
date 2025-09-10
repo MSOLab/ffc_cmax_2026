@@ -1,0 +1,18 @@
+obj_value:
+  name: obj_value
+  data:
+    '0.1897406210191548': 3612.0
+    '0.5712097729556262': 3604.0
+    '51.84098319802433': 3604.0
+  notes:
+    '0.1897406210191548': 3-initialize_by_dj_cds
+    '0.5712097729556262': 7-initialize_by_ds_cds
+    '51.84098319802433': 12-solve_base_cp_model
+obj_bound:
+  name: obj_bound
+  data:
+    '0.06732946285046637': 3597
+    '51.84098319802433': 3597.0
+  notes:
+    '0.06732946285046637': 2-apply_shdlb
+    '51.84098319802433': 12-solve_base_cp_model
