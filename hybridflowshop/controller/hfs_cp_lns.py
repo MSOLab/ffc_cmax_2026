@@ -10,10 +10,8 @@ from mbls.cpsat import (
     ObjValueBoundStore,
 )
 from routix import ElapsedTimer
-from routix.io import object_to_yaml
 
 from hybridflowshop.lb_enum import AggregationType, LbModelType
-from hybridflowshop.utils import tuple_to_pyyaml_key
 
 from ..cp_2023_naderi_cumulative import CP2023NaderiCumulative
 from ..report import HfsCpsatSolverReport, HfsSubroutineReport
@@ -2400,12 +2398,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reactive_param_tuner_dict,
             stopping_criteria,
         )
-        looper.run()
-
-        # TODO: suffix from output_metadata
-        csv_report_path = self.get_file_path_for_subroutine("_report.csv")
-        looper.write_report_csv(csv_report_path)
-        # yaml_report_path = self.get_file_path_for_subroutine("_report.yaml")
-        # looper.write_report_yaml(yaml_report_path)
+        try:
+            looper.run()
+        finally:
+            # TODO: suffix from output_metadata
+            csv_report_path = self.get_file_path_for_subroutine("_report.csv")
+            looper.write_report_csv(csv_report_path)
+            # yaml_report_path = self.get_file_path_for_subroutine("_report.yaml")
+            # looper.write_report_yaml(yaml_report_path)
 
     # End subroutine definition
