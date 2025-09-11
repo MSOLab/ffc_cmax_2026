@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 from mbls.cpsat import CpsatStatus
-from routix.concurrent_util import batch_write_data_to_csv, batch_write_data_to_yaml
+from routix.util.concurrent import batch_write_data_to_csv, batch_write_data_to_yaml
 
 from ...report import HfsCpsatSolverReport
 from ..controller_core import HybridFlowShopCpLnsControllerCore
