@@ -20,12 +20,12 @@
         min: 0.5
         max: 10
     stopping_criteria:
-      max_loop_count: null
+      max_loop_count: 1000
       max_no_improvement_steps: null
-      rho_is_geq: 0.9
       stop_at_global_timelimit_minus: 5.0
       lb_gap_is_leq: 0.000001
-      on_exception: "stop"
+      on_exception: "skip"
+      rho_hits_ub: true
 - method: solve_base_cp_model
   computational_time: null
   solver_thread_cnt: 8

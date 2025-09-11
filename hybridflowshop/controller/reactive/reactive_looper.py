@@ -107,17 +107,13 @@ class ReactiveLooper:
     #         stopping_criteria=param_dict[stopping_criteria_key],
     #     )
 
-    def is_local_stopping_condition(self) -> bool:
-        min_rho = min(
-            tuner.get_current_value("rho")
-            for tuner in self.reactive_param_tuner_dict.values()
-        )
-        return self.stopping_criteria.is_stopping_condition(
+    def is_loop_stopping_condition(self, log_reason_if_true: bool = True) -> bool:
+        return self.stopping_criteria.is_loop_stopping_condition(
             self.loop_count,
             self.no_improvement_step_count,
-            min_rho,
             self.ctrlr.timer.get_remaining_sec(self.ctrlr.stopping_criteria.timelimit),
             self.ctrlr.obj_store.get_last_gap(),
+            log_reason_if_true=log_reason_if_true,
         )
 
     def call_subroutine(self, subroutine_name: str) -> None:
@@ -263,6 +259,8 @@ class ReactiveLooper:
                     tuner.increment("computational_time")
 
     def run(self) -> None:
+        excluded_subroutines = set()
+
         def call_and_true_if_stop(
             name_for_context_manager: str, subroutine_name: str
         ) -> bool:
@@ -271,32 +269,53 @@ class ReactiveLooper:
             with self.ctrlr.temporarily_extended_context(name_for_context_manager):
                 self.call_subroutine(subroutine_name)
 
-            return (
-                self.ctrlr.is_stopping_condition() or self.is_local_stopping_condition()
-            )
+            tuner = self.reactive_param_tuner_dict[subroutine_name]
+            if self.stopping_criteria.rho_hits_ub and tuner.current_value_hits_ub(
+                "rho"
+            ):
+                rho = tuner.get_current_value("rho")
+                rho_ub = tuner._tuner_param_dict["rho"].max
+                logging.info(
+                    f"Subroutine '{subroutine_name}' is excluded in the next loop: "
+                    f"rho_hits_ub (value={rho} >= {rho_ub}=criteria)"
+                )
+                excluded_subroutines.add(subroutine_name)
+
+            return self.ctrlr.is_stopping_condition(
+                log_reason_if_true=False
+            ) or self.is_loop_stopping_condition(log_reason_if_true=False)
 
         while (
             not self.ctrlr.is_stopping_condition()
-            and not self.is_local_stopping_condition()
+            and not self.is_loop_stopping_condition()
         ):
-            self.loop_count += 1
-            logging.info(f"Reactive loop #{self.loop_count} starts.")
-
+            if len(excluded_subroutines) == len(self.subroutine_names):
+                logging.info(
+                    f"All subroutines are excluded at the end of loop {self.loop_count}."
+                )
+                break
             if len(self.subroutine_names) == 0:
                 logging.info("No subroutines to call. Reactive looper ends.")
                 break
-            elif len(self.subroutine_names) == 1:
+
+            self.loop_count += 1
+            logging.info(f"Reactive loop #{self.loop_count} starts.")
+
+            if len(self.subroutine_names) == 1:
                 subroutine_name = self.subroutine_names[0]
+                if subroutine_name in excluded_subroutines:
+                    break
                 name_for_context_manager = f"{self.loop_count}_{subroutine_name}"
                 if call_and_true_if_stop(name_for_context_manager, subroutine_name):
                     break
             else:
                 for idx, subroutine_name in enumerate(self.subroutine_names):
+                    if subroutine_name in excluded_subroutines:
+                        continue
                     name_for_context_manager = (
                         f"{self.loop_count}_{idx + 1}-{subroutine_name}"
                     )
                     if call_and_true_if_stop(name_for_context_manager, subroutine_name):
                         break
-
 
         logging.info("Reactive looper ends.")
