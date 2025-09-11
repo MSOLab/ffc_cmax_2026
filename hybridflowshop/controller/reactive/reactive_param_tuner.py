@@ -2,6 +2,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from routix.util.comparison import float_a_leq_b, float_a_stl_b
+
 
 @dataclass(frozen=True)
 class TunerParams:
@@ -11,13 +13,13 @@ class TunerParams:
 
     def decrement(self, current: float) -> float:
         new_val = current - self.step_size
-        if new_val < self.min:
+        if float_a_stl_b(new_val, self.min):
             return self.min
         return new_val
 
     def increment(self, current: float) -> float:
         new_val = current + self.step_size
-        if new_val > self.max:
+        if float_a_stl_b(self.max, new_val):
             return self.max
         return new_val
 
@@ -48,7 +50,7 @@ class ReactiveParamTuner:
         if param_name not in self.current_kwargs:
             raise ValueError(f"Parameter {param_name} is not in current kwargs.")
         tuner = self._tuner_param_dict[param_name]
-        return self.current_kwargs[param_name] >= tuner.max
+        return float_a_leq_b(tuner.max, self.current_kwargs[param_name])
 
     def call_method(self, timelimit_by_global: float | None = None) -> Any:
         if timelimit_by_global is not None:

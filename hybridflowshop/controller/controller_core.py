@@ -1,5 +1,4 @@
 import logging
-import math
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -8,6 +7,7 @@ from mbls.cpsat import (
     CpSubroutineController,
 )
 from routix import DynamicDataObject, StoppingCriteria
+from routix.util.comparison import float_a_leq_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
@@ -120,10 +120,12 @@ class HybridFlowShopCpLnsControllerCore(
 
     # Start stopping condition
 
-    def is_stopping_condition(self) -> bool:
-        return self.ub_equals_lb() or self.time_is_up()
+    def is_stopping_condition(self, log_reason_if_true: bool = True, **kwargs) -> bool:
+        return self.ub_equals_lb(log_reason_if_true) or self.time_is_up(
+            log_reason_if_true
+        )
 
-    def ub_equals_lb(self) -> bool:
+    def ub_equals_lb(self, log_reason_if_true: bool = True) -> bool:
         """Checks if the current best objective equals the best objective bound.
 
         Raises:
@@ -143,27 +145,30 @@ class HybridFlowShopCpLnsControllerCore(
 
         # Case 2: ObjValue equals ObjBound
         # Considered equal if close enough (considering floating point precision)
-        if math.isclose(best_obj_value, best_obj_bound, rel_tol=1e-9, abs_tol=1e-12):
-            logging.info(
-                f"Stop by UB == LB: best objective value ({best_obj_value}) "
-                f"equals best objective bound ({best_obj_bound})."
-            )
+        if float_equals(best_obj_value, best_obj_bound):
+            if log_reason_if_true:
+                logging.info(
+                    f"Stop by UB == LB: best objective value ({best_obj_value}) "
+                    f"equals best objective bound ({best_obj_bound})."
+                )
             return True
         # Case 3: ObjValue is strictly better than ObjBound
         if self.solution_manager._a_is_better_obj_value(best_obj_value, best_obj_bound):
-            raise ValueError(
-                f"Inconsistent state: best objective value ({best_obj_value}) "
-                f"is strictly better than best objective bound ({best_obj_bound})."
-            )
+            if log_reason_if_true:
+                raise ValueError(
+                    f"Inconsistent state: best objective value ({best_obj_value}) "
+                    f"is strictly better than best objective bound ({best_obj_bound})."
+                )
         # Case 4: ObjValue is worse than ObjBound
         return False
 
-    def time_is_up(self) -> bool:
+    def time_is_up(self, log_reason_if_true: bool = True) -> bool:
         if self.stopping_criteria.timelimit is None:
             return False
         # If total elapsed time exceeds the stopping criteria
-        if self.timer.elapsed_sec >= self.stopping_criteria.timelimit:
-            logging.info("Stop by timelimit")
+        if float_a_leq_b(self.stopping_criteria.timelimit, self.timer.elapsed_sec):
+            if log_reason_if_true:
+                logging.info("Stop by timelimit")
             return True
         return False
 
