@@ -42,45 +42,16 @@ def main():
         logging.error(f"Metadata validation failed: {e}", exc_info=True)
         return
 
-    # --- Determine RunMode and base_output_dir_path ---
-    run_mode = RunMode.FULL_RUN
-    if config.analysis_timestamp:
-        # (1) Determine post-process-only mode if analysis_timestamp is provided and valid
-        potential_path = config.output_dir_scenarios / config.analysis_timestamp
-        if potential_path.is_dir():
-            run_mode = RunMode.POST_PROCESS_ONLY
-            base_output_dir_path = potential_path
-            e_timer.set_start_dt_from_dir_name(config.analysis_timestamp)
-        else:
-            base_output_dir_path = init_timestamped_working_dir(
-                base_output_dir=config.output_dir_scenarios, e_timer=e_timer
-            )
-    elif config.resume_dir_path:
-        # (2) Determine RESUME mode if resume_path is provided
-        run_mode = RunMode.RESUME
-        # Load resume directory or timestamped directory
-        resume_dir = Path(config.resume_dir_path)
-        if not resume_dir.exists():
-            logging.error(f"Resume directory not found: {resume_dir}")
-            return
-        # Attempt to read previous subroutine_flow from resume_dir/subroutine_flow.yaml
-        try:
-            prev_flow = DynamicDataObject.from_yaml(
-                resume_dir / OutputFilenames.SUBROUTINE_FLOW_CACHE_FN
-            )
-        except Exception as e:
-            logging.error(f"Failed to load resume subroutine flow: {e}", exc_info=True)
-            return
-        logging.info(f"Running in RESUME mode using resume dir: {resume_dir}")
-        # Create a new timestamped working directory for this resumed experiment
-        base_output_dir_path = init_timestamped_working_dir(
-            base_output_dir=config.output_dir_scenarios, e_timer=e_timer
+    try:
+        run_mode, base_output_dir_path, prev_flow, resume_dir = (
+            determine_run_mode_and_base_dir(config, e_timer)
         )
-    else:
-        # (3) Default to FULL_RUN mode
-        base_output_dir_path = init_timestamped_working_dir(
-            base_output_dir=config.output_dir_scenarios, e_timer=e_timer
-        )
+    except FileNotFoundError as e:
+        logging.error(str(e))
+        return
+    except Exception as e:
+        logging.error(f"Failed to determine run mode: {e}", exc_info=True)
+        return
 
     # --- Setup logging ---
     log_handlers = add_file_handler(base_output_dir_path / config.scenario_log_filename)
@@ -254,6 +225,64 @@ def load_hfs_instance(file_path: Path) -> HybridFlowshopParameters:
         raise FileNotFoundError(f"Benchmark file not found: {file_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading benchmark file {file_path}: {e}")
+
+def determine_run_mode_and_base_dir(
+    config: MainMetadata, e_timer: ElapsedTimer
+) -> tuple[RunMode, Path, DynamicDataObject | None, Path | None]:
+    """Determine run mode and base output directory.
+
+    Args:
+        config (MainMetadata): The main metadata configuration.
+        e_timer (ElapsedTimer): The elapsed timer for tracking execution time.
+
+    Raises:
+        FileNotFoundError: If the specified resume or analysis directory does not exist.
+
+    Returns:
+        tuple[RunMode, Path, DynamicDataObject | None, Path | None]: prev_flow and resume_dir are None
+            unless RESUME mode is selected.
+    """
+    run_mode = RunMode.FULL_RUN
+    prev_flow = None
+    _target_path = None
+
+    def new_ts_dir():
+        return init_timestamped_working_dir(
+            base_output_dir=config.output_dir_scenarios, e_timer=e_timer
+        )
+
+    _target_path = config.get_analysis_dir_path()
+    _timestamp = config.analysis_timestamp
+    if _target_path:
+        _timestamp = _target_path.name
+        if not _target_path.exists() or not _target_path.is_dir():
+            raise FileNotFoundError(f"Analysis directory not found: {_target_path}")
+        run_mode = RunMode.POST_PROCESS_ONLY
+        base_output = _target_path
+        e_timer.set_start_dt_from_dir_name(_timestamp)
+        config.analysis_timestamp = _timestamp
+    elif _timestamp:
+        _target_path = config.output_dir_scenarios / _timestamp
+        if not _target_path.exists() or not _target_path.is_dir():
+            raise FileNotFoundError(f"Analysis directory not found: {_target_path}")
+        run_mode = RunMode.POST_PROCESS_ONLY
+        base_output = _target_path
+        e_timer.set_start_dt_from_dir_name(_timestamp)
+    elif config.resume_dir_path:
+        _target_path = Path(config.resume_dir_path)
+        if not _target_path.exists() or not _target_path.is_dir():
+            raise FileNotFoundError(f"Resume directory not found: {_target_path}")
+        # attempt to load prev_flow; propagate errors to caller
+        prev_flow = DynamicDataObject.from_yaml(
+            _target_path / OutputFilenames.SUBROUTINE_FLOW_CACHE_FN
+        )
+        run_mode = RunMode.RESUME
+        logging.info(f"Running in RESUME mode using resume dir: {_target_path}")
+        base_output = new_ts_dir()
+    else:
+        base_output = new_ts_dir()
+
+    return run_mode, base_output, prev_flow, _target_path
 
 
 def add_file_handler(
