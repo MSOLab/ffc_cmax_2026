@@ -36,7 +36,7 @@ class HfsMultiInstanceRunner(
         logging.info(f"Aggregating instance summaries in: {self.working_dir}")
 
         result_dir_name = self.output_metadata.get("result_dir_name", "results")
-        summary_filename_format = self.output_metadata.get(
+        summary_filename_format: str = self.output_metadata.get(
             "summary_filename_format", "{}_summary.csv"
         )
 
@@ -48,7 +48,17 @@ class HfsMultiInstanceRunner(
             )
 
             if summary_path.exists():
-                summary_dfs.append(pd.read_csv(summary_path))
+                try:
+                    df = pd.read_csv(summary_path)
+                except pd.errors.EmptyDataError:
+                    raise ValueError(
+                        f"Summary file for instance '{instance.name}' is empty: {summary_path.resolve()}"
+                    )
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Error reading summary file for instance '{instance.name}' at: {summary_path.resolve()}: {e}"
+                    ) from e
+                summary_dfs.append(df)
             else:
                 logging.warning(
                     f"Summary file not found for instance '{instance.name}' at: {summary_path.resolve()}"
