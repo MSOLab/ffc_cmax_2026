@@ -216,9 +216,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     # Helper method for LNS-CP
 
-    def freeze_solve_reset(
+    def profile_solve_reset(
         self,
-        freeze_method: Callable,
+        profile_method: Callable,
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
@@ -227,10 +227,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Apply the freeze method, solve, and reset the model.
+        """Apply the profile method, solve, and reset the model.
 
         Args:
-            freeze_method (Callable): A callable that applies the freeze method to the CP model.
+            profile_method (Callable): A callable that applies the profile method to the CP model.
             computational_time (float): The maximum computational time in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             no_improvement_timelimit (float | None, optional): If there is no improvement in this
@@ -245,7 +245,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        freeze_method()
+        profile_method()
         self.solve_with_initial_solution(
             computational_time,
             solver_thread_cnt,
@@ -257,7 +257,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         self.cp_model.delete_added_constraints()
 
-    def _freeze_operations_except_selected(
+    def _profile_operations_except_selected(
         self,
         rescheduled_ops: set[tuple[str, str, str]],
     ) -> None:
@@ -309,7 +309,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        self.freeze_solve_reset(
+        self.profile_solve_reset(
             lambda: self.apply_time_window_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -417,7 +417,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        self.freeze_solve_reset(
+        self.profile_solve_reset(
             lambda: self.apply_ops_block_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -491,8 +491,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Freeze out-of-block operations
-        self._freeze_operations_except_selected(selected_ops)
+        # Profile out-of-block operations
+        self._profile_operations_except_selected(selected_ops)
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -510,7 +510,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        self.freeze_solve_reset(
+        self.profile_solve_reset(
             lambda: self.apply_stage_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -524,7 +524,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def apply_stage_operator(self, rho: float, randomize_stage_selection: bool = True):
         """
         Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
-        operations on those stages to be rescheduled) and freeze all other operations
+        operations on those stages to be rescheduled) and profile all other operations
         according to the current incumbent schedule.
 
         Args:
@@ -571,8 +571,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         all_ops = list(incumbent_solution.get_start_time_map().keys())
         selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
 
-        # Freeze out-of-block operations
-        self._freeze_operations_except_selected(selected_ops)
+        # Profile out-of-block operations
+        self._profile_operations_except_selected(selected_ops)
 
     # Subroutine: Jobs block neighbor search
 
@@ -585,7 +585,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        self.freeze_solve_reset(
+        self.profile_solve_reset(
             lambda: self.apply_jobs_block_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -649,8 +649,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Freeze out-of-block operations
-        self._freeze_operations_except_selected(selected_ops)
+        # Profile out-of-block operations
+        self._profile_operations_except_selected(selected_ops)
 
     # Subroutine: Johnson-based Heuristic for initialization
 
@@ -842,7 +842,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
-                # Freeze operation precedences
+                # Profile operation precedences
                 # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
                 #     last_solution.get_start_time_map(), ignore_integrity_check=True
                 # )
