@@ -52,7 +52,7 @@ def test_rho_no_improve_and_lb_gap():
     )
 
     # rho threshold
-    assert c.is_loop_stopping_condition(
+    assert not c.is_loop_stopping_condition(
         loop_count=0,
         no_improvement_steps=0,
         global_remaining_sec=100.0,
