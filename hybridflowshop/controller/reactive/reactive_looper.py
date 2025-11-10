@@ -28,7 +28,7 @@ class ReactiveLooper:
     """Objective value before the last subroutine call."""
     loop_count: int
     """Current iteration count."""
-    no_improvement_step_count: int
+    no_improvement_step_series_lth: int
     """Number of consecutive iterations without improvement."""
     report_entries: list[ReactiveLoopReportEntry]
     """History of report entries collected during run."""
@@ -74,7 +74,7 @@ class ReactiveLooper:
 
         self.obj_value_before_step = ctrlr.solution_manager.best_obj_value
         self.loop_count = 0
-        self.no_improvement_step_count = 0
+        self.no_improvement_step_series_lth = 0
         self.report_entries = []
 
     # @classmethod
@@ -110,7 +110,7 @@ class ReactiveLooper:
     def is_loop_stopping_condition(self, log_reason_if_true: bool = True) -> bool:
         return self.stopping_criteria.is_loop_stopping_condition(
             self.loop_count,
-            self.no_improvement_step_count,
+            self.no_improvement_step_series_lth,
             self.ctrlr.timer.get_remaining_sec(self.ctrlr.stopping_criteria.timelimit),
             self.ctrlr.obj_store.get_last_gap(),
             log_reason_if_true=log_reason_if_true,
@@ -218,45 +218,49 @@ class ReactiveLooper:
                 last_obj_value, self.obj_value_before_step
             ):
                 logging.info("Last solution was optimal & improved.")
-                self.no_improvement_step_count = 0
+                self.no_improvement_step_series_lth = 0
                 self.obj_value_before_step = last_obj_value
-
-                tuner.increment("rho")
-                tuner.decrement("computational_time")
+                # If optimal & improved, do nothing
             else:
                 logging.info("Last solution was optimal & not improved.")
-                self.no_improvement_step_count += 1
-
+                self.no_improvement_step_series_lth += 1
+                # If not improved despite enough time, increase rho
                 tuner.increment("rho")
         else:
             if report_by_last_subroutine.is_feasible:
                 if report_by_last_subroutine.obj_value is None:
-                    raise ValueError("Optimal solution must have an objective value.")
+                    raise ValueError("Feasible solution must have an objective value.")
                 last_obj_value = report_by_last_subroutine.obj_value
                 if self.ctrlr.solution_manager._a_is_better_obj_value(
                     last_obj_value, self.obj_value_before_step
                 ):
                     logging.info("Last solution was timeout & improved.")
-                    self.no_improvement_step_count = 0
+                    self.no_improvement_step_series_lth = 0
                     self.obj_value_before_step = last_obj_value
-
-                    tuner.increment("computational_time")
+                    # If feasible & improved, do nothing
                 else:
                     logging.info("Last solution was timeout & not improved.")
-                    self.no_improvement_step_count += 1
-                    if tuner.current_value_hits_ub("computational_time"):
-                        tuner.increment("rho")
-                    else:
-                        tuner.decrement("rho")
+                    self.no_improvement_step_series_lth += 1
+                    if not tuner.current_value_hits_ub("computational_time"):
+                        # If not improved but not enough time, increase time limit
+                        # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                         tuner.increment("computational_time")
+                    else:
+                        # If not improved despite maximum time, increase rho
+                        # If rho_hits_ub in stopping condition, run method will exclude the subroutine
+                        tuner.increment("rho")
+
             else:
                 logging.info("Last solution was timeout & not improved.")
-                self.no_improvement_step_count += 1
-                if tuner.current_value_hits_ub("computational_time"):
-                    tuner.increment("rho")
-                else:
-                    tuner.decrement("rho")
+                self.no_improvement_step_series_lth += 1
+                if not tuner.current_value_hits_ub("computational_time"):
+                    # If no solution but not enough time, increase time limit
+                    # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                     tuner.increment("computational_time")
+                else:
+                    # If not improved despite maximum time, increase rho
+                    # If rho_hits_ub in stopping condition, run method will exclude the subroutine
+                    tuner.increment("rho")
 
     def run(self) -> None:
         excluded_subroutines = set()
@@ -278,6 +282,16 @@ class ReactiveLooper:
                 logging.info(
                     f"Subroutine '{subroutine_name}' is excluded in the next loop: "
                     f"rho_hits_ub (value={rho} >= {rho_ub}=criteria)"
+                )
+                excluded_subroutines.add(subroutine_name)
+            if self.stopping_criteria.tl_hits_ub and tuner.current_value_hits_ub(
+                "computational_time"
+            ):
+                tl = tuner.get_current_value("computational_time")
+                tl_ub = tuner._tuner_param_dict["computational_time"].max
+                logging.info(
+                    f"Subroutine '{subroutine_name}' is excluded in the next loop: "
+                    f"tl_hits_ub (value={tl} >= {tl_ub}=criteria)"
                 )
                 excluded_subroutines.add(subroutine_name)
 

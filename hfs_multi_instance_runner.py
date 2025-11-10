@@ -119,6 +119,7 @@ class HfsMultiInstanceRunner(
                     mode=self.mode,
                 )
                 temp_controller = temp_runner.get_controller()
+                temp_controller.set_cp_model_as_base_cp_model()
                 try:
                     start_time_map = get_start_time_dict(sol_path)
                     obj_val = temp_controller.check_feasibility(start_time_map)

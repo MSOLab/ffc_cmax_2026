@@ -438,7 +438,7 @@ source = { editable = "../routix" }
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest", specifier = ">=8.4.2" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250402" },
 ]

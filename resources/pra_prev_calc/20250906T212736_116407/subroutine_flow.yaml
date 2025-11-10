@@ -1,6 +1,7 @@
 - method: set_random_seed
   seed: 42
 - method: apply_shdlb
+- method: set_cp_model_as_base_cp_model
 - method: initialize_by_dj_cds
   error_if_infeasible: true
 - method: initialize_by_dj_tp

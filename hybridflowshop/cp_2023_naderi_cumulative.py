@@ -3,12 +3,12 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
-from mbls.cpsat.cp_model_with_fixed_interval import CpModelWithFixedInterval
 from ortools.sat.python.cp_model import IntVar
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from .cp_model_with_fixed_interval import CpModelWithFixedInterval
 from .scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 
@@ -117,6 +117,9 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
 
         makespan = self.new_int_var(0, self.horizon, "makespan")
         self.add_max_equality(makespan, [self.var_op_end[j, last_i] for j in j_list])
+        # self.add_max_equality(
+        #     makespan, [self.var_op_start[j, last_i] + self.p[j, last_i] for j in j_list]
+        # )
 
         self.minimize(makespan)
         self.obj_var = makespan
@@ -155,6 +158,10 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         for j in j_list:
             for i, next_i in consecutive_stage_pairs:
                 self.add(self.var_op_end[j, i] <= self.var_op_start[j, next_i])
+                # self.add(
+                #     self.var_op_start[j, i] + self.p[j, i]
+                #     <= self.var_op_start[j, next_i]
+                # )
 
         # Capacity constraints for each stage
         if impose_all_stage_capacity_constr:
@@ -237,6 +244,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             end_time_map[i] = {}
             for j in self.j_list:
                 end_value = self.solver.Value(self.var_op_end[j, i])
+                # end_value = self.solver.Value(self.var_op_start[j, i]) + self.p[j, i]
                 end_time_map[i][j] = end_value
         return end_time_map
 
@@ -405,6 +413,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             assert i in self.i_list, f"Stage {i} not in stage list."
 
         self.add(self.var_op_end[j1, i] <= self.var_op_start[j2, i])
+        # self.add(self.var_op_start[j1, i] + self.p[j1, i] <= self.var_op_start[j2, i])
 
     def add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
         self,
