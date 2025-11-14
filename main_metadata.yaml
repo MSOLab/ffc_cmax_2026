@@ -394,9 +394,13 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250911-7.yaml"
   #   output_dir : "pra_600s/20250911-7"
   #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS, SNS) -> base CP"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251110.yaml"
+  #   output_dir : "pra_600s/20251110"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
   - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251110.yaml"
-    output_dir : "pra_600s/20251110"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251114.yaml"
+    output_dir : "pra_600s/20251114"
     description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
 
 # Output and Logging configuration
