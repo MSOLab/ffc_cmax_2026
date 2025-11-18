@@ -1,0 +1,2 @@
+name,job_count,stage_count,timelimit,instanceName,foundFeasibleSol,totalElapsedTime,bestObj,bestBound,improvementRatio,methodCallCounts,reportCount,initObj,initBound
+1267,200,10,600,1267,True,63.93494228687502,3902.0,None,0.0,"{'set_random_seed': 1, 'apply_shdlb': 1, 'initialize_by_dj_cds': 1, 'initialize_by_dj_tp': 1, 'initialize_by_dj_gupta': 1, 'initialize_by_dj_palmer': 1, 'initialize_by_ds_cds': 1, 'initialize_by_ds_tp': 1, 'initialize_by_ds_gupta': 1, 'initialize_by_ds_palmer': 1, 'initialize_by_cjims': 1, 'solve_base_cp_model': 1}",11,3902.0,3833

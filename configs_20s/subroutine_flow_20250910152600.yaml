@@ -1,0 +1,32 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_ds_cds
+- method: run_reactive_loop
+  params:
+    subroutine_names: [ops_block_ns, stage_ns]
+    opening_kwargs:
+      rho: 0.1
+      computational_time: 0.5
+      solver_thread_cnt: 8
+      # error_if_infeasible: true
+    reactive_param_tuner_dict:
+      rho:
+        step_size: 0.1
+        min: 0.1
+        max: 0.9
+      computational_time:
+        step_size: 0.5
+        min: 0.5
+        max: 10
+    stopping_criteria:
+      max_loop_count: 1000
+      max_no_improvement_steps: null
+      stop_at_global_timelimit_minus: 5.0
+      lb_gap_is_leq: 0.000001
+      on_exception: "skip"
+      rho_hits_ub: true
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8
+  is_initial_solution: false

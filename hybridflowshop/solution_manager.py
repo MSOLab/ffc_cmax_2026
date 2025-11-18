@@ -1,8 +1,5 @@
-"""
-Defines the concrete implementation of the solution manager for the Hybrid Flowshop Scheduling problem.
-"""
-
 from routix.solution_manager import SolutionManager
+from routix.util.comparison import float_equals
 
 from .report import HfsSubroutineReport
 from .scheduling.hybrid_flowshop_schedule import (
@@ -26,11 +23,17 @@ class HfsSolutionManager(SolutionManager[HfsSubroutineReport, HybridFlowshopSche
     def _a_is_better_obj_value(self, value_a: float, value_b: float | None) -> bool:
         if value_b is None:
             return True
+        # False if close enough (considering floating point precision)
+        if float_equals(value_a, value_b):
+            return False
         # A smaller makespan is better (minimization).
         return value_a < value_b
 
     def _a_is_better_obj_bound(self, bound_a: float, bound_b: float | None) -> bool:
         if bound_b is None:
             return True
+        # False if close enough (considering floating point precision)
+        if float_equals(bound_a, bound_b):
+            return False
         # For a minimization problem, a higher lower bound is better.
         return bound_a > bound_b

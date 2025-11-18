@@ -12,7 +12,7 @@ def split_excel_to_csv(excel_file_path: Path):
 
     The output CSV files are named using the convention:
     {excel_filename_stem}_{sheet_name}.csv
-    
+
     Args:
         excel_file_path (Path): The path to the input Excel file.
     """
@@ -24,7 +24,7 @@ def split_excel_to_csv(excel_file_path: Path):
         # Create an ExcelFile object to access sheet names
         xls = pd.ExcelFile(excel_file_path)
     except Exception as e:
-        logging.error(f"Error reading Excel file: {e}")
+        logging.error(f"Error reading Excel file: {e}", exc_info=True)
         return
 
     excel_filename_stem = excel_file_path.stem
@@ -39,8 +39,10 @@ def split_excel_to_csv(excel_file_path: Path):
             df = pd.read_excel(xls, sheet_name=sheet_name)
 
             # Sanitize sheet name for use in filename
-            sanitized_sheet_name = "".join(c if c.isalnum() else '_' for c in sheet_name)
-            
+            sanitized_sheet_name = "".join(
+                c if c.isalnum() else "_" for c in sheet_name
+            )
+
             # Construct the output CSV filename
             output_csv_name = f"{excel_filename_stem}_{sanitized_sheet_name}.csv"
             output_csv_path = output_dir / output_csv_name
@@ -50,7 +52,7 @@ def split_excel_to_csv(excel_file_path: Path):
             logging.info(f"Successfully created '{output_csv_path}'")
 
         except Exception as e:
-            logging.error(f"Error processing sheet '{sheet_name}': {e}")
+            logging.error(f"Error processing sheet '{sheet_name}': {e}", exc_info=True)
 
     logging.info("Processing complete.")
 

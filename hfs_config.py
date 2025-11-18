@@ -107,6 +107,12 @@ class MainMetadata(BaseModel):
         description="Percentage of initial data points to drop in progress plots.",
     )
 
+    # Optional metadata for resume
+    resume_dir_path: Path | None = Field(
+        default=None,
+        description="Optional path to a resume directory or resume YAML file containing previous run data.",
+    )
+
     # Optional metadata for post-process only
     analysis_timestamp: str | None = Field(
         default=None,

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import pandas as pd
-from routix.io import object_to_yaml
+from routix import DynamicDataObject, StoppingCriteria
 from routix.runner import MultiScenarioRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -15,6 +15,7 @@ from xlsxwriter.worksheet import Worksheet
 from hfs_config import BaselineColumnMapping
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
+from output_filenames import OutputFilenames
 
 
 class HfsMultiScenarioRunner(
@@ -56,15 +57,17 @@ class HfsMultiScenarioRunner(
         self.baseline_df: pd.DataFrame | None = None
         """DataFrame containing baseline results for comparison in the report."""
 
-        if self.mode == RunMode.FULL_RUN:
+        if self.mode in {RunMode.FULL_RUN, RunMode.RESUME}:
             # --- Save scenario-specific config files for reproducibility ---
             for i, scenario_config in enumerate(self.scenario_configs):
-                subroutine_flow = scenario_config.get("subroutine_flow")
-                stopping_criteria = scenario_config.get("stopping_criteria")
-
+                subroutine_flow: DynamicDataObject | None = scenario_config.get(
+                    "subroutine_flow"
+                )
+                stopping_criteria: StoppingCriteria | None = scenario_config.get(
+                    "stopping_criteria"
+                )
                 if subroutine_flow is None or stopping_criteria is None:
                     continue
-
                 # Use a specific output subdir from config, or create a default one
                 scenario_output_dir = self.output_dir / f"scenario_{i + 1}"
                 if "output_subdir" in scenario_config:
@@ -72,11 +75,13 @@ class HfsMultiScenarioRunner(
                         scenario_config["output_subdir"]
                     )
                 scenario_output_dir.mkdir(parents=True, exist_ok=True)
-                object_to_yaml(
-                    subroutine_flow, scenario_output_dir / "subroutine_flow.yaml"
+                DynamicDataObject.safe_save_yaml(
+                    subroutine_flow,
+                    scenario_output_dir / OutputFilenames.SUBROUTINE_FLOW_CACHE_FN,
                 )
-                object_to_yaml(
-                    stopping_criteria, scenario_output_dir / "stopping_criteria.yaml"
+                DynamicDataObject.safe_save_yaml(
+                    stopping_criteria,
+                    scenario_output_dir / OutputFilenames.STOPPING_CRITERIA_CACHE_FN,
                 )
 
     def set_baseline_df(
