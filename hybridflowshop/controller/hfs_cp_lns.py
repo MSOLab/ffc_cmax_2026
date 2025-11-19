@@ -738,9 +738,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
                 # Profile operation precedences
-                # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                #     last_solution.get_start_time_map(), ignore_integrity_check=True
-                # )
                 sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
                     last_solution, ignore_integrity_check=True
                 )

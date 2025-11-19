@@ -163,5 +163,5 @@ class MainMetadata(BaseModel):
         """Returns the analysis directory path if specified, otherwise None."""
         if not self.analysis_dir_path:
             return None
-        expanded = os.path.expandvars(self.analysis_dir_path)  # $VAR -> 값으로 치환
-        return Path(expanded).expanduser()  # ~ 처리, Path API 사용
+        expanded = os.path.expandvars(self.analysis_dir_path)
+        return Path(expanded).expanduser()

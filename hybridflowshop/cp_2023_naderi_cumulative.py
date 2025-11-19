@@ -117,9 +117,6 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
 
         makespan = self.new_int_var(0, self.horizon, "makespan")
         self.add_max_equality(makespan, [self.var_op_end[j, last_i] for j in j_list])
-        # self.add_max_equality(
-        #     makespan, [self.var_op_start[j, last_i] + self.p[j, last_i] for j in j_list]
-        # )
 
         self.minimize(makespan)
         self.obj_var = makespan
@@ -158,10 +155,6 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         for j in j_list:
             for i, next_i in consecutive_stage_pairs:
                 self.add(self.var_op_end[j, i] <= self.var_op_start[j, next_i])
-                # self.add(
-                #     self.var_op_start[j, i] + self.p[j, i]
-                #     <= self.var_op_start[j, next_i]
-                # )
 
         # Capacity constraints for each stage
         if impose_all_stage_capacity_constr:
@@ -244,7 +237,6 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             end_time_map[i] = {}
             for j in self.j_list:
                 end_value = self.solver.Value(self.var_op_end[j, i])
-                # end_value = self.solver.Value(self.var_op_start[j, i]) + self.p[j, i]
                 end_time_map[i][j] = end_value
         return end_time_map
 
@@ -413,7 +405,6 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             assert i in self.i_list, f"Stage {i} not in stage list."
 
         self.add(self.var_op_end[j1, i] <= self.var_op_start[j2, i])
-        # self.add(self.var_op_start[j1, i] + self.p[j1, i] <= self.var_op_start[j2, i])
 
     def add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
         self,
@@ -427,14 +418,14 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             current_j_list = [j for j in self.j_list if j in current_j_set]
             stage_job_2_index_map = {j: idx for idx, j in enumerate(current_j_list)}
             # Extract start and end times for jobs at stage i
-            # This is a map of job -> start time at stage i
+            # Map of job -> start time at stage i
             j_2_start_time_map = {
                 j: start_time_map[j, i, k]
                 for j in current_j_list
                 for k in self.M_of[i]
                 if (j, i, k) in start_time_map
             }
-            # This is a map of job -> end time at stage i
+            # Map of job -> end time at stage i
             j_2_end_time_map = {
                 j: end_time_map[j, i, k]
                 for j in current_j_list
