@@ -4,7 +4,7 @@ baseline_csv_path: "resources/pra_ref/naderi2023CPOCodeResult.csv"
 input_dir: "resources/pra"
 benchmark_idx_list:
   # - 0
-  # - 1
+  - 1
   # - 91
   # - 181
   # - 271
@@ -20,8 +20,8 @@ benchmark_idx_list:
   # - 1171
   # - 1261
   # - 1351
-first: 1
-last: 1440
+# first: 1
+# last: 1440
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
@@ -398,10 +398,34 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251110.yaml"
   #   output_dir : "pra_600s/20251110"
   #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251114.yaml"
+  #   output_dir : "pra_600s/20251114"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
   - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251114.yaml"
-    output_dir : "pra_600s/20251114"
-    description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-1.yaml"
+    output_dir : "pra_600s/20251119-1"
+    description: "Base-CP only"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-2.yaml"
+    output_dir : "pra_600s/20251119-2"
+    description: "Dispatch-initialized"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-3.yaml"
+    output_dir : "pra_600s/20251119-3"
+    description: "LB-enhanced"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-4.yaml"
+    output_dir : "pra_600s/20251119-4"
+    description: "NEH-CP-initialized"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-5.yaml"
+    output_dir : "pra_600s/20251119-5"
+    description: "LNS-CP (non-adaptive)"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-6.yaml"
+    output_dir : "pra_600s/20251119-6"
+    description: "Adaptive LNS-CP"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -409,7 +433,7 @@ scenario_log_filename: "hfs_multi_scenario_runner.log"
 result_dir_name: "results"
 
 # Execution configuration
-instance_worker_cnt: 3
+instance_worker_cnt: 4
 
 # Analysis and plotting options
 draw_gantt: false
