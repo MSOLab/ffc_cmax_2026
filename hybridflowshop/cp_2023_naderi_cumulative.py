@@ -25,6 +25,11 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
       INFORMS Journal on Computing, 35(4), 817-843.
     """
 
+    # States
+
+    parameters_defined: bool
+    """Indicates whether the model parameters have been defined."""
+
     # Indices & Parameters
 
     j_list: list[str]
@@ -45,6 +50,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
 
     def __init__(self, horizon: int) -> None:
         super().__init__(horizon)
+        self.parameters_defined = False
 
     @classmethod
     def from_instance(
@@ -78,10 +84,10 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
     ) -> None:
         self.define_parameters(instance)
         self.define_variables()
-        self.define_makespan_objective()
         self.define_constraints(
             impose_all_stage_capacity_constr=impose_all_stage_capacity_constr
         )
+        self.define_objective()
 
     # Parameters
 
@@ -90,7 +96,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         Define the parameters for the model based on the HybridFlowshopParameters instance.
 
         Args:
-            hfs_instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
+            instance (HybridFlowshopParameters): The hybrid flow shop problem instance.
         """
         self.j_list = instance.job_id_list
         self.i_list = instance.stage_id_list
@@ -99,6 +105,7 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         self.p = {
             (j, i): int(float(_p[j, i])) for j in self.j_list for i in self.i_list
         }
+        self.parameters_defined = True
 
     # Variables
 
@@ -107,19 +114,36 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         for j in self.j_list:
             for i in self.i_list:
                 self.define_fixed_interval_var((j, i), self.p[j, i])
+        # Objective variable
+        self.obj_var = self.new_int_var(0, self.horizon, "makespan")
+
+    # Constraints
+
+    def define_constraints(self, impose_all_stage_capacity_constr: bool = True) -> None:
+        # Alias for readability
+        j_list = self.j_list
+        i_list = self.i_list
+        last_i = i_list[-1]
+
+        # Precedence between consecutive stages for each job
+        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
+        for j in j_list:
+            for i, next_i in consecutive_stage_pairs:
+                self.add(self.var_op_end[j, i] <= self.var_op_start[j, next_i])
+
+        # Capacity constraints for each stage
+        if impose_all_stage_capacity_constr:
+            self.add_stage_capacity_constraints()
+
+        # Makespan definition
+        self.add_max_equality(
+            self.obj_var, [self.var_op_end[j, last_i] for j in j_list]
+        )
 
     # Objective
 
-    def define_makespan_objective(self) -> None:
-        # alias for readability
-        j_list = self.j_list
-        last_i = self.i_list[-1]
-
-        makespan = self.new_int_var(0, self.horizon, "makespan")
-        self.add_max_equality(makespan, [self.var_op_end[j, last_i] for j in j_list])
-
-        self.minimize(makespan)
-        self.obj_var = makespan
+    def define_objective(self) -> None:
+        self.minimize(self.obj_var)
 
     def set_obj_lower_bound(self, bound: float) -> None:
         """
@@ -142,23 +166,6 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             int_bound = math.ceil(bound)
 
         self.add(self.obj_var >= int_bound)
-
-    # Constraints
-
-    def define_constraints(self, impose_all_stage_capacity_constr: bool = True) -> None:
-        # Alias for readability
-        j_list = self.j_list
-        i_list = self.i_list
-
-        # Precedence between consecutive stages for each job
-        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
-        for j in j_list:
-            for i, next_i in consecutive_stage_pairs:
-                self.add(self.var_op_end[j, i] <= self.var_op_start[j, next_i])
-
-        # Capacity constraints for each stage
-        if impose_all_stage_capacity_constr:
-            self.add_stage_capacity_constraints()
 
     def add_stage_capacity_constraints(self, stage_set: set[str] | None = None) -> None:
         """
@@ -197,11 +204,16 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             job_subset (set[str]): A set of job indices to include in the new problem.
 
         Raises:
+            RuntimeError: If the model parameters have not been defined.
             ValueError: If the job subset is not a subset of the original job list.
 
         Returns:
             CP2023NaderiCumulative: A new instance of the model with the specified job subset.
         """
+        if not self.parameters_defined:
+            raise RuntimeError(
+                "Model parameters must be defined before creating subproblems."
+            )
         if not job_subset.issubset(self.j_list):
             raise ValueError("Job subset must be a subset of the original job list.")
         new_model = self.__class__(self.horizon)
@@ -215,10 +227,12 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
         }
         # Define variables, objective, and constraints
         new_model.define_variables()
-        new_model.define_makespan_objective()
         new_model.define_constraints()
+        new_model.define_objective()
 
         return new_model
+
+    # Getters
 
     def extract_stage_2_job_2_start_time_map(self) -> dict[str, dict[str, int]]:
         start_time_map: dict[str, dict[str, int]] = {}
