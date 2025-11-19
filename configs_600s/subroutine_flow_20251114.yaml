@@ -42,6 +42,7 @@
       lb_gap_is_leq: 0.000001
       on_exception: "skip"
       rho_hits_ub: true
+      tl_hits_ub: false
 - method: solve_base_cp_model
   computational_time: null
   solver_thread_cnt: 8

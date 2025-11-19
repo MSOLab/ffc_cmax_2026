@@ -24,6 +24,11 @@ class LocalStoppingCriteria(StoppingCriteria):
         If rho value for a subroutine is greater than or equal to its upper bound,
         exclude the subroutine from further consideration.
         """
+        self.tl_hits_ub: bool = False
+        """
+        If computational_time value for a subroutine is greater than or equal to its upper bound,
+        exclude the subroutine from further consideration.
+        """
 
         super().__init__(param_dict)
 

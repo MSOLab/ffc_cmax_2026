@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any, List
 
@@ -108,12 +109,16 @@ class MainMetadata(BaseModel):
     )
 
     # Optional metadata for resume
-    resume_dir_path: Path | None = Field(
+    resume_dir_path: str | None = Field(
         default=None,
         description="Optional path to a resume directory or resume YAML file containing previous run data.",
     )
 
     # Optional metadata for post-process only
+    analysis_dir_path: str | None = Field(
+        default=None,
+        description="If a valid directory path is provided, the runner will operate in POST_PROCESS_ONLY mode for that specific run.",
+    )
     analysis_timestamp: str | None = Field(
         default=None,
         description="If a valid timestamp string is provided, the runner will operate in POST_PROCESS_ONLY mode for that specific run.",
@@ -153,3 +158,10 @@ class MainMetadata(BaseModel):
             self.benchmark_filename_format.format(i)
             for i in self.get_benchmark_idx_list()
         ]
+
+    def get_analysis_dir_path(self) -> Path | None:
+        """Returns the analysis directory path if specified, otherwise None."""
+        if not self.analysis_dir_path:
+            return None
+        expanded = os.path.expandvars(self.analysis_dir_path)
+        return Path(expanded).expanduser()

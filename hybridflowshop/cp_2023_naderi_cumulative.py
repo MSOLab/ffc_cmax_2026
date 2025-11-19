@@ -3,12 +3,12 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
-from mbls.cpsat.cp_model_with_fixed_interval import CpModelWithFixedInterval
 from ortools.sat.python.cp_model import IntVar
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from .cp_model_with_fixed_interval import CpModelWithFixedInterval
 from .scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
 from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 
@@ -418,14 +418,14 @@ class CP2023NaderiCumulative(CpModelWithFixedInterval):
             current_j_list = [j for j in self.j_list if j in current_j_set]
             stage_job_2_index_map = {j: idx for idx, j in enumerate(current_j_list)}
             # Extract start and end times for jobs at stage i
-            # This is a map of job -> start time at stage i
+            # Map of job -> start time at stage i
             j_2_start_time_map = {
                 j: start_time_map[j, i, k]
                 for j in current_j_list
                 for k in self.M_of[i]
                 if (j, i, k) in start_time_map
             }
-            # This is a map of job -> end time at stage i
+            # Map of job -> end time at stage i
             j_2_end_time_map = {
                 j: end_time_map[j, i, k]
                 for j in current_j_list

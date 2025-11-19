@@ -1,3 +1,4 @@
+import datetime
 import logging
 from pathlib import Path
 from typing import Optional, Sequence
@@ -6,7 +7,7 @@ from mbls.cpsat import (
     CpsatStatus,
     CpSubroutineController,
 )
-from routix import DynamicDataObject, StoppingCriteria
+from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
 from routix.util.comparison import float_a_leq_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
@@ -49,6 +50,12 @@ class HybridFlowShopCpLnsControllerCore(
             stopping_criteria,
         )
         self.solution_manager = HfsSolutionManager()
+
+        self.method_names_to_run_before_resume = {
+            "set_random_seed",
+            "set_cp_model_as_base_cp_model",
+        }
+        assert "" not in self.method_names_to_run_before_resume
 
         # Frequently used parameters
         self.job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
@@ -237,8 +244,21 @@ class HybridFlowShopCpLnsControllerCore(
             self._subroutine_flow, (str, bytes)
         ):
             for idx, subroutine_data in enumerate(self._subroutine_flow):
-                skip_method_call = idx < flow_resume_idx
-                self._run_flow(subroutine_data, skip_method_call=skip_method_call)
+                if idx < flow_resume_idx:
+                    if (
+                        subroutine_data.get("method", "")
+                        in self.method_names_to_run_before_resume
+                    ):
+                        e_timer = ElapsedTimer()
+                        self._run_flow(subroutine_data)
+                        virtual_dt = datetime.datetime.now() - datetime.timedelta(
+                            seconds=e_timer.elapsed_sec
+                        )
+                        self.timer.set_start_time(virtual_dt)
+                    else:
+                        self._run_flow(subroutine_data, skip_method_call=True)
+                else:
+                    self._run_flow(subroutine_data)
         else:
             logging.warning(
                 "Subroutine flow is not a sequence; running as a single step."

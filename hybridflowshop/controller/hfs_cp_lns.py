@@ -216,9 +216,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     # Helper method for LNS-CP
 
-    def freeze_solve_reset(
+    def profile_solve_reset(
         self,
-        freeze_method: Callable,
+        profile_method: Callable,
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
@@ -227,10 +227,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Apply the freeze method, solve, and reset the model.
+        """Apply the profile method, solve, and reset the model.
 
         Args:
-            freeze_method (Callable): A callable that applies the freeze method to the CP model.
+            profile_method (Callable): A callable that applies the profile method to the CP model.
             computational_time (float): The maximum computational time in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             no_improvement_timelimit (float | None, optional): If there is no improvement in this
@@ -245,7 +245,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        freeze_method()
+        profile_method()
         self.solve_with_initial_solution(
             computational_time,
             solver_thread_cnt,
@@ -257,7 +257,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         self.cp_model.delete_added_constraints()
 
-    def _freeze_operations_except_selected(
+    def _profile_operations_except_selected(
         self,
         rescheduled_ops: set[tuple[str, str, str]],
     ) -> None:
@@ -287,111 +287,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             out_of_block_ops_sch
         )
 
-    # Subroutine: Time window operator
-
-    def time_window_search(
-        self,
-        rho: float,
-        computational_time: float,
-        solver_thread_cnt: int,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
-    ):
-        """Time window search with incumbent solution as the hint.
-
-        Args:
-            rho (float): Fraction of makespan to define the window size.
-                For example, 0.2 means 20% of makespan.
-            computational_time (float): The maximum computational time in seconds.
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        self.freeze_solve_reset(
-            lambda: self.apply_time_window_operator(rho),
-            computational_time,
-            solver_thread_cnt,
-            obj_value_is_valid=True,
-            obj_bound_is_valid=False,
-            error_if_infeasible=error_if_infeasible,
-            draw_gantt=draw_gantt,
-        )
-
-    def apply_time_window_operator(self, rho: float):
-        """Apply the Time Window Operator to the current CP model.
-
-        Args:
-            rho (float): Fraction of makespan to define the window size.
-                For example, 0.2 means 20% of makespan.
-
-        Raises:
-            ValueError: If no incumbent solution is available.
-            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
-            ValueError: If no end times are available for Time Window Operator.
-            ValueError: If the window length is not positive.
-        """
-        logging.info(f"Applying time window operator with rho={rho}")
-        if not self.solution_manager.has_incumbent():
-            raise ValueError(
-                "No incumbent solution available for Time Window Operator."
-            )
-        incumbent_solution = self.solution_manager.get_incumbent()
-        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
-            raise ValueError(
-                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
-            )
-        start_time_map = incumbent_solution.get_start_time_map()
-        end_time_map = incumbent_solution.get_end_time_map()
-
-        # 1. Calculate makespan (C_max)
-        all_end_time_map = list(end_time_map.values())
-        if not all_end_time_map:
-            raise ValueError("No end time is available for Time Window Operator.")
-        C_max = max(all_end_time_map)
-
-        # 2. Select random time window
-        window_length = int(rho * C_max)
-        if window_length <= 0:
-            raise ValueError("Window length must be positive.")
-
-        window_start = random.randint(0, max(0, C_max - window_length))
-        window_end = window_start + window_length
-
-        logging.info(
-            f"[Time Window] Selected window: [{window_start}, {window_end}] (C_max={C_max})"
-        )
-
-        # 3. Classify operations
-        out_of_window_ops = set()
-
-        for key in start_time_map:
-            s_time = start_time_map[key]
-            e_time = end_time_map[key]
-            if not self.is_within_window(
-                s_time, window_start, window_end
-            ) and not self.is_within_window(e_time, window_start, window_end):
-                out_of_window_ops.add(key)
-
-        # 4. Fix machine assignment and precedence for out-of-window operations
-        stage_mc_to_jobs: dict[tuple[str, str], list[str]] = defaultdict(list)
-
-        for j, i, k in out_of_window_ops:
-            # self.cp_model.add_fixed_machine_assignment_constraint(j, i, k)
-            stage_mc_to_jobs[(i, k)].append(j)
-
-        for (i, k), jobs in stage_mc_to_jobs.items():
-            # Start time 기준 정렬
-            jobs_sorted = sorted(jobs, key=lambda j: start_time_map[(j, i, k)])
-            for j1, j2 in zip(jobs_sorted[:-1], jobs_sorted[1:]):
-                self.cp_model.add_operation_weak_precedence_constraint(j1, j2, i)
-
-    @staticmethod
-    def is_within_window(time: int, window_start: int, window_end: int) -> bool:
-        """Check if a given time is within the specified window."""
-        return window_start <= time <= window_end
-
     # Subroutine: Operations block neighbor search (Block operator in 2025 EJOR paper)
 
     def ops_block_ns(
@@ -417,7 +312,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        self.freeze_solve_reset(
+        self.profile_solve_reset(
             lambda: self.apply_ops_block_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -491,8 +386,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Freeze out-of-block operations
-        self._freeze_operations_except_selected(selected_ops)
+        # Profile out-of-block operations
+        self._profile_operations_except_selected(selected_ops)
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -510,7 +405,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        self.freeze_solve_reset(
+        self.profile_solve_reset(
             lambda: self.apply_stage_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -524,7 +419,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def apply_stage_operator(self, rho: float, randomize_stage_selection: bool = True):
         """
         Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
-        operations on those stages to be rescheduled) and freeze all other operations
+        operations on those stages to be rescheduled) and profile all other operations
         according to the current incumbent schedule.
 
         Args:
@@ -571,8 +466,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         all_ops = list(incumbent_solution.get_start_time_map().keys())
         selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
 
-        # Freeze out-of-block operations
-        self._freeze_operations_except_selected(selected_ops)
+        # Profile out-of-block operations
+        self._profile_operations_except_selected(selected_ops)
 
     # Subroutine: Jobs block neighbor search
 
@@ -585,7 +480,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        self.freeze_solve_reset(
+        self.profile_solve_reset(
             lambda: self.apply_jobs_block_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -649,8 +544,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Freeze out-of-block operations
-        self._freeze_operations_except_selected(selected_ops)
+        # Profile out-of-block operations
+        self._profile_operations_except_selected(selected_ops)
 
     # Subroutine: Johnson-based Heuristic for initialization
 
@@ -842,10 +737,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
-                # Freeze operation precedences
-                # sub_cp_mdl.add_stage_ops_weak_precedence_constraints_from_start_time_map(
-                #     last_solution.get_start_time_map(), ignore_integrity_check=True
-                # )
+                # Profile operation precedences
                 sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
                     last_solution, ignore_integrity_check=True
                 )

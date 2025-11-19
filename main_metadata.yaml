@@ -382,10 +382,10 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250911-4.yaml"
   #   output_dir : "pra_600s/20250911-4"
   #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS) -> base CP"
-  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
-    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250911-5.yaml"
-    output_dir : "pra_600s/20250911-5"
-    description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250911-5.yaml"
+  #   output_dir : "pra_600s/20250911-5"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250911-6.yaml"
   #   output_dir : "pra_600s/20250911-6"
@@ -394,6 +394,14 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250911-7.yaml"
   #   output_dir : "pra_600s/20250911-7"
   #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, JBNS, SNS) -> base CP"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251110.yaml"
+  #   output_dir : "pra_600s/20251110"
+  #   description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251114.yaml"
+    output_dir : "pra_600s/20251114"
+    description: "SHD LB -> dispatches -> IC(10,5,3,IMS) -> base CP 5s -> reactive loop(OBNS, SNS) -> base CP"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -411,5 +419,6 @@ draw_progress_plot: true
 progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
+# analysis_dir_path: "$HFS_RESULT_DIR/Calop1/20250912T001404_281753"
 # analysis_timestamp: "20250819T000123_343274"
-resume_dir_path: resources/pra_prev_calc/20250906T212736_116407
+# resume_dir_path: resources/pra_prev_calc/20250906T212736_116407
