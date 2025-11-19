@@ -216,9 +216,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     # Helper method for LNS-CP
 
-    def profile_solve_reset(
+    def _fix_profile_solve_reset(
         self,
-        profile_method: Callable,
+        profile_fixing_method: Callable,
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
@@ -227,10 +227,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
-        """Apply the profile method, solve, and reset the model.
+        """Apply the profile fixing method, solve, and reset the model.
 
         Args:
-            profile_method (Callable): A callable that applies the profile method to the CP model.
+            profile_fixing_method (Callable): A callable that applies the profile fixing method to the CP model.
             computational_time (float): The maximum computational time in seconds.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             no_improvement_timelimit (float | None, optional): If there is no improvement in this
@@ -245,7 +245,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        profile_method()
+        profile_fixing_method()
         self.solve_with_initial_solution(
             computational_time,
             solver_thread_cnt,
@@ -257,18 +257,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         self.cp_model.delete_added_constraints()
 
-    def _profile_operations_except_selected(
+    def _fix_operations_profile_except_selected(
         self,
         rescheduled_ops: set[tuple[str, str, str]],
     ) -> None:
         """
         Helper to deep-copy incumbent solution and remove operations to be rescheduled,
         and add the CP model constraints that enforce precedences/machine assignments for
-        the frozen operations.
+        the profile-fixed operations.
 
         Args:
             rescheduled_ops (set[tuple[str, str, str]]): set of (job, stage, machine) tuples
-                that are not frozen (i.e., they will be re-optimized).
+                that are not part of the block (i.e., they will be re-optimized).
 
         Raises:
             ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
@@ -287,9 +287,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             out_of_block_ops_sch
         )
 
-    # Subroutine: Operations block neighbor search (Block operator in 2025 EJOR paper)
+    # Subroutine: Operation-block neighbor search (Block operator in 2025 EJOR paper)
 
-    def ops_block_ns(
+    def operation_block_ns(
         self,
         rho: float,
         computational_time: float,
@@ -298,7 +298,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        """Operations block neighbor search with incumbent solution as the hint.
+        """Operation-block neighbor search with incumbent solution as the hint.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
@@ -312,8 +312,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        self.profile_solve_reset(
-            lambda: self.apply_ops_block_operator(rho),
+        self._fix_profile_solve_reset(
+            lambda: self.apply_operation_block_operator(rho),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
@@ -323,10 +323,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt=draw_gantt,
         )
 
-    def apply_ops_block_operator(
+    def apply_operation_block_operator(
         self, rho: float, randomize_ops_selection: bool = True
     ) -> None:
-        """Apply the operations block operator to the current CP model.
+        """Apply the operation-block operator to the current CP model.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
@@ -386,8 +386,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Profile out-of-block operations
-        self._profile_operations_except_selected(selected_ops)
+        # Fix out-of-block operations' profile
+        self._fix_operations_profile_except_selected(selected_ops)
 
     @staticmethod
     def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -396,7 +396,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     # Subroutine: Stage neighbor search
 
-    def stage_ns(
+    def stage_block_ns(
         self,
         rho: float,
         computational_time: float,
@@ -405,7 +405,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        self.profile_solve_reset(
+        self._fix_profile_solve_reset(
             lambda: self.apply_stage_operator(rho),
             computational_time,
             solver_thread_cnt,
@@ -419,7 +419,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def apply_stage_operator(self, rho: float, randomize_stage_selection: bool = True):
         """
         Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
-        operations on those stages to be rescheduled) and profile all other operations
+        operations on those stages to be rescheduled) and fix the profile of all other operations
         according to the current incumbent schedule.
 
         Args:
@@ -466,12 +466,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         all_ops = list(incumbent_solution.get_start_time_map().keys())
         selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
 
-        # Profile out-of-block operations
-        self._profile_operations_except_selected(selected_ops)
+        # Fix out-of-block operations' profile
+        self._fix_operations_profile_except_selected(selected_ops)
 
-    # Subroutine: Jobs block neighbor search
+    # Subroutine: Job-block neighbor search
 
-    def jobs_block_ns(
+    def job_block_ns(
         self,
         rho: float,
         computational_time: float,
@@ -480,8 +480,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        self.profile_solve_reset(
-            lambda: self.apply_jobs_block_operator(rho),
+        self._fix_profile_solve_reset(
+            lambda: self.apply_job_block_operator(rho),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
@@ -491,14 +491,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt=draw_gantt,
         )
 
-    def apply_jobs_block_operator(
+    def apply_job_block_operator(
         self, rho: float, randomize_ops_selection: bool = True
     ) -> None:
         if rho <= 0:
             raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
-        logging.info(f"Applying jobs block operator with rho={rho}")
+        logging.info(f"Applying job-block operator with rho={rho}")
         if not self.solution_manager.has_incumbent():
-            raise ValueError("No incumbent solution available for jobs block operator.")
+            raise ValueError("No incumbent solution available for job-block operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopSchedule):
             raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
@@ -506,7 +506,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         end_time_map = incumbent_solution.get_end_time_map()
 
         if not start_time_map or not end_time_map:
-            raise ValueError("No solution available for jobs block operator.")
+            raise ValueError("No solution available for job-block operator.")
 
         all_ops = list(start_time_map.keys())
         total_ops = len(all_ops)
@@ -539,17 +539,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 if len(selected_ops) >= num_to_select:
                     break
         logging.info(
-            f"Jobs block operator selected {len(selected_ops)} overlapping ops"
+            f"Job-block operator selected {len(selected_ops)} overlapping ops"
             f" of {len(selected_jobs)} jobs"
             f" (target={num_to_select}; total={total_ops})"
         )
 
-        # Profile out-of-block operations
-        self._profile_operations_except_selected(selected_ops)
+        # Fix out-of-block operations' profile
+        self._fix_operations_profile_except_selected(selected_ops)
 
     # Subroutine: Johnson-based Heuristic for initialization
 
-    def dispatch_by_job_stage_time(
+    def _dispatch_by_job_stage_time(
         self,
         job_sequence: list[str],
         schedule: HybridFlowshopSchedule,
@@ -595,7 +595,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if draw_gantt:
                 self.draw_incumbent_gantt()
 
-    def dispatch_by_stage_time_job(
+    def _dispatch_by_stage_time_job(
         self,
         job_sequence: list[str],
         schedule: HybridFlowshopSchedule,
@@ -642,7 +642,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if draw_gantt:
                 self.draw_incumbent_gantt()
 
-    def construct_solution_by_incremental_cp(
+    def _construct_schedule_by_neh_cp(
         self,
         job_sequence: list[str],
         solver_thread_cnt: int,
@@ -660,7 +660,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         This method builds a feasible schedule by adding jobs one by one
         according to the provided job sequence. At each step, a sub-CP model
         is constructed for the current subset of jobs and solved with the
-        given time limit. Previously scheduled jobs are frozen to guide the solver.
+        given time limit. The profile of previously scheduled jobs are fixed to guide the solver.
 
         Args:
             job_sequence (list[str]): The sequence of job IDs to be added.
@@ -737,7 +737,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
             sub_cp_mdl = self.cp_model.create_problem_of_job_subset(job_subset)
             if last_solution is not None:
-                # Profile operation precedences
+                # Fix operations' profile
                 sub_cp_mdl.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
                     last_solution, ignore_integrity_check=True
                 )
@@ -1068,87 +1068,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Sort by ascending order: (Palmer score, job id)
         sorted_jobs = sorted(jobs, key=lambda j: (palmer_score[j], j))
         return sorted_jobs
-
-    def initialize_by_cjqp(
-        self,
-        solver_thread_cnt: int,
-        added_batch_size: int = 1,
-        max_time_per_add: float | None = None,
-        no_improvement_timelimit: float | None = None,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
-    ):
-        """
-        Build a CP-guided solution using Palmer sequence.
-
-        This method incrementally constructs a feasible schedule by solving sub-CP models
-        for each job prefix in the Palmer sequence.
-
-        Args:
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each iteration.
-                Defaults to 1.
-            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
-                If None, uses the remaining time limit. Defaults to None.
-            no_improvement_timelimit (float | None, optional): If there is no improvement for this
-                amount of time, the search will be stopped. If None, no timeout is set.
-                Defaults to None.
-            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
-                Defaults to False.
-        """
-
-        self.construct_solution_by_incremental_cp(
-            self.get_palmer_sequence(),
-            solver_thread_cnt,
-            added_batch_size=added_batch_size,
-            max_time_per_add=max_time_per_add,
-            no_improvement_timelimit=no_improvement_timelimit,
-            is_init=True,
-            error_if_infeasible=error_if_infeasible,
-            draw_gantt=draw_gantt,
-        )
-
-    def initialize_by_cjqg(
-        self,
-        solver_thread_cnt: int,
-        added_batch_size: int = 1,
-        max_time_per_add: float | None = None,
-        no_improvement_timelimit: float | None = None,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
-    ):
-        """Build a CP-guided solution using Gupta sequence.
-
-        This method incrementally constructs a feasible schedule by solving sub-CP models
-        for each job prefix in the Gupta sequence.
-
-        Args:
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each iteration.
-                Defaults to 1.
-            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
-                If None, uses the remaining time limit. Defaults to None.
-            no_improvement_timelimit (float | None, optional): If there is no improvement for this
-                amount of time, the search will be stopped. If None, no timeout is set.
-                Defaults to None.
-            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
-                Defaults to False.
-        """
-
-        self.construct_solution_by_incremental_cp(
-            self.get_gupta_sequence(),
-            solver_thread_cnt,
-            added_batch_size=added_batch_size,
-            max_time_per_add=max_time_per_add,
-            no_improvement_timelimit=no_improvement_timelimit,
-            is_init=True,
-            error_if_infeasible=error_if_infeasible,
-            draw_gantt=draw_gantt,
-        )
 
     def get_shdlb_for_stage(self, i: str) -> int:
         """
@@ -1737,7 +1656,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
         return [info[3] for info in seq_info]
 
-    def initialize_by_cjims(
+    def neh_cp(
         self,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
@@ -1763,7 +1682,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
-        self.construct_solution_by_incremental_cp(
+        self._construct_schedule_by_neh_cp(
             self.get_incumbent_midpoint_sequence(),
             solver_thread_cnt,
             added_batch_size=added_batch_size,

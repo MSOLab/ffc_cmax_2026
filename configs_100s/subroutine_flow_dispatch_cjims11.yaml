@@ -16,7 +16,7 @@
   error_if_infeasible: true
 - method: initialize_by_ds_palmer
   error_if_infeasible: true
-- method: initialize_by_cjims
+- method: neh_cp
   solver_thread_cnt: 8
   max_time_per_add: 1
   added_batch_size: 1

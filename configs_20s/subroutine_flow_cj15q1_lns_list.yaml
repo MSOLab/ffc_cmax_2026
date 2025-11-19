@@ -13,7 +13,7 @@
       computational_time: 5
       solver_thread_cnt: 8
       error_if_infeasible: true
-    - method: ops_block_ns
+    - method: operation_block_ns
       rho: 0.2
       computational_time: 5
       solver_thread_cnt: 8

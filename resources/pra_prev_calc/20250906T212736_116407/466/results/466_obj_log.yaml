@@ -36,7 +36,7 @@ obj_value:
     '0.08472858392633498': 3-initialize_by_dj_cds
     '0.14270331687293947': 4-initialize_by_dj_tp
     '0.30854932800866663': 8-initialize_by_ds_tp
-    '43.712650306057185': 11-initialize_by_cjims
+    '43.712650306057185': 11-neh_cp
     '48.80747626791708': 12-solve_base_cp_model
 obj_bound:
   name: obj_bound
