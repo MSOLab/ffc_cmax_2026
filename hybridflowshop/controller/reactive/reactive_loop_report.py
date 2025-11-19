@@ -9,8 +9,10 @@ class ReactiveLoopReportEntry:
     kwargs: dict[str, Any]
     time_start: float
     time_elapsed: float
+    prev_obj_value: float
     obj_value: float
     # Special fields
+    timelimit_reached: bool
     is_optimal: bool
     is_improved: bool
 
@@ -20,7 +22,9 @@ class ReactiveLoopReportEntry:
             "subroutineName": self.subroutine_name,
             "timeStart": self.time_start,
             "timeElapsed": self.time_elapsed,
+            "prevObjValue": self.prev_obj_value,
             "objValue": self.obj_value,
+            "timelimitReached": self.timelimit_reached,
             "isOptimal": self.is_optimal,
             "isImproved": self.is_improved,
         }
@@ -39,7 +43,9 @@ class ReactiveLoopReportEntry:
             "timelimit",
             "timeStart",
             "timeElapsed",
+            "prevObjValue",
             "objValue",
+            "timelimitReached",
             "isOptimal",
             "isImproved",
         ]

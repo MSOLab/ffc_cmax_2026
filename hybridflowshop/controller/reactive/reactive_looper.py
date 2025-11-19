@@ -3,7 +3,6 @@ from pathlib import Path
 
 from mbls.cpsat import CpsatStatus
 from routix.util.concurrent import batch_write_data_to_csv, batch_write_data_to_yaml
-
 from ...report import HfsCpsatSolverReport
 from ..controller_core import HybridFlowShopCpLnsControllerCore
 from .local_stopping_criteria import LocalStoppingCriteria
@@ -146,6 +145,10 @@ class ReactiveLooper:
                 if report.obj_value is not None
                 else self.ctrlr.solution_manager.best_obj_value
             )
+            if tuner.current_kwargs["computational_time"] - report.elapsed_time <= 1e-6:
+                timelimit_reached = True
+            else:
+                timelimit_reached = False
             is_optimal = report.status == CpsatStatus.OPTIMAL
             is_improved = False
             if report.obj_value is not None and prev_obj is not None:
@@ -169,7 +172,9 @@ class ReactiveLooper:
                 kwargs=kwargs_snapshot,
                 time_start=time_start,
                 time_elapsed=elapsed,
+                prev_obj_value=prev_obj if prev_obj is not None else float("nan"),
                 obj_value=obj_value if obj_value is not None else float("nan"),
+                timelimit_reached=timelimit_reached,
                 is_optimal=is_optimal,
                 is_improved=is_improved,
             )
