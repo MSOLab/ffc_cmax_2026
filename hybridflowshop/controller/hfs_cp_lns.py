@@ -1161,6 +1161,33 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
+        schedule = self._get_schedule_by_dj_cds()
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dj_cds(self) -> HybridFlowshopSchedule:
         # Subroutine states
         best_makespan = float("inf")
         best_schedule: HybridFlowshopSchedule | None = None
@@ -1186,31 +1213,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
-        if error_if_infeasible:
-            self.check_feasibility(best_schedule.get_start_time_map())
-        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
-
-        # Create report and register the new solution
-        obj_value = float(best_schedule.makespan)
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=obj_value,
-            obj_bound=None,
-            is_init=True,
-        )
-        was_updated = self.solution_manager.register(report, best_schedule)
-
-        # Log
-        log_time = self.timer.elapsed_sec
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
-        )
-
-        # Draw Gantt chart if the solution is an improvement
-        if was_updated and draw_gantt:
-            self.draw_incumbent_gantt()
+        logging.info(f"Schedule by DJ(CDS): makespan={best_makespan} with k={best_k}")
+        return best_schedule
 
     def initialize_by_dj_tp(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1293,20 +1297,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        # Dispatch
-        job_sequence = self.get_gupta_sequence()
-        for j in job_sequence:
-            schedule.dispatch_job_by_stages(
-                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-            )
-
+        schedule = self._get_schedule_by_dj_gupta()
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
-        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1329,6 +1322,20 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dj_gupta(self) -> HybridFlowshopSchedule:
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        # Dispatch
+        job_sequence = self.get_gupta_sequence()
+        for j in job_sequence:
+            schedule.dispatch_job_by_stages(
+                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+            )
+
+        logging.info(f"Schedule by DJ(Gupta): makespan={schedule.makespan}")
+        return schedule
 
     def initialize_by_dj_palmer(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1345,20 +1352,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        # Dispatch
-        job_sequence = self.get_palmer_sequence()
-        for j in job_sequence:
-            schedule.dispatch_job_by_stages(
-                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-            )
-
+        schedule = self._get_schedule_by_dj_palmer()
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
-        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1382,6 +1378,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
+    def _get_schedule_by_dj_palmer(self) -> HybridFlowshopSchedule:
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        # Dispatch
+        job_sequence = self.get_palmer_sequence()
+        for j in job_sequence:
+            schedule.dispatch_job_by_stages(
+                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
+            )
+        logging.info(f"Schedule by DJ(Palmer): makespan={schedule.makespan}")
+        return schedule
+
     def initialize_by_ds_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
@@ -1397,6 +1406,33 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
+        schedule = self._get_schedule_by_ds_cds()
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_ds_cds(self) -> HybridFlowshopSchedule:
         best_makespan = float("inf")
         best_schedule: HybridFlowshopSchedule | None = None
         best_k = -1
@@ -1418,31 +1454,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
-        if error_if_infeasible:
-            self.check_feasibility(best_schedule.get_start_time_map())
-        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
-
-        # Create report and register the new solution
-        obj_value = float(best_schedule.makespan)
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=obj_value,
-            obj_bound=None,
-            is_init=True,
-        )
-        was_updated = self.solution_manager.register(report, best_schedule)
-
-        # Log
-        log_time = self.timer.elapsed_sec
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
-        )
-
-        # Draw Gantt chart if the solution is an improvement
-        if was_updated and draw_gantt:
-            self.draw_incumbent_gantt()
+        logging.info(f"Schedule by DS(CDS): makespan={best_makespan} with k={best_k}")
+        return best_schedule
 
     def initialize_by_ds_tp(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1521,20 +1534,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        # Dispatch
-        job_sequence = self.get_gupta_sequence()
-        for i in self.instance.stage_id_list:
-            schedule.dispatch_stage_by_jobs(
-                i, job_sequence, self.stage_2_job_2_p_dict[i]
-            )
-
+        schedule = self._get_schedule_by_ds_gupta()
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
-        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1557,6 +1559,20 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
+
+    def _get_schedule_by_ds_gupta(self) -> HybridFlowshopSchedule:
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        # Dispatch
+        job_sequence = self.get_gupta_sequence()
+        for i in self.instance.stage_id_list:
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
+
+        logging.info(f"Schedule by DS(Gupta): makespan={schedule.makespan}")
+        return schedule
 
     def initialize_by_ds_palmer(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1573,20 +1589,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
-        # Create an empty schedule
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
-        # Dispatch
-        job_sequence = self.get_palmer_sequence()
-        for i in self.instance.stage_id_list:
-            schedule.dispatch_stage_by_jobs(
-                i, job_sequence, self.stage_2_job_2_p_dict[i]
-            )
-
+        schedule = self._get_schedule_by_ds_palmer()
         if error_if_infeasible:
             self.check_feasibility(schedule.get_start_time_map())
-        logging.info(f"Schedule found with makespan={schedule.makespan}")
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1609,6 +1614,80 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
+
+    def _get_schedule_by_ds_palmer(self) -> HybridFlowshopSchedule:
+        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
+            self.instance.stage_2_machines_map
+        )
+        # Dispatch
+        job_sequence = self.get_palmer_sequence()
+        for i in self.instance.stage_id_list:
+            schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
+
+        logging.info(f"Schedule by DS(Palmer): makespan={schedule.makespan}")
+        return schedule
+
+    def initialize_by_best_of_dispatches(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_best_of_dispatches()
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_best_of_dispatches(self) -> HybridFlowshopSchedule:
+        schedule_gen_methods = [
+            self._get_schedule_by_dj_cds,
+            self._get_schedule_by_dj_gupta,
+            self._get_schedule_by_dj_palmer,
+            self._get_schedule_by_ds_cds,
+            self._get_schedule_by_ds_gupta,
+            self._get_schedule_by_ds_palmer,
+        ]
+        # Subroutine states
+        best_makespan = float("inf")
+        best_schedule: HybridFlowshopSchedule | None = None
+        best_method_name = ""
+
+        for method in schedule_gen_methods:
+            schedule = method()
+            makespan = schedule.makespan
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_schedule = schedule
+                best_method_name = method.__name__
+
+        if best_schedule is None:
+            raise ValueError("No schedule found after applying dispatching heuristics.")
+        logging.info(
+            f"Best schedule found by {best_method_name} with makespan={best_makespan}"
+        )
+        return best_schedule
 
     def get_incumbent_midpoint_sequence(self) -> list[str]:
         """
