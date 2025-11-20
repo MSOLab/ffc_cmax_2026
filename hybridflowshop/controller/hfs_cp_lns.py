@@ -1,7 +1,6 @@
 import logging
 import math
 import random
-from collections import defaultdict
 from typing import Any, Callable, Mapping
 
 from mbls.cpsat import (
