@@ -4,6 +4,5 @@
 - method: initialize_by_best_of_dispatches
 - method: set_cp_model_as_base_cp_model
 - method: solve_base_cp_model
-  computational_time: 6
+  computational_time: null
   solver_thread_cnt: 8
-  is_initial_solution: false
