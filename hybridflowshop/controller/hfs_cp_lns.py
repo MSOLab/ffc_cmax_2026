@@ -865,7 +865,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
 
         if last_solution is None:
-            logging.warning("Incremental CP construction failed to find a solution.")
+            logging.warning("NEH-CP failed to find a solution.")
             report = HfsSubroutineReport(
                 elapsed_time=sub_timer.elapsed_sec,
                 obj_value=None,
@@ -877,6 +877,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         if error_if_infeasible:
             self.check_feasibility(last_solution.get_start_time_map())
+        logging.info(f"NEH-CP done with makespan={last_solution.makespan}")
 
         # Create report for the final solution and register it
         final_report = HfsSubroutineReport(
