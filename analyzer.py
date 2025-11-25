@@ -3,7 +3,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
-
+from matplotlib.ticker import MaxNLocator
 from analysis_metadata import AnalysisMetadata
 
 METADATA = AnalysisMetadata(
@@ -13,13 +13,13 @@ METADATA = AnalysisMetadata(
 
 
 def main():
-    analysis_root = get_analysis_dir_path(METADATA.result_dir_path_str)
+    analysis_root = METADATA.get_analysis_dir_path()
     print(f"Target result directory: {analysis_root}")
 
     rho_by_instance = collect_all_instances_rho_sequences(analysis_root)
     print(f"Loaded reactive-loop rho logs for {len(rho_by_instance)} instances.")
 
-    target_instance_id = 1440
+    target_instance_id = 1
     if target_instance_id not in rho_by_instance:
         print(
             f"Instance {target_instance_id} not found or has no reactive loop report."
@@ -28,6 +28,7 @@ def main():
 
     df = rho_by_instance[target_instance_id]
 
+    # # iteration별 per-operator rho trajectory 생성 및 플로팅
     # use_global_index = True
     # long_df = build_per_operator_rho_trajectories_per_iter(
     #     df, call_index_per_op=not use_global_index
@@ -50,7 +51,8 @@ def main():
     #     save_path=rho_evolution_over_iter_fig_path,
     # )
 
-    # time_long_df = build_per_operator_rho_over_time(df)
+    # # 시간별 per-operator rho trajectory 생성 및 플로팅
+    time_long_df = build_per_operator_rho_over_time(df)
     # rho_evolution_over_time_fig_path = (
     #     analysis_root
     #     / str(target_instance_id)
@@ -62,7 +64,19 @@ def main():
     #     save_path=rho_evolution_over_time_fig_path,
     # )
 
-    # # timelimit–rho long-form DF 생성
+    # 시간별 per-operator timelimit trajectory 생성 및 플로팅
+    timelimit_evolution_over_time_fig_path = (
+        analysis_root
+        / str(target_instance_id)
+        / f"{target_instance_id:04d}_timelimit_evolution_over_time.png"
+    )
+    plot_timelimit_evolution_over_time_for_instance(
+        time_long_df,
+        target_instance_id,
+        save_path=timelimit_evolution_over_time_fig_path,
+    )
+
+    # # timelimit-rho trajectory 생성 및 플로팅
     # tl_long_df = build_per_operator_rho_over_timelimit(df)
     # # 그림 저장
     # out_path = (
@@ -74,6 +88,7 @@ def main():
     #     tl_long_df, target_instance_id, save_path=out_path
     # )
 
+    # # iteration별 objective trajectory 생성 및 플로팅
     # traj_df = build_objective_trajectory_over_iterations(df)
     # out_path = (
     #     analysis_root
@@ -84,6 +99,7 @@ def main():
     #     traj_df, target_instance_id, save_path=out_path
     # )
 
+    # 시간별 objective trajectory 생성 및 플로팅
     traj_time_df = build_objective_trajectory_over_time(df)
 
     out_path = (
@@ -94,14 +110,6 @@ def main():
     plot_objective_trajectory_over_time_for_instance(
         traj_time_df, target_instance_id, save_path=out_path
     )
-
-
-# Path helper
-
-
-def get_analysis_dir_path(result_dir_path_str: str) -> Path:
-    expanded = os.path.expandvars(result_dir_path_str)
-    return Path(expanded).expanduser()
 
 
 # Core loaders
@@ -363,6 +371,45 @@ def plot_rho_evolution_over_time_for_instance(
     plt.close(fig)
 
 
+def plot_timelimit_evolution_over_time_for_instance(
+    long_df: pd.DataFrame,
+    instance_id: int,
+    save_path: Path | None = None,
+):
+    """
+    build_per_operator_rho_over_time() 결과(long_df)를 받아
+    x축 = timeEnd, y축 = timelimit 로 operator별 step plot을 그림.
+    """
+    if long_df.empty:
+        print("[INFO] Empty timelimit-over-time dataframe, nothing to plot.")
+        return
+
+    fig, ax = plt.subplots()
+
+    for op_name, g in long_df.groupby("subroutineName"):
+        g = g.sort_values("timeEnd")
+        ax.step(
+            g["timeEnd"],
+            g["timelimit"],
+            where="post",
+            label=op_name,
+        )
+
+    ax.set_xlabel("Time since start (s)")
+    ax.set_ylabel("Timelimit")
+    ax.set_title(f"Evolution of Timelimit over time (instance {instance_id})")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.4)
+
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches="tight")
+        print(f"[INFO] Saved timelimit-over-time plot to {save_path}")
+    else:
+        plt.show()
+
+    plt.close(fig)
+
+
 def build_per_operator_rho_over_timelimit(df: pd.DataFrame) -> pd.DataFrame:
     """
     Reactive-loop report(df)에서 각 subroutineName별로
@@ -518,6 +565,7 @@ def plot_objective_trajectory_over_iterations_for_instance(
         return
 
     fig, ax = plt.subplots()
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
     # step plot: best-so-far objective
     ax.step(
@@ -619,6 +667,7 @@ def plot_objective_trajectory_over_time_for_instance(
         return
 
     fig, ax = plt.subplots()
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
     # step plot: best-so-far objective vs timeEnd
     ax.step(
