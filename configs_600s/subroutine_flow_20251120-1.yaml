@@ -1,0 +1,7 @@
+- method: set_random_seed
+  seed: 42
+- method: set_cp_model_as_base_cp_model
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8
+  is_initial_solution: true

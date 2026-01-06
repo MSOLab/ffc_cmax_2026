@@ -4,7 +4,7 @@
 - method: initialize_by_ds_cds
 - method: run_reactive_loop
   params:
-    subroutine_names: [ops_block_ns, stage_ns]
+    subroutine_names: [operation_block_ns, stage_block_ns]
     opening_kwargs:
       rho: 0.1
       computational_time: 0.5

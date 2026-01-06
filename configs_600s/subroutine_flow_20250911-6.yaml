@@ -17,7 +17,7 @@
   error_if_infeasible: true
 - method: initialize_by_ds_palmer
   error_if_infeasible: true
-- method: initialize_by_cjims
+- method: neh_cp
   added_batch_size: 10
   max_time_per_add: 5
   no_improvement_timelimit: 3
@@ -29,7 +29,7 @@
   is_initial_solution: false
 - method: run_reactive_loop
   params:
-    subroutine_names: [jobs_block_ns, stage_ns]
+    subroutine_names: [job_block_ns, stage_block_ns]
     opening_kwargs:
       rho: 0.1
       computational_time: 1

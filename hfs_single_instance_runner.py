@@ -185,6 +185,8 @@ class HfsSingleInstanceRunner(
                 name=self.name,
                 job_count=self.instance.job_count,
                 stage_count=self.instance.stage_count,
+                # TODO: consider non-identical machines per stage
+                machines_per_stage=self.instance.machine_count_per_stage[0],
                 timelimit=self.stopping_criteria.timelimit,
             ),
             outputs=stats,

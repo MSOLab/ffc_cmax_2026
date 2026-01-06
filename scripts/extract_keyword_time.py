@@ -25,7 +25,7 @@ for yaml_file in file_paths:
             notes = data["obj_value"]["notes"]
             if isinstance(notes, dict):
                 for time, memo in notes.items():
-                    if isinstance(memo, str) and "initialize_by_cjims" in memo:
+                    if isinstance(memo, str) and "neh_cp" in memo:
                         results.append([instance_id, time])
                         break
     except Exception as e:

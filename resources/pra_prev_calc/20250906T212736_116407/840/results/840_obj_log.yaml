@@ -15,7 +15,7 @@ obj_value:
   notes:
     '0.13610051316209137': 3-initialize_by_dj_cds
     '0.40126053616404533': 7-initialize_by_ds_cds
-    '50.525783183053136': 11-initialize_by_cjims
+    '50.525783183053136': 11-neh_cp
     '55.65770762297325': 12-solve_base_cp_model
 obj_bound:
   name: obj_bound

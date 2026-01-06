@@ -22,7 +22,7 @@ obj_value:
     '0.2345719311852008': 4-initialize_by_dj_tp
     '0.3224575971253216': 6-initialize_by_dj_palmer
     '0.6422810161020607': 10-initialize_by_ds_palmer
-    '58.96205275203101': 11-initialize_by_cjims
+    '58.96205275203101': 11-neh_cp
     '64.09290920710191': 12-solve_base_cp_model
 obj_bound:
   name: obj_bound
