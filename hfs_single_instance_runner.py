@@ -66,6 +66,25 @@ class HfsSingleInstanceRunner(
         self.result_dir.mkdir(parents=True, exist_ok=True)
         self.prepare_saved_file_paths()
 
+        # Apply instance-wise timelimit if specified
+        if (
+            isinstance(self.stopping_criteria, StoppingCriteria)
+            and hasattr(self.stopping_criteria, "timelimit_n_by_m_multiplier")
+            and self.stopping_criteria.timelimit_n_by_m_multiplier is not None
+            and self.stopping_criteria.timelimit_n_by_m_multiplier > 0
+        ):
+            n = self.instance.job_count
+            m = self.instance.stage_count
+            adjusted_timelimit = self.stopping_criteria.timelimit_n_by_m_multiplier * (
+                n * m
+            )
+            # Override the timelimit
+            logging.info(
+                f"Adjusting timelimit for instance '{self.name}' with n={n}, m={m}: "
+                f"new timelimit = {adjusted_timelimit} seconds."
+            )
+            self.stopping_criteria.timelimit = adjusted_timelimit
+
     def get_controller(self) -> HybridFlowShopCpLnsController:
         """Initialize the controller with the given instance and parameters."""
         return HybridFlowShopCpLnsController(
