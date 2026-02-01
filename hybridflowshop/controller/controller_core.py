@@ -130,6 +130,8 @@ class HybridFlowShopCpLnsControllerCore(
         """
         if self.solution_manager.best_obj_value:
             return math.ceil(self.solution_manager.best_obj_value)
+        if not isinstance(self.shared_param_dict, dict):
+            raise ValueError("Shared parameters is not a dictionary.")
         if "horizon" not in self.shared_param_dict:
             raise ValueError("Horizon not found in shared parameters.")
         return self.shared_param_dict["horizon"]

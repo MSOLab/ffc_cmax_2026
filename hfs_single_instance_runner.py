@@ -1,5 +1,6 @@
 import datetime
 import logging
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -135,13 +136,22 @@ class HfsSingleInstanceRunner(
         - If the mode is POST_PROCESS_ONLY, it skips the controller run and directly
         calls the post_run_process method.
         """
-        if self.mode == RunMode.RESUME:
-            self.ctrlr = self.get_controller()
-            self.ctrlr.set_working_dir(self.working_dir)
-            self._try_apply_resume()
-            self.ctrlr.run(flow_resume_idx=self.flow_resume_idx)
-
-        return super().run()
+        try:
+            if self.mode == RunMode.RESUME:
+                self.ctrlr = self.get_controller()
+                self.ctrlr.set_working_dir(self.working_dir)
+                self._try_apply_resume()
+                self.ctrlr.run(flow_resume_idx=self.flow_resume_idx)
+            elif self.mode == RunMode.FULL_RUN:
+                self.ctrlr = self.get_controller()
+                self.ctrlr.set_working_dir(self.working_dir)
+                self.ctrlr.run()
+        except:
+            exc_str = traceback.format_exc()
+            logging.error(f"An error occurred during the run - {exc_str}")
+            raise
+        finally:
+            return self.post_run_process()
 
     def post_run_process(self) -> None:
         if self.mode in {RunMode.FULL_RUN, RunMode.RESUME}:
