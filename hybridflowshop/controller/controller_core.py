@@ -383,6 +383,7 @@ class HybridFlowShopCpLnsControllerCore(
         mdl: CustomCpModel,
         computational_time: float,
         solver_thread_cnt: int,
+        keep_all_feasible_solutions_in_presolve: bool | None = None,
         e_timer: ElapsedTimer | None = None,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
@@ -394,14 +395,14 @@ class HybridFlowShopCpLnsControllerCore(
     ) -> CpsatSolverReport:
         from ..cpsat_model_2.solver import SolveConfig, configure_solver
 
-        _timelimit = self.get_remaining_time_limit(computational_time)
         if e_timer is None:
             e_timer = self.timer
 
         solve_cfg = SolveConfig(
-            log=self.log_search_progress,
-            time_limit_s=_timelimit,
+            log_search_progress=self.log_search_progress,
+            time_limit_s=computational_time,
             num_workers=solver_thread_cnt,
+            keep_all_feasible_solutions_in_presolve=keep_all_feasible_solutions_in_presolve,
             random_seed=self.random_seed,
         )
         self.solver = configure_solver(solve_cfg)
@@ -679,8 +680,6 @@ class HybridFlowShopCpLnsControllerCore(
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
-        _timelimit = self.get_remaining_time_limit(computational_time)
-
         # Utilize the objective bound if available
         if (
             obj_value_is_valid
@@ -694,9 +693,10 @@ class HybridFlowShopCpLnsControllerCore(
         # mdl_txt_path = self.get_file_path_for_subroutine("_cp_sat_model.txt")
         # self.cp_model.export_to_file(str(mdl_txt_path))
 
+        _timelimit = self.get_remaining_time_limit(computational_time)
         solver_report = self.solve_cp_model_2(
             self.cp_model,
-            computational_time,
+            _timelimit,
             solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
