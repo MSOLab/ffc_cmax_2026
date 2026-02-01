@@ -1,10 +1,8 @@
 from routix.solution_manager import SolutionManager
 from routix.util.comparison import float_equals
+from schore.schedule_examples.parallel_shop.identical_flow import HybridFlowshopSchedule
 
 from .report import HfsSubroutineReport
-from .scheduling.hybrid_flowshop_schedule import (
-    HybridFlowshopSchedule,
-)
 
 
 class HfsSolutionManager(SolutionManager[HfsSubroutineReport, HybridFlowshopSchedule]):

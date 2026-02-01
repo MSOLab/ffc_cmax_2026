@@ -6,12 +6,12 @@ readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [
     "mbls",
-    "ortools>=9.12.4544",
+    "ortools==9.14.6206",
     "pandas>=2.3.0",
     "pydantic>=2.11.7",
     "pyyaml>=6.0.2",
     "routix",
-    "schore==0.0.4",
+    "schore",
     "xlsxwriter>=3.2.5",
 ]
 
@@ -32,3 +32,4 @@ pythonpath = ["."]
 [tool.uv.sources]
 mbls = { path = "../mbls", editable = true }
 routix = { path = "../routix", editable = true }
+schore = { path = "../schore", editable = true }

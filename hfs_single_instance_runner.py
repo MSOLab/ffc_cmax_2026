@@ -11,6 +11,10 @@ from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
+from schore.schedule_examples.parallel_shop.identical_flow import (
+    HybridFlowshopOperation,
+    HybridFlowshopSchedule,
+)
 
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
@@ -19,8 +23,6 @@ from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
 from hybridflowshop.report.hfs_subroutine_report_statistics import (
     HfsSubroutineReportStatistics,
 )
-from hybridflowshop.scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
-from hybridflowshop.scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from hybridflowshop.utils import tuple_to_pyyaml_key
 
 

@@ -3,14 +3,15 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
+from mbls.cpsat import CpModelWithFixedInterval
 from ortools.sat.python.cp_model import IntVar
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
-
-from .cp_model_with_fixed_interval import CpModelWithFixedInterval
-from .scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
-from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
+from schore.schedule_examples.parallel_shop.identical_flow import (
+    HybridFlowshopOperation,
+    HybridFlowshopSchedule,
+)
 
 
 class CP2023NaderiCumulative(CpModelWithFixedInterval):

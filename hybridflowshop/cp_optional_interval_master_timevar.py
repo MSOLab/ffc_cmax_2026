@@ -8,9 +8,10 @@ from ortools.sat.python.cp_model import IntVar
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
-
-from .scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
-from .scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
+from schore.schedule_examples.parallel_shop.identical_flow import (
+    HybridFlowshopOperation,
+    HybridFlowshopSchedule,
+)
 
 
 class CPOptionalIntervalMasterTimevar(CpModelWithOptionalFixedInterval):
