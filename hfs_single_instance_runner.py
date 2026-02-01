@@ -50,11 +50,12 @@ class HfsSingleInstanceRunner(
         output_metadata: dict[str, Any],
         mode: RunMode = RunMode.FULL_RUN,
     ):
+        _stopping_criteria = StoppingCriteria.from_dict(stopping_criteria.to_obj())
         super().__init__(
             instance=instance,
             shared_param_dict=shared_param_dict,
             subroutine_flow=subroutine_flow,
-            stopping_criteria=stopping_criteria,
+            stopping_criteria=_stopping_criteria,
             output_dir=output_dir,
             output_metadata=output_metadata,
             mode=mode,
