@@ -324,14 +324,8 @@ class HfsMultiScenarioRunner(
                         # Calculate max width
                         header_l1 = str(col_name[0])
                         header_l2 = str(col_name[1])
-                        max_len = (
-                            max(
-                                len(header_l1),
-                                len(header_l2),
-                                dashboard_df[col_name].astype(str).map(len).max(),
-                            )
-                            + 2
-                        )  # Add padding
+                        data_len = _safe_max_str_len(dashboard_df[col_name])
+                        max_len = max(len(header_l1), len(header_l2), data_len) + 2
 
                         worksheet.set_column(col_idx, col_idx, width=max_len)
 
@@ -362,13 +356,9 @@ class HfsMultiScenarioRunner(
                 info_df.to_excel(writer, sheet_name="Scenario_Info", index=False)
                 worksheet = writer.sheets["Scenario_Info"]
                 for col_idx, col_name in enumerate(info_df.columns):
-                    max_len = (
-                        max(
-                            len(str(col_name)),
-                            info_df[col_name].astype(str).map(len).max(),
-                        )
-                        + 2
-                    )
+                    data_len = _safe_max_str_len(info_df[col_name])
+                    max_len = max(len(str(col_name)), data_len) + 2
+
                     if col_name in {"Subroutine Flow", "Stopping Criteria"}:
                         worksheet.set_column(col_idx, col_idx, options={"hidden": True})
                     else:
@@ -378,13 +368,9 @@ class HfsMultiScenarioRunner(
                 raw_summary_df.to_excel(writer, sheet_name="Raw_Summary", index=False)
                 worksheet = writer.sheets["Raw_Summary"]
                 for col_idx, col_name in enumerate(raw_summary_df.columns):
-                    max_len = (
-                        max(
-                            len(str(col_name)),
-                            raw_summary_df[col_name].astype(str).map(len).max(),
-                        )
-                        + 2
-                    )
+                    data_len = _safe_max_str_len(raw_summary_df[col_name])
+                    max_len = max(len(str(col_name)), data_len) + 2
+
                     if col_name == "methodCallCounts":
                         worksheet.set_column(col_idx, col_idx, options={"hidden": True})
                     else:
@@ -401,13 +387,9 @@ class HfsMultiScenarioRunner(
                     )
                     worksheet = writer.sheets["Baseline_Data"]
                     for col_idx, col_name in enumerate(baseline_df.columns):
-                        max_len = (
-                            max(
-                                len(str(col_name)),
-                                baseline_df[col_name].astype(str).map(len).max(),
-                            )
-                            + 2
-                        )
+                        data_len = _safe_max_str_len(baseline_df[col_name])
+                        max_len = max(len(str(col_name)), data_len) + 2
+
                         worksheet.set_column(col_idx, col_idx, width=max_len)
                         if col_name in {"Gap", "RPD"}:
                             worksheet.set_column(
@@ -420,3 +402,10 @@ class HfsMultiScenarioRunner(
             logging.info(f"Successfully generated Excel report at: {path}")
         except Exception as e:
             logging.error(f"Failed to write Excel report: {e}", exc_info=True)
+
+
+def _safe_max_str_len(s: pd.Series) -> int:
+    # Robust against floats/NaN/None and mixed dtypes.
+    lens = s.astype("string").fillna("").str.len()
+    m = lens.max()
+    return 0 if pd.isna(m) else int(m)
