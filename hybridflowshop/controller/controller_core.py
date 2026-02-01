@@ -356,7 +356,13 @@ class HybridFlowShopCpLnsControllerCore(
         # Solve with tight time limit
         timelimit = 2.0
         solver_thread_cnt = 1
-        solver_report = self.solve_cp_model_2(base_cp, timelimit, solver_thread_cnt)
+        solver_report = self.solve_cp_model_2(
+            base_cp,
+            timelimit,
+            solver_thread_cnt,
+            log_level_obj_value=logging.DEBUG,
+            log_level_obj_bound=logging.DEBUG,
+        )
         if solver_report.status not in (CpsatStatus.FEASIBLE, CpsatStatus.OPTIMAL):
             mdl_txt_path = self.get_file_path_for_subroutine(
                 "_feasibility_check_failed.txt"
