@@ -437,7 +437,7 @@ scenario_log_filename: "hfs_multi_scenario_runner.log"
 result_dir_name: "results"
 
 # Execution configuration
-instance_worker_cnt: 12
+instance_worker_cnt: 48
 
 # Analysis and plotting options
 draw_gantt: false
