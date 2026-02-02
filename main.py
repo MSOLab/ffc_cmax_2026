@@ -24,6 +24,7 @@ from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
 MAIN_METADATA_FILENAME = "main_metadata.yaml"
+REVERSE_INSTANCE_ORDER = True
 
 
 def main():
@@ -101,7 +102,9 @@ def main():
             )
         pra_common_params_dict = read_yaml(pra_common_params_dump_path)
 
-    benchmark_filenames = config.get_benchmark_filename_list()
+    benchmark_filenames = config.get_benchmark_filename_list(
+        reversed=REVERSE_INSTANCE_ORDER
+    )
     instances = load_list_of_instances(config.input_dir, benchmark_filenames)
 
     # --- Prepare scenario configurations ---
@@ -216,15 +219,21 @@ def read_yaml(path: Path) -> Any:
         raise RuntimeError(f"Error reading YAML from {path}: {e}")
 
 
-def load_hfs_instance(file_path: Path) -> HybridFlowshopParameters:
+def load_hfs_instance(
+    file_path: Path, is_ff2020_format: bool = False
+) -> HybridFlowshopParameters:
     try:
         ins_name = file_path.stem
         with open(file_path, "r") as f:
-            return HybridFlowshopParameters.from_pra_data(ins_name, f)
+            if is_ff2020_format:
+                return HybridFlowshopParameters.from_ff2020_data(ins_name, f)
+            else:
+                return HybridFlowshopParameters.from_pra_data(ins_name, f)
     except FileNotFoundError:
         raise FileNotFoundError(f"Benchmark file not found: {file_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading benchmark file {file_path}: {e}")
+
 
 def determine_run_mode_and_base_dir(
     config: MainMetadata, e_timer: ElapsedTimer
@@ -332,10 +341,17 @@ def load_list_of_instances(
     Returns:
         list[HybridFlowshopParameters]: List of loaded hybrid flow shop problem instances.
     """
+    is_ff2020_format = False
+    if "ff2020" in input_dir_path.name.lower():
+        is_ff2020_format = True
+        logging.info("Detected FF2020 format based on input directory name.")
+
     instances = []
     for benchmark_filename in benchmark_filenames:
         input_file_path = input_dir_path / benchmark_filename
-        instances.append(load_hfs_instance(input_file_path))
+        instances.append(
+            load_hfs_instance(input_file_path, is_ff2020_format=is_ff2020_format)
+        )
     return instances
 
 
