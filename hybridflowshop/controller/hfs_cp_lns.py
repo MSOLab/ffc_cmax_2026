@@ -1479,4 +1479,80 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             # yaml_report_path = self.get_file_path_for_subroutine("_report.yaml")
             # looper.write_report_yaml(yaml_report_path)
 
+    # Subroutine: PRTS by Zhou et al. (2024)
+
+    def prts(
+        self,
+        population_multiplier: int = 2,
+        operator_iterations: int = 20,
+        similarity_threshold: float = 0.7,
+        alpha: int = 5,
+        pr_ts_iterations: int = 500,
+        tt: int = 2,
+        d_1: int = 5,
+        d_2: int = 5,
+        tabu_list_length_multiplier: int = 1,
+        ts_max_iterations_multiplier: int = 100,
+        a_hat: float = 0.5,
+        error_if_infeasible: bool = False,
+    ) -> None:
+        """
+        Run PRTS main loop until controller time limit.
+
+        Output:
+        - incumbent schedule is registered into solution_manager
+        - obj_store logs updated when incumbent improves
+        """
+        from .zhou_2024 import PrTs2024Runner
+
+        sub_timer = ElapsedTimer()
+
+        runner = PrTs2024Runner(self.stage_2_job_2_p_dict, self.instance)
+        result = runner.run(
+            population_multiplier=population_multiplier,
+            operator_iterations=operator_iterations,
+            similarity_threshold=similarity_threshold,
+            alpha=alpha,
+            pr_ts_iterations=pr_ts_iterations,
+            tt=tt,
+            d_1=d_1,
+            d_2=d_2,
+            tabu_list_length_multiplier=tabu_list_length_multiplier,
+            ts_max_iterations_multiplier=ts_max_iterations_multiplier,
+            a_hat=a_hat,
+        )
+        solution = result.schedule
+        obj_value = result.last_obj_value
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+
+        # Register report & solution
+        self.solution_manager.register(report, solution)
+
+        # Log (time, objective value & bound)
+        log_time = self.timer.elapsed_sec
+        _last_timestamp_note = self._get_call_context_of_current_method()
+
+        obj_value = self.obj_store.get_last_obj_value()
+        obj_value_is_valid = False
+        if obj_value is not None:
+            self.add_obj_value_log(log_time, obj_value, is_maximize=None)
+            obj_value_is_valid = True
+
+        obj_bound = self.obj_store.get_last_obj_bound()
+        obj_bound_is_valid = False
+        if obj_bound is not None:
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=None)
+            obj_bound_is_valid = True
+
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
+        )
+
     # End subroutine definition
