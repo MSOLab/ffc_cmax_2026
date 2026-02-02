@@ -11,6 +11,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
+from scripts.process_logs import process_scenario
 
 
 class HfsMultiInstanceRunner(
@@ -31,7 +32,22 @@ class HfsMultiInstanceRunner(
         """
         Aggregates results from all single instance runs into a summary DataFrame
         by reading the individual summary CSV files from disk.
+
+        Raises:
+            ValueError: If a summary file is empty or missing.
+            RuntimeError: If there is an error reading a summary file.
+
+        Returns:
+            pd.DataFrame: Combined summary DataFrame for all instances.
         """
+        # Process Logs for this scenario
+        logging.info(f"Starting Log Processing for scenario in: {self.working_dir}")
+        try:
+            process_scenario(self.working_dir)
+        except Exception as e:
+            logging.error(f"Error processing logs for {self.working_dir}: {e}")
+        logging.info("Log Processing Complete.")
+
         summary_dfs = []
         logging.info(f"Aggregating instance summaries in: {self.working_dir}")
 

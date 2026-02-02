@@ -457,5 +457,5 @@ progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
 # analysis_dir_path: "$HFS_RESULT_DIR/Calop1/20250912T001404_281753"
-# analysis_timestamp: "20260201T212102_906241"
+analysis_timestamp: "20260202T010807_317440"
 # resume_dir_path: resources/pra_prev_calc/20250906T212736_116407
