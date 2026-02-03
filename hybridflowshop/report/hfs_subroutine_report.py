@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Sequence, TypeVar
 
 from mbls.cpsat import CpsatSolverReport, CpsatStatus
 from routix.report import SubroutineReport
@@ -46,20 +46,20 @@ class HfsCpsatSolverReport(HfsSubroutineReport):
     status: CpsatStatus
     """Solver status as a CpsatStatus enum."""
 
-    obj_value_records: list[tuple[float, float]]
+    obj_value_records: Sequence[tuple[float, float]]
     """
     List of (elapsed time, objective value)
 
     - Each entry records the state of the solver at a given time.
-    - The list may not have the last entry.
+    - The sequence may not have the last entry.
     """
 
-    obj_bound_records: list[tuple[float, float]]
+    obj_bound_records: Sequence[tuple[float, float]]
     """
     List of (elapsed time, objective bound)
 
     - Each entry records the state of the solver at a given time.
-    - The list may not have the last entry.
+    - The sequence may not have the last entry.
     """
 
     def to_string_dict(self) -> dict[str, str]:

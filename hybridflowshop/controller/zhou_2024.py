@@ -627,7 +627,6 @@ class PrTs2024Runner:
         best_sol = self._perm_to_complete_encoding(initiating)
         best_fit = self._evaluate_complete_encoding(best_sol)
 
-        cand_cnt = len(uniq_pathset)
         last_cand_log_sec = st.timer.elapsed_sec
         cand_log_every_sec = 2.0
         for cand_idx, cand in enumerate(uniq_pathset, start=1):
@@ -1175,16 +1174,20 @@ class PrTs2024Runner:
             return
 
         fit = self._evaluate_complete_encoding(sol)
-        logging.info("[PRTS] candidate solution fit=%d", fit)
 
         # replace worst if better (population stores CE)
         worst_ce = st.population[-1]
         worst_fit = st.fitness_ce[worst_ce]
-        logging.info("[PRTS] worst in pop: fit=%d", worst_fit)
         if fit >= worst_fit:
-            logging.info("[PRTS] rejected (not better than worst)")
+            logging.info(
+                "[PRTS] rejected (candid fit %d not better than worst %d)",
+                fit,
+                worst_fit,
+            )
             return
-        logging.info("[PRTS] accepted (better than worst)")
+        logging.info(
+            "[PRTS] accepted (candid fit %d better than worst %d)", fit, worst_fit
+        )
 
         st.population[-1] = sol
         st.fitness_ce[sol] = fit
@@ -1232,7 +1235,7 @@ class PrTs2024Runner:
             st.best_sol = cand_ce
             st.best_fit = cand_fit
             t = st.timer.elapsed_sec
-            st.sub_obj_store.add_obj_value(t, cand_fit, is_maximize=None)
+            st.sub_obj_store.add_obj_value(t, int(cand_fit), is_maximize=False)
             # st.sub_obj_store.add_last_timestamp_note(note, obj_value_is_valid=True)
             logging.info("[PRTS] improved best=%.3f at t=%.3fs (%s)", cand_fit, t, note)
 

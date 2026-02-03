@@ -1522,7 +1522,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             a_hat=a_hat,
         )
         solution = result.schedule
-        obj_value = result.last_obj_value
+        obj_value: int | float = result.last_obj_value
+        obj_value_records = result.sub_obj_store.obj_value_series.items()
+
         report = HfsSubroutineReport(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
@@ -1537,7 +1539,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         log_time = self.timer.elapsed_sec
         _last_timestamp_note = self._get_call_context_of_current_method()
 
-        obj_value = self.obj_store.get_last_obj_value()
+        self.extend_obj_value_log(obj_value_records, is_maximize=False)
+        obj_value: float | None = self.obj_store.get_last_obj_value()
         obj_value_is_valid = False
         if obj_value is not None:
             self.add_obj_value_log(log_time, obj_value, is_maximize=None)
