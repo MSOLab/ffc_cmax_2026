@@ -1,0 +1,5 @@
+- method: set_random_seed
+  seed: 42
+- method: prts
+  population_multiplier: 0.5
+  use_stage_cnt_for_tl: true

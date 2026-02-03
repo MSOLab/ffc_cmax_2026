@@ -1494,6 +1494,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         tabu_list_length_multiplier: int = 1,
         ts_max_iterations_multiplier: int = 100,
         a_hat: float | None = None,
+        use_stage_cnt_for_tl: bool = False,
         error_if_infeasible: bool = False,
     ) -> None:
         """
@@ -1526,6 +1527,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             tabu_list_length_multiplier=tabu_list_length_multiplier,
             ts_max_iterations_multiplier=ts_max_iterations_multiplier,
             a_hat=a_hat,
+            use_stage_cnt_for_tl=use_stage_cnt_for_tl,
         )
         solution = result.schedule
         obj_value: int | float = result.last_obj_value

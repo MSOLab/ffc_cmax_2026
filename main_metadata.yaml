@@ -1,9 +1,9 @@
 # Input data configuration
 pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
-baseline_csv_path: "resources/ff2020small_ref/20260129_CPO_2mn_8t.csv"
-input_dir: "resources/ff2020small"
-# baseline_csv_path: "resources/ff2020big_ref/20260129_CPO_2mn_8t.csv"
-# input_dir: "resources/ff2020big"
+# baseline_csv_path: "resources/ff2020small_ref/20260129_CPO_2mn_8t.csv"
+# input_dir: "resources/ff2020small"
+baseline_csv_path: "resources/ff2020big_ref/20260129_CPO_2mn_8t.csv"
+input_dir: "resources/ff2020big"
 benchmark_idx_list:
   # - 1
   # - 2
@@ -423,10 +423,23 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-6.yaml"
   #   output_dir : "pra_half_nm/20251119-6-nm"
   #   description: "Adaptive LNS-CP with TL=nm/2"
+  # - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
+  #   subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203.yaml"
+  #   output_dir : "pra_half_nm/prts_20260203"
+  #   description: "PRTS by Zhou et al. (2024)"
   - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
-    subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203.yaml"
-    output_dir : "pra_half_nm/prts_20260203"
-    description: "PRTS by Zhou et al. (2024)"
+    subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-1.yaml"
+    output_dir : "pra_half_nm/prts_20260203-1"
+    description: "PRTS with quarter population"
+  - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
+    subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-2.yaml"
+    output_dir : "pra_half_nm/prts_20260203-2"
+    description: "PRTS with one-tenth TS iterations"
+  - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
+    subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-3.yaml"
+    output_dir : "pra_half_nm/prts_20260203-3"
+    description: "PRTS with quarter pop & one-tenth TS iterations"
+
 
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_obns.yaml"
