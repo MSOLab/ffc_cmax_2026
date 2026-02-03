@@ -16,6 +16,8 @@ from .hfs_sched_lite import RapidEvaluatorZhou2024
 
 @dataclass(frozen=True)
 class PrTs2024Params:
+    time_limit_sec: float
+
     n: int
     m: int
     population_multiplier: int
@@ -32,10 +34,6 @@ class PrTs2024Params:
     tt: int
     d_1: int
     d_2: int
-
-    @property
-    def time_limit_sec(self) -> float:
-        return self.m * self.a_hat * self.n
 
     @property
     def no_improve_limit(self) -> int:
@@ -219,8 +217,11 @@ class PrTs2024Runner:
             )
 
         m = self._compute_machine_count()
+        # time_limit_sec = m * a_hat * n
+        time_limit_sec = self.instance.stage_count * a_hat * n
 
         self.params: PrTs2024Params = PrTs2024Params(
+            time_limit_sec=time_limit_sec,
             n=n,
             m=m,
             population_multiplier=population_multiplier,
