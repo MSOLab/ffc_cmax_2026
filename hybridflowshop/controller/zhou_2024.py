@@ -325,6 +325,7 @@ class PrTs2024Runner:
                 sim: float = get_kendall_tau_similarity(x_select, x_best)
                 if sim >= similarity_threshold:
                     # If not, go back to selection
+                    st.stagnation += 1
                     sim_rejects += 1
                     continue
 
