@@ -221,8 +221,9 @@ class PrTs2024Runner:
             )
 
         m = self._compute_machine_count()
-        # time_limit_sec = m * a_hat * n
-        time_limit_sec = self.instance.stage_count * a_hat * n
+        time_limit_sec = m * a_hat * n
+        # time_limit_sec = self.instance.stage_count * a_hat * n
+        logging.info("[PRTS] time limit set to %.1fs", time_limit_sec)
         t0 = time.perf_counter()
         self.deadline = t0 + time_limit_sec
 

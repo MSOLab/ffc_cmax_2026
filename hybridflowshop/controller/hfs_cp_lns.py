@@ -1493,7 +1493,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         d_2: int = 5,
         tabu_list_length_multiplier: int = 1,
         ts_max_iterations_multiplier: int = 100,
-        a_hat: float = 0.5,
+        a_hat: float | None = None,
         error_if_infeasible: bool = False,
     ) -> None:
         """
@@ -1506,6 +1506,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         from .zhou_2024 import PrTs2024Runner
 
         sub_timer = ElapsedTimer()
+
+        if a_hat is None:
+            if hasattr(self.stopping_criteria, "timelimit_n_by_m_multiplier"):
+                a_hat = self.stopping_criteria.timelimit_n_by_m_multiplier
+            else:
+                a_hat = 0.5
 
         runner = PrTs2024Runner(self.stage_2_job_2_p_dict, self.instance)
         result = runner.run(
