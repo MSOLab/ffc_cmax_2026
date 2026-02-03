@@ -1,5 +1,6 @@
 import logging
 import random
+import time
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -163,6 +164,9 @@ class PrTs2024Runner:
             raise RuntimeError("Runner is not active.")
         return self._st
 
+    def _time_up(self) -> bool:
+        return time.perf_counter() >= self.deadline
+
     def run(
         self,
         population_multiplier: int = 2,
@@ -219,6 +223,8 @@ class PrTs2024Runner:
         m = self._compute_machine_count()
         # time_limit_sec = m * a_hat * n
         time_limit_sec = self.instance.stage_count * a_hat * n
+        t0 = time.perf_counter()
+        self.deadline = t0 + time_limit_sec
 
         self.params: PrTs2024Params = PrTs2024Params(
             time_limit_sec=time_limit_sec,
@@ -306,7 +312,7 @@ class PrTs2024Runner:
                     last_heartbeat_sec = elapsed
 
                 # time limit check
-                if st.timer.elapsed_sec >= self.params.time_limit_sec:
+                if self._time_up():
                     break
 
                 # stagnation check
@@ -631,6 +637,8 @@ class PrTs2024Runner:
         last_cand_log_sec = st.timer.elapsed_sec
         cand_log_every_sec = 2.0
         for cand_idx, cand in enumerate(uniq_pathset, start=1):
+            if self._time_up():
+                break
             now = st.timer.elapsed_sec
             if now - last_cand_log_sec >= cand_log_every_sec:
                 # logging.info(
@@ -993,6 +1001,8 @@ class PrTs2024Runner:
         tabu: dict[tuple, int] = {}
 
         for it in range(1, iters + 1):
+            if self._time_up():
+                break
             blocks = self._extract_critical_blocks_all_paths(
                 cur, cur_start, cur_end, cur_loc, cur_fit
             )
@@ -1044,6 +1054,8 @@ class PrTs2024Runner:
             best_asp = None  # best (fit < aspiration_ub) even if tabu
 
             for mv in uniq_moves:
+                if self._time_up():
+                    break
                 s_idx = _mv_stage_idx(mv)
                 # 1) stage만 바꾼다 (O(stage size))
                 changed_stage = _apply_move_stage_only(cur[s_idx], mv)
