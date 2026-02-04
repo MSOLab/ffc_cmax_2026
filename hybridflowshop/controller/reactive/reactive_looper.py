@@ -310,15 +310,18 @@ class ReactiveLooper:
         ):
             if len(excluded_subroutines) == len(self.subroutine_names):
                 logging.info(
-                    f"All subroutines are excluded at the end of loop {self.loop_count}."
+                    "All subroutines are excluded at the end of loop %d.",
+                    self.loop_count,
                 )
                 break
             if len(self.subroutine_names) == 0:
-                logging.info("No subroutines to call. Reactive looper ends.")
+                logging.info(
+                    "No subroutines to call at the end of loop %d", self.loop_count
+                )
                 break
 
             self.loop_count += 1
-            logging.info(f"Reactive loop #{self.loop_count} starts.")
+            logging.info("Reactive loop %d starts.", self.loop_count)
 
             if len(self.subroutine_names) == 1:
                 subroutine_name = self.subroutine_names[0]
@@ -337,4 +340,7 @@ class ReactiveLooper:
                     if call_and_true_if_stop(name_for_context_manager, subroutine_name):
                         break
 
-        logging.info("Reactive looper ends.")
+        logging.info(
+            "Reactive looper done with objValue %d",
+            self.ctrlr.solution_manager.best_obj_value,
+        )

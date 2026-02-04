@@ -75,6 +75,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 error_if_infeasible=error_if_infeasible,
                 draw_gantt=draw_gantt,
             )
+        logging.info(
+            "Solved base CP model: %s with objValue= %d & objBound= %d",
+            report.status,
+            report.obj_value,
+            report.obj_bound,
+        )
 
         # Register report & solution
         self.solution_manager.register(report, solution)
