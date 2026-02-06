@@ -124,14 +124,13 @@ class HfsSingleInstanceRunner(
             for key, start_time in self.resume_start_time_map.items():
                 end_time = self.resume_end_time_map[key]
                 j, i, k = key
-                last_solution.append_ops_times_2_mc(
+                last_solution.add_ops_times_2_mc(
                     stage_id=i,
                     mc_id=k,
                     job_id=j,
                     start_time=start_time,
                     end_time=end_time,
                 )
-            last_solution.sort_by_start_times()
             self.ctrlr.solution_manager.register(last_report, last_solution)
 
             # current datetime - last_report.elapsed_time

@@ -1286,7 +1286,7 @@ class PrTs2024Runner:
                 seq = stage[m_idx]
                 for j in seq:
                     p = self.stage_2_job_2_p_dict[s][j]
-                    schedule.append_operation_2_mc(s, mc, j, p)
+                    schedule.add_operation_2_mc(s, mc, j, p)
 
         return schedule
 

@@ -615,7 +615,7 @@ class HybridFlowShopCpLnsControllerCore(
             )
             for j in sorted_j_list:
                 start_time = start_time_map[i][j]
-                schedule.append_operation_2_stage(
+                schedule.add_operation_2_stage(
                     i, j, params.p[j, i], release_t=start_time
                 )
 
