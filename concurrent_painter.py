@@ -3,10 +3,10 @@ from pathlib import Path
 
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
+from routix.io import extract_prefix_from_filename
 
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
 from hybridflowshop.painter.gantt import GanttPlotter
-from hybridflowshop.utils import extract_prefix_from_filename
 
 
 def draw_gantt_charts_from_solutions(

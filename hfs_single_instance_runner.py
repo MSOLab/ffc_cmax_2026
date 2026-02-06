@@ -6,7 +6,7 @@ from typing import Any
 
 from mbls.cpsat import ObjValueBoundStore
 from routix import DynamicDataObject, StoppingCriteria
-from routix.io import object_to_yaml
+from routix.io import object_to_yaml, tuple_to_pyyaml_key
 from routix.runner import SingleInstanceRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -16,12 +16,12 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
 from hybridflowshop.hfs_summary import HfsSummary
+from hybridflowshop.io_solution import END_TIME_MAP_KEY, START_TIME_MAP_KEY
 from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
 from hybridflowshop.report.hfs_subroutine_report_statistics import (
     HfsSubroutineReportStatistics,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
-from hybridflowshop.utils import tuple_to_pyyaml_key
 
 
 class HfsSingleInstanceRunner(
@@ -221,10 +221,12 @@ class HfsSingleInstanceRunner(
         incumbent_solution = self.ctrlr.solution_manager.get_incumbent()
         if incumbent_solution:
             solution_dict = {
-                "start_times": tuple_to_pyyaml_key(
+                START_TIME_MAP_KEY: tuple_to_pyyaml_key(
                     incumbent_solution.get_start_time_map()
                 ),
-                "end_times": tuple_to_pyyaml_key(incumbent_solution.get_end_time_map()),
+                END_TIME_MAP_KEY: tuple_to_pyyaml_key(
+                    incumbent_solution.get_end_time_map()
+                ),
             }
             object_to_yaml(solution_dict, self.solution_path, encoding=encoding)
 

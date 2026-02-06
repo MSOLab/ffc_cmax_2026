@@ -1,8 +1,10 @@
 from pathlib import Path
 
 import yaml
+from routix.io import pyyaml_key_to_tuple
 
-from .utils import pyyaml_key_to_tuple
+START_TIME_MAP_KEY = "start_time_map"
+END_TIME_MAP_KEY = "end_time_map"
 
 
 def get_start_time_dict(sol_path: Path, encoding: str = "utf-8") -> dict:

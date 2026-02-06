@@ -603,7 +603,7 @@ class HybridFlowShopCpLnsControllerCore(
         """
         start_time_map = self.extract_stage_2_job_2_start_time_map(params, variables)
 
-        schedule = HybridFlowshopLiteSchedule(params.j_list, params.i_list, params.M_of)
+        schedule = self.create_empty_schedule_from_ins()
         for i in params.i_list:
             # For greedy machine assignment,
             # Sort operations at stage i by 1) their start time 2) their job index in self.j_list
