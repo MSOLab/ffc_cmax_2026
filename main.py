@@ -1,11 +1,9 @@
 import argparse
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import ValidationError
 from routix import (
     DynamicDataObject,
     ElapsedTimer,
@@ -355,8 +353,7 @@ def _parse_cli() -> argparse.Namespace:
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    import argparse
+def main():
     from pathlib import Path
 
     e_timer = ElapsedTimer()
@@ -381,3 +378,7 @@ if __name__ == "__main__":
         prev_flow,
         resume_dir,
     )
+
+
+if __name__ == "__main__":
+    main()

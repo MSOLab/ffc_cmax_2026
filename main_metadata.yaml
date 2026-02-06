@@ -419,32 +419,35 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-5.yaml"
   #   output_dir : "pra_half_nm/20251119-5-nm"
   #   description: "LNS-CP (non-adaptive) with TL=nm/2"
-  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria_nm.yaml"
-  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-6.yaml"
-  #   output_dir : "pra_half_nm/20251119-6-nm"
-  #   description: "Adaptive LNS-CP with TL=nm/2"
+  - stopping_criteria_rel_path: "configs_600s/stopping_criteria_nm.yaml"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20251120-6.yaml"
+    output_dir : "pra_half_nm/20251119-6-nm"
+    description: "Adaptive LNS-CP with TL=nm/2"
   # - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
   #   subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203.yaml"
   #   output_dir : "pra_half_nm/prts_20260203"
   #   description: "PRTS by Zhou et al. (2024)"
-  - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
-    subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-1.yaml"
-    output_dir : "pra_half_nm/prts_20260203-1"
-    description: "PRTS with quarter population"
-  - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
-    subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-2.yaml"
-    output_dir : "pra_half_nm/prts_20260203-2"
-    description: "PRTS with one-tenth TS iterations"
-  - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
-    subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-3.yaml"
-    output_dir : "pra_half_nm/prts_20260203-3"
-    description: "PRTS with quarter pop & one-tenth TS iterations"
-
+  # - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
+  #   subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-1.yaml"
+  #   output_dir : "pra_half_nm/prts_20260203-1"
+  #   description: "PRTS with quarter population"
+  # - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
+  #   subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-2.yaml"
+  #   output_dir : "pra_half_nm/prts_20260203-2"
+  #   description: "PRTS with one-tenth TS iterations"
+  # - stopping_criteria_rel_path: "configs_prts/stopping_criteria_nm.yaml"
+  #   subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-3.yaml"
+  #   output_dir : "pra_half_nm/prts_20260203-3"
+  #   description: "PRTS with quarter pop & one-tenth TS iterations"
 
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_obns.yaml"
   #   output_dir : "pra_600s/obns"
   #   description: "Operation block NS"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria_nm.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_neh_cp.yaml"
+  #   output_dir : "pra_600s/neh_cp"
+  #   description: "Dispatch -> NEH-CP"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -452,7 +455,7 @@ scenario_log_filename: "hfs_multi_scenario_runner.log"
 result_dir_name: "results"
 
 # Execution configuration
-instance_worker_cnt: 48
+instance_worker_cnt: 12
 
 # Analysis and plotting options
 draw_gantt: false
