@@ -20,7 +20,9 @@ def test_report_entry_row_and_header():
         kwargs={"rho": 0.2, "computational_time": 5},
         time_start=0.0,
         time_elapsed=0.1,
+        prev_obj_value=999.0,
         obj_value=123.0,
+        timelimit_reached=False,
         is_optimal=False,
         is_improved=True,
     )
@@ -139,7 +141,9 @@ def test_reactive_looper_writes_reports(tmp_path):
             kwargs=opening_kwargs,
             time_start=0.0,
             time_elapsed=0.01,
+            prev_obj_value=1.0,
             obj_value=1.0,
+            timelimit_reached=False,
             is_optimal=False,
             is_improved=False,
         )

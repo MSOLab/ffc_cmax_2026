@@ -12,10 +12,6 @@ from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
-from schore.schedule_examples.parallel_shop.identical_flow import (
-    HybridFlowshopOperation,
-    HybridFlowshopSchedule,
-)
 
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
@@ -24,6 +20,7 @@ from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
 from hybridflowshop.report.hfs_subroutine_report_statistics import (
     HfsSubroutineReportStatistics,
 )
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 from hybridflowshop.utils import tuple_to_pyyaml_key
 
 
@@ -119,27 +116,22 @@ class HfsSingleInstanceRunner(
                 obj_bound=self.resume_summary_dict.get("bestBound", None),
                 is_init=False,
             )
-            last_solution = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                self.ctrlr.instance.stage_2_machines_map
+            last_solution = HybridFlowshopLiteSchedule(
+                jobs=self.ctrlr.instance.job_id_list,
+                stages=self.ctrlr.instance.stage_id_list,
+                machines_per_stage=self.ctrlr.instance.stage_2_machines_map,
             )
             for key, start_time in self.resume_start_time_map.items():
                 end_time = self.resume_end_time_map[key]
                 j, i, k = key
-                stage = last_solution.get_stage_by_name(i)
-                operation = stage.add_operation(
-                    HybridFlowshopOperation(
-                        job_name=j,
-                        stage_name=i,
-                        mc_name=k,
-                        start=start_time,
-                        end=end_time,
-                    )
+                last_solution.append_ops_times_2_mc(
+                    stage_id=i,
+                    mc_id=k,
+                    job_id=j,
+                    start_time=start_time,
+                    end_time=end_time,
                 )
-                if operation is None:
-                    raise RuntimeError(
-                        f"Failed to schedule operation of job {j} at stage {i} during extraction "
-                        f"on machine {k} with start time {start_time} and end time {end_time}."
-                    )
+            last_solution.sort_by_start_times()
             self.ctrlr.solution_manager.register(last_report, last_solution)
 
             # current datetime - last_report.elapsed_time

@@ -18,14 +18,11 @@ from routix.util.comparison import float_a_leq_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
-from schore.schedule_examples.parallel_shop.identical_flow import (
-    HybridFlowshopOperation,
-    HybridFlowshopSchedule,
-)
 
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
 from hybridflowshop.cpsat_model_2.params import Params
 from hybridflowshop.report import HfsCpsatSolverReport
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from ..painter.gantt import GanttPlotter
 from ..solution_manager import HfsSolutionManager
@@ -246,17 +243,17 @@ class HybridFlowShopCpLnsControllerCore(
     # Start visualization
 
     def draw_gantt(
-        self, schedule: HybridFlowshopSchedule, output_path: Path | None = None
+        self, schedule: HybridFlowshopLiteSchedule, output_path: Path | None = None
     ):
         """Draws the Gantt chart of the given schedule.
 
         Args:
-            schedule (HybridFlowshopSchedule): The schedule to draw.
+            schedule (HybridFlowshopLiteSchedule): The schedule to draw.
             output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
         if output_path is None:
             output_path = self.get_file_path_for_subroutine("_gantt.png")
-        if isinstance(schedule, HybridFlowshopSchedule):
+        if isinstance(schedule, HybridFlowshopLiteSchedule):
             plotter = GanttPlotter()
             plotter.export_hybrid_flowshop_plot(
                 output_path,
@@ -272,7 +269,7 @@ class HybridFlowShopCpLnsControllerCore(
             output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
         incumbent_solution = self.solution_manager.get_incumbent()
-        if isinstance(incumbent_solution, HybridFlowshopSchedule):
+        if isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
             self.draw_gantt(incumbent_solution, output_path=output_path)
         else:
             logging.warning("No incumbent solution available to draw Gantt chart.")
@@ -568,11 +565,24 @@ class HybridFlowShopCpLnsControllerCore(
                 end_time_map[i][j] = end_value
         return end_time_map
 
+    def create_empty_schedule_from_ins(self) -> HybridFlowshopLiteSchedule:
+        """
+        Creates an empty HybridFlowshopLiteSchedule for the problem instance.
+
+        Returns:
+            HybridFlowshopLiteSchedule: An empty schedule object.
+        """
+        return HybridFlowshopLiteSchedule(
+            self.instance.job_id_list,
+            self.instance.stage_id_list,
+            self.instance.stage_2_machines_map,
+        )
+
     def create_schedule(
         self, params: Params, variables: CumulativeVars
-    ) -> HybridFlowshopSchedule:
+    ) -> HybridFlowshopLiteSchedule:
         """
-        Constructs a full HybridFlowshopSchedule from the solved CP model.
+        Constructs a full HybridFlowshopLiteSchedule from the solved CP model.
 
         - This method first extracts the start and end times for each operation
         (job, stage) from the CP solver.
@@ -588,18 +598,13 @@ class HybridFlowShopCpLnsControllerCore(
                           indicating a potential inconsistency or issue.
 
         Returns:
-            HybridFlowshopSchedule: A complete schedule object with all operations
+            HybridFlowshopLiteSchedule: A complete schedule object with all operations
                                     assigned to specific machines and time slots.
         """
         start_time_map = self.extract_stage_2_job_2_start_time_map(params, variables)
-        end_time_map = self.extract_stage_2_job_2_end_time_map(params, variables)
 
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            params.M_of
-        )
-
+        schedule = HybridFlowshopLiteSchedule(params.j_list, params.i_list, params.M_of)
         for i in params.i_list:
-            stage = schedule.get_stage_by_name(i)
             # For greedy machine assignment,
             # Sort operations at stage i by 1) their start time 2) their job index in self.j_list
             # This ensures that operations are assigned to machines in a consistent order.
@@ -608,33 +613,12 @@ class HybridFlowShopCpLnsControllerCore(
                 params.j_list,
                 key=lambda j: (start_time_map[i][j], params.j_list.index(j)),
             )
-
             for j in sorted_j_list:
                 start_time = start_time_map[i][j]
-                end_time = end_time_map[i][j]
-                # Select the machine for the operation based on the start time
-                mc_name, earliest_feasible_st = stage.select_machine_by_start_idle_idx(
-                    params.p[j, i], start_time
+                schedule.append_operation_2_stage(
+                    i, j, params.p[j, i], release_t=start_time
                 )
-                if earliest_feasible_st > start_time:
-                    raise RuntimeError(
-                        f"Operation of job {j} at stage {i} cannot start at {start_time} "
-                        f"because the earliest feasible start time on machine {mc_name} is {earliest_feasible_st}."
-                    )
-                operation = stage.add_operation(
-                    HybridFlowshopOperation(
-                        job_name=j,
-                        stage_name=i,
-                        mc_name=mc_name,
-                        start=start_time,
-                        end=end_time,
-                    )
-                )
-                if operation is None:
-                    raise RuntimeError(
-                        f"Failed to schedule operation of job {j} at stage {i} during extraction "
-                        f"on machine {mc_name} with start time {start_time} and end time {end_time}."
-                    )
+
         return schedule
 
     def extract_start_end_time_map(
@@ -669,7 +653,7 @@ class HybridFlowShopCpLnsControllerCore(
         is_initial_solution: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
-    ) -> tuple[HfsCpsatSolverReport, HybridFlowshopSchedule | None]:
+    ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
         """Solves the current CP model, creates a schedule, and registers the result.
 
         Args:
@@ -731,7 +715,7 @@ class HybridFlowShopCpLnsControllerCore(
                 obj_bound=report_updates.get("obj_bound"),
             )
 
-        solution: HybridFlowshopSchedule | None = None
+        solution: HybridFlowshopLiteSchedule | None = None
         if hfs_solver_report.obj_value is None:
             if obj_value_is_valid:
                 logging.warning("Failed to find a valid objective value.")
@@ -761,7 +745,7 @@ class HybridFlowShopCpLnsControllerCore(
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
-    ) -> tuple[HfsCpsatSolverReport, HybridFlowshopSchedule | None]:
+    ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
         """Solves the current CP model using the incumbent solution as a hint.
 
         Args:

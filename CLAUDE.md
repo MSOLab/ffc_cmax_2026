@@ -24,11 +24,7 @@ hybridflowshop/                # Core library
 ├── controller/               # Controllers that orchestrate the CP‑LNS algorithm
 │   ├── reactive/            # Adaptive/reactive components (e.g., stopping criteria, param tuning)
 │   └── hfs_cp_lns.py        # Main CP‑LNS controller implementation
-├── scheduling/              # Data structures describing the problem
-│   ├── hybrid_flowshop_operation.py   # Single operation definition
-│   ├── hybrid_flowshop_stage.py       # Stage (machine group) definition
-│   ├── hybrid_flowshop_schedule.py    # Full schedule representation
-│   └── machine.py                    # Machine abstraction
+├── schedule_lite.py          # Lightweight schedule representation (jobs × stages × machines)
 ├── painter/                 # Visualization utilities (Gantt charts, progress plots)
 │   └── gantt.py
 ├── report/                  # Sub‑routine reporting and statistics collection
@@ -56,15 +52,16 @@ hybridflowshop/                # Core library
 ### Key Concepts
 - **CP‑LNS controller** – Uses OR‑Tools CP‑SAT model (`cp_*` modules) and iteratively improves solutions via neighbourhood search.
 - **Reactive components** – `controller/reactive` provides adaptive stopping criteria (`LocalStoppingCriteria`) and parameter tuning (`reactive_param_tuner.py`).
-- **Scheduling model** – `scheduling` package encapsulates a hybrid flowshop: operations → stages → machines, enabling the CP model to reference them uniformly.
+- **Schedule model** – `schedule_lite.py` provides a lightweight internal schedule representation (`HybridFlowshopLiteSchedule`) that tracks operations as `(start, end, job)` tuples per machine per stage, supporting dispatch, deepcopy, and removal operations.
 - **Visualization** – `painter/gantt.py` generates PNG Gantt charts; the `report` package aggregates statistics (makespan, gaps, etc.).
 - **Configuration via Pydantic** – Guarantees type‑safe experiment definitions; any validation error aborts early with a clear log message.
 
 ## Notable Files
 - `main.py` – Entry point, handles metadata loading and orchestrates runners.
 - `hfs_config.py` – Pydantic schemas (`MainMetadata`, `IODataPath`, etc.).
+- `schedule_lite.py` – Lightweight schedule representation used across all controllers.
 - `controller/reactive/local_stopping_criteria.py` – Implements loop‑level stopping logic used by the LNS loop.
-- `tests/` – Unit tests for stopping criteria and reactive helpers.
+- `tests/` – Unit tests for schedule_lite, stopping criteria, and reactive helpers.
 
 ## Development Tips
 - **Run a single test** to iterate quickly, e.g.:

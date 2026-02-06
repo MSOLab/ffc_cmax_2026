@@ -4,12 +4,12 @@ import random
 from typing import Callable
 
 from routix import ElapsedTimer
-from schore.schedule_examples.parallel_shop.identical_flow import HybridFlowshopSchedule
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
+from hybridflowshop.report import HfsSubroutineReport
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
-from ..report import HfsSubroutineReport
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
 
@@ -189,18 +189,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 that are not part of the block (i.e., they will be re-optimized).
 
         Raises:
-            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            ValueError: If the incumbent solution is not a valid HybridFlowshopLiteSchedule instance.
             TypeError: If CP model does not support precedences/machine assignment enforcement constraints.
         """
         incumbent_solution = self.solution_manager.get_incumbent()
-        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
             raise ValueError(
-                "Incumbent solution is not a valid HybridFlowshopSchedule instance."
+                "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
             )
         out_of_block_ops_sch = incumbent_solution.deepcopy()
-        out_of_block_ops_sch.remove_operations_by_list_of_job_stage_mc_names(
-            [(j, i, k) for (j, i, k) in rescheduled_ops]
-        )
+        out_of_block_ops_sch.remove_operations(rescheduled_ops)
         BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
             self.cp_model, self.params, self.vars, out_of_block_ops_sch
         )
@@ -254,7 +252,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         Raises:
             ValueError: If rho is not strictly positive.
             ValueError: If no incumbent solution is available.
-            ValueError: If the incumbent solution is not a valid HybridFlowshopSchedule instance.
+            ValueError: If the incumbent solution is not a valid HybridFlowshopLiteSchedule instance.
             ValueError: If no start or end times are available.
         """
         if rho <= 0:
@@ -264,8 +262,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if not self.solution_manager.has_incumbent():
             raise ValueError("No incumbent solution available for ops block operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
-        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
-            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError("Incumbent solution is not a HybridFlowshopLiteSchedule.")
         start_time_map = incumbent_solution.get_start_time_map()
         end_time_map = incumbent_solution.get_end_time_map()
 
@@ -348,7 +346,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         Raises:
             ValueError: If rho is not strictly positive.
             ValueError: If no incumbent solution is available.
-            ValueError: If the incumbent solution is not a HybridFlowshopSchedule.
+            ValueError: If the incumbent solution is not a HybridFlowshopLiteSchedule.
             NotImplementedError: If deterministic stage selection is requested.
         """
         if rho <= 0:
@@ -361,8 +359,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if not self.solution_manager.has_incumbent():
             raise ValueError("No incumbent solution available for stage operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
-        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
-            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError("Incumbent solution is not a HybridFlowshopLiteSchedule.")
 
         all_stage_list = self.instance.stage_id_list
         selected_stages: set[str]
@@ -418,8 +416,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if not self.solution_manager.has_incumbent():
             raise ValueError("No incumbent solution available for job-block operator.")
         incumbent_solution = self.solution_manager.get_incumbent()
-        if not isinstance(incumbent_solution, HybridFlowshopSchedule):
-            raise ValueError("Incumbent solution is not a HybridFlowshopSchedule.")
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError("Incumbent solution is not a HybridFlowshopLiteSchedule.")
         start_time_map = incumbent_solution.get_start_time_map()
         end_time_map = incumbent_solution.get_end_time_map()
 
@@ -470,7 +468,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _dispatch_by_job_stage_time(
         self,
         job_sequence: list[str],
-        schedule: HybridFlowshopSchedule,
+        schedule: HybridFlowshopLiteSchedule,
         draw_gantt: bool = False,
     ):
         """
@@ -481,16 +479,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         Args:
             job_sequence (list[str]): The sequence of job IDs to be dispatched (dispatch order).
-            schedule (HybridFlowshopSchedule): The schedule to which jobs are dispatched.
+            schedule (HybridFlowshopLiteSchedule): The schedule to which jobs are dispatched.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
         sub_timer = ElapsedTimer()
 
         for idx, j in enumerate(job_sequence):
-            schedule.dispatch_job_by_stages(
-                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-            )
+            schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
             # TODO: uncomment only for debug purpose
             # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
             # self.draw_gantt(schedule, output_path=output_path)
@@ -516,7 +512,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _dispatch_by_stage_time_job(
         self,
         job_sequence: list[str],
-        schedule: HybridFlowshopSchedule,
+        schedule: HybridFlowshopLiteSchedule,
         draw_gantt: bool = False,
     ):
         """
@@ -528,7 +524,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         Args:
             job_sequence (list[str]): The sequence of job IDs to be dispatched (dispatch order).
-            schedule (HybridFlowshopSchedule): The schedule to which jobs are dispatched.
+            schedule (HybridFlowshopLiteSchedule): The schedule to which jobs are dispatched.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
@@ -846,23 +842,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_dj_cds(self) -> HybridFlowshopSchedule:
+    def _get_schedule_by_dj_cds(self) -> HybridFlowshopLiteSchedule:
         # Subroutine states
         best_makespan = float("inf")
-        best_schedule: HybridFlowshopSchedule | None = None
+        best_schedule: HybridFlowshopLiteSchedule | None = None
         best_k = -1
 
         for k in range(1, self.instance.stage_count):
             # Create an empty schedule
-            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                self.instance.stage_2_machines_map
-            )
+            schedule = self.create_empty_schedule_from_ins()
             # Dispatch
             job_sequence = self.get_cds_sequence(k)
             for j in job_sequence:
-                schedule.dispatch_job_by_stages(
-                    j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-                )
+                schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
             # Update subroutine states
             makespan = schedule.makespan
             if makespan < best_makespan:
@@ -892,20 +884,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Subroutine states
         best_makespan = float("inf")
-        best_schedule: HybridFlowshopSchedule | None = None
+        best_schedule: HybridFlowshopLiteSchedule | None = None
         best_k = -1
 
         for k in range(0, self.instance.stage_count):
             # Create an empty schedule
-            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                self.instance.stage_2_machines_map
-            )
+            schedule = self.create_empty_schedule_from_ins()
             # Dispatch
             job_sequence = self.get_tp_sequence(k)
             for j in job_sequence:
-                schedule.dispatch_job_by_stages(
-                    j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-                )
+                schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
             # Update subroutine states
             makespan = schedule.makespan
             if makespan < best_makespan:
@@ -982,16 +970,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_dj_gupta(self) -> HybridFlowshopSchedule:
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
+    def _get_schedule_by_dj_gupta(self) -> HybridFlowshopLiteSchedule:
+        schedule = self.create_empty_schedule_from_ins()
         # Dispatch
         job_sequence = self.get_gupta_sequence()
         for j in job_sequence:
-            schedule.dispatch_job_by_stages(
-                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-            )
+            schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
 
         logging.info(f"Schedule by DJ(Gupta): makespan={schedule.makespan}")
         return schedule
@@ -1037,16 +1021,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_dj_palmer(self) -> HybridFlowshopSchedule:
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
+    def _get_schedule_by_dj_palmer(self) -> HybridFlowshopLiteSchedule:
+        schedule = self.create_empty_schedule_from_ins()
         # Dispatch
         job_sequence = self.get_palmer_sequence()
         for j in job_sequence:
-            schedule.dispatch_job_by_stages(
-                j, self.instance.stage_id_list, self.job_2_stage_2_p_dict[j]
-            )
+            schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
         logging.info(f"Schedule by DJ(Palmer): makespan={schedule.makespan}")
         return schedule
 
@@ -1091,15 +1071,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_ds_cds(self) -> HybridFlowshopSchedule:
+    def _get_schedule_by_ds_cds(self) -> HybridFlowshopLiteSchedule:
         best_makespan = float("inf")
-        best_schedule: HybridFlowshopSchedule | None = None
+        best_schedule: HybridFlowshopLiteSchedule | None = None
         best_k = -1
         for k in range(1, self.instance.stage_count):
             # Create an empty schedule
-            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                self.instance.stage_2_machines_map
-            )
+            schedule = self.create_empty_schedule_from_ins()
             job_sequence = self.get_cds_sequence(k)
             for i in self.instance.stage_id_list:
                 schedule.dispatch_stage_by_jobs(
@@ -1132,13 +1110,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         sub_timer = ElapsedTimer()
 
         best_makespan = float("inf")
-        best_schedule: HybridFlowshopSchedule | None = None
+        best_schedule: HybridFlowshopLiteSchedule | None = None
         best_k = -1
         for k in range(0, self.instance.stage_count):
             # Create an empty schedule
-            schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                self.instance.stage_2_machines_map
-            )
+            schedule = self.create_empty_schedule_from_ins()
             job_sequence = self.get_tp_sequence(k)
             for i in self.instance.stage_id_list:
                 schedule.dispatch_stage_by_jobs(
@@ -1219,10 +1195,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_ds_gupta(self) -> HybridFlowshopSchedule:
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
+    def _get_schedule_by_ds_gupta(self) -> HybridFlowshopLiteSchedule:
+        schedule = self.create_empty_schedule_from_ins()
         # Dispatch
         job_sequence = self.get_gupta_sequence()
         for i in self.instance.stage_id_list:
@@ -1274,10 +1248,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_ds_palmer(self) -> HybridFlowshopSchedule:
-        schedule = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-            self.instance.stage_2_machines_map
-        )
+    def _get_schedule_by_ds_palmer(self) -> HybridFlowshopLiteSchedule:
+        schedule = self.create_empty_schedule_from_ins()
         # Dispatch
         job_sequence = self.get_palmer_sequence()
         for i in self.instance.stage_id_list:
@@ -1319,7 +1291,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_best_of_dispatches(self) -> HybridFlowshopSchedule:
+    def _get_best_of_dispatches(self) -> HybridFlowshopLiteSchedule:
         schedule_gen_methods = [
             self._get_schedule_by_dj_cds,
             self._get_schedule_by_dj_gupta,
@@ -1330,7 +1302,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         ]
         # Subroutine states
         best_makespan = float("inf")
-        best_schedule: HybridFlowshopSchedule | None = None
+        best_schedule: HybridFlowshopLiteSchedule | None = None
         best_method_name = ""
 
         for method in schedule_gen_methods:

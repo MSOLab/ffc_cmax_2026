@@ -8,7 +8,8 @@ from ortools.sat.python.cp_model import IntervalVar, IntVar
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
-from schore.schedule_examples.parallel_shop.identical_flow import HybridFlowshopSchedule
+
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from .params import Params
 
@@ -185,7 +186,7 @@ class BaseModelBuilder:
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
-        current_schedule: HybridFlowshopSchedule,
+        current_schedule: HybridFlowshopLiteSchedule,
     ) -> None:
         start_time_map = current_schedule.get_start_time_map()
         end_time_map = current_schedule.get_end_time_map()

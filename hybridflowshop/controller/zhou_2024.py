@@ -7,10 +7,8 @@ from typing import Iterable
 from mbls.cpsat import ObjValueBoundStore
 from routix import ElapsedTimer
 from schore.parameters_examples import HybridFlowshopParameters
-from schore.schedule_examples.parallel_shop.identical_flow import (
-    HybridFlowshopOperation,
-    HybridFlowshopSchedule,
-)
+
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from .hfs_sched_lite import RapidEvaluatorZhou2024
 
@@ -114,7 +112,7 @@ class PrTsRunState:
 
 @dataclass
 class PrTsResult:
-    schedule: HybridFlowshopSchedule
+    schedule: HybridFlowshopLiteSchedule
     sub_obj_store: ObjValueBoundStore[int]
     last_obj_value: float
 
@@ -1234,7 +1232,9 @@ class PrTs2024Runner:
         st = self._require_state()
         if ce in st.complete_eval_cache:
             return st.complete_eval_cache[ce]
-        sched: HybridFlowshopSchedule = self._dispatch_complete_encoding_to_schedule(ce)
+        sched: HybridFlowshopLiteSchedule = (
+            self._dispatch_complete_encoding_to_schedule(ce)
+        )
         obj = sched.makespan
         st.complete_eval_cache[ce] = obj
         return obj
@@ -1266,46 +1266,28 @@ class PrTs2024Runner:
 
     def _dispatch_perm_to_schedule(
         self, perm: tuple[str, ...]
-    ) -> HybridFlowshopSchedule:
+    ) -> HybridFlowshopLiteSchedule:
         ce = self._perm_to_complete_encoding(perm)
         return self._dispatch_complete_encoding_to_schedule(ce)
 
     def _dispatch_complete_encoding_to_schedule(
         self, enc: CompleteEncoding
-    ) -> HybridFlowshopSchedule:
+    ) -> HybridFlowshopLiteSchedule:
         stage_ids: list[str] = self.instance.stage_id_list
 
-        # Internal states
-        job_2_last_comp_time: dict[str, int] = {j: 0 for j in self.job_id_list}
-        schedule: HybridFlowshopSchedule = (
-            HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                self.stage_2_machines_map
-            )
+        schedule: HybridFlowshopLiteSchedule = HybridFlowshopLiteSchedule(
+            jobs=self.job_id_list,
+            stages=stage_ids,
+            machines_per_stage=self.stage_2_machines_map,
         )
-
         for s_idx, s in enumerate(stage_ids):
             stage = enc[s_idx]
             for m_idx, mc in enumerate(self.stage_2_machines_map[s]):
                 seq = stage[m_idx]
                 for j in seq:
                     p = self.stage_2_job_2_p_dict[s][j]
-                    stage_in_schedule = schedule.get_stage_by_name(s)
-                    machine_in_schedule = stage_in_schedule.get_machine_by_name(mc)
-                    start_time = machine_in_schedule.get_earliest_start_time(
-                        p, release_t=job_2_last_comp_time[j]
-                    )
-                    if start_time < job_2_last_comp_time[j]:
-                        start_time = job_2_last_comp_time[j]
-                    schedule.get_stage_by_name(s).add_operation(
-                        HybridFlowshopOperation(
-                            job_name=j,
-                            stage_name=s,
-                            mc_name=mc,
-                            start=start_time,
-                            end=start_time + p,
-                        )
-                    )
-                    job_2_last_comp_time[j] = start_time + p
+                    schedule.append_operation_2_mc(s, mc, j, p)
+
         return schedule
 
 

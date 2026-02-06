@@ -7,10 +7,10 @@ from mbls.cpsat import CpsatSolverReport, CustomCpModel, ObjValueBoundStore
 from ortools.sat.python.cp_model import CpModel
 from routix import ElapsedTimer
 from schore.parameters_examples import HybridFlowshopParameters
-from schore.schedule_examples.parallel_shop.identical_flow import HybridFlowshopSchedule
 
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
 from hybridflowshop.cpsat_model_2.params import Params
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 
 class NehCpContext(Protocol):
@@ -36,9 +36,11 @@ class NehCpContext(Protocol):
         log_level_obj_bound: int = logging.INFO,
     ) -> CpsatSolverReport: ...
 
+    def create_empty_schedule_from_ins(self) -> HybridFlowshopLiteSchedule: ...
+
     def create_schedule(
         self, params: Params, variables: CumulativeVars
-    ) -> HybridFlowshopSchedule: ...
+    ) -> HybridFlowshopLiteSchedule: ...
 
     def check_feasibility(
         self, start_time_map: dict[tuple[str, str, str], int]
@@ -63,9 +65,9 @@ class NehCpRunState:
     timer: ElapsedTimer
 
     last_job_id_list: list[str]
-    partial_sol: HybridFlowshopSchedule | None
+    partial_sol: HybridFlowshopLiteSchedule | None
     current_job_id_list: list[str]
-    full_sol: HybridFlowshopSchedule
+    full_sol: HybridFlowshopLiteSchedule
 
     @property
     def job_subset_cnt(self) -> int:
@@ -77,14 +79,14 @@ class NehCpRunState:
 
 @dataclass
 class NehCpResult:
-    schedule: HybridFlowshopSchedule
+    schedule: HybridFlowshopLiteSchedule
     sub_obj_store: ObjValueBoundStore[int]
     last_obj_value: int
 
 
 class NehCpConstructor:
     # Given schedule cache
-    ref_schedule: HybridFlowshopSchedule
+    ref_schedule: HybridFlowshopLiteSchedule
 
     # Algorithm parameter cache
     added_batch_size: int
@@ -100,7 +102,7 @@ class NehCpConstructor:
 
     def run(
         self,
-        ref_schedule: HybridFlowshopSchedule,
+        ref_schedule: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         job_2_stage_2_p_dict: dict[str, dict[str, int]],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
@@ -141,23 +143,18 @@ class NehCpConstructor:
             st.current_job_id_list.extend(job_sublist)
 
             # Solution of dispatching job_sublist by jobs to the schedule of last_solution
-            partial_sol_dj: HybridFlowshopSchedule = (
-                HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                    instance.stage_2_machines_map
-                )
+            partial_sol_dj: HybridFlowshopLiteSchedule = (
+                self.ctx.create_empty_schedule_from_ins()
                 if self._st.partial_sol is None
                 else self._st.partial_sol.deepcopy()
             )
+
             for j in job_sublist:
-                partial_sol_dj.dispatch_job_by_stages(
-                    j, instance.stage_id_list, job_2_stage_2_p_dict[j]
-                )
+                partial_sol_dj.dispatch_job_by_stages(j, job_2_stage_2_p_dict[j])
 
             # Solution of dispatching job_sublist by stages to the schedule of last_solution
-            partial_sol_ds: HybridFlowshopSchedule = (
-                HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                    instance.stage_2_machines_map
-                )
+            partial_sol_ds: HybridFlowshopLiteSchedule = (
+                self.ctx.create_empty_schedule_from_ins()
                 if self._st.partial_sol is None
                 else self._st.partial_sol.deepcopy()
             )
@@ -197,7 +194,7 @@ class NehCpConstructor:
                 ]
                 for j in remaining_jobs:
                     all_dispatched_sol_dj.dispatch_job_by_stages(
-                        j, instance.stage_id_list, job_2_stage_2_p_dict[j]
+                        j, job_2_stage_2_p_dict[j]
                     )
 
                 all_dispatched_sol_ds = st.partial_sol.deepcopy()
@@ -246,12 +243,12 @@ class NehCpConstructor:
     @staticmethod
     def get_midpoint_sequence(
         instance: HybridFlowshopParameters,
-        schedule: HybridFlowshopSchedule,
+        schedule: HybridFlowshopLiteSchedule,
     ) -> list[str]:
         """Get job sequence based on midpoint criteria.
 
         Args:
-            schedule (HybridFlowshopSchedule): The hybrid flowshop schedule.
+            schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
 
         Returns:
             list[str]: A list of job names ordered by midpoint criteria.
@@ -284,7 +281,7 @@ class NehCpConstructor:
 
     def _create_sub_cp_model(
         self,
-        partial_sol: HybridFlowshopSchedule,
+        partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
@@ -301,7 +298,7 @@ class NehCpConstructor:
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
-        partial_sol: HybridFlowshopSchedule,
+        partial_sol: HybridFlowshopLiteSchedule,
     ) -> None:
         st = self._require_state()
         # Apply hint from partial solution
@@ -316,11 +313,11 @@ class NehCpConstructor:
 
     def _solve_cp_model(
         self,
-        partial_sol: HybridFlowshopSchedule,
+        partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         max_time_per_add: float | None = None,
         solver_thread_cnt: int | None = None,
-    ) -> tuple[CpsatSolverReport, HybridFlowshopSchedule]:
+    ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
         if solver_thread_cnt is None:
             solver_thread_cnt = 1
         ctx = self.ctx
