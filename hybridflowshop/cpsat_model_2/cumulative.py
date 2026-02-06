@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 from dataclasses import dataclass
 
 from mbls.cpsat import CustomCpModel
@@ -210,7 +211,7 @@ class BaseModelBuilder:
                 if (j, i, k) in end_time_map
             }
             # List of jobs sorted by their 1) end times 2) start times 3) job index
-            sorted_j_list = sorted(
+            sorted_by_end = sorted(
                 current_j_list,
                 key=lambda j: (
                     j_2_end_time_map.get(j, float("inf")),
@@ -218,27 +219,30 @@ class BaseModelBuilder:
                     stage_job_2_index_map.get(j, float("inf")),
                 ),
             )
-            for idx, j1 in enumerate(sorted_j_list):
-                remaining_jobs = sorted_j_list[idx + 1 :]
-                if not remaining_jobs:
-                    continue
+
+            # List of jobs sorted by their 1) start times 2) end times 3) job index
+            sorted_by_start = sorted(
+                current_j_list,
+                key=lambda j: (
+                    j_2_start_time_map.get(j, float("inf")),
+                    j_2_end_time_map.get(j, float("inf")),
+                    stage_job_2_index_map.get(j, float("inf")),
+                ),
+            )
+
+            # 인덱스 기반 탐색으로 변경
+            for idx, j1 in enumerate(sorted_by_end):
                 j1_end_time = j_2_end_time_map.get(j1, float("inf"))
-                # Find (the number of machines of stage i) jobs that start earliest after j1_end_time.
-                max_candidates = min(len(params.M_of[i]), len(remaining_jobs))
-                # Only consider up to the number of machines, since at most that many jobs can start in parallel at this stage.
-                j2_list = sorted(
-                    (
-                        j2
-                        for j2 in remaining_jobs
-                        if j_2_start_time_map.get(j2, float("inf")) >= j1_end_time
-                    ),
-                    key=lambda j2: (
-                        j_2_start_time_map[j2],
-                        j_2_end_time_map[j2],
-                        stage_job_2_index_map[j2],
-                    ),
-                )[:max_candidates]
-                # Add precedence constraints: j1 must finish before each j2 starts
+                max_candidates = min(len(params.M_of[i]), len(sorted_by_end) - idx - 1)
+
+                # 이진 탐색으로 j1_end_time 이후 시작하는 첫 job 찾기
+                start_idx = bisect_left(
+                    sorted_by_start,
+                    j1_end_time,
+                    key=lambda j: j_2_start_time_map.get(j, float("inf")),
+                )
+
+                j2_list = sorted_by_start[start_idx : start_idx + max_candidates]
                 for j2 in j2_list:
                     BaseModelBuilder.add_fixed_operation_precedence_constraint(
                         mdl, params, variables, j1, j2, i

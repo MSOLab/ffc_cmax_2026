@@ -106,30 +106,31 @@ class HybridFlowshopLiteSchedule:
         if not self.machines_per_stage[stage_id]:
             raise ValueError(f"No machines available in stage {stage_id}.")
 
-        candidate_info: list[tuple[int, int, McIdType]] = []
-        for mc in self.machines_per_stage[stage_id]:
+        # Initialize with first machine's values
+        first_mc = self.machines_per_stage[stage_id][0]
+        mc_latest_end_time = self.get_machine_latest_end_time(stage_id, first_mc)
+
+        if release_t is not None and mc_latest_end_time < release_t:
+            best_eat, best_idle = release_t, release_t - mc_latest_end_time
+        else:
+            best_eat, best_idle = mc_latest_end_time, 0
+
+        best_mc = first_mc
+
+        # Check remaining machines
+        for mc in self.machines_per_stage[stage_id][1:]:
             mc_latest_end_time = self.get_machine_latest_end_time(stage_id, mc)
-            eat: int
-            idle: int
+
             if release_t is not None and mc_latest_end_time < release_t:
-                eat = release_t
-                idle = release_t - mc_latest_end_time
+                eat, idle = release_t, release_t - mc_latest_end_time
             else:
-                eat = mc_latest_end_time
-                idle = 0
-            candidate_info.append((eat, idle, mc))
+                eat, idle = mc_latest_end_time, 0
 
-        # 1. Find machines with the earliest start time
-        min_start = min(info[0] for info in candidate_info)
-        est_candidates = [info for info in candidate_info if info[0] == min_start]
+            # (1) earliest available time (2) smallest idle time
+            if eat < best_eat or (eat == best_eat and idle < best_idle):
+                best_mc, best_eat, best_idle = mc, eat, idle
 
-        # 2. Among them, find machines with the smallest idle time
-        min_idle = min(info[1] for info in est_candidates)
-        min_idle_candidates = [info for info in est_candidates if info[1] == min_idle]
-
-        # 3. Pick the first one
-        selected = min_idle_candidates[0]
-        return selected[2], selected[0]
+        return best_mc, best_eat
 
     def get_job_end_time(
         self,
