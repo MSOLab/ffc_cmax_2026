@@ -216,12 +216,12 @@ class NehCpConstructor:
 
             # Obj. value of dispatched solution as a value
             sub_obj_store.add_obj_value(
-                last_timestamp, st.full_sol.makespan, is_maximize=None
+                last_timestamp, int(st.full_sol.makespan), is_maximize=None
             )
 
             # Obj. values of Un-dispatched solution as bounds
             sub_obj_store.add_obj_bound(
-                last_timestamp, st.partial_sol.makespan, is_maximize=None
+                last_timestamp, int(st.partial_sol.makespan), is_maximize=None
             )
             _last_timestamp_note = f"{st.job_subset_cnt}/{job_cnt}"
             sub_obj_store.add_last_timestamp_note(
