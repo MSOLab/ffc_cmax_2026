@@ -253,7 +253,7 @@ class ReactiveLooper:
                 else:
                     logging.info("Last solution was timeout & not improved.")
                     self.no_improvement_step_series_lth += 1
-                    if not tuner.current_value_hits_ub("computational_time"):
+                    if not tuner.current_value_exceeds_ub("computational_time"):
                         # If not improved but not enough time, increase time limit
                         # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                         tuner.increment("computational_time")
@@ -265,7 +265,7 @@ class ReactiveLooper:
             else:
                 logging.info("Last solution was timeout & not improved.")
                 self.no_improvement_step_series_lth += 1
-                if not tuner.current_value_hits_ub("computational_time"):
+                if not tuner.current_value_exceeds_ub("computational_time"):
                     # If no solution but not enough time, increase time limit
                     # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                     tuner.increment("computational_time")
@@ -289,7 +289,7 @@ class ReactiveLooper:
                 self._call_subroutine(subroutine_name)
 
             tuner = self.reactive_param_tuner_dict[subroutine_name]
-            if self.stopping_criteria.rho_hits_ub and tuner.current_value_hits_ub(
+            if self.stopping_criteria.rho_hits_ub and tuner.current_value_exceeds_ub(
                 "rho"
             ):
                 rho = tuner.get_current_value("rho")
@@ -299,7 +299,7 @@ class ReactiveLooper:
                     f"rho_hits_ub (value={rho} >= {rho_ub}=criteria)"
                 )
                 excluded_subroutines.add(subroutine_name)
-            if self.stopping_criteria.tl_hits_ub and tuner.current_value_hits_ub(
+            if self.stopping_criteria.tl_hits_ub and tuner.current_value_exceeds_ub(
                 "computational_time"
             ):
                 tl = tuner.get_current_value("computational_time")

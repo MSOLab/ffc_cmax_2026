@@ -52,6 +52,14 @@ class ReactiveParamTuner:
         tuner = self._tuner_param_dict[param_name]
         return float_a_leq_b(tuner.max, self.current_kwargs[param_name])
 
+    def current_value_exceeds_ub(self, param_name: str) -> bool:
+        if param_name not in self._tuner_param_dict:
+            raise ValueError(f"Parameter {param_name} is not tunable.")
+        if param_name not in self.current_kwargs:
+            raise ValueError(f"Parameter {param_name} is not in current kwargs.")
+        tuner = self._tuner_param_dict[param_name]
+        return float_a_stl_b(tuner.max, self.current_kwargs[param_name])
+
     def call_method(self, timelimit_by_global: float | None = None) -> Any:
         if timelimit_by_global is not None:
             if "computational_time" in self.current_kwargs:
