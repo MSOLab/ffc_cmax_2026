@@ -388,14 +388,14 @@ class HybridFlowShopCpLnsControllerCore(
         mdl: CustomCpModel,
         computational_time: float,
         solver_thread_cnt: int,
+        obj_value_is_valid: bool = False,
+        obj_bound_is_valid: bool = False,
         keep_all_feasible_solutions_in_presolve: bool | None = None,
         e_timer: ElapsedTimer | None = None,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
         log_level_obj_value: int = logging.INFO,
         log_level_obj_bound: int = logging.INFO,
-        obj_value_is_valid: bool = False,
-        obj_bound_is_valid: bool = False,
         last_timestamp_note: Any | None = None,
     ) -> CpsatSolverReport:
         from ..cpsat_model_2.solver import SolveConfig, configure_solver
@@ -692,6 +692,7 @@ class HybridFlowShopCpLnsControllerCore(
             solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
+            log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
         )
 
         hfs_solver_report = HfsCpsatSolverReport.from_other(
