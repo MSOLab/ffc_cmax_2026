@@ -1436,15 +1436,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def run_reactive_loop(
         self,
-        subroutine_names: list[str],
-        opening_kwargs: dict,
+        routine_data: list[dict],
         reactive_param_tuner_dict: dict,
         stopping_criteria: dict,
     ):
         looper = ReactiveLooper(
             self,
-            subroutine_names,
-            opening_kwargs,
+            routine_data,
             reactive_param_tuner_dict,
             stopping_criteria,
         )

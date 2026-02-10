@@ -35,8 +35,7 @@ class ReactiveLooper:
     def __init__(
         self,
         ctrlr: HybridFlowShopCpLnsControllerCore,
-        subroutine_names: list[str],
-        opening_kwargs: dict,
+        routine_data: list[dict],
         reactive_param_tuner_dict: dict,
         stopping_criteria: dict,
     ):
@@ -44,15 +43,25 @@ class ReactiveLooper:
 
         self.ctrlr = ctrlr
 
-        self.subroutine_names = subroutine_names.copy()
-        for subroutine_name in self.subroutine_names:
+        self.subroutine_names = []
+        opening_kwargs_list = []
+        for subroutine_data in routine_data:
+            if "method" not in subroutine_data:
+                continue
+            subroutine_name = subroutine_data["method"]
             if not hasattr(ctrlr, subroutine_name):
                 raise ValueError(
                     f"Controller does not have subroutine '{subroutine_name}'."
                 )
+            self.subroutine_names.append(subroutine_name)
+            opening_kwargs_list.append(
+                {k: v for k, v in subroutine_data.items() if k != "method"}
+            )
 
         self.reactive_param_tuner_dict = {}
-        for subroutine_name in self.subroutine_names:
+        for subroutine_name, subroutine_opening_kwargs in zip(
+            self.subroutine_names, opening_kwargs_list
+        ):
             tuner_param_dict = {}
             tuner_param_dict_keys = {"rho", "computational_time"}
             for key in tuner_param_dict_keys:
@@ -63,18 +72,15 @@ class ReactiveLooper:
                 tuner_param_dict[key] = TunerParams(**reactive_param_tuner_dict[key])
             self.reactive_param_tuner_dict[subroutine_name] = ReactiveParamTuner(
                 method=getattr(ctrlr, subroutine_name),
-                opening_kwargs=opening_kwargs,
+                opening_kwargs=subroutine_opening_kwargs,
                 tuner_param_dict=tuner_param_dict,
+            )
+            logging.info(
+                f"Reactive parameter tuner initialized for subroutine '{subroutine_name}'"
+                f" with opening kwargs {subroutine_opening_kwargs}."
             )
 
         self.stopping_criteria = LocalStoppingCriteria(stopping_criteria)
-
-        # State
-
-        self.obj_value_before_step = ctrlr.solution_manager.best_obj_value
-        self.loop_count = 0
-        self.no_improvement_step_series_lth = 0
-        self.report_entries = []
 
     # @classmethod
     # def from_param_dict(
@@ -106,7 +112,7 @@ class ReactiveLooper:
     #         stopping_criteria=param_dict[stopping_criteria_key],
     #     )
 
-    def is_loop_stopping_condition(self, log_reason_if_true: bool = True) -> bool:
+    def _is_loop_stopping_condition(self, log_reason_if_true: bool = True) -> bool:
         return self.stopping_criteria.is_loop_stopping_condition(
             self.loop_count,
             self.no_improvement_step_series_lth,
@@ -115,7 +121,7 @@ class ReactiveLooper:
             log_reason_if_true=log_reason_if_true,
         )
 
-    def call_subroutine(self, subroutine_name: str) -> None:
+    def _call_subroutine(self, subroutine_name: str) -> None:
         if subroutine_name not in self.reactive_param_tuner_dict:
             raise ValueError(f"Subroutine {subroutine_name} is not recognized.")
         tuner = self.reactive_param_tuner_dict[subroutine_name]
@@ -135,6 +141,7 @@ class ReactiveLooper:
             "computational_time", float("inf")
         ):
             kwargs_snapshot["computational_time"] = timelimit_by_global
+        logging.info(f"Calling subroutine {subroutine_name} with kwargs {kwargs_snapshot}.")
         tuner.call_method(timelimit_by_global)
 
         report = self.ctrlr.solution_manager.get_last_report()
@@ -181,7 +188,7 @@ class ReactiveLooper:
             self.report_entries.append(entry)
 
             # update tuner logic/state
-            self.update_reactive_params(subroutine_name, report)
+            self._update_reactive_params(subroutine_name, report)
         else:
             raise ValueError(
                 "The last report is not an instance of HfsCpsatSolverReport."
@@ -210,7 +217,7 @@ class ReactiveLooper:
             header = ReactiveLoopReportEntry.get_header()
             batch_write_data_to_csv(report_path, rows, header)
 
-    def update_reactive_params(
+    def _update_reactive_params(
         self, subroutine_name: str, report_by_last_subroutine: HfsCpsatSolverReport
     ) -> None:
         tuner = self.reactive_param_tuner_dict[subroutine_name]
@@ -268,15 +275,18 @@ class ReactiveLooper:
                     tuner.increment("rho")
 
     def run(self) -> None:
+        # Initialize state variables
+        self.obj_value_before_step = self.ctrlr.solution_manager.best_obj_value
+        self.loop_count = 0
+        self.no_improvement_step_series_lth = 0
+        self.report_entries = []
         excluded_subroutines = set()
 
         def call_and_true_if_stop(
             name_for_context_manager: str, subroutine_name: str
         ) -> bool:
-            logging.info(f"Calling subroutine for {name_for_context_manager}.")
-
             with self.ctrlr.temporarily_extended_context(name_for_context_manager):
-                self.call_subroutine(subroutine_name)
+                self._call_subroutine(subroutine_name)
 
             tuner = self.reactive_param_tuner_dict[subroutine_name]
             if self.stopping_criteria.rho_hits_ub and tuner.current_value_hits_ub(
@@ -302,11 +312,11 @@ class ReactiveLooper:
 
             return self.ctrlr.is_stopping_condition(
                 log_reason_if_true=False
-            ) or self.is_loop_stopping_condition(log_reason_if_true=False)
+            ) or self._is_loop_stopping_condition(log_reason_if_true=False)
 
         while (
             not self.ctrlr.is_stopping_condition()
-            and not self.is_loop_stopping_condition()
+            and not self._is_loop_stopping_condition()
         ):
             if len(excluded_subroutines) == len(self.subroutine_names):
                 logging.info(
