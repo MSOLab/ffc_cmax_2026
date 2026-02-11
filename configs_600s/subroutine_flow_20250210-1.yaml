@@ -24,13 +24,13 @@
         solver_thread_cnt: 8
     reactive_param_tuner_dict:
       rho:
-        step_size: 0.05
+        step_size: 0.02
         min: 0.1
-        max: 0.8
+        max: 0.7
       computational_time:
         step_size: 1
         min: 1
-        max: 10
+        max: 8
     stopping_criteria:
       max_loop_count: 1000
       max_no_improvement_steps: null
