@@ -1482,8 +1482,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         sub_timer = ElapsedTimer()
 
         if a_hat is None:
-            if hasattr(self.stopping_criteria, "timelimit_n_by_m_multiplier"):
-                a_hat = self.stopping_criteria.timelimit_n_by_m_multiplier
+            if hasattr(self.stopping_criteria, "timelimit_n_by_c_multiplier"):
+                a_hat = self.stopping_criteria.timelimit_n_by_c_multiplier
             else:
                 a_hat = 0.5
 

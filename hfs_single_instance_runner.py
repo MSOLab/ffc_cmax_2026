@@ -67,18 +67,18 @@ class HfsSingleInstanceRunner(
         # Apply instance-wise timelimit if specified
         if (
             isinstance(self.stopping_criteria, StoppingCriteria)
-            and hasattr(self.stopping_criteria, "timelimit_n_by_m_multiplier")
-            and self.stopping_criteria.timelimit_n_by_m_multiplier is not None
-            and self.stopping_criteria.timelimit_n_by_m_multiplier > 0
+            and hasattr(self.stopping_criteria, "timelimit_n_by_c_multiplier")
+            and self.stopping_criteria.timelimit_n_by_c_multiplier is not None
+            and self.stopping_criteria.timelimit_n_by_c_multiplier > 0
         ):
             n = self.instance.job_count
-            m = self.instance.stage_count
-            adjusted_timelimit = self.stopping_criteria.timelimit_n_by_m_multiplier * (
-                n * m
+            c = self.instance.stage_count
+            adjusted_timelimit = self.stopping_criteria.timelimit_n_by_c_multiplier * (
+                n * c
             )
             # Override the timelimit
             logging.info(
-                f"Adjusting timelimit for instance '{self.name}' with n={n}, m={m}: "
+                f"Adjusting timelimit for instance '{self.name}' with n={n}, m={c}: "
                 f"new timelimit = {adjusted_timelimit} seconds."
             )
             self.stopping_criteria.timelimit = adjusted_timelimit
