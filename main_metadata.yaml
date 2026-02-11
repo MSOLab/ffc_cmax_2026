@@ -9,8 +9,8 @@ benchmark_idx_list:
   # - 50
   # - 35
   # - 235
-first: 25
-last: 48
+first: 1
+last: 240
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
