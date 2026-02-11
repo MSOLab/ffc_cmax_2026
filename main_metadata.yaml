@@ -9,8 +9,8 @@ benchmark_idx_list:
   # - 50
   # - 35
   # - 235
-first: 1
-last: 240
+first: 25
+last: 48
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
@@ -439,9 +439,13 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_prts/subroutine_flow_20260203-3.yaml"
   #   output_dir : "pra_half_nm/prts_20260203-3"
   #   description: "PRTS with quarter pop & one-tenth TS iterations"
+  # - stopping_criteria_rel_path: "configs_600s/stopping_criteria_nm.yaml"
+  #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250210-1.yaml"
+  #   output_dir : "pra_half_nm/20250210-1"
+  #   description: "Adaptive LNS-CP with TL=nm/2"
   - stopping_criteria_rel_path: "configs_600s/stopping_criteria_nm.yaml"
-    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250210-1.yaml"
-    output_dir : "pra_half_nm/20250210-1"
+    subroutine_flow_rel_path: "configs_600s/subroutine_flow_20250211-1.yaml"
+    output_dir : "pra_half_nm/20250211-1"
     description: "Adaptive LNS-CP with TL=nm/2"
 
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"

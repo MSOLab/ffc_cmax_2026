@@ -115,6 +115,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -129,6 +130,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             no_improvement_timelimit (float | None, optional): If there is no improvement in this
                 amount of time, the search will be stopped. If None, no timeout is set.
                 Defaults to None.
+            swap_before_cp (bool, optional): If True, applies a swap operator before CP solving &
+                temporarily fix swapped operation's profile. Defaults to False.
             obj_value_is_valid (bool, optional): If True, adds the objective value log.
                 Defaults to False.
             obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
@@ -138,6 +141,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
+        if swap_before_cp:
+            pass  # TODO: implement swap & profile-fixing before CP solving
         profile_fixing_method()
         report, solution = self.solve_with_initial_solution(
             computational_time,
@@ -211,28 +216,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        """Operation-block neighbor search with incumbent solution as the hint.
-
-        Args:
-            rho (float): Fraction of total number of operations to include in the block.
-            computational_time (float): The maximum computational time in seconds.
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            no_improvement_timelimit (float | None, optional): If there is no improvement in this
-                amount of time, the search will be stopped. If None, no timeout is set.
-                Defaults to None.
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
         self._fix_profile_solve_reset(
             lambda: self.apply_operation_block_operator(rho),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -318,6 +311,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -326,6 +320,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -393,6 +388,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -401,6 +397,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
