@@ -357,7 +357,7 @@ class HybridFlowShopCpLnsControllerCore(
             validate_precedence,
         )
 
-        validate_duration(start_time_map, end_time_map, self.job_2_stage_2_p_dict)
+        validate_duration(start_time_map, end_time_map, self.stage_2_job_2_p_dict)
         validate_precedence(start_time_map, end_time_map, self.instance.stage_id_list)
         validate_no_overlap(
             start_time_map,
