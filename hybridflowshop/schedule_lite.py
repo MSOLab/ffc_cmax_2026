@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import bisect
-from typing import Mapping, Sequence
+from typing import Iterator, Mapping, Sequence
 
 JobIdType = str
 StageIdType = str
@@ -238,25 +238,44 @@ class HybridFlowshopLiteSchedule:
                 max_end_time = mc_latest_end_time
         return max_end_time
 
-    def get_start_time_map(
-        self,
-    ) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
-        result: dict[tuple[JobIdType, StageIdType, McIdType], int] = {}
-        for stage in self.stages:
-            for mc in self.machines_per_stage[stage]:
-                for job_tuple in self.__stage_2_mc_2_job_tuple_seq[stage][mc]:
-                    result[(job_tuple[2], stage, mc)] = job_tuple[0]
-        return result
+    def _iter_operations_on_stage(
+        self, stage_id: StageIdType
+    ) -> Iterator[tuple[McIdType, int, int, JobIdType]]:
+        """Iterate over all operations on a stage yielding (mc, start_time, end_time, job_id)."""
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        for mc in self.machines_per_stage[stage_id]:
+            for start_time, end_time, job_id in self.__stage_2_mc_2_job_tuple_seq[
+                stage_id
+            ][mc]:
+                yield mc, start_time, end_time, job_id
 
-    def get_end_time_map(
+    def _iter_operations(
         self,
-    ) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
-        result: dict[tuple[JobIdType, StageIdType, McIdType], int] = {}
+    ) -> Iterator[tuple[StageIdType, McIdType, int, int, JobIdType]]:
+        """Iterate over all operations yielding (stage, mc, start_time, end_time, job_id)."""
         for stage in self.stages:
-            for mc in self.machines_per_stage[stage]:
-                for job_tuple in self.__stage_2_mc_2_job_tuple_seq[stage][mc]:
-                    result[(job_tuple[2], stage, mc)] = job_tuple[1]
-        return result
+            for mc, start_time, end_time, job_id in self._iter_operations_on_stage(
+                stage
+            ):
+                yield stage, mc, start_time, end_time, job_id
+
+    def get_operation_set(self) -> set[tuple[JobIdType, StageIdType, McIdType]]:
+        return {
+            (job_id, stage, mc) for stage, mc, _, _, job_id in self._iter_operations()
+        }
+
+    def get_start_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+        return {
+            (job_id, stage, mc): int(start)
+            for stage, mc, start, _, job_id in self._iter_operations()
+        }
+
+    def get_end_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+        return {
+            (job_id, stage, mc): int(end)
+            for stage, mc, _, end, job_id in self._iter_operations()
+        }
 
     # Setters
 
