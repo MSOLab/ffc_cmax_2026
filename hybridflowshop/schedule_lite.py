@@ -571,3 +571,302 @@ class HybridFlowshopLiteSchedule:
                     if idx not in index_to_be_removed
                 ]
                 self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id] = new_job_tuple_seq
+
+    def make_semi_active(
+        self,
+        stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+        start_from_stage: StageIdType | None = None,
+    ) -> None:
+        """Convert to semi-active schedule by retiming operations in-place.
+
+        A semi-active schedule is one where no operation can be started earlier
+        without changing the processing order on any machine.  This method
+        preserves the current machine assignments and job ordering on each
+        machine, but recomputes every operation's (start, end) so that each
+        operation begins at its earliest feasible time.
+
+        For each machine with job order [j1, j2, j3, ...]:
+
+        * `start(j1) = max(prev_stage_end(j1), 0)`
+        * `start(j2) = max(prev_stage_end(j2), end(j1))`
+        * `start(j3) = max(prev_stage_end(j3), end(j2))`
+        * `end(jk)   = start(jk) + duration(jk)`
+
+        Note: this is *not* an active-schedule construction that inserts
+        operations into idle gaps.  It simply packs operations as tightly as
+        possible while respecting the existing machine sequence.
+
+        Args:
+            stage_2_job_2_duration: stage -> job -> processing_time mapping.
+            start_from_stage: If None (default), retime **all** stages from
+                the first to the last.  If set to a valid stage ID, only stages
+                from that stage onward are retimed; earlier stages are left
+                untouched.  Precedence constraints from earlier stages are
+                still respected via get_prev_stage_end_time.
+
+        Raises:
+            ValueError: If *start_from_stage* is not None and is not a
+                valid stage ID.
+
+        Post-conditions (for retimed stages):
+            * Each machine's operation list is sorted by non-decreasing start
+              time with no overlaps.
+            * Precedence is satisfied: for every job, the start time at stage
+              *k* is >= the end time at stage *k-1*.
+            * ``__stage_2_job_2_end_time`` is consistent with the retimed
+              tuples.
+        """
+        # Determine which stages to process.
+        if start_from_stage is None:
+            first_idx = 0
+        else:
+            if start_from_stage not in self.stages:
+                raise ValueError(f"Invalid stage ID: {start_from_stage}")
+            first_idx = self.stages.index(start_from_stage)
+
+        for stage_idx in range(first_idx, len(self.stages)):
+            stage_id = self.stages[stage_idx]
+            prev_stage_id = self.stages[stage_idx - 1] if stage_idx > 0 else None
+            job_2_duration = stage_2_job_2_duration[stage_id]
+            job_2_prev_stage_end_time = (
+                self.__stage_2_job_2_end_time[prev_stage_id]
+                if prev_stage_id is not None
+                else {}
+            )
+            mc_2_job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id]
+
+            for mc_id in self.machines_per_stage[stage_id]:
+                job_tuple_seq = mc_2_job_tuple_seq[mc_id]
+                if not job_tuple_seq:
+                    continue
+
+                machine_available = 0
+                new_tuple_seq: list[tuple[int, int, JobIdType]] = []
+
+                for _, _, job_id in job_tuple_seq:
+                    duration = job_2_duration[job_id]
+                    release = job_2_prev_stage_end_time.get(job_id, 0)
+                    start = max(release, machine_available)
+                    end = start + duration
+
+                    new_tuple_seq.append((start, end, job_id))
+                    self.__stage_2_job_2_end_time[stage_id][job_id] = end
+                    machine_available = end
+
+                mc_2_job_tuple_seq[mc_id] = new_tuple_seq
+
+    def swap_two_operations_within_stage(
+        self,
+        stage_id: StageIdType,
+        job_id_1: JobIdType,
+        job_id_2: JobIdType,
+        stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+        *,
+        do_make_semi_active: bool = True,
+    ) -> None:
+        """Swap two jobs' operations within a stage.
+
+        Finds the operations of *job_id_1* and *job_id_2* in stage_id and
+        swaps their positions:
+
+        * **Same machine:** the two operations exchange positions in the
+          machine's operation list (order swap).
+        * **Different machines:** each job takes the other's slot on the
+          other's machine (assignment swap).
+
+        After the swap the (start, end) values of affected tuples are
+        stale.  The `do_make_semi_active` flag controls what happens next:
+
+        * `True` (default) -- `make_semi_active` is called starting from
+          *stage_id* onward so that all (start, end) values and the
+          end-time cache become consistent again.  Stages before *stage_id*
+          are left untouched.
+        * `False` -- only the raw element swap is performed and the
+          end-time cache entries for both jobs at this stage are **removed**.
+          Start/end times and the end-time map are unreliable until the
+          caller retimes the schedule (e.g. by calling `make_semi_active`
+          manually).
+
+        Args:
+            stage_id: Stage in which to swap the two operations.
+            job_id_1: First job to swap.
+            job_id_2: Second job to swap.
+            stage_2_job_2_duration: stage -> job -> processing_time
+                mapping, used when *do_make_semi_active* is True.
+            do_make_semi_active: Whether to retime the schedule after swapping.
+
+        Raises:
+            ValueError: If *stage_id* is invalid.
+            ValueError: If `job_id_1 == job_id_2`.
+            ValueError: If either job is not found in the stage schedule.
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if job_id_1 == job_id_2:
+            raise ValueError(
+                f"Cannot swap a job with itself: job_id_1 == job_id_2 == {job_id_1}"
+            )
+
+        # Locate (machine, index) for each job in the stage.
+        mc_2_job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id]
+
+        mc1: McIdType | None = None
+        idx1: int = -1
+        mc2: McIdType | None = None
+        idx2: int = -1
+
+        for mc_id in self.machines_per_stage[stage_id]:
+            for idx, (_, _, jid) in enumerate(mc_2_job_tuple_seq[mc_id]):
+                if jid == job_id_1 and mc1 is None:
+                    mc1, idx1 = mc_id, idx
+                elif jid == job_id_2 and mc2 is None:
+                    mc2, idx2 = mc_id, idx
+            if mc1 is not None and mc2 is not None:
+                break
+
+        if mc1 is None:
+            raise ValueError(f"Job ID {job_id_1} not found in stage {stage_id}")
+        if mc2 is None:
+            raise ValueError(f"Job ID {job_id_2} not found in stage {stage_id}")
+
+        # Swap the job_ids in the tuples.  The (start, end) values become
+        # temporary placeholders; make_semi_active will recompute them.
+        seq1 = mc_2_job_tuple_seq[mc1]
+        seq2 = mc_2_job_tuple_seq[mc2]
+        s1, e1, _ = seq1[idx1]
+        s2, e2, _ = seq2[idx2]
+        seq1[idx1] = (s1, e1, job_id_2)
+        seq2[idx2] = (s2, e2, job_id_1)
+
+        if do_make_semi_active:
+            self.make_semi_active(stage_2_job_2_duration, start_from_stage=stage_id)
+        else:
+            # Invalidate stale end-time entries for both jobs at this stage.
+            self.__stage_2_job_2_end_time[stage_id].pop(job_id_1, None)
+            self.__stage_2_job_2_end_time[stage_id].pop(job_id_2, None)
+
+
+# Validation functions
+
+
+def validate_schedule(
+    sched: HybridFlowshopLiteSchedule,
+    stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+) -> None:
+    """Raise ``ValueError`` if the schedule violates feasibility invariants.
+
+    Checks three invariants in order:
+
+    1. **Duration** -- ``end - start == duration`` for every operation.
+    2. **Precedence** -- for every job, the start time at stage *k* is
+       >= the end time at stage *k-1*.
+    3. **No overlap** -- no two operations on the same machine overlap.
+
+    Args:
+        sched: The schedule to validate.
+        stage_2_job_2_duration: ``stage -> job -> processing_time`` mapping.
+
+    Raises:
+        ValueError: If any invariant is violated.
+    """
+    start_map = sched.get_start_time_map()
+    end_map = sched.get_end_time_map()
+    stages = list(sched.stages)
+
+    validate_duration(start_map, end_map, stage_2_job_2_duration)
+    validate_precedence(start_map, end_map, stages)
+    validate_no_overlap(start_map, end_map, stages, sched.machines_per_stage)
+
+
+def validate_duration(
+    start_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    end_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+) -> None:
+    """Raise ``ValueError`` if ``end - start != duration`` for any operation.
+
+    Args:
+        start_map: ``(job, stage, mc) -> start_time`` mapping.
+        end_map: ``(job, stage, mc) -> end_time`` mapping.
+        stage_2_job_2_duration: ``stage -> job -> processing_time`` mapping.
+
+    Raises:
+        ValueError: If any operation's time span does not match its duration.
+    """
+    for (job, stage, mc), s in start_map.items():
+        e = end_map[(job, stage, mc)]
+        expected = stage_2_job_2_duration[stage][job]
+        if e - s != expected:
+            raise ValueError(
+                f"Duration mismatch: {job}@{stage}.{mc}: "
+                f"end-start={e - s} != duration={expected}"
+            )
+
+
+def validate_precedence(
+    start_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    end_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    stages: Sequence[StageIdType],
+) -> None:
+    """Raise ``ValueError`` if any precedence constraint is violated.
+
+    For every job, the start time at stage *k* must be >= the end time at
+    stage *k-1*.
+
+    Args:
+        start_map: ``(job, stage, mc) -> start_time`` mapping.
+        end_map: ``(job, stage, mc) -> end_time`` mapping.
+        stages: Ordered sequence of stage IDs.
+
+    Raises:
+        ValueError: If any job starts at a stage before completing the
+            previous stage.
+    """
+    for idx in range(1, len(stages)):
+        prev_stage = stages[idx - 1]
+        cur_stage = stages[idx]
+        prev_ends: dict[JobIdType, int] = {}
+        for (job, st, _mc), e in end_map.items():
+            if st == prev_stage:
+                prev_ends[job] = e
+        for (job, st, _mc), s in start_map.items():
+            if st == cur_stage and job in prev_ends:
+                if s < prev_ends[job]:
+                    raise ValueError(
+                        f"Precedence violated: {job}@{cur_stage} start={s} "
+                        f"< {job}@{prev_stage} end={prev_ends[job]}"
+                    )
+
+
+def validate_no_overlap(
+    start_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    end_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    stages: Sequence[StageIdType],
+    machines_per_stage: Mapping[StageIdType, Sequence[McIdType]],
+) -> None:
+    """Raise ``ValueError`` if any two operations overlap on the same machine.
+
+    Args:
+        start_map: ``(job, stage, mc) -> start_time`` mapping.
+        end_map: ``(job, stage, mc) -> end_time`` mapping.
+        stages: Ordered sequence of stage IDs.
+        machines_per_stage: ``stage -> [machine_ids]`` mapping.
+
+    Raises:
+        ValueError: If two operations on the same machine have overlapping
+            time intervals.
+    """
+    for stage in stages:
+        for mc in machines_per_stage[stage]:
+            ops = sorted(
+                [
+                    (s, end_map[(j, st, m)])
+                    for (j, st, m), s in start_map.items()
+                    if st == stage and m == mc
+                ],
+            )
+            for i in range(len(ops) - 1):
+                if ops[i][1] > ops[i + 1][0]:
+                    raise ValueError(
+                        f"Overlap on {stage}.{mc}: {ops[i]} vs {ops[i + 1]}"
+                    )

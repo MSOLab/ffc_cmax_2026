@@ -1,6 +1,6 @@
 import pytest
 
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
 
 
 def _get_priv(obj, attr: str):
@@ -368,3 +368,522 @@ def test_rejects_non_positive_duration(duration: int):
 
     with pytest.raises(ValueError, match="Duration must be greater than 0"):
         sched.add_operation_2_mc("i0", "i0_0", "j", duration=duration, release_t=0)
+
+
+# ============================================================================
+# Tests for make_semi_active()
+# ============================================================================
+
+
+def test_make_semi_active_with_slack():
+    """Test make_semi_active removes slack by left-shifting operations."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    stage_2_job_2_duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    # Create a non semi-active schedule with slack:
+    # j1: s1[5-10] -> s2[10-15]  (could start s1 at 0)
+    # j2: s1[10-15] -> s2[15-20] (could start s1 at 5)
+    # After make_semi_active:
+    # j1: s1[0-5] -> s2[5-10]
+    # j2: s1[5-10] -> s2[10-15]
+    sched.add_ops_times_2_mc(
+        "s1", "m1", "j1", start_time=5, end_time=5 + stage_2_job_2_duration["s1"]["j1"]
+    )
+    sched.add_ops_times_2_mc(
+        "s1",
+        "m1",
+        "j2",
+        start_time=10,
+        end_time=10 + stage_2_job_2_duration["s1"]["j2"],
+    )
+    sched.add_ops_times_2_mc(
+        "s2",
+        "m1",
+        "j1",
+        start_time=10,
+        end_time=10 + stage_2_job_2_duration["s2"]["j1"],
+    )
+    sched.add_ops_times_2_mc(
+        "s2",
+        "m1",
+        "j2",
+        start_time=15,
+        end_time=15 + stage_2_job_2_duration["s2"]["j2"],
+    )
+
+    # Before make_semi_active, schedule has slack
+    start_map_before = sched.get_start_time_map()
+    assert start_map_before[("j1", "s1", "m1")] == 5  # has slack
+    assert start_map_before[("j2", "s1", "m1")] == 10
+
+    # Make it semi-active
+    sched.make_semi_active(stage_2_job_2_duration)
+
+    # After make_semi_active, operations should be left-shifted
+    start_map = sched.get_start_time_map()
+    # j1@s1 should start at 0 (no job precedence, machine available)
+    assert start_map[("j1", "s1", "m1")] == 0
+    # j2@s1 should start at 5 (after j1@s1 completes)
+    assert start_map[("j2", "s1", "m1")] == 5
+    # j1@s2 should start at 5 (after j1@s1 completes at 5)
+    assert start_map[("j1", "s2", "m1")] == 5
+    # j2@s2 should start at 10 (after j2@s1 completes at 10, and j1@s2 completes at 10)
+    assert start_map[("j2", "s2", "m1")] == 10
+
+    # Makespan should be reduced from 20 to 15
+    assert sched.makespan == 15
+
+
+def test_make_semi_active_respects_precedence():
+    """Test make_semi_active respects job precedence constraints."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
+    )
+    stage_2_job_2_duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 10},
+        "s2": {"j1": 10},
+        "s3": {"j1": 10},
+    }
+
+    # Create schedule with slack but precedence constraints
+    # j1: s1[10-20] -> s2[25-35] -> s3[40-50]
+    # (all could be left-shifted)
+    sched.add_ops_times_2_mc(
+        "s1",
+        "m1",
+        "j1",
+        start_time=10,
+        end_time=10 + stage_2_job_2_duration["s1"]["j1"],
+    )
+    sched.add_ops_times_2_mc(
+        "s2",
+        "m1",
+        "j1",
+        start_time=25,
+        end_time=25 + stage_2_job_2_duration["s2"]["j1"],
+    )
+    sched.add_ops_times_2_mc(
+        "s3",
+        "m1",
+        "j1",
+        start_time=40,
+        end_time=40 + stage_2_job_2_duration["s3"]["j1"],
+    )
+
+    sched.make_semi_active(stage_2_job_2_duration)
+
+    start_map = sched.get_start_time_map()
+    # With precedence: j1@s1 starts at 0 (duration 10), s2 starts at 10 (duration 10), s3 starts at 20 (duration 10)
+    assert start_map[("j1", "s1", "m1")] == 0
+    assert start_map[("j1", "s2", "m1")] == 10
+    assert start_map[("j1", "s3", "m1")] == 20
+
+    assert sched.makespan == 30
+
+
+def test_make_semi_active_multi_machine():
+    """Test make_semi_active with multiple machines per stage."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1"]},
+    )
+    stage_2_job_2_duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    # Create slack with multi-machine stage 1
+    # j1 on m1: s1[5-10], j2 on m2: s1[10-15]
+    # Both s2 operations can start at 10 (when first stage completes)
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=10, end_time=15)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=10, end_time=15)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=15, end_time=20)
+
+    sched.make_semi_active(stage_2_job_2_duration)
+
+    start_map = sched.get_start_time_map()
+    # j1@s1 should be left-shifted to start at 0 on m1
+    assert start_map[("j1", "s1", "m1")] == 0
+    # j2@s1 should be left-shifted to start at 0 on m2 (m2 is independent)
+    assert start_map[("j2", "s1", "m2")] == 0
+    # j1@s2 starts at 5 (after j1@s1 completes at 5)
+    # j2@s2 starts at 10 (after j1@s2 completes at 10 on same machine)
+    # Note: j2@s1 is now at 0-10 (was 10-15), so j2@s2 doesn't need to wait for j2@s1
+    # It only needs to wait for j1@s2 to complete on the same machine (m1)
+    assert start_map[("j1", "s2", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 10
+
+    assert sched.makespan == 15
+
+
+def test_make_semi_active_already_semi_active():
+    """Test make_semi_active on already semi-active schedule (no change)."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    stage_2_job_2_duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    # Already semi-active: no slack
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=10, end_time=15)
+
+    makespan_before = sched.makespan
+    start_map_before = sched.get_start_time_map()
+
+    sched.make_semi_active(stage_2_job_2_duration)
+
+    # Should be unchanged
+    assert sched.makespan == makespan_before
+    assert sched.get_start_time_map() == start_map_before
+
+
+def test_make_semi_active_empty_schedule():
+    """Test make_semi_active on empty schedule."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    stage_2_job_2_duration = {"s1": {"j1": 5}}
+
+    # Should not raise any error
+    sched.make_semi_active(stage_2_job_2_duration)
+    assert sched.makespan == 0
+
+
+# ============================================================================
+# Tests for make_semi_active() with dummy initial times
+# ============================================================================
+
+
+def test_make_semi_active_from_dummy_times():
+    """Test make_semi_active starting from dummy (0,0) start/end times."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["J1", "J2", "J3"],
+        stages=["S1", "S2"],
+        machines_per_stage={"S1": ["M1"], "S2": ["M1", "M2"]},
+    )
+
+    # S1.M1: J1, J2, J3 (all with dummy start/end = 0)
+    sched.add_ops_times_2_mc("S1", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J2", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J3", start_time=0, end_time=0)
+    # S2.M1: J1, J3  |  S2.M2: J2
+    sched.add_ops_times_2_mc("S2", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J3", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M2", "J2", start_time=0, end_time=0)
+
+    duration: dict[str, dict[str, int]] = {
+        "S1": {"J1": 3, "J2": 4, "J3": 2},
+        "S2": {"J1": 5, "J2": 3, "J3": 6},
+    }
+
+    sched.make_semi_active(duration)
+
+    validate_schedule(sched, duration)
+
+    start_map = sched.get_start_time_map()
+    end_map = sched.get_end_time_map()
+
+    # S1.M1: J1[0,3), J2[3,7), J3[7,9)
+    assert start_map[("J1", "S1", "M1")] == 0
+    assert end_map[("J1", "S1", "M1")] == 3
+    assert start_map[("J2", "S1", "M1")] == 3
+    assert end_map[("J2", "S1", "M1")] == 7
+    assert start_map[("J3", "S1", "M1")] == 7
+    assert end_map[("J3", "S1", "M1")] == 9
+
+    # S2.M1: J1[3,8), J3[9,15)
+    assert start_map[("J1", "S2", "M1")] == 3
+    assert end_map[("J1", "S2", "M1")] == 8
+    assert start_map[("J3", "S2", "M1")] == 9
+    assert end_map[("J3", "S2", "M1")] == 15
+
+    # S2.M2: J2[7,10)
+    assert start_map[("J2", "S2", "M2")] == 7
+    assert end_map[("J2", "S2", "M2")] == 10
+
+    assert sched.makespan == 15
+
+
+# ============================================================================
+# Tests for swap_two_operations_within_stage()
+# ============================================================================
+
+
+def _build_3job_2stage_schedule() -> tuple[
+    HybridFlowshopLiteSchedule, dict[str, dict[str, int]]
+]:
+    """Build the standard 3-job, 2-stage fixture and make it semi-active."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["J1", "J2", "J3"],
+        stages=["S1", "S2"],
+        machines_per_stage={"S1": ["M1"], "S2": ["M1", "M2"]},
+    )
+    sched.add_ops_times_2_mc("S1", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J2", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J3", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J3", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M2", "J2", start_time=0, end_time=0)
+
+    duration: dict[str, dict[str, int]] = {
+        "S1": {"J1": 3, "J2": 4, "J3": 2},
+        "S2": {"J1": 5, "J2": 3, "J3": 6},
+    }
+    sched.make_semi_active(duration)
+    return sched, duration
+
+
+def test_swap_cross_machine_with_make_semi_active():
+    """Swap J1 (on M1) and J2 (on M2) in S2 -- different machines."""
+    sched, duration = _build_3job_2stage_schedule()
+
+    sched.swap_two_operations_within_stage(
+        "S2", "J1", "J2", duration, do_make_semi_active=True
+    )
+
+    validate_schedule(sched, duration)
+
+    start_map = sched.get_start_time_map()
+    end_map = sched.get_end_time_map()
+
+    # S1 unchanged: J1[0,3), J2[3,7), J3[7,9)
+    assert start_map[("J1", "S1", "M1")] == 0
+    assert start_map[("J2", "S1", "M1")] == 3
+    assert start_map[("J3", "S1", "M1")] == 7
+
+    # After swap: S2.M1 = [J2, J3], S2.M2 = [J1]
+    # S2.M1: J2 start=max(prev=7, mc=0)=7, end=10; J3 start=max(prev=9,mc=10)=10, end=16
+    # S2.M2: J1 start=max(prev=3, mc=0)=3, end=8
+    assert start_map[("J2", "S2", "M1")] == 7
+    assert end_map[("J2", "S2", "M1")] == 10
+    assert start_map[("J3", "S2", "M1")] == 10
+    assert end_map[("J3", "S2", "M1")] == 16
+    assert start_map[("J1", "S2", "M2")] == 3
+    assert end_map[("J1", "S2", "M2")] == 8
+
+    assert sched.makespan == 16
+
+
+def test_swap_same_machine_with_make_semi_active():
+    """Swap J1 and J3 on the same machine (M1) in S2."""
+    sched, duration = _build_3job_2stage_schedule()
+
+    sched.swap_two_operations_within_stage(
+        "S2", "J1", "J3", duration, do_make_semi_active=True
+    )
+
+    validate_schedule(sched, duration)
+
+    start_map = sched.get_start_time_map()
+    end_map = sched.get_end_time_map()
+
+    # S1 unchanged: J1[0,3), J2[3,7), J3[7,9)
+    # After swap: S2.M1 order is [J3, J1], S2.M2 still [J2]
+    # S2.M1: J3 start=max(prev=9, mc=0)=9, end=15; J1 start=max(prev=3, mc=15)=15, end=20
+    # S2.M2: J2 start=max(prev=7, mc=0)=7, end=10
+    assert start_map[("J3", "S2", "M1")] == 9
+    assert end_map[("J3", "S2", "M1")] == 15
+    assert start_map[("J1", "S2", "M1")] == 15
+    assert end_map[("J1", "S2", "M1")] == 20
+    assert start_map[("J2", "S2", "M2")] == 7
+    assert end_map[("J2", "S2", "M2")] == 10
+
+    assert sched.makespan == 20
+
+
+def test_swap_without_make_semi_active_invalidates_end_time():
+    """With do_make_semi_active=False, end-time cache is invalidated."""
+    sched, duration = _build_3job_2stage_schedule()
+
+    sched.swap_two_operations_within_stage(
+        "S2", "J1", "J2", duration, do_make_semi_active=False
+    )
+
+    # The end-time entries for both jobs at S2 should be removed.
+    with pytest.raises(ValueError):
+        sched.get_job_end_time("S2", "J1")
+    with pytest.raises(ValueError):
+        sched.get_job_end_time("S2", "J2")
+
+    # Other end-time entries should remain intact.
+    assert sched.get_job_end_time("S1", "J1") == 3
+    assert sched.get_job_end_time("S1", "J2") == 7
+    assert sched.get_job_end_time("S2", "J3") == 15
+
+    # After a manual make_semi_active, everything should be consistent.
+    sched.make_semi_active(duration)
+    validate_schedule(sched, duration)
+
+
+def test_swap_invalid_stage_raises():
+    sched, duration = _build_3job_2stage_schedule()
+    with pytest.raises(ValueError, match="Invalid stage ID"):
+        sched.swap_two_operations_within_stage("INVALID", "J1", "J2", duration)
+
+
+def test_swap_same_job_raises():
+    sched, duration = _build_3job_2stage_schedule()
+    with pytest.raises(ValueError, match="Cannot swap a job with itself"):
+        sched.swap_two_operations_within_stage("S2", "J1", "J1", duration)
+
+
+def test_swap_missing_job_raises():
+    sched, duration = _build_3job_2stage_schedule()
+    # J2 is on S2.M2, but "MISSING" is not scheduled at all.
+    with pytest.raises(ValueError, match="not found in stage"):
+        sched.swap_two_operations_within_stage("S2", "J1", "MISSING", duration)
+
+
+# ============================================================================
+# Tests for make_semi_active(start_from_stage=...)
+# ============================================================================
+
+
+def _build_3job_3stage_schedule() -> tuple[
+    HybridFlowshopLiteSchedule, dict[str, dict[str, int]]
+]:
+    """Build a 3-job, 3-stage fixture and make it semi-active.
+
+    Layout:
+        S1.M1: [J1, J2, J3]
+        S2.M1: [J1, J3],  S2.M2: [J2]
+        S3.M1: [J2, J3],  S3.M2: [J1]
+    """
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["J1", "J2", "J3"],
+        stages=["S1", "S2", "S3"],
+        machines_per_stage={
+            "S1": ["M1"],
+            "S2": ["M1", "M2"],
+            "S3": ["M1", "M2"],
+        },
+    )
+    # S1
+    sched.add_ops_times_2_mc("S1", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J2", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J3", start_time=0, end_time=0)
+    # S2
+    sched.add_ops_times_2_mc("S2", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J3", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M2", "J2", start_time=0, end_time=0)
+    # S3
+    sched.add_ops_times_2_mc("S3", "M1", "J2", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S3", "M1", "J3", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S3", "M2", "J1", start_time=0, end_time=0)
+
+    duration: dict[str, dict[str, int]] = {
+        "S1": {"J1": 3, "J2": 4, "J3": 2},
+        "S2": {"J1": 5, "J2": 3, "J3": 6},
+        "S3": {"J1": 4, "J2": 2, "J3": 3},
+    }
+    sched.make_semi_active(duration)
+    return sched, duration
+
+
+def test_start_from_stage_none_equals_full_retiming():
+    """start_from_stage=None should produce the same result as full retiming."""
+    sched_full, duration = _build_3job_3stage_schedule()
+
+    sched_partial, _ = _build_3job_3stage_schedule()
+    sched_partial.make_semi_active(duration, start_from_stage=None)
+
+    assert sched_full.get_start_time_map() == sched_partial.get_start_time_map()
+    assert sched_full.get_end_time_map() == sched_partial.get_end_time_map()
+
+
+def test_start_from_stage_leaves_earlier_stages_untouched():
+    """Retiming from S2 must not modify S1 data."""
+    sched, duration = _build_3job_3stage_schedule()
+
+    # Record S1 state before partial retiming.
+    s1_start_before = {
+        k: v for k, v in sched.get_start_time_map().items() if k[1] == "S1"
+    }
+    s1_end_before = {k: v for k, v in sched.get_end_time_map().items() if k[1] == "S1"}
+
+    sched.make_semi_active(duration, start_from_stage="S2")
+
+    s1_start_after = {
+        k: v for k, v in sched.get_start_time_map().items() if k[1] == "S1"
+    }
+    s1_end_after = {k: v for k, v in sched.get_end_time_map().items() if k[1] == "S1"}
+
+    assert s1_start_before == s1_start_after
+    assert s1_end_before == s1_end_after
+
+
+def test_start_from_stage_equals_full_retiming_result():
+    """Partial retiming from any stage should give the same result as full."""
+    sched_full, duration = _build_3job_3stage_schedule()
+
+    for stage in ["S1", "S2", "S3"]:
+        sched_partial, _ = _build_3job_3stage_schedule()
+        sched_partial.make_semi_active(duration, start_from_stage=stage)
+
+        assert sched_full.get_start_time_map() == sched_partial.get_start_time_map(), (
+            f"start_from_stage={stage} diverges from full retiming (start_time_map)"
+        )
+        assert sched_full.get_end_time_map() == sched_partial.get_end_time_map(), (
+            f"start_from_stage={stage} diverges from full retiming (end_time_map)"
+        )
+
+
+def test_swap_then_start_from_stage_equals_full_retiming():
+    """Swap at S2 + partial retiming must match swap + full retiming."""
+    # Build two identical schedules.
+    sched_partial, duration = _build_3job_3stage_schedule()
+    sched_full, _ = _build_3job_3stage_schedule()
+
+    # Swap J1 <-> J2 in S2 on both, but use different retiming strategies.
+    sched_partial.swap_two_operations_within_stage(
+        "S2", "J1", "J2", duration, do_make_semi_active=True
+    )
+
+    # Manual swap + full retiming on the other schedule.
+    priv = "_HybridFlowshopLiteSchedule__stage_2_mc_2_job_tuple_seq"
+    seq_m1 = getattr(sched_full, priv)["S2"]["M1"]
+    seq_m2 = getattr(sched_full, priv)["S2"]["M2"]
+    s1, e1, _ = seq_m1[0]  # J1
+    s2, e2, _ = seq_m2[0]  # J2
+    seq_m1[0] = (s1, e1, "J2")
+    seq_m2[0] = (s2, e2, "J1")
+    sched_full.make_semi_active(duration)  # full retiming
+
+    validate_schedule(sched_partial, duration)
+    validate_schedule(sched_full, duration)
+
+    assert sched_partial.get_start_time_map() == sched_full.get_start_time_map()
+    assert sched_partial.get_end_time_map() == sched_full.get_end_time_map()
+
+
+def test_start_from_stage_invariants_on_3_stages():
+    """Invariants hold after partial retiming on a 3-stage schedule."""
+    sched, duration = _build_3job_3stage_schedule()
+    sched.make_semi_active(duration, start_from_stage="S2")
+    validate_schedule(sched, duration)
+
+
+def test_start_from_stage_invalid_raises():
+    sched, duration = _build_3job_3stage_schedule()
+    with pytest.raises(ValueError, match="Invalid stage ID"):
+        sched.make_semi_active(duration, start_from_stage="INVALID")
