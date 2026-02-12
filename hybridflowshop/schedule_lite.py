@@ -238,7 +238,7 @@ class HybridFlowshopLiteSchedule:
                 max_end_time = mc_latest_end_time
         return max_end_time
 
-    def _iter_operations_on_stage(
+    def iter_operations_on_stage(
         self, stage_id: StageIdType
     ) -> Iterator[tuple[McIdType, int, int, JobIdType]]:
         """Iterate over all operations on a stage yielding (mc, start_time, end_time, job_id)."""
@@ -255,7 +255,7 @@ class HybridFlowshopLiteSchedule:
     ) -> Iterator[tuple[StageIdType, McIdType, int, int, JobIdType]]:
         """Iterate over all operations yielding (stage, mc, start_time, end_time, job_id)."""
         for stage in self.stages:
-            for mc, start_time, end_time, job_id in self._iter_operations_on_stage(
+            for mc, start_time, end_time, job_id in self.iter_operations_on_stage(
                 stage
             ):
                 yield stage, mc, start_time, end_time, job_id
@@ -744,6 +744,220 @@ class HybridFlowshopLiteSchedule:
             # Invalidate stale end-time entries for both jobs at this stage.
             self.__stage_2_job_2_end_time[stage_id].pop(job_id_1, None)
             self.__stage_2_job_2_end_time[stage_id].pop(job_id_2, None)
+
+    # Getters - critical path
+
+    def calculate_slack(
+        self, stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]]
+    ) -> dict[StageIdType, dict[JobIdType, int]]:
+        """
+        Calculate slack for each scheduled operation using CPM.
+
+        Slack = Latest Start Time - Earliest Start Time
+        Operations with slack = 0 are critical.
+
+        Args:
+            stage_2_job_2_duration (Mapping[StageIdType, Mapping[JobIdType, int]]):
+                Stage ID -> job ID -> operation duration
+
+        Returns:
+            dict[StageIdType, dict[JobIdType, int]]: Stage ID -> job ID -> slack value
+        """
+        makespan: int = self.makespan
+        if makespan == 0:
+            return {}
+
+        # Step 1: Forward pass (earliest times)
+        earliest_start: dict[StageIdType, dict[JobIdType, int]] = {
+            stage_id: {} for stage_id in self.stages
+        }
+        earliest_finish: dict[StageIdType, dict[JobIdType, int]] = {
+            stage_id: {} for stage_id in self.stages
+        }
+
+        for stage_idx, stage_id in enumerate(self.stages):
+            job_2_duration = stage_2_job_2_duration[stage_id]
+            prev_stage_id = self.stages[stage_idx - 1] if stage_idx > 0 else None
+
+            for mc_id in self.machines_per_stage[stage_id]:
+                job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+                prev_end_on_mc = 0
+
+                for _start_t, _end_t, job_id in job_tuple_seq:
+                    prev_stage_end = (
+                        self.__stage_2_job_2_end_time[prev_stage_id].get(job_id, 0)
+                        if prev_stage_id is not None
+                        else 0
+                    )
+
+                    es = (
+                        prev_stage_end
+                        if prev_stage_end > prev_end_on_mc
+                        else prev_end_on_mc
+                    )
+                    earliest_start[stage_id][job_id] = es
+                    ef = es + job_2_duration[job_id]
+                    earliest_finish[stage_id][job_id] = ef
+
+                    # Keep machine precedence anchored to the current schedule: the next
+                    # operation on this machine cannot start before this operation's
+                    # scheduled completion.
+                    prev_end_on_mc = ef
+
+        # Step 2: Backward pass (latest times)
+        latest_finish: dict[StageIdType, dict[JobIdType, int]] = {
+            stage_id: {} for stage_id in self.stages
+        }
+        latest_start: dict[StageIdType, dict[JobIdType, int]] = {
+            stage_id: {} for stage_id in self.stages
+        }
+
+        for stage_idx in range(len(self.stages) - 1, -1, -1):
+            stage_id = self.stages[stage_idx]
+            job_2_duration = stage_2_job_2_duration[stage_id]
+            next_stage_id = (
+                self.stages[stage_idx + 1] if stage_idx < len(self.stages) - 1 else None
+            )
+
+            for mc_id in self.machines_per_stage[stage_id]:
+                job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+
+                # For the last operation on a machine, machine constraint is makespan.
+                next_ls_on_mc = makespan
+
+                for _start_t, _end_t, job_id in reversed(job_tuple_seq):
+                    # Constraint 1: Job precedence (same job, next stage)
+                    if next_stage_id is None:
+                        lft_1 = makespan
+                    else:
+                        lft_1 = latest_start[next_stage_id].get(job_id, makespan)
+
+                    # Constraint 2: Machine precedence (same machine, next job)
+                    lft_2 = next_ls_on_mc
+
+                    lf = lft_1 if lft_1 < lft_2 else lft_2
+                    ls = lf - job_2_duration[job_id]
+
+                    latest_finish[stage_id][job_id] = lf
+                    latest_start[stage_id][job_id] = ls
+
+                    next_ls_on_mc = ls
+
+        # Step 3: Calculate slack
+        slack: dict[StageIdType, dict[JobIdType, int]] = {
+            stage_id: {} for stage_id in self.stages
+        }
+        for stage_id in self.stages:
+            for job_id in self.__stage_2_job_2_end_time[stage_id]:
+                slack[stage_id][job_id] = (
+                    latest_start[stage_id][job_id] - earliest_start[stage_id][job_id]
+                )
+
+        return slack
+
+    def find_critical_blocks(
+        self,
+        stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+        tolerance: float = 1e-9,
+        include_singletons: bool = False,
+    ) -> list[list[tuple[JobIdType, StageIdType, McIdType]]]:
+        """
+        Find all critical blocks in the schedule.
+
+        A critical block is a maximal sequence of consecutive critical operations
+        on the same machine. Critical blocks are important for neighborhood search
+        algorithms in scheduling optimization.
+
+        Args:
+            stage_2_job_2_duration (Mapping[StageIdType, Mapping[JobIdType, int]]):
+                Stage ID -> job ID -> operation duration
+            tolerance (float, optional): Tolerance for slack comparison. Defaults to 1e-9.
+            include_singletons (bool, optional): Whether to include single-operation blocks.
+                Defaults to False.
+
+        Returns:
+            list[list[tuple[JobIdType, StageIdType, McIdType]]]: List of critical blocks,
+            where each block is a list of operations (job_id, stage_id, machine_id)
+            in execution order on the same machine.
+        """
+        # Calculate slack
+        slack: dict[str, dict[str, int]] = self.calculate_slack(stage_2_job_2_duration)
+
+        # Find critical operations and their machines
+        # Using dict structure to avoid tuple creation
+
+        stage_2_mc_2_jobs: dict[StageIdType, dict[McIdType, list[JobIdType]]] = {
+            stage_id: {} for stage_id in self.stages
+        }
+        # Not for algorithm but for debugging
+        stage_2_critical_job_cnt: dict[StageIdType, int] = {}
+
+        for stage_id in self.stages:
+            critical_jobs: set[JobIdType] = set()
+
+            # Find critical jobs in this stage
+            for job_id in slack.get(stage_id, {}):
+                if abs(slack[stage_id][job_id]) < tolerance:
+                    critical_jobs.add(job_id)
+            stage_2_critical_job_cnt[stage_id] = len(critical_jobs)
+
+            mc_2_job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id]
+            job_2_end_time = self.__stage_2_job_2_end_time[stage_id]
+            # Find machine for each critical job
+            for mc_id in self.machines_per_stage[stage_id]:
+                job_sequence: list[JobIdType] = []
+                for start_t, end_t, job_id in mc_2_job_tuple_seq[
+                    mc_id
+                ]:  # Assumed to be already sorted by start time
+                    if job_id in critical_jobs:
+                        job_sequence.append(job_id)
+                stage_2_mc_2_jobs[stage_id][mc_id] = job_sequence
+                # if job_sequence:
+                #     # Sort by end time to maintain execution order
+                #     stage_2_mc_2_jobs[stage_id][mc_id] = sorted(
+                #         job_sequence,
+                #         key=lambda job_id: job_2_end_time[job_id],
+                #     )
+
+        # from pprint import pformat
+
+        # logging.info(
+        #     f"Critical job counts per stage:\n{pformat(stage_2_critical_job_cnt, indent=2, width=80)}"
+        # )
+
+        # Extract consecutive sequences as critical blocks
+        blocks: list[list[tuple[JobIdType, StageIdType, McIdType]]] = []
+        for stage_id, mc_2_job_seq in stage_2_mc_2_jobs.items():
+            job_2_end_time = self.__stage_2_job_2_end_time[stage_id]
+            job_2_duration = stage_2_job_2_duration[stage_id]
+            for mc_id, job_seq in mc_2_job_seq.items():
+                if not job_seq:
+                    continue
+
+                current_block: list[tuple[JobIdType, StageIdType, McIdType]] = []
+
+                for i, job_id in enumerate(job_seq):
+                    current_block.append((job_id, stage_id, mc_id))
+
+                    # Check if next operation is consecutive
+                    if i < len(job_seq) - 1:
+                        next_job_id = job_seq[i + 1]
+                        current_end_t = job_2_end_time[job_id]
+                        next_start_t = (
+                            job_2_end_time[next_job_id] - job_2_duration[next_job_id]
+                        )
+
+                        # If there's a gap, end current block
+                        if next_start_t > current_end_t:
+                            if include_singletons or len(current_block) >= 2:
+                                blocks.append(current_block)
+                            current_block = []
+                    else:
+                        # Last operation
+                        if include_singletons or len(current_block) >= 2:
+                            blocks.append(current_block)
+
+        return blocks
 
 
 # Validation functions

@@ -142,7 +142,113 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 Defaults to False.
         """
         if swap_before_cp:
-            pass  # TODO: implement swap & profile-fixing before CP solving
+            swap_timer = ElapsedTimer()
+            ref_schedule = self.solution_manager.get_incumbent()
+            if not isinstance(ref_schedule, HybridFlowshopLiteSchedule):
+                raise ValueError(
+                    "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
+                )
+            ref_obj_value = ref_schedule.makespan
+            start_time_map = ref_schedule.get_start_time_map()
+            end_time_map = ref_schedule.get_end_time_map()
+
+            # Repeat until swapped schedule has the same or better objective
+            max_trial_cnt = 1000
+            swap_success = False
+            for trial in range(1, max_trial_cnt + 1):
+                # 1st operation: choose from critical blocks(prefer non-singletons) at random
+                critical_blocks = ref_schedule.find_critical_blocks(
+                    self.stage_2_job_2_p_dict, include_singletons=True
+                )
+                target_blocks = [b for b in critical_blocks if len(b) > 1]
+                if not target_blocks:
+                    logging.debug("No multi-operation critical blocks found, using all critical blocks")
+                    target_blocks = critical_blocks
+                target_block = random.choice(target_blocks)
+                op_1 = random.choice(target_block)
+                target_stage = op_1[1]
+
+                # 2nd operation: randomly choose operation of other job on the same stage
+                op_2_candid_list: list[tuple[str, str, str]] = [
+                    (
+                        op_2_candid_info[3],  # job_id
+                        target_stage,
+                        op_2_candid_info[0],  # mc_id
+                    )
+                    for op_2_candid_info in ref_schedule.iter_operations_on_stage(
+                        target_stage
+                    )
+                    if op_2_candid_info[3] != op_1[0]  # different job
+                ]
+                op_2 = random.choice(op_2_candid_list)
+
+                # Swap
+                swapped_schedule = ref_schedule.deepcopy()
+                swapped_schedule.swap_two_operations_within_stage(
+                    target_stage, op_1[0], op_2[0], self.stage_2_job_2_p_dict
+                )
+
+                # Check objective
+                swapped_obj_value = swapped_schedule.makespan
+                if swapped_obj_value <= ref_obj_value:
+                    # Add to solution manager
+                    report = HfsSubroutineReport(
+                        elapsed_time=swap_timer.elapsed_sec,
+                        obj_value=float(swapped_obj_value),
+                        obj_bound=None,
+                        is_init=False,
+                    )
+                    self.solution_manager.register(report, swapped_schedule)
+                    # If two operations does not overlap,
+                    if not self.open_intervals_overlap(
+                        start_time_map[op_1],
+                        end_time_map[op_1],
+                        start_time_map[op_2],
+                        end_time_map[op_2],
+                    ):
+                        # Determine precedence based on original schedule's start times
+                        op_1_start = start_time_map[op_1]
+                        op_2_start = start_time_map[op_2]
+                        if op_1_start <= op_2_start:
+                            j_l, j_f = op_1[0], op_2[0]
+                        else:
+                            j_l, j_f = op_2[0], op_1[0]
+                        # Add the precedence constraint to the CP model to enforce the swap
+                        BaseModelBuilder.add_fixed_operation_precedence_constraint(
+                            self.cp_model,
+                            self.params,
+                            self.vars,
+                            j_l,
+                            j_f,
+                            target_stage,
+                        )
+                        logging.info(
+                            f"Swap SUCCESS trial {trial}/{max_trial_cnt}: "
+                            f"op1={op_1} op2={op_2} stage={target_stage} "
+                            f"ref_obj={ref_obj_value} new_obj={swapped_obj_value} "
+                            f"precedence={j_l} -> {j_f}"
+                        )
+                    else:
+                        # Do not add precedence constraint if they overlap
+                        logging.info(
+                            f"Swap SUCCESS trial {trial}/{max_trial_cnt}: "
+                            f"op1={op_1} op2={op_2} stage={target_stage} "
+                            f"ref_obj={ref_obj_value} new_obj={swapped_obj_value} "
+                        )
+                    swap_success = True
+                    break
+                else:
+                    logging.debug(
+                        f"Swap trial {trial}/{max_trial_cnt}: Objective degraded "
+                        f"(ref={ref_obj_value}, new={swapped_obj_value}), retrying..."
+                    )
+
+            if not swap_success:
+                logging.warning(
+                    f"Swap operator failed after {max_trial_cnt} trials. "
+                    f"Proceeding without swap."
+                )
+
         profile_fixing_method()
         report, solution = self.solve_with_initial_solution(
             computational_time,
@@ -284,7 +390,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 if op in selected_ops:
                     continue
                 os, oe = start_time_map[op], end_time_map[op]
-                if self.is_overlap(cs, ce, os, oe):
+                if self.closed_intervals_overlap(cs, ce, os, oe):
                     selected_ops.add(op)
                     queue.append(op)
                 if len(selected_ops) >= num_to_select:
@@ -299,9 +405,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self._fix_operations_profile_except_selected(selected_ops)
 
     @staticmethod
-    def is_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
-        """Check if two time intervals overlap."""
+    def closed_intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
+        """Check if two closed time intervals overlap."""
         return not (e1 <= s2 or e2 <= s1)
+
+    @staticmethod
+    def open_intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
+        """Check if two open time intervals overlap."""
+        return not (e1 < s2 or e2 < s1)
 
     # Subroutine: Stage neighbor search
 
@@ -444,7 +555,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 if op in selected_ops:
                     continue
                 os, oe = start_time_map[op], end_time_map[op]
-                if self.is_overlap(cs, ce, os, oe):
+                if self.closed_intervals_overlap(cs, ce, os, oe):
                     # Select all operations of each overlapping operation
                     selected_ops.update([op2 for op2 in all_ops if op2[0] == op[0]])
                     selected_jobs.add(op[0])
