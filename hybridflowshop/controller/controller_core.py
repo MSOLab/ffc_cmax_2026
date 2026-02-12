@@ -343,41 +343,31 @@ class HybridFlowShopCpLnsControllerCore(
                 raise ValueError(
                     f"Invalid start time for job {j}, stage {i}, machine {k}: {start_time}"
                 )
-        base_cp = self.create_base_cp_model()
+        makespan = 0
+        end_time_map: dict[tuple[str, str, str], int] = {}
+        for (j, i, k), start_time in start_time_map.items():
+            end_time = start_time + self.job_2_stage_2_p_dict[j][i]
+            end_time_map[(j, i, k)] = end_time
+            if end_time > makespan:
+                makespan = end_time
 
-        # Freeze operation start times
-        BaseModelBuilder.add_start_time_freezed_operation_constraints(
-            base_cp, self.vars, start_time_map
+        from ..schedule_lite import (
+            validate_duration,
+            validate_no_overlap,
+            validate_precedence,
         )
 
-        # Solve with tight time limit
-        timelimit = 2.0
-        solver_thread_cnt = 1
-        solver_report = self.solve_cp_model_2(
-            base_cp,
-            timelimit,
-            solver_thread_cnt,
-            log_level_obj_value=logging.DEBUG,
-            log_level_obj_bound=logging.DEBUG,
+        validate_duration(start_time_map, end_time_map, self.job_2_stage_2_p_dict)
+        validate_precedence(start_time_map, end_time_map, self.instance.stage_id_list)
+        validate_no_overlap(
+            start_time_map,
+            end_time_map,
+            self.instance.stage_id_list,
+            self.instance.stage_2_machines_map,
         )
-        if solver_report.status not in (CpsatStatus.FEASIBLE, CpsatStatus.OPTIMAL):
-            mdl_txt_path = self.get_file_path_for_subroutine(
-                "_feasibility_check_failed.txt"
-            )
-            base_cp.export_to_file(str(mdl_txt_path))
-            if solver_report.status == CpsatStatus.INFEASIBLE:
-                raise RuntimeError(
-                    f"Feasibility check failed: INFEASIBLE. Model saved to {mdl_txt_path}"
-                )
-            else:
-                raise ValueError(
-                    f"Feasibility check failed with status {solver_report.status}. "
-                    f"Model saved to {mdl_txt_path}"
-                )
+
         logging.info("Feasibility check passed")
-        if solver_report.obj_value is None:
-            raise ValueError("Feasibility check did not return an objective value.")
-        return solver_report.obj_value
+        return makespan
 
     # End post-run process
 
