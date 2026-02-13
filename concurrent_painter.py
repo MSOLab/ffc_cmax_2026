@@ -1,3 +1,4 @@
+import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -36,6 +37,11 @@ def draw_gantt_charts_from_solutions(
     """
     working_dir = Path(working_dir)
     files = list(working_dir.rglob(solution_filename_format.format("*")))
+    if not files:
+        logging.info(
+            f"No solution files found in {working_dir} with pattern {solution_filename_format}"
+        )
+        return
     max_worker_cnt = min(painter_thread_cnt, len(files))
 
     _result_gantt_filename_format = result_gantt_filename_format or "{}_gantt.png"
