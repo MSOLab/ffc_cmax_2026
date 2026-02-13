@@ -1662,29 +1662,36 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         computational_time: float | None = None,
         solver_thread_cnt: int | None = None,
     ) -> None:
-        # Identify bottleneck stage
-        stage_id_2_total_p = {}
-        for stage_id in self.instance.stage_id_list:
-            stage_id_2_total_p[stage_id] = sum(
-                self.stage_2_job_2_p_dict[stage_id][job_id]
-                for job_id in self.instance.job_id_list
-            )
-        # pprint(stage_id_2_total_p)
-        # stage_2_machine_count = {
-        #     stage_id: len(self.instance.stage_2_machines_map[stage_id])
-        #     for stage_id in self.instance.stage_id_list
+        # # Identify bottleneck stage
+        # stage_id_2_total_p = {}
+        # for stage_id in self.instance.stage_id_list:
+        #     stage_id_2_total_p[stage_id] = sum(
+        #         self.stage_2_job_2_p_dict[stage_id][job_id]
+        #         for job_id in self.instance.job_id_list
+        #     )
+        # # pprint(stage_id_2_total_p)
+        # # stage_2_machine_count = {
+        # #     stage_id: len(self.instance.stage_2_machines_map[stage_id])
+        # #     for stage_id in self.instance.stage_id_list
+        # # }
+        # # pprint(stage_2_machine_count)
+        # stage_id_2_bottleneck_index = {
+        #     stage_id: total_p / len(self.instance.stage_2_machines_map[stage_id])
+        #     for stage_id, total_p in stage_id_2_total_p.items()
         # }
-        # pprint(stage_2_machine_count)
-        stage_id_2_bottleneck_index = {
-            stage_id: total_p / len(self.instance.stage_2_machines_map[stage_id])
-            for stage_id, total_p in stage_id_2_total_p.items()
-        }
-        # pprint(stage_id_2_bottleneck_index)
+        # # pprint(stage_id_2_bottleneck_index)
 
-        # Bottleneck stage is the one with the highest stage_id_2_bottleneck_index
-        bottleneck_stage_id = max(
-            stage_id_2_bottleneck_index, key=stage_id_2_bottleneck_index.get
-        )
+        # # Bottleneck stage is the one with the highest stage_id_2_bottleneck_index
+        # bottleneck_stage_id = max(
+        #     stage_id_2_bottleneck_index, key=stage_id_2_bottleneck_index.get
+        # )
+
+        stage_2_shd_bound = {
+            stage: self.get_shdlb_for_stage(stage)
+            for stage in self.instance.stage_id_list
+        }
+        bottleneck_stage_id = max(stage_2_shd_bound, key=stage_2_shd_bound.get)
+
         logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
 
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
