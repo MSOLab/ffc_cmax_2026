@@ -31,6 +31,8 @@ class GanttPlotter:
         stage_list: list[str] | None = None,
         machine_list_per_stage: dict[str, list[str]] | None = None,
         all_job_list: list[str] | None = None,
+        force_start: int | None = None,
+        force_end: int | None = None,
     ):
         self.plot_hybrid_flowshop(
             start_time_map,
@@ -39,6 +41,8 @@ class GanttPlotter:
             stage_list=stage_list,
             machine_list_per_stage=machine_list_per_stage,
             all_job_list=all_job_list,
+            force_start=force_start,
+            force_end=force_end,
         )
         plt.show()
 
@@ -51,6 +55,8 @@ class GanttPlotter:
         stage_list: list[str] | None = None,
         machine_list_per_stage: dict[str, list[str]] | None = None,
         all_job_list: list[str] | None = None,
+        force_start: int | None = None,
+        force_end: int | None = None,
     ):
         self.plot_hybrid_flowshop(
             start_time_map,
@@ -59,6 +65,8 @@ class GanttPlotter:
             stage_list=stage_list,
             machine_list_per_stage=machine_list_per_stage,
             all_job_list=all_job_list,
+            force_start=force_start,
+            force_end=force_end,
         )
         plt.savefig(file_path, bbox_inches="tight", dpi=300)
         logging.info(f"Gantt chart saved to {file_path}")
@@ -72,6 +80,8 @@ class GanttPlotter:
         stage_list: list[str] | None = None,
         machine_list_per_stage: dict[str, list[str]] | None = None,
         all_job_list: list[str] | None = None,
+        force_start: int | None = None,
+        force_end: int | None = None,
     ):
         """
         Plot a Gantt chart for a Hybrid Flow Shop solution.
@@ -83,7 +93,9 @@ class GanttPlotter:
             stage_list (list, optional): List of stages to include
             machine_list_per_stage (dict, optional): stage -> list of machines
         """
-        self.set_x_horizon(start_time_map, end_time_map)
+        self.set_x_horizon(
+            start_time_map, end_time_map, force_start=force_start, force_end=force_end
+        )
 
         # list of jobs, stages, & machines
 
@@ -170,10 +182,16 @@ class GanttPlotter:
         self,
         start_time_map: dict[tuple[str, str, str], int],
         end_time_map: dict[tuple[str, str, str], int],
+        force_start: int | None = None,
+        force_end: int | None = None,
     ):
         earliest_start, latest_completion = GanttPlotter.compute_horizon(
             start_time_map, end_time_map
         )
+        if force_start is not None:
+            earliest_start = force_start
+        if force_end is not None:
+            latest_completion = force_end
         self.ax.set_xlim(earliest_start, latest_completion + 1)
 
     def create_job_to_color_map(

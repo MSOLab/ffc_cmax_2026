@@ -1,0 +1,3 @@
+- method: bottleneck_parallel_mc
+  computational_time: 10
+  solver_thread_cnt: 8

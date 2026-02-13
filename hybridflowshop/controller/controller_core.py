@@ -243,7 +243,11 @@ class HybridFlowShopCpLnsControllerCore(
     # Start visualization
 
     def draw_gantt(
-        self, schedule: HybridFlowshopLiteSchedule, output_path: Path | None = None
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        output_path: Path | None = None,
+        force_start: int | None = None,
+        force_end: int | None = None,
     ):
         """Draws the Gantt chart of the given schedule.
 
@@ -260,6 +264,8 @@ class HybridFlowShopCpLnsControllerCore(
                 schedule.get_start_time_map(),
                 schedule.get_end_time_map(),
                 self.instance.job_id_list,
+                force_start=force_start,
+                force_end=force_end,
             )
 
     def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
