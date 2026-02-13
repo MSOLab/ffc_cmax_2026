@@ -1779,7 +1779,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self, params: ParallelMcParams, variables: ParallelMcVars, target_stage_id: str
     ) -> HybridFlowshopLiteSchedule:
         start_time_map = self.extract_job_2_start_time_map(params, variables)
-        pprint(start_time_map)
 
         schedule = self.create_empty_schedule_from_ins()
         sorted_j_list = sorted(
