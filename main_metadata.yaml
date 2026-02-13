@@ -456,8 +456,8 @@ dicts_of_i_o_data_path:
   #   output_dir : "pra_half_nc/20260211-3"
   #   description: "Adaptive LNS-CP with TL=nc/2"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_nc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260213-3.yaml"
-    output_dir : "pra_half_nc/20260213-3"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260213-5.yaml"
+    output_dir : "pra_half_nc/20260213-5"
     description: "Adaptive LNS-CP with TL=nc/2"
 
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
