@@ -1846,8 +1846,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
         for bottleneck_stage_id in self.instance.stage_id_list:
-            logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
-
             # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
             bottleneck_stage_index = self.instance.stage_id_list.index(
                 bottleneck_stage_id
