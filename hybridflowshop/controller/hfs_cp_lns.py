@@ -1842,81 +1842,60 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int | None = None,
     ) -> None:
         sub_timer = ElapsedTimer()
-        # Identify bottleneck stage
-        stage_id_2_total_p = {}
-        for stage_id in self.instance.stage_id_list:
-            stage_id_2_total_p[stage_id] = sum(
-                self.stage_2_job_2_p_dict[stage_id][job_id]
-                for job_id in self.instance.job_id_list
+
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        for bottleneck_stage_id in self.instance.stage_id_list:
+            logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
+
+            # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
+            bottleneck_stage_index = self.instance.stage_id_list.index(
+                bottleneck_stage_id
             )
-        # pprint(stage_id_2_total_p)
-        # stage_2_machine_count = {
-        #     stage_id: len(self.instance.stage_2_machines_map[stage_id])
-        #     for stage_id in self.instance.stage_id_list
-        # }
-        # pprint(stage_2_machine_count)
-        stage_id_2_bottleneck_index = {
-            stage_id: total_p / len(self.instance.stage_2_machines_map[stage_id])
-            for stage_id, total_p in stage_id_2_total_p.items()
-        }
-        # pprint(stage_id_2_bottleneck_index)
+            before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
+            after_stage_id_list = self.instance.stage_id_list[
+                bottleneck_stage_index + 1 :
+            ]
 
-        # Bottleneck stage is the one with the highest stage_id_2_bottleneck_index
-        bottleneck_stage_id = max(
-            stage_id_2_bottleneck_index, key=stage_id_2_bottleneck_index.get
-        )
+            r_dict = {
+                j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
+                for j in self.instance.job_id_list
+            }
+            tr_dict = {
+                j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
+                for j in self.instance.job_id_list
+            }
 
-        # stage_2_shd_bound = {
-        #     stage: self.get_shdlb_for_stage(stage)
-        #     for stage in self.instance.stage_id_list
-        # }
-        # bottleneck_stage_id = max(stage_2_shd_bound, key=stage_2_shd_bound.get)
+            # Sort jobs by (r_j - tr_j, tie-break by original job index)
+            # Jobs with higher (r_j - tr_j) value are scheduled first
+            sorted_j_list = sorted(
+                self.instance.job_id_list,
+                key=lambda j: (
+                    r_dict[j] - tr_dict[j],
+                    self.instance.job_id_list.index(j),
+                ),
+            )
 
-        logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
+            dispatched_schedule = self.create_empty_schedule_from_ins()
+            for j in sorted_j_list:
+                dispatched_schedule.dispatch_job_by_stages(
+                    j, self.job_2_stage_2_p_dict[j]
+                )
+            dispatched_obj_value = dispatched_schedule.makespan
 
-        # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
-        bottleneck_stage_index = self.instance.stage_id_list.index(bottleneck_stage_id)
-        before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
-        after_stage_id_list = self.instance.stage_id_list[bottleneck_stage_index + 1 :]
+            if best_obj is None or dispatched_obj_value < best_obj:
+                best_obj = dispatched_obj_value
+                best_sch = dispatched_schedule
 
-        # logging.info("Before stages: %s", before_stage_id_list)
-        # logging.info("After stages: %s", after_stage_id_list)
-
-        r_dict = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
-            for j in self.instance.job_id_list
-        }
-        tr_dict = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
-            for j in self.instance.job_id_list
-        }
-        # pprint(r_dict)
-        # pprint(p_dict)
-        # pprint(tr_dict)
-
-        # Sort jobs by (r_j - tr_j, tie-break by original job index)
-        # Jobs with higher (r_j - tr_j) value are scheduled first
-        sorted_j_list = sorted(
-            self.instance.job_id_list,
-            key=lambda j: (r_dict[j] - tr_dict[j], self.instance.job_id_list.index(j)),
-        )
-
-        dispatched_schedule = self.create_empty_schedule_from_ins()
-        for j in sorted_j_list:
-            dispatched_schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
-        dispatched_obj_value = dispatched_schedule.makespan
-
-        logging.info(
-            f"Bottleneck parallel MC: full_schedule_obj={dispatched_obj_value}"
-        )
+        logging.info(f"Bottleneck parallel MC: full_schedule_obj={best_obj}")
 
         report = HfsSubroutineReport(
             elapsed_time=sub_timer.elapsed_sec,
-            obj_value=dispatched_obj_value,
+            obj_value=best_obj,
             obj_bound=None,
             is_init=True,
         )
-        self.solution_manager.register(report, dispatched_schedule)
+        self.solution_manager.register(report, best_sch)
 
         # solution_dict = {
         #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_start_time_map()),
