@@ -1,7 +1,6 @@
 import logging
 import math
 import random
-from pprint import pprint
 from typing import Callable
 
 from mbls.cpsat import CpsatStatus
@@ -1751,18 +1750,43 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
 
         if cpsat_status.is_feasible:
-            schedule = self._extract_schedule_from_parallel_mc_solution(
+            # Make bottleneck-stage-only schedule
+            bottleneck_only_schedule = self._extract_schedule_from_parallel_mc_solution(
                 params, variables, bottleneck_stage_id
             )
             # Draw Gantt chart; force start time as zero and end time as makespan by CP
-            self.draw_gantt(schedule, force_start=0, force_end=int(obj_value))
+            self.draw_gantt(
+                bottleneck_only_schedule, force_start=0, force_end=int(obj_value)
+            )
+            # Create a job sequence from the bottleneck-only schedule
+            # Sort by (start time at bottleneck stage - r_dict[j], tie-break by original job index)
+            bottleneck_only_start_time_map = self.extract_job_2_start_time_map(
+                params, variables
+            )
+            sorted_j_list = sorted(
+                params.j_list,
+                key=lambda j: (
+                    bottleneck_only_start_time_map[j] - r_dict[j],
+                    self.instance.job_id_list.index(j),
+                ),
+            )
+            dispatched_schedule = self.create_empty_schedule_from_ins()
+            for j in sorted_j_list:
+                dispatched_schedule.dispatch_job_by_stages(
+                    j, self.job_2_stage_2_p_dict[j]
+                )
+            dispatched_obj_value = dispatched_schedule.makespan
+            logging.info(
+                f"Bottleneck parallel MC: CP_obj={int(obj_value)}, full_schedule_obj={dispatched_obj_value}"
+            )
+
             report = HfsSubroutineReport(
                 elapsed_time=elapsed_time,
-                obj_value=None,
+                obj_value=dispatched_obj_value,
                 obj_bound=obj_bound,
                 is_init=True,
             )
-            self.solution_manager.register(report, None) # TODO: make feasible schedule by dispatching
+            self.solution_manager.register(report, dispatched_schedule)
 
             # solution_dict = {
             #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_start_time_map()),
@@ -1773,7 +1797,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             #     self.get_file_path_for_subroutine("_solution.yaml"),
             #     encoding="utf-8",
             # )
-
 
     def _extract_schedule_from_parallel_mc_solution(
         self, params: ParallelMcParams, variables: ParallelMcVars, target_stage_id: str
