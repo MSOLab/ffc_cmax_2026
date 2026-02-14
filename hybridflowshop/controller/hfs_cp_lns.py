@@ -1485,7 +1485,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
-        cp_tl_multiplier: float | None = None,
+        cp_tl_nc_multiplier: float | None = None,
+        cp_tl_c_multiplier: float | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1498,7 +1499,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 Defaults to 1.
             max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
                 If None, uses the remaining time limit. Defaults to None.
-            cp_tl_multiplier (float | None, optional): Multiplier for the time limit of each CP subproblem.
+            cp_tl_nc_multiplier (float | None, optional): Multiplier for the time limit of each CP subproblem.
+                If None, uses the default value. Defaults to None.
+            cp_tl_c_multiplier (float | None, optional): Multiplier for the time limit of each CP subproblem.
                 If None, uses the default value. Defaults to None.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
@@ -1519,7 +1522,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.stage_2_job_2_p_dict,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
-            cp_tl_multiplier=cp_tl_multiplier,
+            cp_tl_nc_multiplier=cp_tl_nc_multiplier,
+            cp_tl_c_multiplier=cp_tl_c_multiplier,
             solver_thread_cnt=solver_thread_cnt,
             error_if_infeasible=error_if_infeasible,
         )
