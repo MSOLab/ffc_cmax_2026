@@ -265,16 +265,26 @@ class HybridFlowshopLiteSchedule:
             (job_id, stage, mc) for stage, mc, _, _, job_id in self._iter_operations()
         }
 
-    def get_jik_2_start_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+    def get_jik_2_start_time_map(
+        self,
+    ) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
         return {
             (job_id, stage, mc): int(start)
             for stage, mc, start, _, job_id in self._iter_operations()
         }
 
-    def get_jik_2_end_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+    def get_jik_2_end_time_map(
+        self,
+    ) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
         return {
             (job_id, stage, mc): int(end)
             for stage, mc, _, end, job_id in self._iter_operations()
+        }
+
+    def get_ji_2_end_time_map(self) -> dict[tuple[JobIdType, StageIdType], int]:
+        return {
+            (job_id, stage): int(end)
+            for stage, _, _, end, job_id in self._iter_operations()
         }
 
     # Setters
@@ -474,6 +484,7 @@ class HybridFlowshopLiteSchedule:
         stage_id: StageIdType,
         job_id_seq: Sequence[JobIdType],
         job_2_duration: Mapping[JobIdType, int],
+        job_2_release: Mapping[JobIdType, int] | None = None,
     ) -> None:
         """Dispatch multiple jobs to a stage with precedence-aware priority.
 
@@ -489,7 +500,8 @@ class HybridFlowshopLiteSchedule:
             stage_id (StageIdType): Stage identifier
             job_id_seq (Sequence[JobIdType]): Sequence of job identifiers to dispatch
             job_2_duration (Mapping[JobIdType, int]): Mapping from job ID to operation duration
-
+            job_2_release (Mapping[JobIdType, int] | None, optional): Mapping from job ID to release time.
+                Defaults to None.
         Raises:
             ValueError: If stage_id is invalid
             ValueError: If a job's duration is not provided in job_2_duration
@@ -513,7 +525,8 @@ class HybridFlowshopLiteSchedule:
             if job_id not in job_2_duration:
                 raise ValueError(f"Duration for job ID {job_id} not provided")
             duration = job_2_duration[job_id]
-            self.add_operation_2_stage(stage_id, job_id, duration)
+            release_t = job_2_release[job_id] if job_2_release is not None else None
+            self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
 
     def dispatch_job_by_stages(
         self, job_id: JobIdType, stage_2_duration: Mapping[StageIdType, int]
@@ -958,6 +971,29 @@ class HybridFlowshopLiteSchedule:
                             blocks.append(current_block)
 
         return blocks
+
+    # Setter - shift
+
+    def right_shift(self, shift_amount: int) -> None:
+        """Right-shift the entire schedule by a specified amount.
+
+        This method adds the shift_amount to the start and end times of all
+        operations in the schedule, effectively delaying the entire schedule.
+
+        Args:
+            shift_amount (int): The amount of time to shift the schedule to the right.
+                Must be non-negative.
+        """
+        for stage_id in self.stages:
+            for mc_id in self.machines_per_stage[stage_id]:
+                job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+                new_job_tuple_seq = []
+                for start_time, end_time, job_id in job_tuple_seq:
+                    new_start = start_time + shift_amount
+                    new_end = end_time + shift_amount
+                    new_job_tuple_seq.append((new_start, new_end, job_id))
+                    self.__stage_2_job_2_end_time[stage_id][job_id] = new_end
+                self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id] = new_job_tuple_seq
 
 
 # Validation functions

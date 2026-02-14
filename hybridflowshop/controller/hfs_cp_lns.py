@@ -5,6 +5,7 @@ from typing import Callable
 
 from mbls.cpsat import CpsatStatus
 from routix import ElapsedTimer
+from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
@@ -1796,8 +1797,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.solution_manager.register(report, dispatched_schedule)
 
             # solution_dict = {
-            #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_start_time_map()),
-            #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_end_time_map()),
+            #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_start_time_map()),
+            #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_end_time_map()),
             # }
             # object_to_yaml(
             #     solution_dict,
@@ -1908,13 +1909,255 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self.solution_manager.register(report, best_sch)
 
         # solution_dict = {
-        #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_start_time_map()),
-        #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_end_time_map()),
+        #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_start_time_map()),
+        #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_end_time_map()),
         # }
         # object_to_yaml(
         #     solution_dict,
         #     self.get_file_path_for_subroutine("_solution.yaml"),
         #     encoding="utf-8",
         # )
+
+    def bottleneck_parallel_mc_3(self, draw_gantt: bool = False) -> None:
+        sub_timer = ElapsedTimer()
+        bottleneck_stage_id, bottleneck_schedule, bcmax = (
+            self._get_bottleneck_stage_schedule_heuristic(draw_gantt=draw_gantt)
+        )
+        # Create a later-dispatched schedule by dispatching from the bottleneck schedule
+        later_stage_list = self.instance.stage_id_list[
+            self.instance.stage_id_list.index(bottleneck_stage_id) + 1 :
+        ]
+        logging.info(f"Later stages: {later_stage_list}")
+        bottleneck_stage_end_time_map = bottleneck_schedule.get_jik_2_end_time_map()
+        # Sort jobs by end time at bottleneck stage (ascending)
+        job_2_bottleneck_end_time = {}
+        for (job_id, stage_id, _), end_time in bottleneck_stage_end_time_map.items():
+            if stage_id == bottleneck_stage_id:
+                job_2_bottleneck_end_time[job_id] = end_time
+        sorted_j_list = sorted(
+            self.instance.job_id_list,
+            key=lambda j: (
+                job_2_bottleneck_end_time[j],
+                self.instance.job_id_list.index(j),
+            ),
+        )
+        # Dispatch
+        for stage_id in later_stage_list:
+            bottleneck_schedule.dispatch_stage_by_jobs(
+                stage_id, sorted_j_list, self.stage_2_job_2_p_dict[stage_id]
+            )
+        if draw_gantt:
+            self.draw_gantt(bottleneck_schedule, force_start=0)
+
+        # Create a former-dispatched schedule
+        before_stage_list = self.instance.stage_id_list[
+            : self.instance.stage_id_list.index(bottleneck_stage_id)
+        ]
+        logging.info(f"Before stages: {before_stage_list}")
+        bottleneck_stage_start_time_map = bottleneck_schedule.get_jik_2_start_time_map()
+        job_2_bottleneck_start_time = {}
+        for (
+            job_id,
+            stage_id,
+            _,
+        ), start_time in bottleneck_stage_start_time_map.items():
+            if stage_id == bottleneck_stage_id:
+                job_2_bottleneck_start_time[job_id] = start_time
+        # Define a new problem
+        instance_for_former_stages, job_2_release = (
+            self._create_reversed_instance_for_former_stages(
+                before_stage_list, job_2_bottleneck_start_time, bcmax
+            )
+        )
+        # Dispatch
+        former_schedule = self._dispatch_former_stages(
+            instance_for_former_stages, job_2_release
+        )
+        # self.draw_gantt(
+        #     former_schedule,
+        #     stage_list=instance_for_former_stages.stage_id_list,
+        #     force_start=0,
+        # )
+        former_schedule_makespan = former_schedule.makespan
+        logging.info(f"Former stages schedule makespan: {former_schedule_makespan}")
+        discrepancy = former_schedule_makespan - bcmax
+        logging.info(
+            f"Discrepancy between former schedule and bottleneck schedule: {discrepancy}"
+        )
+        # Right-shift original schedule by discrepancy
+        bottleneck_schedule.right_shift(discrepancy)
+
+        former_schedule_end_time_map = former_schedule.get_jik_2_end_time_map()
+        for op, end_time in former_schedule_end_time_map.items():
+            job_id, stage_id, mc_id = op
+            start_time = former_schedule_makespan - end_time
+            duration = self.job_2_stage_2_p_dict[job_id][stage_id]
+            bottleneck_schedule.add_ops_times_2_mc(
+                stage_id, mc_id, job_id, start_time, start_time + duration
+            )
+        bottleneck_schedule.make_semi_active(self.stage_2_job_2_p_dict)
+
+        self.draw_gantt(bottleneck_schedule)
+        complete_makespan = bottleneck_schedule.makespan
+        logging.info(f"Bottleneck parallel MC: full_schedule_obj={complete_makespan}")
+
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=complete_makespan,
+            obj_bound=None,
+            is_init=True,
+        )
+        self.solution_manager.register(report, bottleneck_schedule)
+
+        # solution_dict = {
+        #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_start_time_map()),
+        #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_end_time_map()),
+        # }
+        # object_to_yaml(
+        #     solution_dict,
+        #     self.get_file_path_for_subroutine("_solution.yaml"),
+        #     encoding="utf-8",
+        # )
+
+    def _get_bottleneck_stage_schedule_heuristic(
+        self, draw_gantt: bool = False
+    ) -> tuple[str, HybridFlowshopLiteSchedule, int]:
+        # Identify bottleneck stage
+        stage_id_2_total_p = {}
+        for stage_id in self.instance.stage_id_list:
+            stage_id_2_total_p[stage_id] = sum(
+                self.stage_2_job_2_p_dict[stage_id][job_id]
+                for job_id in self.instance.job_id_list
+            )
+        # pprint(stage_id_2_total_p)
+        # stage_2_machine_count = {
+        #     stage_id: len(self.instance.stage_2_machines_map[stage_id])
+        #     for stage_id in self.instance.stage_id_list
+        # }
+        # pprint(stage_2_machine_count)
+        stage_id_2_bottleneck_index = {
+            stage_id: total_p / len(self.instance.stage_2_machines_map[stage_id])
+            for stage_id, total_p in stage_id_2_total_p.items()
+        }
+        # pprint(stage_id_2_bottleneck_index)
+
+        # Bottleneck stage is the one with the highest stage_id_2_bottleneck_index
+        bottleneck_stage_id = max(
+            stage_id_2_bottleneck_index, key=stage_id_2_bottleneck_index.get
+        )
+
+        # stage_2_shd_bound = {
+        #     stage: self.get_shdlb_for_stage(stage)
+        #     for stage in self.instance.stage_id_list
+        # }
+        # bottleneck_stage_id = max(stage_2_shd_bound, key=stage_2_shd_bound.get)
+
+        logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
+
+        # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
+        bottleneck_stage_index = self.instance.stage_id_list.index(bottleneck_stage_id)
+        before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
+        after_stage_id_list = self.instance.stage_id_list[bottleneck_stage_index + 1 :]
+
+        # logging.info("Before stages: %s", before_stage_id_list)
+        # logging.info("After stages: %s", after_stage_id_list)
+
+        r_dict = {
+            j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
+            for j in self.instance.job_id_list
+        }
+        p_dict = self.stage_2_job_2_p_dict[bottleneck_stage_id]
+        tr_dict = {
+            j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
+            for j in self.instance.job_id_list
+        }
+        # pprint(r_dict)
+        # pprint(p_dict)
+        # pprint(tr_dict)
+
+        # Sort jobs by (r_j - tr_j, tie-break by original job index)
+        # Jobs with higher (r_j - tr_j) value are scheduled first
+        sorted_j_list = sorted(
+            self.instance.job_id_list,
+            key=lambda j: (r_dict[j] - tr_dict[j], self.instance.job_id_list.index(j)),
+        )
+
+        dispatched_schedule = self.create_empty_schedule_from_ins()
+        dispatched_schedule.dispatch_stage_by_jobs(
+            bottleneck_stage_id,
+            sorted_j_list,
+            p_dict,
+            job_2_release=r_dict,
+        )
+        end_time_dict = dispatched_schedule.get_jik_2_end_time_map()
+        makespan = 0
+        for op, end_time in end_time_dict.items():
+            last_stage_completion = end_time + tr_dict[op[0]]
+            if last_stage_completion > makespan:
+                makespan = last_stage_completion
+
+        logging.info(f"Bottleneck parallel MC: partial_obj={makespan}")
+        # Draw Gantt chart; force start time as zero and end time as makespan by CP
+        if draw_gantt:
+            self.draw_gantt(dispatched_schedule, force_start=0, force_end=makespan)
+        return bottleneck_stage_id, dispatched_schedule, makespan
+
+    def _create_reversed_instance_for_former_stages(
+        self,
+        before_stage_list: list[str],
+        bottleneck_stage_start_time_map: dict[str, int],
+        bcmax: int,
+    ) -> tuple[HybridFlowshopParameters, dict[str, int]]:
+        """Create a reverse scheduling problem.
+
+        Args:
+            before_stage_list (list[str]): List of stage IDs for the former stages (i.e. stages before the bottleneck stage).
+            bottleneck_stage_start_time_map (dict[str, int]): job ID -> start time at bottleneck stage
+            bcmax (int): The makespan of the bottleneck stage schedule.
+
+        Returns:
+            tuple[HybridFlowshopParameters, dict[str, int]]:
+                - HybridFlowshopParameters: An instance of HybridFlowshopParameters for the former stages.
+                - dict[str, int]: A dictionary mapping job IDs to their release dates.
+        """
+        # Create a new instance for the former stages
+        stage_list = reversed(before_stage_list)
+        job_2_release = {}
+        for j in self.instance.job_id_list:
+            bottleneck_start_time = bottleneck_stage_start_time_map[j]
+            job_2_release[j] = bcmax - bottleneck_start_time
+        return HybridFlowshopParameters(
+            name=self.instance.name,
+            job_id_list=self.instance.job_id_list,
+            stage_id_list=list(stage_list),
+            stage_2_machines_map={
+                stage_id: self.instance.stage_2_machines_map[stage_id]
+                for stage_id in before_stage_list
+            },
+            p_manager=self.instance.p_manager,
+        ), job_2_release
+
+    def _dispatch_former_stages(
+        self,
+        instance_for_former_stages: HybridFlowshopParameters,
+        job_2_release: dict[str, int],
+    ) -> HybridFlowshopLiteSchedule:
+        schedule = self.create_empty_schedule_from_ins(instance_for_former_stages)
+        # list of jobs sorted by release time (ascending)
+        sorted_j_list = sorted(
+            instance_for_former_stages.job_id_list,
+            key=lambda j: (
+                job_2_release[j],
+                instance_for_former_stages.job_id_list.index(j),
+            ),
+        )
+        for stage_id in instance_for_former_stages.stage_id_list:
+            schedule.dispatch_stage_by_jobs(
+                stage_id,
+                sorted_j_list,
+                {j: self.job_2_stage_2_p_dict[j][stage_id] for j in sorted_j_list},
+                job_2_release=job_2_release,
+            )
+        return schedule
 
     # End subroutine definition

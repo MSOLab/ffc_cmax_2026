@@ -246,6 +246,7 @@ class HybridFlowShopCpLnsControllerCore(
         self,
         schedule: HybridFlowshopLiteSchedule,
         output_path: Path | None = None,
+        stage_list: list[str] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):
@@ -264,6 +265,7 @@ class HybridFlowShopCpLnsControllerCore(
                 schedule.get_jik_2_start_time_map(),
                 schedule.get_jik_2_end_time_map(),
                 self.instance.job_id_list,
+                stage_list=stage_list,
                 force_start=force_start,
                 force_end=force_end,
             )
@@ -561,17 +563,24 @@ class HybridFlowShopCpLnsControllerCore(
                 end_time_map[i][j] = end_value
         return end_time_map
 
-    def create_empty_schedule_from_ins(self) -> HybridFlowshopLiteSchedule:
-        """
-        Creates an empty HybridFlowshopLiteSchedule for the problem instance.
+    def create_empty_schedule_from_ins(
+        self, instance: HybridFlowshopParameters | None = None
+    ) -> HybridFlowshopLiteSchedule:
+        """Creates an empty HybridFlowshopLiteSchedule for the problem instance.
+
+        Args:
+            instance (HybridFlowshopParameters | None, optional): the problem instance.
+                If None, uses self.instance. Defaults to None.
 
         Returns:
             HybridFlowshopLiteSchedule: An empty schedule object.
         """
+        if instance is None:
+            instance = self.instance
         return HybridFlowshopLiteSchedule(
-            self.instance.job_id_list,
-            self.instance.stage_id_list,
-            self.instance.stage_2_machines_map,
+            instance.job_id_list,
+            instance.stage_id_list,
+            instance.stage_2_machines_map,
         )
 
     def create_schedule(
