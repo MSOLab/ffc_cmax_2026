@@ -1954,7 +1954,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             bottleneck_stage_end_time_map = bottleneck_schedule.get_jik_2_end_time_map()
             # Sort jobs by end time at bottleneck stage (ascending)
             job_2_bottleneck_end_time = {}
-            for (job_id, stage_id, _), end_time in bottleneck_stage_end_time_map.items():
+            for (
+                job_id,
+                stage_id,
+                _,
+            ), end_time in bottleneck_stage_end_time_map.items():
                 if stage_id == bottleneck_stage_id:
                     job_2_bottleneck_end_time[job_id] = end_time
             sorted_j_list = sorted(
@@ -2167,6 +2171,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 (j, t) for j, t in sorted_by_tr if j not in head_job_id_list
             ]
             tail_job_id_list = [j for j, _ in sorted_by_tr[:tail_op_cnt]]
+            # Sort tail jobs by decreasing order of (p_j + tr_j)
+            tail_job_id_list.sort(key=lambda j: p_dict[j] + tr_dict[j], reverse=True)
+            # logging.info(f"Tail job list: {tail_job_id_list}")
+            # logging.info(
+            #     f"Tail jobs with their p + tr values: {[p_dict[j] + tr_dict[j] for j in tail_job_id_list]}"
+            # )
 
         # Update mid_job_id_list to only include jobs that are not in head or tail job lists
         mid_job_id_list = [
