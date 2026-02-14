@@ -2155,31 +2155,33 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # pprint(p_dict)
         # pprint(tr_dict)
         machine_cnt = len(self.instance.stage_2_machines_map[bottleneck_stage_id])
-        # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_j values
+        # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
         head_job_id_list = []
         if head_op_cnt_multiplier is not None:
             head_op_cnt = head_op_cnt_multiplier * machine_cnt
             sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
             head_job_id_list = [j for j, _ in sorted_by_r[:head_op_cnt]]
-        # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs with the smallest (p_j + tr_j) values
-        p_plus_tr_dict = {
-            j: p_dict[j] + tr_dict[j] for j in self.instance.job_id_list
+        # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs
+        dict_for_tail_sorting = {
+            j: tr_dict[j] - p_dict[j] for j in self.instance.job_id_list
         }
         tail_job_id_list = []
         if tail_op_cnt_multiplier is not None:
             tail_op_cnt = tail_op_cnt_multiplier * machine_cnt
-            sorted_by_tr = sorted(p_plus_tr_dict.items(), key=lambda x: x[1])
+            sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
             # Exclude those in head_job_id_list
             sorted_by_tr = [
                 (j, t) for j, t in sorted_by_tr if j not in head_job_id_list
             ]
+            logging.info(f"Sorted for tail operations: {sorted_by_tr}")
             tail_job_id_list = [j for j, _ in sorted_by_tr[:tail_op_cnt]]
             # Sort tail jobs by decreasing order of (p_j + tr_j)
-            tail_job_id_list.reverse()
-            # logging.info(f"Tail job list: {tail_job_id_list}")
-            # logging.info(
-            #     f"Tail jobs with their p + tr values: {[p_plus_tr_dict[j] for j in tail_job_id_list]}"
-            # )
+            tail_job_id_list.sort(key=lambda j: dict_for_tail_sorting[j], reverse=True)
+            logging.info(f"Tail job list: {tail_job_id_list}")
+            for j in tail_job_id_list:
+                logging.info(
+                    f"Job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}, tail sorting criteria={dict_for_tail_sorting[j]}"
+                )
 
         # Update mid_job_id_list to only include jobs that are not in head or tail job lists
         mid_job_id_list = [
