@@ -1957,7 +1957,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         later_stage_list = self.instance.stage_id_list[
             self.instance.stage_id_list.index(bottleneck_stage_id) + 1 :
         ]
-        logging.info(f"Later stages: {later_stage_list}")
+        logging.debug(f"Later stages: {later_stage_list}")
         if later_stage_list:
             bottleneck_stage_end_time_map = bottleneck_schedule.get_jik_2_end_time_map()
             # Sort jobs by end time at bottleneck stage (ascending)
@@ -2005,7 +2005,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         before_stage_list = self.instance.stage_id_list[
             : self.instance.stage_id_list.index(bottleneck_stage_id)
         ]
-        logging.info(f"Before stages: {before_stage_list}")
+        logging.debug(f"Before stages: {before_stage_list}")
         if before_stage_list:
             bottleneck_stage_start_time_map = (
                 bottleneck_schedule.get_jik_2_start_time_map()
@@ -2029,9 +2029,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 instance_for_former_stages, job_2_release
             )
             former_schedule_makespan = former_schedule.makespan
-            logging.info(f"Former stages schedule makespan: {former_schedule_makespan}")
+            logging.debug(
+                f"Former stages schedule makespan: {former_schedule_makespan}"
+            )
             discrepancy = former_schedule_makespan - bcmax
-            logging.info(
+            logging.debug(
                 f"Discrepancy between former schedule and bottleneck schedule: {discrepancy}"
             )
             # Right-shift original schedule by discrepancy
