@@ -1874,16 +1874,24 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 ),
             )
 
-            # job_dispatched_schedule = self.create_empty_schedule_from_ins()
-            # for j in sorted_j_list:
-            #     job_dispatched_schedule.dispatch_job_by_stages(j, p_dict)
+            job_dispatched_schedule = self.create_empty_schedule_from_ins()
+            for j in sorted_j_list:
+                job_dispatched_schedule.dispatch_job_by_stages(
+                    j, self.job_2_stage_2_p_dict[j]
+                )
+            job_dispatched_obj_value = job_dispatched_schedule.makespan
             stage_dispatched_schedule = self.create_empty_schedule_from_ins()
             for i in self.instance.stage_id_list:
                 stage_dispatched_schedule.dispatch_stage_by_jobs(
                     i, sorted_j_list, self.stage_2_job_2_p_dict[i]
                 )
-            dispatched_schedule = stage_dispatched_schedule
-            dispatched_obj_value = dispatched_schedule.makespan
+            stage_dispatched_obj_value = stage_dispatched_schedule.makespan
+            if job_dispatched_obj_value < stage_dispatched_obj_value:
+                dispatched_schedule = job_dispatched_schedule
+                dispatched_obj_value = job_dispatched_obj_value
+            else:
+                dispatched_schedule = stage_dispatched_schedule
+                dispatched_obj_value = stage_dispatched_obj_value
 
             if best_obj is None or dispatched_obj_value < best_obj:
                 best_obj = dispatched_obj_value
