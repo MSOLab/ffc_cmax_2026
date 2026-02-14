@@ -221,10 +221,10 @@ class HfsSingleInstanceRunner(
         if incumbent_solution:
             solution_dict = {
                 START_TIME_MAP_KEY: tuple_to_pyyaml_key(
-                    incumbent_solution.get_start_time_map()
+                    incumbent_solution.get_jik_2_start_time_map()
                 ),
                 END_TIME_MAP_KEY: tuple_to_pyyaml_key(
-                    incumbent_solution.get_end_time_map()
+                    incumbent_solution.get_jik_2_end_time_map()
                 ),
             }
             object_to_yaml(solution_dict, self.solution_path, encoding=encoding)

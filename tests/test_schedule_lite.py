@@ -95,8 +95,8 @@ def test_append_operation_2_stage_uses_machine_ready_time_if_larger_than_precede
     # Stage 2 for j2 should start at max(machine_ready=10, prev_stage_end=3) => 10.
     sched.add_operation_2_stage("s2", "j2", duration=2)
 
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
 
     assert start_map[("j1", "s2", "m2")] == 0
     assert end_map[("j1", "s2", "m2")] == 10
@@ -153,13 +153,13 @@ def test_get_start_time_map_and_end_time_map_basic():
     sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=3, end_time=7)
     sched.add_ops_times_2_mc("s2", "m2", "j2", start_time=5, end_time=8)
 
-    assert sched.get_start_time_map() == {
+    assert sched.get_jik_2_start_time_map() == {
         ("j1", "s1", "m1"): 0,
         ("j2", "s1", "m2"): 1,
         ("j1", "s2", "m1"): 3,
         ("j2", "s2", "m2"): 5,
     }
-    assert sched.get_end_time_map() == {
+    assert sched.get_jik_2_end_time_map() == {
         ("j1", "s1", "m1"): 3,
         ("j2", "s1", "m2"): 5,
         ("j1", "s2", "m1"): 7,
@@ -177,8 +177,8 @@ def test_time_maps_reflect_append_operation_2_stage_precedence():
     sched.add_operation_2_stage("s1", "j1", duration=5)
     sched.add_operation_2_stage("s2", "j1", duration=2)
 
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
 
     assert start_map[("j1", "s1", "m1")] == 0
     assert end_map[("j1", "s1", "m1")] == 5
@@ -200,8 +200,8 @@ def test_remove_operations_removes_specified_ops_and_updates_cache():
 
     sched.remove_operations({("j1", "s2", "m1")})
 
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
 
     assert ("j1", "s2", "m1") not in start_map
     assert ("j1", "s2", "m1") not in end_map
@@ -233,8 +233,8 @@ def test_remove_operations_multiple_ops_same_machine():
 
     sched.remove_operations({("j2", "s1", "m1"), ("j3", "s1", "m1")})
 
-    assert sched.get_start_time_map() == {("j1", "s1", "m1"): 0}
-    assert sched.get_end_time_map() == {("j1", "s1", "m1"): 2}
+    assert sched.get_jik_2_start_time_map() == {("j1", "s1", "m1"): 0}
+    assert sched.get_jik_2_end_time_map() == {("j1", "s1", "m1"): 2}
     assert sched.get_machine_latest_end_time("s1", "m1") == 2
     assert sched.makespan == 2
 
@@ -265,8 +265,8 @@ def test_deepcopy_copies_and_filters_cache():
     assert job_tuple_seq == [(0, 2, "j1")]
 
     # Public maps should reflect the filtered schedule
-    assert copied.get_start_time_map() == {("j1", "s1", "m1"): 0}
-    assert copied.get_end_time_map() == {("j1", "s1", "m1"): 2}
+    assert copied.get_jik_2_start_time_map() == {("j1", "s1", "m1"): 0}
+    assert copied.get_jik_2_end_time_map() == {("j1", "s1", "m1"): 2}
 
 
 def test_inserts_into_idle_gap_on_machine():
@@ -284,8 +284,8 @@ def test_inserts_into_idle_gap_on_machine():
     # This should be inserted into the gap, not appended to the tail.
     sched.add_operation_2_mc("i0", "i0_0", "j3", duration=3, release_t=0)
 
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
 
     assert start_map[("j1", "i0", "i0_0")] == 0
     assert end_map[("j1", "i0", "i0_0")] == 5
@@ -318,7 +318,7 @@ def test_stage_dispatch_prefers_gap_machine():
     # Dispatching to stage should select i0_1 and start at 20 (in the gap)
     sched.add_operation_2_stage("i0", "c", duration=5, release_t=0)
 
-    start_map = sched.get_start_time_map()
+    start_map = sched.get_jik_2_start_time_map()
     assert start_map[("c", "i0", "i0_1")] == 20
 
 
@@ -351,7 +351,7 @@ def test_dispatch_stage_by_jobs_uses_precedence_priority():
         job_2_duration={"a": 7, "b": 5},
     )
 
-    start_map = sched.get_start_time_map()
+    start_map = sched.get_jik_2_start_time_map()
     # 'a' should be scheduled first at its earliest feasible time (1), not pushed to 10.
     assert start_map[("a", "i1", "m1")] == 1
     assert start_map[("b", "i1", "m1")] == 10
@@ -419,7 +419,7 @@ def test_make_semi_active_with_slack():
     )
 
     # Before make_semi_active, schedule has slack
-    start_map_before = sched.get_start_time_map()
+    start_map_before = sched.get_jik_2_start_time_map()
     assert start_map_before[("j1", "s1", "m1")] == 5  # has slack
     assert start_map_before[("j2", "s1", "m1")] == 10
 
@@ -427,7 +427,7 @@ def test_make_semi_active_with_slack():
     sched.make_semi_active(stage_2_job_2_duration)
 
     # After make_semi_active, operations should be left-shifted
-    start_map = sched.get_start_time_map()
+    start_map = sched.get_jik_2_start_time_map()
     # j1@s1 should start at 0 (no job precedence, machine available)
     assert start_map[("j1", "s1", "m1")] == 0
     # j2@s1 should start at 5 (after j1@s1 completes)
@@ -481,7 +481,7 @@ def test_make_semi_active_respects_precedence():
 
     sched.make_semi_active(stage_2_job_2_duration)
 
-    start_map = sched.get_start_time_map()
+    start_map = sched.get_jik_2_start_time_map()
     # With precedence: j1@s1 starts at 0 (duration 10), s2 starts at 10 (duration 10), s3 starts at 20 (duration 10)
     assert start_map[("j1", "s1", "m1")] == 0
     assert start_map[("j1", "s2", "m1")] == 10
@@ -512,7 +512,7 @@ def test_make_semi_active_multi_machine():
 
     sched.make_semi_active(stage_2_job_2_duration)
 
-    start_map = sched.get_start_time_map()
+    start_map = sched.get_jik_2_start_time_map()
     # j1@s1 should be left-shifted to start at 0 on m1
     assert start_map[("j1", "s1", "m1")] == 0
     # j2@s1 should be left-shifted to start at 0 on m2 (m2 is independent)
@@ -546,13 +546,13 @@ def test_make_semi_active_already_semi_active():
     sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=10, end_time=15)
 
     makespan_before = sched.makespan
-    start_map_before = sched.get_start_time_map()
+    start_map_before = sched.get_jik_2_start_time_map()
 
     sched.make_semi_active(stage_2_job_2_duration)
 
     # Should be unchanged
     assert sched.makespan == makespan_before
-    assert sched.get_start_time_map() == start_map_before
+    assert sched.get_jik_2_start_time_map() == start_map_before
 
 
 def test_make_semi_active_empty_schedule():
@@ -600,8 +600,8 @@ def test_make_semi_active_from_dummy_times():
 
     validate_schedule(sched, duration)
 
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
 
     # S1.M1: J1[0,3), J2[3,7), J3[7,9)
     assert start_map[("J1", "S1", "M1")] == 0
@@ -663,8 +663,8 @@ def test_swap_cross_machine_with_make_semi_active():
 
     validate_schedule(sched, duration)
 
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
 
     # S1 unchanged: J1[0,3), J2[3,7), J3[7,9)
     assert start_map[("J1", "S1", "M1")] == 0
@@ -694,8 +694,8 @@ def test_swap_same_machine_with_make_semi_active():
 
     validate_schedule(sched, duration)
 
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
 
     # S1 unchanged: J1[0,3), J2[3,7), J3[7,9)
     # After swap: S2.M1 order is [J3, J1], S2.M2 still [J2]
@@ -807,8 +807,8 @@ def test_start_from_stage_none_equals_full_retiming():
     sched_partial, _ = _build_3job_3stage_schedule()
     sched_partial.make_semi_active(duration, start_from_stage=None)
 
-    assert sched_full.get_start_time_map() == sched_partial.get_start_time_map()
-    assert sched_full.get_end_time_map() == sched_partial.get_end_time_map()
+    assert sched_full.get_jik_2_start_time_map() == sched_partial.get_jik_2_start_time_map()
+    assert sched_full.get_jik_2_end_time_map() == sched_partial.get_jik_2_end_time_map()
 
 
 def test_start_from_stage_leaves_earlier_stages_untouched():
@@ -817,16 +817,16 @@ def test_start_from_stage_leaves_earlier_stages_untouched():
 
     # Record S1 state before partial retiming.
     s1_start_before = {
-        k: v for k, v in sched.get_start_time_map().items() if k[1] == "S1"
+        k: v for k, v in sched.get_jik_2_start_time_map().items() if k[1] == "S1"
     }
-    s1_end_before = {k: v for k, v in sched.get_end_time_map().items() if k[1] == "S1"}
+    s1_end_before = {k: v for k, v in sched.get_jik_2_end_time_map().items() if k[1] == "S1"}
 
     sched.make_semi_active(duration, start_from_stage="S2")
 
     s1_start_after = {
-        k: v for k, v in sched.get_start_time_map().items() if k[1] == "S1"
+        k: v for k, v in sched.get_jik_2_start_time_map().items() if k[1] == "S1"
     }
-    s1_end_after = {k: v for k, v in sched.get_end_time_map().items() if k[1] == "S1"}
+    s1_end_after = {k: v for k, v in sched.get_jik_2_end_time_map().items() if k[1] == "S1"}
 
     assert s1_start_before == s1_start_after
     assert s1_end_before == s1_end_after
@@ -840,10 +840,10 @@ def test_start_from_stage_equals_full_retiming_result():
         sched_partial, _ = _build_3job_3stage_schedule()
         sched_partial.make_semi_active(duration, start_from_stage=stage)
 
-        assert sched_full.get_start_time_map() == sched_partial.get_start_time_map(), (
+        assert sched_full.get_jik_2_start_time_map() == sched_partial.get_jik_2_start_time_map(), (
             f"start_from_stage={stage} diverges from full retiming (start_time_map)"
         )
-        assert sched_full.get_end_time_map() == sched_partial.get_end_time_map(), (
+        assert sched_full.get_jik_2_end_time_map() == sched_partial.get_jik_2_end_time_map(), (
             f"start_from_stage={stage} diverges from full retiming (end_time_map)"
         )
 
@@ -872,8 +872,8 @@ def test_swap_then_start_from_stage_equals_full_retiming():
     validate_schedule(sched_partial, duration)
     validate_schedule(sched_full, duration)
 
-    assert sched_partial.get_start_time_map() == sched_full.get_start_time_map()
-    assert sched_partial.get_end_time_map() == sched_full.get_end_time_map()
+    assert sched_partial.get_jik_2_start_time_map() == sched_full.get_jik_2_start_time_map()
+    assert sched_partial.get_jik_2_end_time_map() == sched_full.get_jik_2_end_time_map()
 
 
 def test_start_from_stage_invariants_on_3_stages():

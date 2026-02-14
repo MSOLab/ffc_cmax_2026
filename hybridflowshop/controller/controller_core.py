@@ -261,8 +261,8 @@ class HybridFlowShopCpLnsControllerCore(
             plotter = GanttPlotter()
             plotter.export_hybrid_flowshop_plot(
                 output_path,
-                schedule.get_start_time_map(),
-                schedule.get_end_time_map(),
+                schedule.get_jik_2_start_time_map(),
+                schedule.get_jik_2_end_time_map(),
                 self.instance.job_id_list,
                 force_start=force_start,
                 force_end=force_end,
@@ -323,7 +323,7 @@ class HybridFlowShopCpLnsControllerCore(
         """
         incumbent = self.solution_manager.get_incumbent()
         if incumbent:
-            self.check_feasibility(incumbent.get_start_time_map())
+            self.check_feasibility(incumbent.get_jik_2_start_time_map())
         self.release_log_handlers()
         self.total_elapsed_time = self.timer.elapsed_sec
 
@@ -637,7 +637,7 @@ class HybridFlowShopCpLnsControllerCore(
                 - The second maps (job, stage, machine) to the operation end time.
         """
         schedule = self.create_schedule(params, variables)
-        return schedule.get_start_time_map(), schedule.get_end_time_map()
+        return schedule.get_jik_2_start_time_map(), schedule.get_jik_2_end_time_map()
 
     def solve_current_cp_remaining_time_limit(
         self,
@@ -720,7 +720,7 @@ class HybridFlowShopCpLnsControllerCore(
             if hfs_solver_report.is_feasible:
                 solution = self.create_schedule(self.params, self.vars)
                 if error_if_infeasible:
-                    self.check_feasibility(solution.get_start_time_map())
+                    self.check_feasibility(solution.get_jik_2_start_time_map())
                 # Ensure consistency between report and solution
                 if solution.makespan != hfs_solver_report.obj_value:
                     raise ValueError(
@@ -776,7 +776,7 @@ class HybridFlowShopCpLnsControllerCore(
                 self.cp_model,
                 self.params,
                 self.vars,
-                incumbent_solution.get_start_time_map(),
+                incumbent_solution.get_jik_2_start_time_map(),
             )
 
         return self.solve_current_cp_remaining_time_limit(

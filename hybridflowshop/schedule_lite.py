@@ -265,13 +265,13 @@ class HybridFlowshopLiteSchedule:
             (job_id, stage, mc) for stage, mc, _, _, job_id in self._iter_operations()
         }
 
-    def get_start_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+    def get_jik_2_start_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
         return {
             (job_id, stage, mc): int(start)
             for stage, mc, start, _, job_id in self._iter_operations()
         }
 
-    def get_end_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+    def get_jik_2_end_time_map(self) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
         return {
             (job_id, stage, mc): int(end)
             for stage, mc, _, end, job_id in self._iter_operations()
@@ -983,8 +983,8 @@ def validate_schedule(
     Raises:
         ValueError: If any invariant is violated.
     """
-    start_map = sched.get_start_time_map()
-    end_map = sched.get_end_time_map()
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
     stages = list(sched.stages)
 
     validate_duration(start_map, end_map, stage_2_job_2_duration)

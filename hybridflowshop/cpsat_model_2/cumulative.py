@@ -189,8 +189,8 @@ class BaseModelBuilder:
         variables: CumulativeVars,
         current_schedule: HybridFlowshopLiteSchedule,
     ) -> None:
-        start_time_map = current_schedule.get_start_time_map()
-        end_time_map = current_schedule.get_end_time_map()
+        start_time_map = current_schedule.get_jik_2_start_time_map()
+        end_time_map = current_schedule.get_jik_2_end_time_map()
         for i in params.i_list:
             current_j_set = {j for j, ip, _ in start_time_map if ip == i}
             current_j_list = [j for j in params.j_list if j in current_j_set]

@@ -152,8 +152,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
                 )
             ref_obj_value = ref_schedule.makespan
-            start_time_map = ref_schedule.get_start_time_map()
-            end_time_map = ref_schedule.get_end_time_map()
+            start_time_map = ref_schedule.get_jik_2_start_time_map()
+            end_time_map = ref_schedule.get_jik_2_end_time_map()
 
             # Repeat until swapped schedule has the same or better objective
             max_trial_cnt = 1000
@@ -368,8 +368,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
             raise ValueError("Incumbent solution is not a HybridFlowshopLiteSchedule.")
-        start_time_map = incumbent_solution.get_start_time_map()
-        end_time_map = incumbent_solution.get_end_time_map()
+        start_time_map = incumbent_solution.get_jik_2_start_time_map()
+        end_time_map = incumbent_solution.get_jik_2_end_time_map()
 
         if not start_time_map or not end_time_map:
             raise ValueError("No solution available for ops block operator.")
@@ -490,7 +490,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
         logging.info(f"Selected stages: {sorted(selected_stages)}")
 
-        all_ops = list(incumbent_solution.get_start_time_map().keys())
+        all_ops = list(incumbent_solution.get_jik_2_start_time_map().keys())
         selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
 
         # Fix out-of-block operations' profile
@@ -531,8 +531,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
             raise ValueError("Incumbent solution is not a HybridFlowshopLiteSchedule.")
-        start_time_map = incumbent_solution.get_start_time_map()
-        end_time_map = incumbent_solution.get_end_time_map()
+        start_time_map = incumbent_solution.get_jik_2_start_time_map()
+        end_time_map = incumbent_solution.get_jik_2_end_time_map()
 
         if not start_time_map or not end_time_map:
             raise ValueError("No solution available for job-block operator.")
@@ -931,7 +931,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._get_schedule_by_dj_cds()
         if error_if_infeasible:
-            self.check_feasibility(schedule.get_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1017,7 +1017,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
         if error_if_infeasible:
-            self.check_feasibility(best_schedule.get_start_time_map())
+            self.check_feasibility(best_schedule.get_jik_2_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
         # Create report and register the new solution
@@ -1059,7 +1059,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._get_schedule_by_dj_gupta()
         if error_if_infeasible:
-            self.check_feasibility(schedule.get_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1110,7 +1110,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._get_schedule_by_dj_palmer()
         if error_if_infeasible:
-            self.check_feasibility(schedule.get_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1160,7 +1160,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._get_schedule_by_ds_cds()
         if error_if_infeasible:
-            self.check_feasibility(schedule.get_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1242,7 +1242,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if best_schedule is None:
             raise ValueError("No schedule found after applying CDS sequence.")
         if error_if_infeasible:
-            self.check_feasibility(best_schedule.get_start_time_map())
+            self.check_feasibility(best_schedule.get_jik_2_start_time_map())
         logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
 
         # Create report and register the new solution
@@ -1284,7 +1284,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._get_schedule_by_ds_gupta()
         if error_if_infeasible:
-            self.check_feasibility(schedule.get_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1337,7 +1337,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._get_schedule_by_ds_palmer()
         if error_if_infeasible:
-            self.check_feasibility(schedule.get_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1380,7 +1380,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._get_best_of_dispatches()
         if error_if_infeasible:
-            self.check_feasibility(schedule.get_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
@@ -1453,8 +1453,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 "No incumbent solution available to build midpoint sequence."
             )
 
-        start_map = incumbent.get_start_time_map()
-        end_map = incumbent.get_end_time_map()
+        start_map = incumbent.get_jik_2_start_time_map()
+        end_map = incumbent.get_jik_2_end_time_map()
         jobs = self.instance.job_id_list
         idx_map = {j: idx for idx, j in enumerate(jobs)}
         first_stage = self.instance.stage_id_list[0]

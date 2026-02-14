@@ -231,7 +231,7 @@ class NehCpConstructor:
             )
 
         if error_if_infeasible:
-            self.ctx.check_feasibility(st.full_sol.get_start_time_map())
+            self.ctx.check_feasibility(st.full_sol.get_jik_2_start_time_map())
         logging.info(f"NEH-CP done with makespan={st.full_sol.makespan}")
 
         return NehCpResult(
@@ -253,8 +253,8 @@ class NehCpConstructor:
         Returns:
             list[str]: A list of job names ordered by midpoint criteria.
         """
-        start_map = schedule.get_start_time_map()
-        end_map = schedule.get_end_time_map()
+        start_map = schedule.get_jik_2_start_time_map()
+        end_map = schedule.get_jik_2_end_time_map()
         jobs = instance.job_id_list
         idx_map = {j: idx for idx, j in enumerate(jobs)}
         first_stage = instance.stage_id_list[0]
@@ -303,7 +303,7 @@ class NehCpConstructor:
         st = self._require_state()
         # Apply hint from partial solution
         BaseModelBuilder.apply_start_hints_from_start_time_map(
-            mdl, params, variables, partial_sol.get_start_time_map()
+            mdl, params, variables, partial_sol.get_jik_2_start_time_map()
         )
         # Fix profile of operations in previous solution
         if st.partial_sol is not None:
