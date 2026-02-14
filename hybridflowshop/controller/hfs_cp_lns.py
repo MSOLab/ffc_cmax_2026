@@ -1950,38 +1950,41 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.instance.stage_id_list.index(bottleneck_stage_id) + 1 :
         ]
         logging.info(f"Later stages: {later_stage_list}")
-        bottleneck_stage_end_time_map = bottleneck_schedule.get_jik_2_end_time_map()
-        # Sort jobs by end time at bottleneck stage (ascending)
-        job_2_bottleneck_end_time = {}
-        for (job_id, stage_id, _), end_time in bottleneck_stage_end_time_map.items():
-            if stage_id == bottleneck_stage_id:
-                job_2_bottleneck_end_time[job_id] = end_time
-        sorted_j_list = sorted(
-            self.instance.job_id_list,
-            key=lambda j: (
-                job_2_bottleneck_end_time[j],
-                self.instance.job_id_list.index(j),
-            ),
-        )
-        later_ds_schedule = bottleneck_schedule.deepcopy()
-        # Dispatch later stages
-        for stage_id in later_stage_list:
-            later_ds_schedule.dispatch_stage_by_jobs(
-                stage_id, sorted_j_list, self.stage_2_job_2_p_dict[stage_id]
+        if later_stage_list:
+            bottleneck_stage_end_time_map = bottleneck_schedule.get_jik_2_end_time_map()
+            # Sort jobs by end time at bottleneck stage (ascending)
+            job_2_bottleneck_end_time = {}
+            for (job_id, stage_id, _), end_time in bottleneck_stage_end_time_map.items():
+                if stage_id == bottleneck_stage_id:
+                    job_2_bottleneck_end_time[job_id] = end_time
+            sorted_j_list = sorted(
+                self.instance.job_id_list,
+                key=lambda j: (
+                    job_2_bottleneck_end_time[j],
+                    self.instance.job_id_list.index(j),
+                ),
             )
-        later_ds_obj_value = later_ds_schedule.makespan
-        later_dj_schedule = bottleneck_schedule.deepcopy()
-        for job_id in sorted_j_list:
-            later_dj_schedule.dispatch_job_by_stages(
-                job_id,
-                self.job_2_stage_2_p_dict[job_id],
-                from_stage=later_stage_list[0],
-            )
-        later_dj_obj_value = later_dj_schedule.makespan
-        if later_ds_obj_value < later_dj_obj_value:
-            later_schedule = later_ds_schedule
+            later_ds_schedule = bottleneck_schedule.deepcopy()
+            # Dispatch later stages
+            for stage_id in later_stage_list:
+                later_ds_schedule.dispatch_stage_by_jobs(
+                    stage_id, sorted_j_list, self.stage_2_job_2_p_dict[stage_id]
+                )
+            later_ds_obj_value = later_ds_schedule.makespan
+            later_dj_schedule = bottleneck_schedule.deepcopy()
+            for job_id in sorted_j_list:
+                later_dj_schedule.dispatch_job_by_stages(
+                    job_id,
+                    self.job_2_stage_2_p_dict[job_id],
+                    from_stage=later_stage_list[0],
+                )
+            later_dj_obj_value = later_dj_schedule.makespan
+            if later_ds_obj_value < later_dj_obj_value:
+                later_schedule = later_ds_schedule
+            else:
+                later_schedule = later_dj_schedule
         else:
-            later_schedule = later_dj_schedule
+            later_schedule = bottleneck_schedule.deepcopy()
 
         if draw_gantt:
             self.draw_gantt(later_schedule, force_start=0)
