@@ -1487,6 +1487,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
+        make_semi_active_every_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1524,6 +1525,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             max_time_per_add=max_time_per_add,
             cp_tl_nc_multiplier=cp_tl_nc_multiplier,
             cp_tl_c_multiplier=cp_tl_c_multiplier,
+            make_semi_active_every_cp=make_semi_active_every_cp,
             solver_thread_cnt=solver_thread_cnt,
             error_if_infeasible=error_if_infeasible,
         )

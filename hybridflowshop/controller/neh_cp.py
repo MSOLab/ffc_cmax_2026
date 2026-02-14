@@ -110,6 +110,7 @@ class NehCpConstructor:
         max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
+        make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
         error_if_infeasible: bool = False,
     ) -> NehCpResult:
@@ -127,13 +128,13 @@ class NehCpConstructor:
                 )
                 logging.info(
                     f"max_time_per_add is set to {max_time_per_add:.2f} seconds"
-                    f" based on cp_tl_nc_multiplier={cp_tl_nc_multiplier} and instance size."
+                    f" based on cp_tl_nc_multiplier={cp_tl_nc_multiplier}, job & stage count."
                 )
             elif cp_tl_c_multiplier is not None:
                 max_time_per_add = cp_tl_c_multiplier * instance.stage_count
                 logging.info(
                     f"max_time_per_add is set to {max_time_per_add:.2f} seconds"
-                    f" based on cp_tl_c_multiplier={cp_tl_c_multiplier} and remaining time limit."
+                    f" based on cp_tl_c_multiplier={cp_tl_c_multiplier} and stage count."
                 )
 
         sub_obj_store = ObjValueBoundStore[int]()
@@ -191,10 +192,12 @@ class NehCpConstructor:
                 partial_sol_best, instance
             )
 
-            report, new_sol = self._solve_cp_model(
+            _, new_sol = self._solve_cp_model(
                 partial_sol_best,
                 instance,
+                stage_2_job_2_p_dict,
                 max_time_per_add=max_time_per_add,
+                do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
             )
             last_timestamp = st.timer.elapsed_sec
@@ -249,7 +252,6 @@ class NehCpConstructor:
 
         if error_if_infeasible:
             self.ctx.check_feasibility(st.full_sol.get_jik_2_start_time_map())
-        logging.info(f"NEH-CP done with makespan={st.full_sol.makespan}")
 
         return NehCpResult(
             schedule=st.full_sol,
@@ -332,7 +334,9 @@ class NehCpConstructor:
         self,
         partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
+        stage_2_job_2_p_dict: dict[str, dict[str, int]],
         max_time_per_add: float | None = None,
+        do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
     ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
         if solver_thread_cnt is None:
@@ -359,7 +363,17 @@ class NehCpConstructor:
             return report, partial_sol
 
         # If feasible, decode solution
-        new_sol = ctx.create_schedule(params, variables)
+        new_sol: HybridFlowshopLiteSchedule = ctx.create_schedule(params, variables)
+
+        if do_make_semi_active:
+            obj_val_before = new_sol.makespan
+            new_sol.make_semi_active(stage_2_job_2_p_dict)
+            obj_val_after = new_sol.makespan
+            if obj_val_after != obj_val_before:
+                logging.info(
+                    f"NEH-CP: makespan before semi-active adjustment: {obj_val_before},"
+                    f" after adjustment: {obj_val_after}."
+                )
 
         # If new_sol is not better than partial_sol, keep partial_sol
         if new_sol.makespan >= partial_sol.makespan:
