@@ -1963,13 +1963,28 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 self.instance.job_id_list.index(j),
             ),
         )
+        later_ds_schedule = bottleneck_schedule.deepcopy()
         # Dispatch later stages
         for stage_id in later_stage_list:
-            bottleneck_schedule.dispatch_stage_by_jobs(
+            later_ds_schedule.dispatch_stage_by_jobs(
                 stage_id, sorted_j_list, self.stage_2_job_2_p_dict[stage_id]
             )
+        later_ds_obj_value = later_ds_schedule.makespan
+        later_dj_schedule = bottleneck_schedule.deepcopy()
+        for job_id in sorted_j_list:
+            later_dj_schedule.dispatch_job_by_stages(
+                job_id,
+                self.job_2_stage_2_p_dict[job_id],
+                from_stage=later_stage_list[0],
+            )
+        later_dj_obj_value = later_dj_schedule.makespan
+        if later_ds_obj_value < later_dj_obj_value:
+            later_schedule = later_ds_schedule
+        else:
+            later_schedule = later_dj_schedule
+
         if draw_gantt:
-            self.draw_gantt(bottleneck_schedule, force_start=0)
+            self.draw_gantt(later_schedule, force_start=0)
 
         # Create a former-dispatched schedule
         before_stage_list = self.instance.stage_id_list[
@@ -2005,19 +2020,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 f"Discrepancy between former schedule and bottleneck schedule: {discrepancy}"
             )
             # Right-shift original schedule by discrepancy
-            bottleneck_schedule.right_shift(discrepancy)
+            later_schedule.right_shift(discrepancy)
 
             former_schedule_end_time_map = former_schedule.get_jik_2_end_time_map()
             for op, end_time in former_schedule_end_time_map.items():
                 job_id, stage_id, mc_id = op
                 start_time = former_schedule_makespan - end_time
                 duration = self.job_2_stage_2_p_dict[job_id][stage_id]
-                bottleneck_schedule.add_ops_times_2_mc(
+                later_schedule.add_ops_times_2_mc(
                     stage_id, mc_id, job_id, start_time, start_time + duration
                 )
-        bottleneck_schedule.make_semi_active(self.stage_2_job_2_p_dict)
+        later_schedule.make_semi_active(self.stage_2_job_2_p_dict)
 
-        return bottleneck_schedule
+        return later_schedule
 
     def bottleneck_parallel_mc_3(
         self,
@@ -2230,7 +2245,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         instance_for_former_stages: HybridFlowshopParameters,
         job_2_release: dict[str, int],
     ) -> HybridFlowshopLiteSchedule:
-        schedule = self.create_empty_schedule_from_ins(instance_for_former_stages)
         # list of jobs sorted by release time (ascending)
         sorted_j_list = sorted(
             instance_for_former_stages.job_id_list,
@@ -2239,13 +2253,29 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 instance_for_former_stages.job_id_list.index(j),
             ),
         )
+
+        ds_schedule = self.create_empty_schedule_from_ins(instance_for_former_stages)
         for stage_id in instance_for_former_stages.stage_id_list:
-            schedule.dispatch_stage_by_jobs(
+            ds_schedule.dispatch_stage_by_jobs(
                 stage_id,
                 sorted_j_list,
                 {j: self.job_2_stage_2_p_dict[j][stage_id] for j in sorted_j_list},
                 job_2_release=job_2_release,
             )
-        return schedule
+
+        dj_schedule = self.create_empty_schedule_from_ins(instance_for_former_stages)
+        for job_id in sorted_j_list:
+            dj_schedule.dispatch_job_by_stages(
+                job_id,
+                {
+                    stage_id: self.job_2_stage_2_p_dict[job_id][stage_id]
+                    for stage_id in instance_for_former_stages.stage_id_list
+                },
+                release_t=job_2_release[job_id],
+            )
+
+        if ds_schedule.makespan < dj_schedule.makespan:
+            return ds_schedule
+        return dj_schedule
 
     # End subroutine definition

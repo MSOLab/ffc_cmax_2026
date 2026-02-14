@@ -529,7 +529,11 @@ class HybridFlowshopLiteSchedule:
             self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
 
     def dispatch_job_by_stages(
-        self, job_id: JobIdType, stage_2_duration: Mapping[StageIdType, int]
+        self,
+        job_id: JobIdType,
+        stage_2_duration: Mapping[StageIdType, int],
+        from_stage: StageIdType | None = None,
+        release_t: int | None = None,
     ) -> None:
         """Dispatch a single job through all stages in sequence.
 
@@ -540,6 +544,7 @@ class HybridFlowshopLiteSchedule:
         Args:
             job_id (JobIdType): Job identifier
             stage_2_duration (Mapping[StageIdType, int]): Mapping from stage ID to operation duration
+            release_t (int | None, optional): Release time for the job. Defaults to None.
 
         Raises:
             ValueError: If job_id is invalid
@@ -548,11 +553,17 @@ class HybridFlowshopLiteSchedule:
         if job_id not in self.jobs:
             raise ValueError(f"Invalid job ID: {job_id}")
 
-        for stage_id in self.stages:
+        stage_iter = self.stages
+        if from_stage is not None:
+            stage_iter = [
+                stage_id for stage_id in self.stages if stage_id >= from_stage
+            ]
+
+        for stage_id in stage_iter:
             if stage_id not in stage_2_duration:
                 raise ValueError(f"Duration for stage ID {stage_id} not provided")
             duration = stage_2_duration[stage_id]
-            self.add_operation_2_stage(stage_id, job_id, duration)
+            self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
 
     # Setters - remove
 
