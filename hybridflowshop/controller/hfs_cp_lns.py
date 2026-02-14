@@ -1954,47 +1954,48 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             : self.instance.stage_id_list.index(bottleneck_stage_id)
         ]
         logging.info(f"Before stages: {before_stage_list}")
-        bottleneck_stage_start_time_map = bottleneck_schedule.get_jik_2_start_time_map()
-        job_2_bottleneck_start_time = {}
-        for (
-            job_id,
-            stage_id,
-            _,
-        ), start_time in bottleneck_stage_start_time_map.items():
-            if stage_id == bottleneck_stage_id:
-                job_2_bottleneck_start_time[job_id] = start_time
-        # Define a new problem
-        instance_for_former_stages, job_2_release = (
-            self._create_reversed_instance_for_former_stages(
-                before_stage_list, job_2_bottleneck_start_time, bcmax
+        if before_stage_list:
+            bottleneck_stage_start_time_map = bottleneck_schedule.get_jik_2_start_time_map()
+            job_2_bottleneck_start_time = {}
+            for (
+                job_id,
+                stage_id,
+                _,
+            ), start_time in bottleneck_stage_start_time_map.items():
+                if stage_id == bottleneck_stage_id:
+                    job_2_bottleneck_start_time[job_id] = start_time
+            # Define a new problem
+            instance_for_former_stages, job_2_release = (
+                self._create_reversed_instance_for_former_stages(
+                    before_stage_list, job_2_bottleneck_start_time, bcmax
+                )
             )
-        )
-        # Dispatch
-        former_schedule = self._dispatch_former_stages(
-            instance_for_former_stages, job_2_release
-        )
-        # self.draw_gantt(
-        #     former_schedule,
-        #     stage_list=instance_for_former_stages.stage_id_list,
-        #     force_start=0,
-        # )
-        former_schedule_makespan = former_schedule.makespan
-        logging.info(f"Former stages schedule makespan: {former_schedule_makespan}")
-        discrepancy = former_schedule_makespan - bcmax
-        logging.info(
-            f"Discrepancy between former schedule and bottleneck schedule: {discrepancy}"
-        )
-        # Right-shift original schedule by discrepancy
-        bottleneck_schedule.right_shift(discrepancy)
+            # Dispatch
+            former_schedule = self._dispatch_former_stages(
+                instance_for_former_stages, job_2_release
+            )
+            # self.draw_gantt(
+            #     former_schedule,
+            #     stage_list=instance_for_former_stages.stage_id_list,
+            #     force_start=0,
+            # )
+            former_schedule_makespan = former_schedule.makespan
+            logging.info(f"Former stages schedule makespan: {former_schedule_makespan}")
+            discrepancy = former_schedule_makespan - bcmax
+            logging.info(
+                f"Discrepancy between former schedule and bottleneck schedule: {discrepancy}"
+            )
+            # Right-shift original schedule by discrepancy
+            bottleneck_schedule.right_shift(discrepancy)
 
-        former_schedule_end_time_map = former_schedule.get_jik_2_end_time_map()
-        for op, end_time in former_schedule_end_time_map.items():
-            job_id, stage_id, mc_id = op
-            start_time = former_schedule_makespan - end_time
-            duration = self.job_2_stage_2_p_dict[job_id][stage_id]
-            bottleneck_schedule.add_ops_times_2_mc(
-                stage_id, mc_id, job_id, start_time, start_time + duration
-            )
+            former_schedule_end_time_map = former_schedule.get_jik_2_end_time_map()
+            for op, end_time in former_schedule_end_time_map.items():
+                job_id, stage_id, mc_id = op
+                start_time = former_schedule_makespan - end_time
+                duration = self.job_2_stage_2_p_dict[job_id][stage_id]
+                bottleneck_schedule.add_ops_times_2_mc(
+                    stage_id, mc_id, job_id, start_time, start_time + duration
+                )
         bottleneck_schedule.make_semi_active(self.stage_2_job_2_p_dict)
 
         self.draw_gantt(bottleneck_schedule)
