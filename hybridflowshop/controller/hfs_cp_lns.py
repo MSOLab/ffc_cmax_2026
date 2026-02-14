@@ -2155,27 +2155,30 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # pprint(p_dict)
         # pprint(tr_dict)
         machine_cnt = len(self.instance.stage_2_machines_map[bottleneck_stage_id])
-        # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
+        # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_j values
         head_job_id_list = []
         if head_op_cnt_multiplier is not None:
             head_op_cnt = head_op_cnt_multiplier * machine_cnt
             sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
             head_job_id_list = [j for j, _ in sorted_by_r[:head_op_cnt]]
-        # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs with the smallest tr_dict values
+        # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs with the smallest (p_j + tr_j) values
+        p_plus_tr_dict = {
+            j: p_dict[j] + tr_dict[j] for j in self.instance.job_id_list
+        }
         tail_job_id_list = []
         if tail_op_cnt_multiplier is not None:
             tail_op_cnt = tail_op_cnt_multiplier * machine_cnt
-            sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
+            sorted_by_tr = sorted(p_plus_tr_dict.items(), key=lambda x: x[1])
             # Exclude those in head_job_id_list
             sorted_by_tr = [
                 (j, t) for j, t in sorted_by_tr if j not in head_job_id_list
             ]
             tail_job_id_list = [j for j, _ in sorted_by_tr[:tail_op_cnt]]
             # Sort tail jobs by decreasing order of (p_j + tr_j)
-            tail_job_id_list.sort(key=lambda j: p_dict[j] + tr_dict[j], reverse=True)
+            tail_job_id_list.reverse()
             # logging.info(f"Tail job list: {tail_job_id_list}")
             # logging.info(
-            #     f"Tail jobs with their p + tr values: {[p_dict[j] + tr_dict[j] for j in tail_job_id_list]}"
+            #     f"Tail jobs with their p + tr values: {[p_plus_tr_dict[j] for j in tail_job_id_list]}"
             # )
 
         # Update mid_job_id_list to only include jobs that are not in head or tail job lists
