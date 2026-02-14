@@ -2,5 +2,5 @@
 - method: bottleneck_parallel_mc_2
 - method: bottleneck_parallel_mc_4
   draw_gantt: False
-  head_op_cnt_multiplier: 2
-  tail_op_cnt_multiplier: 2
+  head_op_cnt_multiplier: 3
+  tail_op_cnt_multiplier: 3

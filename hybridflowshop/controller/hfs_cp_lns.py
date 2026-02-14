@@ -2162,7 +2162,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
             head_job_id_list = [j for j, _ in sorted_by_r[:head_op_cnt]]
         # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs
-        dict_for_tail_sorting = {j: tr_dict[j] for j in self.instance.job_id_list}
+        dict_for_tail_sorting = {
+            j: tr_dict[j] + p_dict[j] for j in self.instance.job_id_list
+        }
         tail_job_id_list = []
         if tail_op_cnt_multiplier is not None:
             tail_op_cnt = tail_op_cnt_multiplier * machine_cnt
