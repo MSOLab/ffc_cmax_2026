@@ -108,6 +108,7 @@ class NehCpConstructor:
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         added_batch_size: int | None = None,
         max_time_per_add: float | None = None,
+        cp_tl_multiplier: float | None = None,
         solver_thread_cnt: int | None = None,
         error_if_infeasible: bool = False,
     ) -> NehCpResult:
@@ -118,6 +119,14 @@ class NehCpConstructor:
             if added_batch_size is not None and added_batch_size > 0
             else 1
         )
+        if max_time_per_add is None and cp_tl_multiplier is not None:
+            max_time_per_add = (
+                cp_tl_multiplier * instance.job_count * instance.stage_count
+            )
+            logging.info(
+                f"max_time_per_add is set to {max_time_per_add:.2f} seconds"
+                f" based on cp_tl_multiplier={cp_tl_multiplier} and instance size."
+            )
 
         sub_obj_store = ObjValueBoundStore[int]()
         """Subroutine-specific objective store"""
@@ -177,8 +186,8 @@ class NehCpConstructor:
             report, new_sol = self._solve_cp_model(
                 partial_sol_best,
                 instance,
-                max_time_per_add,
-                solver_thread_cnt,
+                max_time_per_add=max_time_per_add,
+                solver_thread_cnt=solver_thread_cnt,
             )
             last_timestamp = st.timer.elapsed_sec
 
