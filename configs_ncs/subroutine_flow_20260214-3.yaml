@@ -1,1 +1,3 @@
 - method: bottleneck_parallel_mc_4
+  head_op_cnt_multiplier: 2
+  tail_op_cnt_multiplier: 2

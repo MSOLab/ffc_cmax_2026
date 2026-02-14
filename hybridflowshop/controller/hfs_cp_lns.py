@@ -1921,6 +1921,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _schedule_from_bottleneck_stage(
         self,
         bottleneck_stage_id: str,
+        head_op_cnt_multiplier: int | None = None,
+        tail_op_cnt_multiplier: int | None = None,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         """Schedule the entire hybrid flow shop from a single bottleneck stage.
@@ -1937,7 +1939,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             Complete schedule for all stages
         """
         bottleneck_schedule, bcmax = self._get_bottleneck_stage_schedule_heuristic(
-            bottleneck_stage_id, draw_gantt=draw_gantt
+            bottleneck_stage_id,
+            head_op_cnt_multiplier=head_op_cnt_multiplier,
+            tail_op_cnt_multiplier=tail_op_cnt_multiplier,
+            draw_gantt=draw_gantt,
         )
 
         # Create a later-dispatched schedule by dispatching from the bottleneck schedule
@@ -2014,14 +2019,25 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         return bottleneck_schedule
 
-    def bottleneck_parallel_mc_3(self, draw_gantt: bool = False) -> None:
+    def bottleneck_parallel_mc_3(
+        self,
+        head_op_cnt_multiplier: int | None = None,
+        tail_op_cnt_multiplier: int | None = None,
+        draw_gantt: bool = False,
+    ) -> None:
         """Schedule from single bottleneck stage (loading index-based)."""
         sub_timer = ElapsedTimer()
         bottleneck_stage_id = self._get_bottleneck_stage()
         logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
 
-        schedule = self._schedule_from_bottleneck_stage(bottleneck_stage_id, draw_gantt)
-        self.draw_gantt(schedule)
+        schedule = self._schedule_from_bottleneck_stage(
+            bottleneck_stage_id,
+            head_op_cnt_multiplier=head_op_cnt_multiplier,
+            tail_op_cnt_multiplier=tail_op_cnt_multiplier,
+            draw_gantt=False,
+        )
+        if draw_gantt:
+            self.draw_gantt(schedule)
         complete_makespan = schedule.makespan
         logging.info(f"Bottleneck parallel MC: full_schedule_obj={complete_makespan}")
 
@@ -2033,7 +2049,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         self.solution_manager.register(report, schedule)
 
-    def bottleneck_parallel_mc_4(self, draw_gantt: bool = False) -> None:
+    def bottleneck_parallel_mc_4(
+        self,
+        head_op_cnt_multiplier: int | None = None,
+        tail_op_cnt_multiplier: int | None = None,
+        draw_gantt: bool = False,
+    ) -> None:
         """Schedule from all stages as bottleneck and select best solution."""
         sub_timer = ElapsedTimer()
 
@@ -2042,7 +2063,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         for bottleneck_stage_id in self.instance.stage_id_list:
             logging.info(f"Trying bottleneck stage: {bottleneck_stage_id}")
-            schedule = self._schedule_from_bottleneck_stage(bottleneck_stage_id, draw_gantt=False)
+            schedule = self._schedule_from_bottleneck_stage(
+                bottleneck_stage_id,
+                head_op_cnt_multiplier=head_op_cnt_multiplier,
+                tail_op_cnt_multiplier=tail_op_cnt_multiplier,
+                draw_gantt=False,
+            )
             makespan = schedule.makespan
             logging.info(f"Bottleneck stage {bottleneck_stage_id}: makespan={makespan}")
 
@@ -2051,7 +2077,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 best_sch = schedule
                 logging.info("  -> New best solution found!")
 
-        self.draw_gantt(best_sch)
+        if draw_gantt:
+            self.draw_gantt(best_sch)
         logging.info(f"Bottleneck MC v4: best_makespan={best_obj}")
 
         report = HfsSubroutineReport(
@@ -2079,7 +2106,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         return bottleneck_stage_id
 
     def _get_bottleneck_stage_schedule_heuristic(
-        self, bottleneck_stage_id: str, draw_gantt: bool = False
+        self,
+        bottleneck_stage_id: str,
+        head_op_cnt_multiplier: int | None = None,
+        tail_op_cnt_multiplier: int | None = None,
+        draw_gantt: bool = False,
     ) -> tuple[HybridFlowshopLiteSchedule, int]:
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
         bottleneck_stage_index = self.instance.stage_id_list.index(bottleneck_stage_id)
@@ -2101,12 +2132,42 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # pprint(r_dict)
         # pprint(p_dict)
         # pprint(tr_dict)
+        machine_cnt = len(self.instance.stage_2_machines_map[bottleneck_stage_id])
+        # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
+        head_job_id_list = []
+        if head_op_cnt_multiplier is not None:
+            head_op_cnt = head_op_cnt_multiplier * machine_cnt
+            sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
+            head_job_id_list = [j for j, _ in sorted_by_r[:head_op_cnt]]
+        # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs with the smallest tr_dict values
+        tail_job_id_list = []
+        if tail_op_cnt_multiplier is not None:
+            tail_op_cnt = tail_op_cnt_multiplier * machine_cnt
+            sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1], reverse=True)
+            # Exclude those in head_job_id_list
+            sorted_by_tr = [
+                (j, t) for j, t in sorted_by_tr if j not in head_job_id_list
+            ]
+            tail_job_id_list = [j for j, _ in sorted_by_tr[:tail_op_cnt]]
 
-        # Sort jobs by (r_j - tr_j, tie-break by original job index)
-        # Jobs with higher (r_j - tr_j) value are scheduled first
-        sorted_j_list = sorted(
-            self.instance.job_id_list,
-            key=lambda j: (r_dict[j] - tr_dict[j], self.instance.job_id_list.index(j)),
+        # Update mid_job_id_list to only include jobs that are not in head or tail job lists
+        mid_job_id_list = [
+            j
+            for j in self.instance.job_id_list
+            if j not in head_job_id_list and j not in tail_job_id_list
+        ]
+
+        # Sort mid jobs by (r_j - tr_j, tie-break by original job index)
+        sorted_j_list = (
+            head_job_id_list
+            + sorted(
+                mid_job_id_list,
+                key=lambda j: (
+                    r_dict[j] - tr_dict[j],
+                    self.instance.job_id_list.index(j),
+                ),
+            )
+            + tail_job_id_list
         )
 
         dispatched_schedule = self.create_empty_schedule_from_ins()
