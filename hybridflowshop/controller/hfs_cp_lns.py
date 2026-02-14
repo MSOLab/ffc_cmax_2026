@@ -2143,7 +2143,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         tail_job_id_list = []
         if tail_op_cnt_multiplier is not None:
             tail_op_cnt = tail_op_cnt_multiplier * machine_cnt
-            sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1], reverse=True)
+            sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
             # Exclude those in head_job_id_list
             sorted_by_tr = [
                 (j, t) for j, t in sorted_by_tr if j not in head_job_id_list
