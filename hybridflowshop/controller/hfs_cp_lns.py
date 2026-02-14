@@ -1918,11 +1918,28 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         #     encoding="utf-8",
         # )
 
-    def bottleneck_parallel_mc_3(self, draw_gantt: bool = False) -> None:
-        sub_timer = ElapsedTimer()
-        bottleneck_stage_id, bottleneck_schedule, bcmax = (
-            self._get_bottleneck_stage_schedule_heuristic(draw_gantt=draw_gantt)
+    def _schedule_from_bottleneck_stage(
+        self,
+        bottleneck_stage_id: str,
+        draw_gantt: bool = False,
+    ) -> HybridFlowshopLiteSchedule:
+        """Schedule the entire hybrid flow shop from a single bottleneck stage.
+
+        Uses two-way dispatching:
+        1. Dispatch later stages (after bottleneck) based on bottleneck completion times
+        2. Dispatch former stages (before bottleneck) using reversed instance with release times
+
+        Args:
+            bottleneck_stage_id: The bottleneck stage ID to schedule from
+            draw_gantt: Whether to draw Gantt chart for the bottleneck stage only
+
+        Returns:
+            Complete schedule for all stages
+        """
+        bottleneck_schedule, bcmax = self._get_bottleneck_stage_schedule_heuristic(
+            bottleneck_stage_id, draw_gantt=draw_gantt
         )
+
         # Create a later-dispatched schedule by dispatching from the bottleneck schedule
         later_stage_list = self.instance.stage_id_list[
             self.instance.stage_id_list.index(bottleneck_stage_id) + 1 :
@@ -1941,7 +1958,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 self.instance.job_id_list.index(j),
             ),
         )
-        # Dispatch
+        # Dispatch later stages
         for stage_id in later_stage_list:
             bottleneck_schedule.dispatch_stage_by_jobs(
                 stage_id, sorted_j_list, self.stage_2_job_2_p_dict[stage_id]
@@ -1955,7 +1972,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         ]
         logging.info(f"Before stages: {before_stage_list}")
         if before_stage_list:
-            bottleneck_stage_start_time_map = bottleneck_schedule.get_jik_2_start_time_map()
+            bottleneck_stage_start_time_map = (
+                bottleneck_schedule.get_jik_2_start_time_map()
+            )
             job_2_bottleneck_start_time = {}
             for (
                 job_id,
@@ -1964,21 +1983,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             ), start_time in bottleneck_stage_start_time_map.items():
                 if stage_id == bottleneck_stage_id:
                     job_2_bottleneck_start_time[job_id] = start_time
-            # Define a new problem
+            # Define a new problem for former stages
             instance_for_former_stages, job_2_release = (
                 self._create_reversed_instance_for_former_stages(
                     before_stage_list, job_2_bottleneck_start_time, bcmax
                 )
             )
-            # Dispatch
+            # Dispatch former stages
             former_schedule = self._dispatch_former_stages(
                 instance_for_former_stages, job_2_release
             )
-            # self.draw_gantt(
-            #     former_schedule,
-            #     stage_list=instance_for_former_stages.stage_id_list,
-            #     force_start=0,
-            # )
             former_schedule_makespan = former_schedule.makespan
             logging.info(f"Former stages schedule makespan: {former_schedule_makespan}")
             discrepancy = former_schedule_makespan - bcmax
@@ -1998,8 +2012,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
         bottleneck_schedule.make_semi_active(self.stage_2_job_2_p_dict)
 
-        self.draw_gantt(bottleneck_schedule)
-        complete_makespan = bottleneck_schedule.makespan
+        return bottleneck_schedule
+
+    def bottleneck_parallel_mc_3(self, draw_gantt: bool = False) -> None:
+        """Schedule from single bottleneck stage (loading index-based)."""
+        sub_timer = ElapsedTimer()
+        bottleneck_stage_id = self._get_bottleneck_stage()
+        logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
+
+        schedule = self._schedule_from_bottleneck_stage(bottleneck_stage_id, draw_gantt)
+        self.draw_gantt(schedule)
+        complete_makespan = schedule.makespan
         logging.info(f"Bottleneck parallel MC: full_schedule_obj={complete_makespan}")
 
         report = HfsSubroutineReport(
@@ -2008,53 +2031,56 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound=None,
             is_init=True,
         )
-        self.solution_manager.register(report, bottleneck_schedule)
+        self.solution_manager.register(report, schedule)
 
-        # solution_dict = {
-        #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_start_time_map()),
-        #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_end_time_map()),
-        # }
-        # object_to_yaml(
-        #     solution_dict,
-        #     self.get_file_path_for_subroutine("_solution.yaml"),
-        #     encoding="utf-8",
-        # )
+    def bottleneck_parallel_mc_4(self, draw_gantt: bool = False) -> None:
+        """Schedule from all stages as bottleneck and select best solution."""
+        sub_timer = ElapsedTimer()
 
-    def _get_bottleneck_stage_schedule_heuristic(
-        self, draw_gantt: bool = False
-    ) -> tuple[str, HybridFlowshopLiteSchedule, int]:
-        # Identify bottleneck stage
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+
+        for bottleneck_stage_id in self.instance.stage_id_list:
+            logging.info(f"Trying bottleneck stage: {bottleneck_stage_id}")
+            schedule = self._schedule_from_bottleneck_stage(bottleneck_stage_id, draw_gantt=False)
+            makespan = schedule.makespan
+            logging.info(f"Bottleneck stage {bottleneck_stage_id}: makespan={makespan}")
+
+            if best_obj is None or makespan < best_obj:
+                best_obj = makespan
+                best_sch = schedule
+                logging.info("  -> New best solution found!")
+
+        self.draw_gantt(best_sch)
+        logging.info(f"Bottleneck MC v4: best_makespan={best_obj}")
+
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=True,
+        )
+        self.solution_manager.register(report, best_sch)
+
+    def _get_bottleneck_stage(self) -> str:
         stage_id_2_total_p = {}
         for stage_id in self.instance.stage_id_list:
             stage_id_2_total_p[stage_id] = sum(
                 self.stage_2_job_2_p_dict[stage_id][job_id]
                 for job_id in self.instance.job_id_list
             )
-        # pprint(stage_id_2_total_p)
-        # stage_2_machine_count = {
-        #     stage_id: len(self.instance.stage_2_machines_map[stage_id])
-        #     for stage_id in self.instance.stage_id_list
-        # }
-        # pprint(stage_2_machine_count)
         stage_id_2_bottleneck_index = {
             stage_id: total_p / len(self.instance.stage_2_machines_map[stage_id])
             for stage_id, total_p in stage_id_2_total_p.items()
         }
-        # pprint(stage_id_2_bottleneck_index)
-
-        # Bottleneck stage is the one with the highest stage_id_2_bottleneck_index
         bottleneck_stage_id = max(
             stage_id_2_bottleneck_index, key=stage_id_2_bottleneck_index.get
         )
+        return bottleneck_stage_id
 
-        # stage_2_shd_bound = {
-        #     stage: self.get_shdlb_for_stage(stage)
-        #     for stage in self.instance.stage_id_list
-        # }
-        # bottleneck_stage_id = max(stage_2_shd_bound, key=stage_2_shd_bound.get)
-
-        logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
-
+    def _get_bottleneck_stage_schedule_heuristic(
+        self, bottleneck_stage_id: str, draw_gantt: bool = False
+    ) -> tuple[HybridFlowshopLiteSchedule, int]:
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
         bottleneck_stage_index = self.instance.stage_id_list.index(bottleneck_stage_id)
         before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
@@ -2101,7 +2127,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Draw Gantt chart; force start time as zero and end time as makespan by CP
         if draw_gantt:
             self.draw_gantt(dispatched_schedule, force_start=0, force_end=makespan)
-        return bottleneck_stage_id, dispatched_schedule, makespan
+        return dispatched_schedule, makespan
 
     def _create_reversed_instance_for_former_stages(
         self,

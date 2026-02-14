@@ -472,8 +472,8 @@ dicts_of_i_o_data_path:
   #   output_dir : "pra_half_nc/20260214-1"
   #   description: "Best of dispatches + my dispatch -> NEH-CP"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_nc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260214-2.yaml"
-    output_dir : "pra_half_nc/20260214-2"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260214-3.yaml"
+    output_dir : "pra_half_nc/20260214-3"
     description: "Dispatch starting from bottleneck stage"
 
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
