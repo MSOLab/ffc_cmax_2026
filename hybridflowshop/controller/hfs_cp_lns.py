@@ -1923,6 +1923,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         bottleneck_stage_id: str,
         head_op_cnt_multiplier: int | None = None,
         tail_op_cnt_multiplier: int | None = None,
+        head_job_portion: float | None = None,
+        tail_job_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         """Schedule the entire hybrid flow shop from a single bottleneck stage.
@@ -1942,6 +1944,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             bottleneck_stage_id,
             head_op_cnt_multiplier=head_op_cnt_multiplier,
             tail_op_cnt_multiplier=tail_op_cnt_multiplier,
+            head_job_portion=head_job_portion,
+            tail_job_portion=tail_job_portion,
             draw_gantt=draw_gantt,
         )
 
@@ -2045,6 +2049,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         head_op_cnt_multiplier: int | None = None,
         tail_op_cnt_multiplier: int | None = None,
+        head_job_portion: float | None = None,
+        tail_job_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from single bottleneck stage (loading index-based)."""
@@ -2056,6 +2062,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             bottleneck_stage_id,
             head_op_cnt_multiplier=head_op_cnt_multiplier,
             tail_op_cnt_multiplier=tail_op_cnt_multiplier,
+            head_job_portion=head_job_portion,
+            tail_job_portion=tail_job_portion,
             draw_gantt=False,
         )
         if draw_gantt:
@@ -2075,6 +2083,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         head_op_cnt_multiplier: int | None = None,
         tail_op_cnt_multiplier: int | None = None,
+        head_job_portion: float | None = None,
+        tail_job_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from all stages as bottleneck and select best solution."""
@@ -2089,6 +2099,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 bottleneck_stage_id,
                 head_op_cnt_multiplier=head_op_cnt_multiplier,
                 tail_op_cnt_multiplier=tail_op_cnt_multiplier,
+                head_job_portion=head_job_portion,
+                tail_job_portion=tail_job_portion,
                 draw_gantt=False,
             )
             makespan = schedule.makespan
@@ -2132,6 +2144,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         bottleneck_stage_id: str,
         head_op_cnt_multiplier: int | None = None,
         tail_op_cnt_multiplier: int | None = None,
+        head_job_portion: float | None = None,
+        tail_job_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> tuple[HybridFlowshopLiteSchedule, int]:
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
@@ -2155,33 +2169,50 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # pprint(p_dict)
         # pprint(tr_dict)
         machine_cnt = len(self.instance.stage_2_machines_map[bottleneck_stage_id])
-        # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
-        head_job_id_list = []
+        job_cnt = self.instance.job_count
+
+        head_job_id_list: list[str]
+        head_op_cnt = 0
         if head_op_cnt_multiplier is not None:
             head_op_cnt = head_op_cnt_multiplier * machine_cnt
+        elif head_job_portion is not None:
+            head_op_cnt = int(head_job_portion * job_cnt)
+
+        if head_op_cnt > 0:
+            # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
             sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
             head_job_id_list = [j for j, _ in sorted_by_r[:head_op_cnt]]
-        # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs
-        dict_for_tail_sorting = {
-            j: tr_dict[j] + p_dict[j] for j in self.instance.job_id_list
-        }
-        tail_job_id_list = []
+        else:
+            head_job_id_list = []
+
+        tail_job_id_list: list[str]
+        tail_op_cnt = 0
         if tail_op_cnt_multiplier is not None:
             tail_op_cnt = tail_op_cnt_multiplier * machine_cnt
+        elif tail_job_portion is not None:
+            tail_op_cnt = int(tail_job_portion * job_cnt)
+
+        if tail_op_cnt > 0:
+            # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs with the smallest tr_dict values
             sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
             # Exclude those in head_job_id_list
             sorted_by_tr = [
                 (j, t) for j, t in sorted_by_tr if j not in head_job_id_list
             ]
-            logging.info(f"Sorted for tail operations: {sorted_by_tr}")
+            # logging.info(f"Sorted for tail operations: {sorted_by_tr}")
             tail_job_id_list = [j for j, _ in sorted_by_tr[:tail_op_cnt]]
             # Sort tail jobs by decreasing order of (p_j + tr_j)
+            dict_for_tail_sorting = {
+                j: tr_dict[j] + p_dict[j] for j in self.instance.job_id_list
+            }
             tail_job_id_list.sort(key=lambda j: dict_for_tail_sorting[j], reverse=True)
-            logging.info(f"Tail job list: {tail_job_id_list}")
-            for j in tail_job_id_list:
-                logging.info(
-                    f"Job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}, tail sorting criteria={dict_for_tail_sorting[j]}"
-                )
+            # logging.info(f"Tail job list: {tail_job_id_list}")
+            # for j in tail_job_id_list:
+            #     logging.info(
+            #         f"Job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}, tail sorting criteria={dict_for_tail_sorting[j]}"
+            #     )
+        else:
+            tail_job_id_list = []
 
         # Update mid_job_id_list to only include jobs that are not in head or tail job lists
         mid_job_id_list = [

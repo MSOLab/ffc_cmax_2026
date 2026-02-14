@@ -1,0 +1,4 @@
+- method: bottleneck_parallel_mc_4
+  draw_gantt: False
+  head_job_portion: 0.25
+  tail_job_portion: 0.25
