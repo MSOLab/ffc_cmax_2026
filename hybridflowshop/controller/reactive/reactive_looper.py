@@ -3,6 +3,7 @@ from pathlib import Path
 
 from mbls.cpsat import CpsatStatus
 from routix.util.concurrent import batch_write_data_to_csv, batch_write_data_to_yaml
+
 from ...report import HfsCpsatSolverReport
 from ..controller_core import HybridFlowShopCpLnsControllerCore
 from .local_stopping_criteria import LocalStoppingCriteria
@@ -141,7 +142,9 @@ class ReactiveLooper:
             "computational_time", float("inf")
         ):
             kwargs_snapshot["computational_time"] = timelimit_by_global
-        logging.info(f"Calling subroutine {subroutine_name} with kwargs {kwargs_snapshot}.")
+        logging.info(
+            f"Calling subroutine {subroutine_name} with kwargs {kwargs_snapshot}."
+        )
         tuner.call_method(timelimit_by_global)
 
         report = self.ctrlr.solution_manager.get_last_report()
@@ -253,7 +256,7 @@ class ReactiveLooper:
                 else:
                     logging.info("Last solution was timeout & not improved.")
                     self.no_improvement_step_series_lth += 1
-                    if not tuner.current_value_exceeds_ub("computational_time"):
+                    if not tuner.current_value_hits_ub("computational_time"):
                         # If not improved but not enough time, increase time limit
                         # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                         tuner.increment("computational_time")
@@ -265,7 +268,7 @@ class ReactiveLooper:
             else:
                 logging.info("Last solution was timeout & not improved.")
                 self.no_improvement_step_series_lth += 1
-                if not tuner.current_value_exceeds_ub("computational_time"):
+                if not tuner.current_value_hits_ub("computational_time"):
                     # If no solution but not enough time, increase time limit
                     # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                     tuner.increment("computational_time")
@@ -289,7 +292,7 @@ class ReactiveLooper:
                 self._call_subroutine(subroutine_name)
 
             tuner = self.reactive_param_tuner_dict[subroutine_name]
-            if self.stopping_criteria.rho_hits_ub and tuner.current_value_exceeds_ub(
+            if self.stopping_criteria.rho_hits_ub and tuner.current_value_hits_ub(
                 "rho"
             ):
                 rho = tuner.get_current_value("rho")
@@ -299,7 +302,7 @@ class ReactiveLooper:
                     f"rho_hits_ub (value={rho} >= {rho_ub}=criteria)"
                 )
                 excluded_subroutines.add(subroutine_name)
-            if self.stopping_criteria.tl_hits_ub and tuner.current_value_exceeds_ub(
+            if self.stopping_criteria.tl_hits_ub and tuner.current_value_hits_ub(
                 "computational_time"
             ):
                 tl = tuner.get_current_value("computational_time")
