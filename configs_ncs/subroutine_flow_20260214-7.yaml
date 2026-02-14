@@ -1,8 +1,4 @@
 - method: initialize_by_best_of_dispatches
-- method: bottleneck_parallel_mc_3
-  draw_gantt: False
-  head_op_cnt_multiplier: 1
-  tail_op_cnt_multiplier: 1
 - method: bottleneck_parallel_mc_4
   draw_gantt: False
   head_op_cnt_multiplier: 1
