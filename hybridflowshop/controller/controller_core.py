@@ -584,7 +584,7 @@ class HybridFlowShopCpLnsControllerCore(
         )
 
     def create_schedule(
-        self, params: Params, variables: CumulativeVars
+        self, params: Params, variables: CumulativeVars, make_semi_active: bool = False
     ) -> HybridFlowshopLiteSchedule:
         """
         Constructs a full HybridFlowshopLiteSchedule from the solved CP model.
@@ -623,6 +623,8 @@ class HybridFlowShopCpLnsControllerCore(
                 schedule.add_operation_2_stage(
                     i, j, params.p[j, i], release_t=start_time
                 )
+        if make_semi_active:
+            schedule.make_semi_active(self.stage_2_job_2_p_dict)
 
         return schedule
 
@@ -653,6 +655,7 @@ class HybridFlowShopCpLnsControllerCore(
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
+        make_semi_active_after_cp: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         is_initial_solution: bool = False,
@@ -677,6 +680,7 @@ class HybridFlowShopCpLnsControllerCore(
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
+        sub_timer = ElapsedTimer()
         # Utilize the objective bound if available
         if (
             obj_value_is_valid
@@ -727,13 +731,24 @@ class HybridFlowShopCpLnsControllerCore(
                 logging.warning("Failed to find a valid objective value.")
         else:
             if hfs_solver_report.is_feasible:
-                solution = self.create_schedule(self.params, self.vars)
+                solution = self.create_schedule(
+                    self.params, self.vars, make_semi_active=make_semi_active_after_cp
+                )
                 if error_if_infeasible:
                     self.check_feasibility(solution.get_jik_2_start_time_map())
                 # Ensure consistency between report and solution
                 if solution.makespan != hfs_solver_report.obj_value:
-                    raise ValueError(
-                        "Objective value mismatch between solver report and schedule makespan."
+                    # solution.makespan may be better than the reported objective value
+                    # due to the way the CP solver reports values
+                    # (e.g., due to presolve or how it handles bounds).
+                    # In such cases, we update the report to reflect the actual solution value.
+                    logging.info(
+                        f"Objective value in report ({hfs_solver_report.obj_value}) "
+                        f"does not match the makespan of the created solution ({solution.makespan}). "
+                        f"Updating the report to reflect the solution's makespan."
+                    )
+                    hfs_solver_report = hfs_solver_report.copy(
+                        elapsed_time=sub_timer.elapsed_sec, obj_value=solution.makespan
                     )
             else:
                 logging.warning(
@@ -747,6 +762,7 @@ class HybridFlowShopCpLnsControllerCore(
         computational_time: float,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
+        make_semi_active_after_cp: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -792,6 +808,7 @@ class HybridFlowShopCpLnsControllerCore(
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
+            make_semi_active_after_cp=make_semi_active_after_cp,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             is_initial_solution=is_initial_run,

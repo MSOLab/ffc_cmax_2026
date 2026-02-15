@@ -31,6 +31,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         computational_time: float,
         solver_thread_cnt: int,
+        make_semi_active_after_cp: bool = False,
         is_initial_solution: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -63,6 +64,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             report, solution = self.solve_current_cp_remaining_time_limit(
                 computational_time,
                 solver_thread_cnt,
+                make_semi_active_after_cp=make_semi_active_after_cp,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
                 is_initial_solution=True,
@@ -74,6 +76,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             report, solution = self.solve_with_initial_solution(
                 computational_time,
                 solver_thread_cnt,
+                make_semi_active_after_cp=make_semi_active_after_cp,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
                 error_if_infeasible=error_if_infeasible,
@@ -120,6 +123,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
+        make_semi_active_after_cp: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -151,10 +155,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             ref_schedule = self.solution_manager.get_incumbent()
             if ref_schedule is None:
                 raise ValueError("No incumbent solution available for swap operator.")
-            last_stage_op_cnt = sum(
-                1 for _ in ref_schedule.iter_operations_on_stage(last_stage)
-            )
-
             if not isinstance(ref_schedule, HybridFlowshopLiteSchedule):
                 raise ValueError(
                     "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
@@ -162,6 +162,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             ref_obj_value = ref_schedule.makespan
             start_time_map = ref_schedule.get_jik_2_start_time_map()
             end_time_map = ref_schedule.get_jik_2_end_time_map()
+            last_stage_op_cnt = sum(
+                1 for _ in ref_schedule.iter_operations_on_stage(last_stage)
+            )
+            # Make reference schedule semi-active for finding critical blocks
+            ref_schedule.make_semi_active(self.stage_2_job_2_p_dict)
 
             # Repeat until swapped schedule has the same or better objective
             max_trial_cnt = 1000
@@ -285,6 +290,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
+            make_semi_active_after_cp=make_semi_active_after_cp,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
@@ -354,6 +360,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
+        make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -363,6 +370,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -454,6 +462,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
+        make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -463,6 +472,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -531,6 +541,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
+        make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -540,6 +551,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,

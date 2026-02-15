@@ -50,3 +50,4 @@
 - method: solve_base_cp_model
   computational_time: null
   solver_thread_cnt: 8
+  make_semi_active_after_cp: true
