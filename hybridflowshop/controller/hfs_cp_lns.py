@@ -360,12 +360,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
+        seed_op_from_critical_block: bool = False,
         make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         self._fix_profile_solve_reset(
-            lambda: self.apply_operation_block_operator(rho),
+            lambda: self.apply_operation_block_operator(
+                rho, seed_op_from_critical_block=seed_op_from_critical_block
+            ),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
@@ -378,14 +381,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
     def apply_operation_block_operator(
-        self, rho: float, randomize_ops_selection: bool = True
+        self, rho: float, seed_op_from_critical_block: bool = False
     ) -> None:
         """Apply the operation-block operator to the current CP model.
 
         Args:
             rho (float): Fraction of total number of operations to include in the block.
-            randomize_ops_selection (bool, optional): If True, randomizes the selection of operations.
-                Defaults to True.
+            seed_op_from_critical_block (bool, optional): If True, the seed operation is
+                chosen from critical blocks of the incumbent solution. Defaults to False.
 
         Raises:
             ValueError: If rho is not strictly positive.
@@ -413,11 +416,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         num_to_select = max(1, int(rho * total_ops))
 
         # Choose an operation
-        if randomize_ops_selection:
-            seed_op = random.choice(all_ops)
+        if seed_op_from_critical_block:
+            # Find critical blocks in the incumbent solution
+            incumbent_solution.make_semi_active(self.stage_2_job_2_p_dict)
+            critical_blocks = incumbent_solution.find_critical_blocks(
+                self.stage_2_job_2_p_dict, include_singletons=True
+            )
+            if not critical_blocks:
+                # If no critical blocks, fall back to random selection
+                seed_op = random.choice(all_ops)
+            else:
+                # Select a random operation from a random critical block
+                selected_block = random.choice(critical_blocks)
+                seed_op = random.choice(selected_block)
         else:
-            # if not random, choose center operation
-            seed_op = all_ops[total_ops // 2]
+            seed_op = random.choice(all_ops)
         selected_ops = set([seed_op])
         queue = [seed_op]
 
@@ -462,12 +475,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
+        seed_stage_from_non_singleton_cb: bool = False,
         make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         self._fix_profile_solve_reset(
-            lambda: self.apply_stage_operator(rho),
+            lambda: self.apply_stage_operator(
+                rho, seed_stage_from_non_singleton_cb=seed_stage_from_non_singleton_cb
+            ),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
@@ -479,22 +495,23 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt=draw_gantt,
         )
 
-    def apply_stage_operator(self, rho: float, randomize_stage_selection: bool = True):
+    def apply_stage_operator(
+        self, rho: float, seed_stage_from_non_singleton_cb: bool = False
+    ):
         """
         Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
-        operations on those stages to be rescheduled) and fix the profile of all other operations
-        according to the current incumbent schedule.
+        operations on those stages to be rescheduled) and fix the profile of all other
+        operations according to the current incumbent schedule.
 
         Args:
             rho (float): The proportion of stages to free (must be between 0 and 1).
-                randomize_stage_selection (bool, optional): Whether to randomize the selection
-                of stages to free. Defaults to True.
+            seed_stage_from_non_singleton_cb (bool, optional): Whether to seed the stage
+                selection from non-singleton critical blocks. Defaults to False.
 
         Raises:
             ValueError: If rho is not strictly positive.
             ValueError: If no incumbent solution is available.
             ValueError: If the incumbent solution is not a HybridFlowshopLiteSchedule.
-            NotImplementedError: If deterministic stage selection is requested.
         """
         if rho <= 0:
             raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
@@ -515,14 +532,47 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if free_stage_cnt > len(all_stage_list):
             selected_stages = set(all_stage_list)
         else:
-            if randomize_stage_selection:
+            if seed_stage_from_non_singleton_cb:
+                # Find critical blocks in the incumbent solution
+                incumbent_solution.make_semi_active(self.stage_2_job_2_p_dict)
+                critical_blocks = incumbent_solution.find_critical_blocks(
+                    self.stage_2_job_2_p_dict, include_singletons=False
+                )
+                if not critical_blocks:
+                    logging.debug(
+                        "No non-singleton critical blocks found, using random consecutive selection"
+                    )
+                    start_idx = random.randint(0, len(all_stage_list) - free_stage_cnt)
+                    selected_stages = set(
+                        all_stage_list[start_idx : start_idx + free_stage_cnt]
+                    )
+                else:
+                    selected_block = random.choice(critical_blocks)
+                    # stage of the block (all ops in the block are on the same stage)
+                    seed_stage = selected_block[0][1]
+                    logging.info(
+                        f"Seed stage selected from non-singleton critical block: {seed_stage}"
+                    )
+                    selected_stages = set()
+                    # Expand from the seed stage to get consecutive stages until we have enough stages
+                    left_idx = all_stage_list.index(seed_stage)
+                    right_idx = left_idx
+                    selected_stages.add(seed_stage)
+                    while len(selected_stages) < free_stage_cnt:
+                        expand_left = left_idx > 0
+                        expand_right = right_idx < len(all_stage_list) - 1
+                        if expand_left and (not expand_right or random.random() < 0.5):
+                            left_idx -= 1
+                            selected_stages.add(all_stage_list[left_idx])
+                        elif expand_right:
+                            right_idx += 1
+                            selected_stages.add(all_stage_list[right_idx])
+                        else:
+                            break  # cannot expand further on either side
+            else:
                 start_idx = random.randint(0, len(all_stage_list) - free_stage_cnt)
                 selected_stages = set(
                     all_stage_list[start_idx : start_idx + free_stage_cnt]
-                )
-            else:
-                raise NotImplementedError(
-                    "Deterministic stage selection is not implemented."
                 )
         logging.info(f"Selected stages: {sorted(selected_stages)}")
 
@@ -541,12 +591,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
+        seed_op_from_critical_block: bool = False,
         make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         self._fix_profile_solve_reset(
-            lambda: self.apply_job_block_operator(rho),
+            lambda: self.apply_job_block_operator(
+                rho, seed_op_from_critical_block=seed_op_from_critical_block
+            ),
             computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
@@ -559,8 +612,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
     def apply_job_block_operator(
-        self, rho: float, randomize_ops_selection: bool = True
+        self, rho: float, seed_op_from_critical_block: bool = False
     ) -> None:
+        """Apply the job-block operator to the current CP model.
+
+        Args:
+            rho (float): Fraction of total number of operations to include in the block.
+            seed_op_from_critical_block (bool, optional): If True, the seed operation is
+                chosen from critical blocks of the incumbent solution. Defaults to False.
+
+        Raises:
+            ValueError: If rho is not strictly positive.
+            ValueError: If no incumbent solution is available.
+            ValueError: If the incumbent solution is not a valid HybridFlowshopLiteSchedule instance.
+            ValueError: If no start or end times are available.
+        """
         if rho <= 0:
             raise ValueError(f"Invalid value for rho {rho}; it must be positive.")
         logging.info(f"Applying job-block operator with rho={rho}")
@@ -580,11 +646,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         num_to_select = max(1, int(rho * total_ops))
 
         # Choose an operation
-        if randomize_ops_selection:
-            seed_op = random.choice(all_ops)
+        if seed_op_from_critical_block:
+            # Find critical blocks in the incumbent solution
+            incumbent_solution.make_semi_active(self.stage_2_job_2_p_dict)
+            critical_blocks = incumbent_solution.find_critical_blocks(
+                self.stage_2_job_2_p_dict, include_singletons=True
+            )
+            if not critical_blocks:
+                # If no critical blocks, fall back to random selection
+                seed_op = random.choice(all_ops)
+            else:
+                # Select a random operation from a random critical block
+                selected_block = random.choice(critical_blocks)
+                seed_op = random.choice(selected_block)
         else:
-            # if not random, choose center operation
-            seed_op = all_ops[total_ops // 2]
+            seed_op = random.choice(all_ops)
         # Select all operations of the selected job
         selected_ops = set(op2 for op2 in all_ops if op2[0] == seed_op[0])
         selected_jobs = set([seed_op[0]])
