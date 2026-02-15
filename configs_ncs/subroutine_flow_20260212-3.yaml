@@ -14,17 +14,17 @@
         rho: 0.1
         computational_time: 1
         solver_thread_cnt: 8
-        swap_before_cp: false
+        swap_before_cp: true
       - method: job_block_ns
         rho: 0.1
         computational_time: 1
         solver_thread_cnt: 8
-        swap_before_cp: false
+        swap_before_cp: true
       - method: stage_block_ns
         rho: 0.1
         computational_time: 1
         solver_thread_cnt: 8
-        swap_before_cp: false
+        swap_before_cp: true
     reactive_param_tuner_dict:
       rho:
         step_size: 0.02
@@ -33,7 +33,7 @@
       computational_time:
         step_size: 1
         min: 1
-        max: 3
+        max: 5
     stopping_criteria:
       max_loop_count: 1000
       max_no_improvement_steps: null
