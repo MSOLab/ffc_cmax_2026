@@ -145,9 +145,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
+        last_stage = self.instance.stage_id_list[-1]  # 또는 ref_schedule.stages[-1]
         if swap_before_cp:
             swap_timer = ElapsedTimer()
             ref_schedule = self.solution_manager.get_incumbent()
+            if ref_schedule is None:
+                raise ValueError("No incumbent solution available for swap operator.")
+            last_stage_op_cnt = sum(
+                1 for _ in ref_schedule.iter_operations_on_stage(last_stage)
+            )
+
             if not isinstance(ref_schedule, HybridFlowshopLiteSchedule):
                 raise ValueError(
                     "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
@@ -170,6 +177,24 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                         "No multi-operation critical blocks found, using all critical blocks"
                     )
                     target_blocks = critical_blocks
+                if not target_blocks:
+                    logging.warning(
+                        "No critical blocks found; skipping swap. "
+                        "trial=%d/%d, makespan=%s, |start|=%d, |end|=%d, last_stage=%s, last_stage_ops=%d",
+                        trial,
+                        max_trial_cnt,
+                        ref_schedule.makespan,
+                        len(start_time_map),
+                        len(end_time_map),
+                        last_stage,
+                        last_stage_op_cnt,
+                    )
+                    stage_op_cnt = {
+                        s: sum(1 for _ in ref_schedule.iter_operations_on_stage(s))
+                        for s in self.instance.stage_id_list
+                    }
+                    logging.warning("stage_op_cnt=%s", stage_op_cnt)
+                    break
                 target_block = random.choice(target_blocks)
                 op_1 = random.choice(target_block)
                 target_stage = op_1[1]

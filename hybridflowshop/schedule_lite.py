@@ -787,10 +787,6 @@ class HybridFlowshopLiteSchedule:
         Returns:
             dict[StageIdType, dict[JobIdType, int]]: Stage ID -> job ID -> slack value
         """
-        makespan: int = self.makespan
-        if makespan == 0:
-            return {}
-
         # Step 1: Forward pass (earliest times)
         earliest_start: dict[StageIdType, dict[JobIdType, int]] = {
             stage_id: {} for stage_id in self.stages
@@ -827,6 +823,17 @@ class HybridFlowshopLiteSchedule:
                     # operation on this machine cannot start before this operation's
                     # scheduled completion.
                     prev_end_on_mc = ef
+
+        all_efs = [ef for s in self.stages for ef in earliest_finish[s].values()]
+        if not all_efs:
+            return {}
+        makespan = max(all_efs)
+        if makespan == 0:
+            # If the makespan is zero, all operations are critical with zero slack.
+            return {
+                stage_id: {job_id: 0 for job_id in earliest_start[stage_id]}
+                for stage_id in self.stages
+            }
 
         # Step 2: Backward pass (latest times)
         latest_finish: dict[StageIdType, dict[JobIdType, int]] = {
@@ -872,7 +879,7 @@ class HybridFlowshopLiteSchedule:
             stage_id: {} for stage_id in self.stages
         }
         for stage_id in self.stages:
-            for job_id in self.__stage_2_job_2_end_time[stage_id]:
+            for job_id in earliest_start[stage_id]:
                 slack[stage_id][job_id] = (
                     latest_start[stage_id][job_id] - earliest_start[stage_id][job_id]
                 )

@@ -807,7 +807,10 @@ def test_start_from_stage_none_equals_full_retiming():
     sched_partial, _ = _build_3job_3stage_schedule()
     sched_partial.make_semi_active(duration, start_from_stage=None)
 
-    assert sched_full.get_jik_2_start_time_map() == sched_partial.get_jik_2_start_time_map()
+    assert (
+        sched_full.get_jik_2_start_time_map()
+        == sched_partial.get_jik_2_start_time_map()
+    )
     assert sched_full.get_jik_2_end_time_map() == sched_partial.get_jik_2_end_time_map()
 
 
@@ -819,14 +822,18 @@ def test_start_from_stage_leaves_earlier_stages_untouched():
     s1_start_before = {
         k: v for k, v in sched.get_jik_2_start_time_map().items() if k[1] == "S1"
     }
-    s1_end_before = {k: v for k, v in sched.get_jik_2_end_time_map().items() if k[1] == "S1"}
+    s1_end_before = {
+        k: v for k, v in sched.get_jik_2_end_time_map().items() if k[1] == "S1"
+    }
 
     sched.make_semi_active(duration, start_from_stage="S2")
 
     s1_start_after = {
         k: v for k, v in sched.get_jik_2_start_time_map().items() if k[1] == "S1"
     }
-    s1_end_after = {k: v for k, v in sched.get_jik_2_end_time_map().items() if k[1] == "S1"}
+    s1_end_after = {
+        k: v for k, v in sched.get_jik_2_end_time_map().items() if k[1] == "S1"
+    }
 
     assert s1_start_before == s1_start_after
     assert s1_end_before == s1_end_after
@@ -840,12 +847,14 @@ def test_start_from_stage_equals_full_retiming_result():
         sched_partial, _ = _build_3job_3stage_schedule()
         sched_partial.make_semi_active(duration, start_from_stage=stage)
 
-        assert sched_full.get_jik_2_start_time_map() == sched_partial.get_jik_2_start_time_map(), (
-            f"start_from_stage={stage} diverges from full retiming (start_time_map)"
-        )
-        assert sched_full.get_jik_2_end_time_map() == sched_partial.get_jik_2_end_time_map(), (
-            f"start_from_stage={stage} diverges from full retiming (end_time_map)"
-        )
+        assert (
+            sched_full.get_jik_2_start_time_map()
+            == sched_partial.get_jik_2_start_time_map()
+        ), f"start_from_stage={stage} diverges from full retiming (start_time_map)"
+        assert (
+            sched_full.get_jik_2_end_time_map()
+            == sched_partial.get_jik_2_end_time_map()
+        ), f"start_from_stage={stage} diverges from full retiming (end_time_map)"
 
 
 def test_swap_then_start_from_stage_equals_full_retiming():
@@ -872,7 +881,10 @@ def test_swap_then_start_from_stage_equals_full_retiming():
     validate_schedule(sched_partial, duration)
     validate_schedule(sched_full, duration)
 
-    assert sched_partial.get_jik_2_start_time_map() == sched_full.get_jik_2_start_time_map()
+    assert (
+        sched_partial.get_jik_2_start_time_map()
+        == sched_full.get_jik_2_start_time_map()
+    )
     assert sched_partial.get_jik_2_end_time_map() == sched_full.get_jik_2_end_time_map()
 
 
@@ -887,3 +899,64 @@ def test_start_from_stage_invalid_raises():
     sched, duration = _build_3job_3stage_schedule()
     with pytest.raises(ValueError, match="Invalid stage ID"):
         sched.make_semi_active(duration, start_from_stage="INVALID")
+
+
+# ============================================================================
+# Tests for find_critical_blocks()
+# ============================================================================
+
+
+def test_find_critical_blocks_not_empty_after_make_semi_active_with_last_stage_ops():
+    """After make_semi_active, critical blocks should not be empty when last stage has ops."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["J1", "J2", "J3"],
+        stages=["S1", "S2"],
+        machines_per_stage={"S1": ["M1"], "S2": ["M1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "S1": {"J1": 3, "J2": 4, "J3": 2},
+        "S2": {"J1": 5, "J2": 3, "J3": 6},
+    }
+
+    # Use dummy times and then retime to a feasible semi-active schedule.
+    sched.add_ops_times_2_mc("S1", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J2", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S1", "M1", "J3", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J2", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J3", start_time=0, end_time=0)
+
+    sched.make_semi_active(duration)
+
+    # Ensure the precondition from the requirement: the last stage has operations.
+    last_stage = sched.stages[-1]
+    assert any(True for _ in sched.iter_operations_on_stage(last_stage))
+
+    blocks = sched.find_critical_blocks(duration)
+
+    assert blocks != []
+
+
+def test_find_critical_blocks_not_empty_when_single_critical_op_in_last_stage():
+    """Even a single-op last stage should yield a non-empty critical-block list."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["J1"],
+        stages=["S1", "S2"],
+        machines_per_stage={"S1": ["M1"], "S2": ["M1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "S1": {"J1": 4},
+        "S2": {"J1": 7},
+    }
+
+    sched.add_ops_times_2_mc("S1", "M1", "J1", start_time=0, end_time=0)
+    sched.add_ops_times_2_mc("S2", "M1", "J1", start_time=0, end_time=0)
+
+    sched.make_semi_active(duration)
+
+    last_stage = sched.stages[-1]
+    assert any(True for _ in sched.iter_operations_on_stage(last_stage))
+
+    blocks = sched.find_critical_blocks(duration, include_singletons=True)
+
+    assert blocks != []
