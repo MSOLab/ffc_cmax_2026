@@ -277,12 +277,14 @@ class ReactiveLooper:
                     # If rho_hits_ub in stopping condition, run method will exclude the subroutine
                     tuner.increment("rho")
 
-    def run(self) -> None:
-        # Initialize state variables
+    def initialize_states(self) -> None:
         self.obj_value_before_step = self.ctrlr.solution_manager.best_obj_value
         self.loop_count = 0
         self.no_improvement_step_series_lth = 0
         self.report_entries = []
+
+    def run(self) -> None:
+        self.initialize_states()
         excluded_subroutines = set()
 
         def call_and_true_if_stop(
