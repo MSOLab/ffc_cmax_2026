@@ -1525,6 +1525,52 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
+    def initialize_by_dwb_palmer(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False, draw_progress: bool = False
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_schedule_by_dwb_palmer(draw_progress=draw_progress)
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dwb_palmer(self, draw_progress: bool = False) -> HybridFlowshopLiteSchedule:
+        schedule = self.create_empty_schedule_from_ins()
+        # Dispatch
+        job_sequence = self.get_palmer_sequence()
+        batch_size = self.instance.machine_count_per_stage[0]
+        schedule.dispatch_wave_batches(
+            batch_size,
+            job_sequence,
+            self.instance.stage_id_list,
+            self.stage_2_job_2_p_dict,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine if draw_progress else None,
+        )
+        logging.info(f"Schedule by DWB(Palmer): makespan={schedule.makespan}")
+        return schedule
+
     def _get_best_of_dispatches(self) -> HybridFlowshopLiteSchedule:
         schedule_gen_methods = [
             self._get_schedule_by_dj_cds,
