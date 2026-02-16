@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Mapping, Sequence
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -25,12 +26,12 @@ class GanttPlotter:
 
     def display_hybrid_flowshop_plot(
         self,
-        start_time_map: dict[tuple[str, str, str], int],
-        end_time_map: dict[tuple[str, str, str], int],
-        job_list: list[str] | None = None,
-        stage_list: list[str] | None = None,
-        machine_list_per_stage: dict[str, list[str]] | None = None,
-        all_job_list: list[str] | None = None,
+        start_time_map: Mapping[tuple[str, str, str], int],
+        end_time_map: Mapping[tuple[str, str, str], int],
+        job_list: Sequence[str] | None = None,
+        stage_list: Sequence[str] | None = None,
+        machine_list_per_stage: Mapping[str, Sequence[str]] | None = None,
+        all_job_list: Sequence[str] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):
@@ -49,15 +50,17 @@ class GanttPlotter:
     def export_hybrid_flowshop_plot(
         self,
         file_path: Path,
-        start_time_map: dict[tuple[str, str, str], int],
-        end_time_map: dict[tuple[str, str, str], int],
-        job_list: list[str] | None = None,
-        stage_list: list[str] | None = None,
-        machine_list_per_stage: dict[str, list[str]] | None = None,
-        all_job_list: list[str] | None = None,
+        start_time_map: Mapping[tuple[str, str, str], int],
+        end_time_map: Mapping[tuple[str, str, str], int],
+        job_list: Sequence[str] | None = None,
+        stage_list: Sequence[str] | None = None,
+        machine_list_per_stage: Mapping[str, Sequence[str]] | None = None,
+        all_job_list: Sequence[str] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):
+        self.ax.clear()
+
         self.plot_hybrid_flowshop(
             start_time_map,
             end_time_map,
@@ -68,18 +71,21 @@ class GanttPlotter:
             force_start=force_start,
             force_end=force_end,
         )
-        plt.savefig(file_path, bbox_inches="tight", dpi=300)
+
+        self.fig.savefig(file_path, bbox_inches="tight", dpi=300)
         logging.info(f"Gantt chart saved to {file_path}")
-        plt.close()
+
+        plt.close(self.fig)
+        self.fig, self.ax = plt.subplots(figsize=self.figsize)
 
     def plot_hybrid_flowshop(
         self,
-        start_time_map: dict[tuple[str, str, str], int],
-        end_time_map: dict[tuple[str, str, str], int],
-        job_list: list[str] | None = None,
-        stage_list: list[str] | None = None,
-        machine_list_per_stage: dict[str, list[str]] | None = None,
-        all_job_list: list[str] | None = None,
+        start_time_map: Mapping[tuple[str, str, str], int],
+        end_time_map: Mapping[tuple[str, str, str], int],
+        job_list: Sequence[str] | None = None,
+        stage_list: Sequence[str] | None = None,
+        machine_list_per_stage: Mapping[str, Sequence[str]] | None = None,
+        all_job_list: Sequence[str] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):
@@ -87,11 +93,11 @@ class GanttPlotter:
         Plot a Gantt chart for a Hybrid Flow Shop solution.
 
         Args:
-            start_time_map (dict): (job, stage, machine) -> start time
-            end_time_map (dict): (job, stage, machine) -> end time
-            job_list (list, optional): List of jobs to include
-            stage_list (list, optional): List of stages to include
-            machine_list_per_stage (dict, optional): stage -> list of machines
+            start_time_map (Mapping): (job, stage, machine) -> start time
+            end_time_map (Mapping): (job, stage, machine) -> end time
+            job_list (Sequence[str], optional): List of jobs to include
+            stage_list (Sequence[str], optional): List of stages to include
+            machine_list_per_stage (Mapping[str, Sequence[str]], optional): stage -> list of machines
         """
         self.set_x_horizon(
             start_time_map, end_time_map, force_start=force_start, force_end=force_end
@@ -102,13 +108,13 @@ class GanttPlotter:
         if job_list is None or len(job_list) == 0:
             _job_list = sorted({j for (j, _, _) in start_time_map.keys()})
         else:
-            _job_list = job_list.copy()
+            _job_list = job_list
         if stage_list is None or len(stage_list) == 0:
             _stage_list = sorted({i for (_, i, _) in start_time_map.keys()})
         else:
-            _stage_list = stage_list.copy()
+            _stage_list = stage_list
 
-        _machine_list_per_stage: dict[str, list[str]] = {
+        _machine_list_per_stage: dict[str, Sequence[str]] = {
             stage: [] for stage in _stage_list
         }
         for stage in _stage_list:
@@ -117,7 +123,7 @@ class GanttPlotter:
                     {mc for (_, stg, mc) in start_time_map.keys() if stg == stage}
                 )
             else:
-                _machine_list_per_stage[stage] = machine_list_per_stage[stage].copy()
+                _machine_list_per_stage[stage] = machine_list_per_stage[stage]
 
         # Color map
         if all_job_list:
@@ -157,15 +163,15 @@ class GanttPlotter:
 
     @staticmethod
     def compute_horizon(
-        start_time_map: dict[tuple[str, str, str], int],
-        end_time_map: dict[tuple[str, str, str], int],
+        start_time_map: Mapping[tuple[str, str, str], int],
+        end_time_map: Mapping[tuple[str, str, str], int],
     ) -> tuple[int, int]:
         """
         Computes the (start, end) horizon of the schedule from start_time_map and end_time_map.
 
         Args:
-            start_time_map (dict): (job, stage, machine) -> start time
-            end_time_map (dict): (job, stage, machine) -> end time
+            start_time_map (Mapping): (job, stage, machine) -> start time
+            end_time_map (Mapping): (job, stage, machine) -> end time
 
         Returns:
             (int, int): (minimum start time, maximum end time)
@@ -180,8 +186,8 @@ class GanttPlotter:
 
     def set_x_horizon(
         self,
-        start_time_map: dict[tuple[str, str, str], int],
-        end_time_map: dict[tuple[str, str, str], int],
+        start_time_map: Mapping[tuple[str, str, str], int],
+        end_time_map: Mapping[tuple[str, str, str], int],
         force_start: int | None = None,
         force_end: int | None = None,
     ):
@@ -195,13 +201,13 @@ class GanttPlotter:
         self.ax.set_xlim(earliest_start, latest_completion + 1)
 
     def create_job_to_color_map(
-        self, job_list: list[str]
+        self, job_list: Sequence[str]
     ) -> dict[str, tuple[float, float, float, float]]:
         """
         Create a mapping from job name to color.
 
         Args:
-            job_list (list[str]): List of unique job names.
+            job_list (Sequence[str]): List of unique job names.
             cmap_name (str, optional): Name of the matplotlib colormap.
 
         Returns:
@@ -213,17 +219,17 @@ class GanttPlotter:
 
     @staticmethod
     def create_machine_lanes(
-        start_time_map: dict[tuple[str, str, str], int],
-        stage_list: list[str],
-        machine_list_per_stage: dict[str, list[str]],
+        start_time_map: Mapping[tuple[str, str, str], int],
+        stage_list: Sequence[str],
+        machine_list_per_stage: Mapping[str, Sequence[str]],
     ) -> tuple[list[tuple[str, str]], list[str]]:
         """
         Create a list of (stage, machine) lanes and corresponding machine labels.
 
         Args:
-            start_time_map (dict): (job, stage, machine) -> start time dictionary.
-            stage_list (list[str]): List of stages to include.
-            machine_list_per_stage (dict[str, list[str]]): Mapping stage -> list of machines.
+            start_time_map (Mapping): (job, stage, machine) -> start time mapping.
+            stage_list (Sequence[str]): List of stages to include.
+            machine_list_per_stage (Mapping[str, Sequence[str]]): Mapping stage -> list of machines.
 
         Returns:
             tuple:
@@ -308,11 +314,11 @@ class GanttPlotter:
 
     def draw_operation_bars(
         self,
-        start_time_map: dict[tuple[str, str, str], int],
-        end_time_map: dict[tuple[str, str, str], int],
-        job_to_color: dict[str, tuple[float, float, float, float]],
-        machine_to_y: dict[tuple[str, str], float],
-        job_list: list[str],
+        start_time_map: Mapping[tuple[str, str, str], int],
+        end_time_map: Mapping[tuple[str, str, str], int],
+        job_to_color: Mapping[str, tuple[float, float, float, float]],
+        machine_to_y: Mapping[tuple[str, str], float],
+        job_list: Sequence[str],
     ):
         """Draw the operation bars and labels on the Gantt chart."""
         for (job, stage, machine), s_time in start_time_map.items():
