@@ -2020,11 +2020,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             start_time_map[j] = start_value
         return start_time_map
 
-    def bottleneck_parallel_mc_2(
-        self,
-        computational_time: float | None = None,
-        solver_thread_cnt: int | None = None,
-    ) -> None:
+    def bnd_all_stage(self) -> None:
         sub_timer = ElapsedTimer()
 
         best_obj: int | None = None

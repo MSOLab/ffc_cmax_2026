@@ -2,7 +2,7 @@
   seed: 42
 - method: apply_shdlb
 - method: initialize_by_best_of_dispatches
-- method: bottleneck_parallel_mc_2
+- method: bnd_all_stage
 - method: set_cp_model_as_base_cp_model
 - method: neh_cp
   added_batch_size: 10
