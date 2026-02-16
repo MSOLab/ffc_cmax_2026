@@ -36,15 +36,34 @@ def solve_selection_problem(
     model.add(sum(y[j] for j in jobs) == K_R)
 
     # Objective: minimize total cost
-    objective = sum(r[j] * x[j] + t[j] * y[j] for j in jobs)
-    model.minimize(objective)
+    primary_obj = sum(r[j] * x[j] + t[j] * y[j] for j in jobs)
+    model.minimize(primary_obj)
 
-    # Solve
+    # First solve for optimal primary objective
     solver = cp_model.CpSolver()
     status = solver.solve(model)
 
-    # Extract solution
+    if status != cp_model.OPTIMAL and status != cp_model.FEASIBLE:
+        return {"status": "INFEASIBLE"}
+
+    optimal_cost = solver.objective_value
+
+    # Add constraint: primary objective must equal optimal value
+    model.add(primary_obj == int(optimal_cost))
+
+    # Secondary objective: minimize sum of selected job indices (tie-breaking)
+    j_idx: dict[Hashable, int] = {
+        j: idx + 1 for idx, j in enumerate(jobs)
+    }  # Map job id to index (1-based)
+    secondary_obj = sum(j_idx[j] * (x[j] + y[j]) for j in jobs)
+    model.minimize(secondary_obj)
+
+    # Solve again with tie-breaking
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+        # Extract solution
         L_set = [j for j in jobs if solver.value(x[j]) == 1]
         R_set = [j for j in jobs if solver.value(y[j]) == 1]
         total_cost = solver.objective_value
