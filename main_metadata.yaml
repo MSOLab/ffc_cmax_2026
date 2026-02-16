@@ -8,7 +8,7 @@ benchmark_idx_list:
   # - 49
   # - 50
   # - 35
-  - 235
+  # - 235
 first: 1
 last: 240
 benchmark_filename_format: "{}.txt"
@@ -495,10 +495,10 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260214-24.yaml"
   #   output_dir: "pra_half_nc/20260214-24"
   #   description: "Dispatch 1,2,3 -> NEH-CP with instance-specific TL"
-  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_nc.yaml"
-  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260214-41.yaml"
-  #   output_dir: "pra_half_nc/20260214-41"
-  #   description: "Dispatch starting from bottleneck stage 1"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_nc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260214-41.yaml"
+    output_dir: "pra_half_nc/20260214-41"
+    description: "Dispatch starting from bottleneck stage 1"
   # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_nc.yaml"
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260214-42.yaml"
   #   output_dir: "pra_half_nc/20260214-42"
@@ -547,10 +547,10 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260215-04.yaml"
   #   output_dir: "pra_half_nc/20260215-04"
   #   description: "Dispatch 1,2,3 -> NEH-CP with (1 * stage count) TL; make semi-active-> improve(swap)"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_nc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260215-05.yaml"
-    output_dir: "pra_half_nc/20260215-05"
-    description: "Dispatch 1,2,3 -> NEH-CP with (0.5 * stage count) TL; make semi-active-> improve(swap; constant rho)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260215-05.yaml"
+  #   output_dir: "pra_half_nc/20260215-05"
+  #   description: "Dispatch 1,2,3 -> NEH-CP with (0.5 * stage count) TL; make semi-active-> improve(swap; constant rho)"
 
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_obns.yaml"

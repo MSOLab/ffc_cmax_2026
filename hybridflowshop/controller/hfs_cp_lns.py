@@ -1,6 +1,7 @@
 import logging
 import math
 import random
+
 from typing import Callable
 
 from mbls.cpsat import CpsatStatus
@@ -11,6 +12,7 @@ from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
 from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.select_and_assign import solve_selection_problem
 from identical_parallel_machine.cumulative import ParallelMcParams, ParallelMcVars
 from identical_parallel_machine.solver import SolveConfig, configure_solver
 
@@ -2299,59 +2301,81 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_cnt = len(self.instance.stage_2_machines_map[bottleneck_stage_id])
         job_cnt = self.instance.job_count
 
-        head_job_id_list: list[str]
-        head_op_cnt = 0
+        left_cap_op_cnt = 0
         if left_cap_multiplier is not None:
-            head_op_cnt = left_cap_multiplier * machine_cnt
+            left_cap_op_cnt = left_cap_multiplier * machine_cnt
         elif left_cap_portion is not None:
-            head_op_cnt = int(left_cap_portion * job_cnt)
+            left_cap_op_cnt = int(left_cap_portion * job_cnt)
 
-        if head_op_cnt > 0:
-            # If left_cap_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
-            sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
-            head_job_id_list = [j for j, _ in sorted_by_r[:head_op_cnt]]
-        else:
-            head_job_id_list = []
-
-        tail_job_id_list: list[str]
-        tail_op_cnt = 0
+        right_cap_op_cnt = 0
         if right_cap_multiplier is not None:
-            tail_op_cnt = right_cap_multiplier * machine_cnt
+            right_cap_op_cnt = right_cap_multiplier * machine_cnt
         elif right_cap_portion is not None:
-            tail_op_cnt = int(right_cap_portion * job_cnt)
+            right_cap_op_cnt = int(right_cap_portion * job_cnt)
 
-        if tail_op_cnt > 0:
-            # If right_cap_multiplier is specified, pick tail_op_cnt jobs with the smallest tr_dict values
-            sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
-            # Exclude those in head_job_id_list
-            sorted_by_tr = [
-                (j, t) for j, t in sorted_by_tr if j not in head_job_id_list
-            ]
-            # logging.info(f"Sorted for tail operations: {sorted_by_tr}")
-            tail_job_id_list = [j for j, _ in sorted_by_tr[:tail_op_cnt]]
-            # Sort tail jobs by decreasing order of (p_j + tr_j)
-            dict_for_tail_sorting = {
-                j: tr_dict[j] + p_dict[j] for j in self.instance.job_id_list
-            }
-            tail_job_id_list.sort(key=lambda j: dict_for_tail_sorting[j], reverse=True)
-            # logging.info(f"Tail job list: {tail_job_id_list}")
-            # for j in tail_job_id_list:
-            #     logging.info(
-            #         f"Job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}, tail sorting criteria={dict_for_tail_sorting[j]}"
-            #     )
+        left_cap_job_id_list: list[str]
+        right_cap_job_id_list: list[str]
+        if left_cap_op_cnt > 0 or right_cap_op_cnt > 0:
+            # Use CP solver to optimally select head and tail jobs
+            result = solve_selection_problem(
+                jobs=self.instance.job_id_list,
+                r=r_dict,
+                t=tr_dict,
+                K_L=left_cap_op_cnt,
+                K_R=right_cap_op_cnt,
+            )
+            # from pprint import pformat
+
+            # logging.info(pformat(result))
+
+            if result["status"] in ("OPTIMAL", "FEASIBLE"):
+                left_cap_job_id_list = result["L_set"]
+                # Sort by r_j in ascending order
+                left_cap_job_id_list.sort(key=lambda j: r_dict[j])
+                right_cap_job_id_list = result["R_set"]
+                # Sort by tr_j in descending order
+                right_cap_job_id_list.sort(key=lambda j: tr_dict[j], reverse=True)
+            else:
+                # Fallback to greedy selection if CP solver does not return a solution
+                if left_cap_op_cnt > 0:
+                    sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
+                    left_cap_job_id_list = [j for j, _ in sorted_by_r[:left_cap_op_cnt]]
+                else:
+                    left_cap_job_id_list = []
+
+                if right_cap_op_cnt > 0:
+                    sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
+                    # Exclude those in head_job_id_list
+                    sorted_by_tr = [
+                        (j, t) for j, t in sorted_by_tr if j not in left_cap_job_id_list
+                    ]
+                    right_cap_job_id_list = [
+                        j for j, _ in sorted_by_tr[:right_cap_op_cnt]
+                    ]
+                else:
+                    right_cap_job_id_list = []
+            for j in left_cap_job_id_list:
+                logging.debug(
+                    f"Left cap job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}"
+                )
+            for j in right_cap_job_id_list:
+                logging.debug(
+                    f"Right cap job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}"
+                )
         else:
-            tail_job_id_list = []
+            left_cap_job_id_list = []
+            right_cap_job_id_list = []
 
         # Update mid_job_id_list to only include jobs that are not in head or tail job lists
         mid_job_id_list = [
             j
             for j in self.instance.job_id_list
-            if j not in head_job_id_list and j not in tail_job_id_list
+            if j not in left_cap_job_id_list and j not in right_cap_job_id_list
         ]
 
         # Sort mid jobs by (r_j - tr_j, tie-break by original job index)
         sorted_j_list = (
-            head_job_id_list
+            left_cap_job_id_list
             + sorted(
                 mid_job_id_list,
                 key=lambda j: (
@@ -2359,7 +2383,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     self.instance.job_id_list.index(j),
                 ),
             )
-            + tail_job_id_list
+            + right_cap_job_id_list
         )
 
         dispatched_schedule = self.create_empty_schedule_from_ins()
