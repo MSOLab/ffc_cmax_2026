@@ -39,13 +39,22 @@ class CumulativeVars:
 
 class BaseModelBuilder:
     def build(
-        self, instance: HybridFlowshopParameters, horizon: int
+        self,
+        instance: HybridFlowshopParameters,
+        horizon: int,
+        minimize_sum_ci: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
         params: Params = self._make_params(instance)
         variables: CumulativeVars = self._make_vars(mdl, params, horizon)
         self._add_structural_constraints(mdl, params, variables)
-        self._define_objective(mdl, params, variables)
+        self._define_objective(
+            mdl,
+            params,
+            variables,
+            minimize_sum_ci=minimize_sum_ci,
+            horizon=horizon,
+        )
         mdl.set_num_base_constraints()
 
         return mdl, params, variables
@@ -196,20 +205,38 @@ class BaseModelBuilder:
 
     @staticmethod
     def _define_objective(
-        mdl: CustomCpModel, params: Params, variables: CumulativeVars
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        minimize_sum_ci: bool = False,
+        horizon: int = 0,
     ) -> None:
         # Alias for readability
         j_list = params.j_list
         i_list = params.i_list
         last_i = i_list[-1]
 
-        # Makespan definition
-        mdl.add_max_equality(
-            variables.makespan, [variables.op_end[j, last_i] for j in j_list]
-        )
+        if not minimize_sum_ci:
+            # Makespan definition
+            mdl.add_max_equality(
+                variables.makespan, [variables.op_end[j, last_i] for j in j_list]
+            )
+            # Set objective to minimize makespan
+            mdl.minimize(variables.makespan)
+        else:
+            if horizon <= 0:
+                horizon = sum(params.p[j, i] for j in j_list for i in i_list)
 
-        # Set objective to minimize makespan
-        mdl.minimize(variables.makespan)
+            # Define objective to minimize the sum of all stage's (last) end times
+            stage_end_vars = []
+            for i in i_list:
+                Ci = mdl.new_int_var(0, horizon, f"Ci_{i}")
+                mdl.add_max_equality(Ci, [variables.op_end[j, i] for j in j_list])
+                stage_end_vars.append(Ci)
+
+            sum_Ci = mdl.new_int_var(0, len(i_list) * horizon, "stage_end_time_sum")
+            mdl.add(sum_Ci == sum(stage_end_vars))
+            mdl.minimize(sum_Ci)
 
     # Additional constraints
 

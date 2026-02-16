@@ -1800,6 +1800,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
+        minimize_sum_ci: bool = False,
         make_semi_active_every_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -1817,6 +1818,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 If None, uses the default value. Defaults to None.
             cp_tl_c_multiplier (float | None, optional): Multiplier for the time limit of each CP subproblem.
                 If None, uses the default value. Defaults to None.
+            minimize_sum_ci (bool, optional): If True, minimizes the sum of completion
+                times in each CP subproblem after minimizing the makespan.
+                Defaults to False.
+            make_semi_active_every_cp (bool, optional): If True, makes the solution
+                semi-active after solving each CP subproblem. Defaults to False.
             error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
@@ -1838,6 +1844,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             max_time_per_add=max_time_per_add,
             cp_tl_nc_multiplier=cp_tl_nc_multiplier,
             cp_tl_c_multiplier=cp_tl_c_multiplier,
+            minimize_sum_ci=minimize_sum_ci,
             make_semi_active_every_cp=make_semi_active_every_cp,
             solver_thread_cnt=solver_thread_cnt,
             error_if_infeasible=error_if_infeasible,

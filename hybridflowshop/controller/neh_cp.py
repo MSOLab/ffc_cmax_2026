@@ -110,6 +110,7 @@ class NehCpConstructor:
         max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
+        minimize_sum_ci: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
         error_if_infeasible: bool = False,
@@ -196,6 +197,7 @@ class NehCpConstructor:
                 instance,
                 stage_2_job_2_p_dict,
                 max_time_per_add=max_time_per_add,
+                minimize_sum_ci=minimize_sum_ci,
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
             )
@@ -304,6 +306,7 @@ class NehCpConstructor:
         self,
         partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
+        minimize_sum_ci: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
         horizon: int = partial_sol.makespan
@@ -312,7 +315,11 @@ class NehCpConstructor:
         # )
         sub_instance = instance.create_instance_of_job_subset(st.current_job_id_list)
         builder = BaseModelBuilder()
-        mdl, params, variables = builder.build(sub_instance, horizon)
+        mdl, params, variables = builder.build(
+            sub_instance,
+            horizon,
+            minimize_sum_ci=minimize_sum_ci,
+        )
         # mdl, params, variables = builder.build_horizon_per_stage(
         #     sub_instance, stage_2_mc_horizon
         # )
@@ -344,6 +351,7 @@ class NehCpConstructor:
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         max_time_per_add: float | None = None,
+        minimize_sum_ci: bool = False,
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
     ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
@@ -352,11 +360,11 @@ class NehCpConstructor:
         ctx = self.ctx
         st = self._require_state()
 
-        # Build CP model with job_subset
+        # Build primary CP model with job_subset
         sub_cp_mdl, params, variables = self._create_sub_cp_model(partial_sol, instance)
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
-        report = self.ctx.solve_cp_model_2(
+        report_1: CpsatSolverReport = self.ctx.solve_cp_model_2(
             sub_cp_mdl,
             _timelimit,
             solver_thread_cnt,
@@ -366,9 +374,9 @@ class NehCpConstructor:
             log_level_obj_value=logging.NOTSET,
             log_level_obj_bound=logging.NOTSET,
         )
-        if not getattr(report, "is_feasible", False):
+        if not getattr(report_1, "is_feasible", False):
             logging.info("No solution from sub CP.")
-            return report, partial_sol
+            return report_1, partial_sol
 
         # If feasible, decode solution
         new_sol: HybridFlowshopLiteSchedule = ctx.create_schedule(params, variables)
@@ -390,4 +398,43 @@ class NehCpConstructor:
                 f" solution ({partial_sol.makespan}); keeping the partial solution."
             )
             new_sol = partial_sol
-        return report, new_sol
+
+        if not minimize_sum_ci:
+            return report_1, new_sol
+
+        # Build secondary CP model to minimize \sum(C_i)
+        sub_cp_mdl, params, variables = self._create_sub_cp_model(
+            new_sol, instance, minimize_sum_ci=True
+        )
+
+        _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
+        report_2: CpsatSolverReport = self.ctx.solve_cp_model_2(
+            sub_cp_mdl,
+            _timelimit,
+            solver_thread_cnt,
+            e_timer=st.timer,
+            obj_value_is_valid=False,
+            obj_bound_is_valid=False,
+            log_level_obj_value=logging.NOTSET,
+            log_level_obj_bound=logging.NOTSET,
+        )
+        return_report: CpsatSolverReport = report_1.copy(
+            elapsed_time=report_1.elapsed_time + report_2.elapsed_time
+        )
+        if not getattr(report_2, "is_feasible", False):
+            return return_report, new_sol
+
+        # If feasible, decode solution
+        new_sol_2 = ctx.create_schedule(params, variables)
+
+        if do_make_semi_active:
+            obj_val_before = new_sol_2.makespan
+            new_sol_2.make_semi_active(stage_2_job_2_p_dict)
+            obj_val_after = new_sol_2.makespan
+            if obj_val_after != obj_val_before:
+                logging.info(
+                    f"NEH-CP: makespan before semi-active adjustment: {obj_val_before},"
+                    f" after adjustment: {obj_val_after}."
+                )
+
+        return return_report, new_sol_2
