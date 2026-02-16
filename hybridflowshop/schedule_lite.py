@@ -1,10 +1,11 @@
 from __future__ import annotations
-from pathlib import Path
 
 import bisect
 import heapq
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterator, Mapping, Sequence, TypeAlias
+
 from hybridflowshop.painter.gantt import GanttPlotter
 
 JobIdType = str
@@ -318,6 +319,18 @@ class HybridFlowshopLiteSchedule:
             (job_id, stage): int(end)
             for stage, _, _, end, job_id in self._iter_operations()
         }
+
+    def get_stage_2_mc_2_last_end_time_map(
+        self,
+    ) -> dict[StageIdType, dict[McIdType, int]]:
+        stage_2_mc_2_last_end_time = {
+            stage: {mc: 0 for mc in self.machines_per_stage[stage]}
+            for stage in self.stages
+        }
+        for stage, mc, _, end, _ in self._iter_operations():
+            if end > stage_2_mc_2_last_end_time[stage][mc]:
+                stage_2_mc_2_last_end_time[stage][mc] = end
+        return stage_2_mc_2_last_end_time
 
     # Setters
 

@@ -187,11 +187,10 @@ class NehCpConstructor:
                 if partial_sol_dj.makespan <= partial_sol_ds.makespan
                 else partial_sol_ds
             )
-
-            mdl, params, variables = self._create_sub_cp_model(
-                partial_sol_best, instance
+            logging.info(
+                f"After dispatching job sublist, partial solution makespan is {partial_sol_best.makespan}"
+                f" (by {'job' if partial_sol_best == partial_sol_dj else 'stage'}-based dispatch)."
             )
-
             _, new_sol = self._solve_cp_model(
                 partial_sol_best,
                 instance,
@@ -201,6 +200,9 @@ class NehCpConstructor:
                 solver_thread_cnt=solver_thread_cnt,
             )
             last_timestamp = st.timer.elapsed_sec
+            logging.info(
+                "After CP adjustment, solution makespan is %d.", new_sol.makespan
+            )
 
             # Update the last partial solution
             st.partial_sol = new_sol
@@ -305,9 +307,15 @@ class NehCpConstructor:
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
         horizon: int = partial_sol.makespan
+        # stage_2_mc_horizon: dict[str, dict[str, int]] = (
+        #     partial_sol.get_stage_2_mc_2_last_end_time_map()
+        # )
         sub_instance = instance.create_instance_of_job_subset(st.current_job_id_list)
         builder = BaseModelBuilder()
         mdl, params, variables = builder.build(sub_instance, horizon)
+        # mdl, params, variables = builder.build_horizon_per_stage(
+        #     sub_instance, stage_2_mc_horizon
+        # )
         self._add_hints_and_additional_constraints(mdl, params, variables, partial_sol)
 
         return mdl, params, variables
@@ -378,8 +386,8 @@ class NehCpConstructor:
         # If new_sol is not better than partial_sol, keep partial_sol
         if new_sol.makespan >= partial_sol.makespan:
             logging.info(
-                "Sub CP solution is not better than partial solution;"
-                " keeping the partial solution."
+                f"Sub CP solution ({new_sol.makespan}) is not better than partial"
+                f" solution ({partial_sol.makespan}); keeping the partial solution."
             )
             new_sol = partial_sol
         return report, new_sol

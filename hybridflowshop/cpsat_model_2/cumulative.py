@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from bisect import bisect_left
 from dataclasses import dataclass
+from typing import Mapping
 
 from mbls.cpsat import CustomCpModel
 from ortools.sat.python.cp_model import IntervalVar, IntVar
@@ -44,6 +45,22 @@ class BaseModelBuilder:
         params: Params = self._make_params(instance)
         variables: CumulativeVars = self._make_vars(mdl, params, horizon)
         self._add_structural_constraints(mdl, params, variables)
+        self._define_objective(mdl, params, variables)
+        mdl.set_num_base_constraints()
+
+        return mdl, params, variables
+
+    def build_horizon_per_stage(
+        self,
+        instance: HybridFlowshopParameters,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+    ) -> tuple[CustomCpModel, Params, CumulativeVars]:
+        mdl = CustomCpModel()
+        params: Params = self._make_params(instance)
+        variables: CumulativeVars = self._make_vars_horizon_per_stage(
+            mdl, params, stage_2_mc_2_horizon
+        )
+        self._add_structural_constraints(mdl, params, variables, stage_2_mc_2_horizon)
         self._define_objective(mdl, params, variables)
         mdl.set_num_base_constraints()
 
@@ -94,12 +111,54 @@ class BaseModelBuilder:
         )
 
     @staticmethod
+    def _make_vars_horizon_per_stage(
+        mdl: CustomCpModel,
+        params: Params,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+    ) -> CumulativeVars:
+        op_start: dict[tuple[str, str], IntVar] = {}
+        op_end: dict[tuple[str, str], IntVar] = {}
+        op_intvl: dict[tuple[str, str], IntervalVar] = {}
+
+        stage_2_horizon: dict[str, int] = {
+            stage: max(mc_2_horizon.values())
+            for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
+        }
+
+        for j in params.j_list:
+            for i in params.i_list:
+                stage_horizon = stage_2_horizon[i]
+                p = params.p[j, i]
+                start_var = mdl.new_int_var(0, stage_horizon - p, f"start_{j}_{i}")
+                end_var = mdl.new_int_var(p, stage_horizon, f"end_{j}_{i}")
+                interval_var = mdl.new_interval_var(
+                    start_var, p, end_var, f"interval_{j}_{i}"
+                )
+
+                op_start[(j, i)] = start_var
+                op_end[(j, i)] = end_var
+                op_intvl[(j, i)] = interval_var
+
+        makespan = mdl.new_int_var(0, stage_2_horizon[params.i_list[-1]], "makespan")
+
+        return CumulativeVars(
+            op_start=op_start,
+            op_end=op_end,
+            op_intvl=op_intvl,
+            makespan=makespan,
+        )
+
+    @staticmethod
     def _add_structural_constraints(
-        mdl: CustomCpModel, params: Params, variables: CumulativeVars
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]] = {},
     ) -> None:
         # Alias for readability
         j_list = params.j_list
         i_list = params.i_list
+        last_i = i_list[-1]
 
         # Precedence between consecutive stages for each job
         consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
@@ -107,10 +166,31 @@ class BaseModelBuilder:
             for i, next_i in consecutive_stage_pairs:
                 mdl.add(variables.op_end[j, i] <= variables.op_start[j, next_i])
 
+        stage_2_horizon: dict[str, int] = {
+            stage: max(mc_2_horizon.values())
+            for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
+        }
+
         # Capacity constraints for each stage
         for i in i_list:
             intervals = [variables.op_intvl[j, i] for j in j_list]
             demands = [1] * len(j_list)
+            # Additional dummy intervals based on stage_2_mc_2_horizon
+            if i in stage_2_mc_2_horizon and i != last_i:
+                stage_horizon = stage_2_horizon[i]
+                dummy_idx = 0
+                for mc_horizon in stage_2_mc_2_horizon[i].values():
+                    if mc_horizon < stage_horizon:
+                        dummy_interval = mdl.new_interval_var(
+                            mc_horizon,
+                            stage_horizon - mc_horizon,
+                            stage_horizon,
+                            f"dummy_{i}_{dummy_idx}",
+                        )
+                        intervals.append(dummy_interval)
+                        demands.append(1)
+                        dummy_idx += 1
+
             capacity = len(params.M_of[i])
             mdl.add_cumulative(intervals, demands, capacity)
 
