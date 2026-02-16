@@ -1,5 +1,5 @@
 - method: initialize_by_best_of_dispatches
 - method: bottleneck_parallel_mc_4
   draw_gantt: False
-  head_job_portion: 0.25
-  tail_job_portion: 0.25
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25

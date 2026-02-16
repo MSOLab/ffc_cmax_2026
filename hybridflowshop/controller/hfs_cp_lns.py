@@ -2047,10 +2047,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _schedule_from_bottleneck_stage(
         self,
         bottleneck_stage_id: str,
-        head_op_cnt_multiplier: int | None = None,
-        tail_op_cnt_multiplier: int | None = None,
-        head_job_portion: float | None = None,
-        tail_job_portion: float | None = None,
+        left_cap_multiplier: int | None = None,
+        right_cap_multiplier: int | None = None,
+        left_cap_portion: float | None = None,
+        right_cap_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         """Schedule the entire hybrid flow shop from a single bottleneck stage.
@@ -2068,10 +2068,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         bottleneck_schedule, bcmax = self._get_bottleneck_stage_schedule_heuristic(
             bottleneck_stage_id,
-            head_op_cnt_multiplier=head_op_cnt_multiplier,
-            tail_op_cnt_multiplier=tail_op_cnt_multiplier,
-            head_job_portion=head_job_portion,
-            tail_job_portion=tail_job_portion,
+            left_cap_multiplier=left_cap_multiplier,
+            right_cap_multiplier=right_cap_multiplier,
+            left_cap_portion=left_cap_portion,
+            right_cap_portion=right_cap_portion,
             draw_gantt=draw_gantt,
         )
 
@@ -2175,10 +2175,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def bottleneck_parallel_mc_3(
         self,
-        head_op_cnt_multiplier: int | None = None,
-        tail_op_cnt_multiplier: int | None = None,
-        head_job_portion: float | None = None,
-        tail_job_portion: float | None = None,
+        left_cap_multiplier: int | None = None,
+        right_cap_multiplier: int | None = None,
+        left_cap_portion: float | None = None,
+        right_cap_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from single bottleneck stage (loading index-based)."""
@@ -2188,10 +2188,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         schedule = self._schedule_from_bottleneck_stage(
             bottleneck_stage_id,
-            head_op_cnt_multiplier=head_op_cnt_multiplier,
-            tail_op_cnt_multiplier=tail_op_cnt_multiplier,
-            head_job_portion=head_job_portion,
-            tail_job_portion=tail_job_portion,
+            left_cap_multiplier=left_cap_multiplier,
+            right_cap_multiplier=right_cap_multiplier,
+            left_cap_portion=left_cap_portion,
+            right_cap_portion=right_cap_portion,
             draw_gantt=False,
         )
         if draw_gantt:
@@ -2209,10 +2209,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def bottleneck_parallel_mc_4(
         self,
-        head_op_cnt_multiplier: int | None = None,
-        tail_op_cnt_multiplier: int | None = None,
-        head_job_portion: float | None = None,
-        tail_job_portion: float | None = None,
+        left_cap_multiplier: int | None = None,
+        right_cap_multiplier: int | None = None,
+        left_cap_portion: float | None = None,
+        right_cap_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from all stages as bottleneck and select best solution."""
@@ -2225,10 +2225,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             logging.info(f"Trying bottleneck stage: {bottleneck_stage_id}")
             schedule = self._schedule_from_bottleneck_stage(
                 bottleneck_stage_id,
-                head_op_cnt_multiplier=head_op_cnt_multiplier,
-                tail_op_cnt_multiplier=tail_op_cnt_multiplier,
-                head_job_portion=head_job_portion,
-                tail_job_portion=tail_job_portion,
+                left_cap_multiplier=left_cap_multiplier,
+                right_cap_multiplier=right_cap_multiplier,
+                left_cap_portion=left_cap_portion,
+                right_cap_portion=right_cap_portion,
                 draw_gantt=False,
             )
             makespan = schedule.makespan
@@ -2270,10 +2270,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _get_bottleneck_stage_schedule_heuristic(
         self,
         bottleneck_stage_id: str,
-        head_op_cnt_multiplier: int | None = None,
-        tail_op_cnt_multiplier: int | None = None,
-        head_job_portion: float | None = None,
-        tail_job_portion: float | None = None,
+        left_cap_multiplier: int | None = None,
+        right_cap_multiplier: int | None = None,
+        left_cap_portion: float | None = None,
+        right_cap_portion: float | None = None,
         draw_gantt: bool = False,
     ) -> tuple[HybridFlowshopLiteSchedule, int]:
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
@@ -2301,13 +2301,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         head_job_id_list: list[str]
         head_op_cnt = 0
-        if head_op_cnt_multiplier is not None:
-            head_op_cnt = head_op_cnt_multiplier * machine_cnt
-        elif head_job_portion is not None:
-            head_op_cnt = int(head_job_portion * job_cnt)
+        if left_cap_multiplier is not None:
+            head_op_cnt = left_cap_multiplier * machine_cnt
+        elif left_cap_portion is not None:
+            head_op_cnt = int(left_cap_portion * job_cnt)
 
         if head_op_cnt > 0:
-            # If head_op_cnt_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
+            # If left_cap_multiplier is specified, pick head_op_cnt jobs with the smallest r_dict values
             sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
             head_job_id_list = [j for j, _ in sorted_by_r[:head_op_cnt]]
         else:
@@ -2315,13 +2315,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         tail_job_id_list: list[str]
         tail_op_cnt = 0
-        if tail_op_cnt_multiplier is not None:
-            tail_op_cnt = tail_op_cnt_multiplier * machine_cnt
-        elif tail_job_portion is not None:
-            tail_op_cnt = int(tail_job_portion * job_cnt)
+        if right_cap_multiplier is not None:
+            tail_op_cnt = right_cap_multiplier * machine_cnt
+        elif right_cap_portion is not None:
+            tail_op_cnt = int(right_cap_portion * job_cnt)
 
         if tail_op_cnt > 0:
-            # If tail_op_cnt_multiplier is specified, pick tail_op_cnt jobs with the smallest tr_dict values
+            # If right_cap_multiplier is specified, pick tail_op_cnt jobs with the smallest tr_dict values
             sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
             # Exclude those in head_job_id_list
             sorted_by_tr = [

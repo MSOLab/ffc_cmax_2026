@@ -5,8 +5,8 @@
 - method: bottleneck_parallel_mc_2
 - method: bottleneck_parallel_mc_4
   draw_gantt: False
-  head_op_cnt_multiplier: 3
-  tail_op_cnt_multiplier: 3
+  left_cap_multiplier: 3
+  right_cap_multiplier: 3
 - method: set_cp_model_as_base_cp_model
 - method: neh_cp
   added_batch_size: 10
