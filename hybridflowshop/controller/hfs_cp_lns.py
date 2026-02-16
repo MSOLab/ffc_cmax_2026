@@ -299,7 +299,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self.cp_model.delete_added_constraints()
 
         # Register report & solution
-        self.solution_manager.register(report, solution)
+        was_updated: bool = self.solution_manager.register(report, solution)
+        if was_updated:
+            # Re-define base CP model with the new makespan
+            self.set_cp_model_as_base_cp_model()
 
         # Log (time, objective value & bound)
         log_time = self.timer.elapsed_sec
@@ -1652,9 +1655,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound=None,
             is_init=False,
         )
-        was_updated = self.solution_manager.register(final_report, result.schedule)
+        was_updated: bool = self.solution_manager.register(
+            final_report, result.schedule
+        )
 
         if was_updated:
+            # Re-define base CP model with the new makespan
+            self.set_cp_model_as_base_cp_model()
             log_time = self.timer.elapsed_sec
             self.add_obj_value_log(log_time, obj_value, is_maximize=False)
             if draw_gantt:
