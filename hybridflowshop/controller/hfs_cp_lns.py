@@ -2053,6 +2053,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         right_cap_multiplier: int | None = None,
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
+        normalize_by_stage_cnt: bool = False,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         """Schedule the entire hybrid flow shop from a single bottleneck stage.
@@ -2074,6 +2075,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             right_cap_multiplier=right_cap_multiplier,
             left_cap_portion=left_cap_portion,
             right_cap_portion=right_cap_portion,
+            normalize_by_stage_cnt=normalize_by_stage_cnt,
             draw_gantt=draw_gantt,
         )
 
@@ -2181,6 +2183,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         right_cap_multiplier: int | None = None,
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
+        normalize_by_stage_cnt: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from single bottleneck stage (loading index-based)."""
@@ -2194,6 +2197,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             right_cap_multiplier=right_cap_multiplier,
             left_cap_portion=left_cap_portion,
             right_cap_portion=right_cap_portion,
+            normalize_by_stage_cnt=normalize_by_stage_cnt,
             draw_gantt=False,
         )
         if draw_gantt:
@@ -2215,6 +2219,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         right_cap_multiplier: int | None = None,
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
+        normalize_by_stage_cnt: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from all stages as bottleneck and select best solution."""
@@ -2231,6 +2236,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 right_cap_multiplier=right_cap_multiplier,
                 left_cap_portion=left_cap_portion,
                 right_cap_portion=right_cap_portion,
+                normalize_by_stage_cnt=normalize_by_stage_cnt,
                 draw_gantt=False,
             )
             makespan = schedule.makespan
@@ -2276,6 +2282,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         right_cap_multiplier: int | None = None,
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
+        normalize_by_stage_cnt: bool = False,
         draw_gantt: bool = False,
     ) -> tuple[HybridFlowshopLiteSchedule, int]:
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
@@ -2286,15 +2293,24 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # logging.info("Before stages: %s", before_stage_id_list)
         # logging.info("After stages: %s", after_stage_id_list)
 
-        r_dict = {
+        r_dict: dict[str, int] = {
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
             for j in self.instance.job_id_list
         }
-        p_dict = self.stage_2_job_2_p_dict[bottleneck_stage_id]
-        tr_dict = {
+        if normalize_by_stage_cnt and len(before_stage_id_list) > 0:
+            # Divide r_dict values by the number of before stage IDs
+            r_dict = {
+                j: 1 + (r // len(before_stage_id_list)) for j, r in r_dict.items()
+            }
+        p_dict: dict[str, int] = self.stage_2_job_2_p_dict[bottleneck_stage_id]
+        tr_dict: dict[str, int] = {
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
             for j in self.instance.job_id_list
         }
+        if normalize_by_stage_cnt and len(after_stage_id_list) > 0:
+            tr_dict = {
+                j: 1 + (tr // len(after_stage_id_list)) for j, tr in tr_dict.items()
+            }
         # pprint(r_dict)
         # pprint(p_dict)
         # pprint(tr_dict)
