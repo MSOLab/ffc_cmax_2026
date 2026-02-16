@@ -1,3 +1,4 @@
-- method: bottleneck_parallel_mc_3
+- method: bn2d_single_stage
+  draw_gantt: False
   left_cap_multiplier: 3
   right_cap_multiplier: 3

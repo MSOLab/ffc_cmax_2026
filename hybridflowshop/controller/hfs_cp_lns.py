@@ -2175,7 +2175,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         return later_schedule
 
-    def bottleneck_parallel_mc_3(
+    def bn2d_single_stage(
         self,
         left_cap_multiplier: int | None = None,
         right_cap_multiplier: int | None = None,
@@ -2209,7 +2209,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         self.solution_manager.register(report, schedule)
 
-    def bottleneck_parallel_mc_4(
+    def bn2d_all_stage(
         self,
         left_cap_multiplier: int | None = None,
         right_cap_multiplier: int | None = None,
