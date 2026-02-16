@@ -11,13 +11,17 @@
 - method: initialize_by_ds_palmer
   error_if_infeasible: true
 - method: initialize_by_dwb_cds
+  batch_size: 2
   draw_progress: false
 - method: initialize_by_dwb_gupta
+  batch_size: 2
   draw_progress: false
 - method: initialize_by_dwb_palmer
+  batch_size: 2
   draw_progress: false
 - method: bn2d_all_stage
   use_dwb: False
+  dwb_batch_size: 2
   draw_gantt: False
 - method: bn2d_single_stage
   left_cap_portion: 0.25
@@ -27,6 +31,7 @@
   reverse_mid_even: False
   reverse_mid_all: False
   use_dwb: False
+  dwb_batch_size: 2
   draw_gantt: False
 - method: bn2d_all_stage
   left_cap_portion: 0.25
@@ -36,9 +41,11 @@
   reverse_mid_even: False
   reverse_mid_all: False
   use_dwb: False
+  dwb_batch_size: 2
   draw_gantt: False
 - method: bn2d_all_stage
   use_dwb: True
+  dwb_batch_size: 2
   draw_gantt: False
 - method: bn2d_single_stage
   left_cap_portion: 0.25
@@ -48,6 +55,7 @@
   reverse_mid_even: False
   reverse_mid_all: False
   use_dwb: True
+  dwb_batch_size: 2
   draw_gantt: False
 - method: bn2d_all_stage
   left_cap_portion: 0.25
@@ -57,4 +65,5 @@
   reverse_mid_even: False
   reverse_mid_all: False
   use_dwb: True
+  dwb_batch_size: 2
   draw_gantt: False

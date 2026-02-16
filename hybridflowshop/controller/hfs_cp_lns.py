@@ -1496,13 +1496,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def initialize_by_dwb_cds(
         self,
+        dwb_batch_size: int | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
         draw_progress: bool = False,
     ) -> None:
         sub_timer = ElapsedTimer()
 
-        schedule = self._get_schedule_by_dwb_cds(draw_progress=draw_progress)
+        schedule = self._get_schedule_by_dwb_cds(
+            dwb_batch_size=dwb_batch_size, draw_progress=draw_progress
+        )
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
@@ -1529,14 +1532,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_dwb_cds(
-        self, draw_progress: bool = False
+        self, dwb_batch_size: int | None = None, draw_progress: bool = False
     ) -> HybridFlowshopLiteSchedule:
         # Subroutine states
         best_makespan = float("inf")
         best_schedule: HybridFlowshopLiteSchedule | None = None
         best_k = -1
 
-        batch_size: int = self.instance.machine_count_per_stage[0]
+        batch_size: int = (
+            self.instance.machine_count_per_stage[0]
+            if dwb_batch_size is None
+            else dwb_batch_size
+        )
         for k in range(1, self.instance.stage_count):
             schedule: HybridFlowshopLiteSchedule = self.create_empty_schedule_from_ins()
             job_sequence: list[str] = self.get_cds_sequence(k)
@@ -1562,13 +1569,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def initialize_by_dwb_gupta(
         self,
+        dwb_batch_size: int | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
         draw_progress: bool = False,
     ) -> None:
         sub_timer = ElapsedTimer()
 
-        schedule = self._get_schedule_by_dwb_gupta(draw_progress=draw_progress)
+        schedule = self._get_schedule_by_dwb_gupta(
+            dwb_batch_size=dwb_batch_size, draw_progress=draw_progress
+        )
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
@@ -1595,11 +1605,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_dwb_gupta(
-        self, draw_progress: bool = False
+        self, dwb_batch_size: int | None = None, draw_progress: bool = False
     ) -> HybridFlowshopLiteSchedule:
         schedule: HybridFlowshopLiteSchedule = self.create_empty_schedule_from_ins()
         # Dispatch
-        batch_size: int = self.instance.machine_count_per_stage[0]
+        batch_size: int = (
+            self.instance.machine_count_per_stage[0]
+            if dwb_batch_size is None
+            else dwb_batch_size
+        )
         job_sequence: list[str] = self.get_gupta_sequence()
         schedule.dispatch_wave_batches(
             batch_size,
@@ -1615,13 +1629,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def initialize_by_dwb_palmer(
         self,
+        dwb_batch_size: int | None = None,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
         draw_progress: bool = False,
     ) -> None:
         sub_timer = ElapsedTimer()
 
-        schedule = self._get_schedule_by_dwb_palmer(draw_progress=draw_progress)
+        schedule = self._get_schedule_by_dwb_palmer(
+            dwb_batch_size=dwb_batch_size, draw_progress=draw_progress
+        )
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
@@ -1648,11 +1665,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_dwb_palmer(
-        self, draw_progress: bool = False
+        self, dwb_batch_size: int | None = None, draw_progress: bool = False
     ) -> HybridFlowshopLiteSchedule:
         schedule: HybridFlowshopLiteSchedule = self.create_empty_schedule_from_ins()
         # Dispatch
-        batch_size: int = self.instance.machine_count_per_stage[0]
+        batch_size: int = (
+            self.instance.machine_count_per_stage[0]
+            if dwb_batch_size is None
+            else dwb_batch_size
+        )
         job_sequence: list[str] = self.get_palmer_sequence()
         schedule.dispatch_wave_batches(
             batch_size,
@@ -2139,7 +2160,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             start_time_map[j] = start_value
         return start_time_map
 
-    def bnd_all_stage(self, use_dwb: bool = False) -> None:
+    def bnd_all_stage(
+        self, use_dwb: bool = False, dwb_batch_size: int | None = None
+    ) -> None:
         sub_timer = ElapsedTimer()
 
         best_obj: int | None = None
@@ -2175,8 +2198,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
             if use_dwb:
                 best_sch = self.create_empty_schedule_from_ins()
+                batch_size = dwb_batch_size or self.instance.machine_count_per_stage[0]
                 best_sch.dispatch_wave_batches(
-                    self.instance.machine_count_per_stage[0],
+                    batch_size,
                     sorted_j_list,
                     self.instance.stage_id_list,
                     self.stage_2_job_2_p_dict,
@@ -2230,6 +2254,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         bottleneck_stage_id: str,
         option: BottleneckStageScheduleHeuristicOption,
         use_dwb: bool = False,
+        dwb_batch_size: int | None = None,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         """Schedule the entire hybrid flow shop from a single bottleneck stage.
@@ -2278,8 +2303,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             # Dispatch later stages
             if use_dwb:
                 later_schedule = bottleneck_schedule.deepcopy()
+                batch_size = dwb_batch_size or self.instance.machine_count_per_stage[0]
                 later_schedule.dispatch_wave_batches(
-                    self.instance.machine_count_per_stage[0],
+                    batch_size,
                     sorted_j_list,
                     later_stage_list,
                     self.stage_2_job_2_p_dict,
@@ -2369,6 +2395,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
         use_dwb: bool = False,
+        dwb_batch_size: int | None = None,
         randomize_mid_all: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -2388,7 +2415,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             randomize_mid_all=randomize_mid_all,
         )
         schedule = self._schedule_from_bottleneck_stage(
-            bottleneck_stage_id, option, use_dwb=use_dwb, draw_gantt=False
+            bottleneck_stage_id,
+            option,
+            use_dwb=use_dwb,
+            dwb_batch_size=dwb_batch_size,
+            draw_gantt=False,
         )
         if draw_gantt:
             self.draw_gantt(schedule)
@@ -2413,6 +2444,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
         use_dwb: bool = False,
+        dwb_batch_size: int | None = None,
         randomize_mid_all: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -2435,7 +2467,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 randomize_mid_all=randomize_mid_all,
             )
             schedule = self._schedule_from_bottleneck_stage(
-                bottleneck_stage_id, option, use_dwb=use_dwb, draw_gantt=False
+                bottleneck_stage_id,
+                option,
+                use_dwb=use_dwb,
+                dwb_batch_size=dwb_batch_size,
+                draw_gantt=False,
             )
             makespan = schedule.makespan
             logging.info(f"Bottleneck stage {bottleneck_stage_id}: makespan={makespan}")

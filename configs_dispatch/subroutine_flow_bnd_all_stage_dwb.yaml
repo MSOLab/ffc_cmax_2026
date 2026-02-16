@@ -1,3 +1,4 @@
 - method: bn2d_all_stage
   use_dwb: True
+  dwb_batch_size: 2
   draw_gantt: False

@@ -6,4 +6,5 @@
   reverse_mid_even: False
   reverse_mid_all: False
   use_dwb: True
+  dwb_batch_size: 2
   draw_gantt: False
