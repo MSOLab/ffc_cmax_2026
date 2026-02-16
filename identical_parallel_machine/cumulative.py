@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping, Sequence
 
 from mbls.cpsat import CustomCpModel
 from ortools.sat.python.cp_model import IntervalVar, IntVar
@@ -26,11 +27,11 @@ class ParallelMcVars:
 class ParallelMcModelBuilder:
     @staticmethod
     def build(
-        j_list: list[str],
-        i_list: list[int],
-        p: dict[str, int],
-        r: dict[str, int] | None,
-        tr: dict[str, int] | None,
+        j_list: Sequence[str],
+        i_list: Sequence[str],
+        p: Mapping[str, int],
+        r: Mapping[str, int] | None,
+        tr: Mapping[str, int] | None,
         horizon: int,
     ) -> tuple[CustomCpModel, ParallelMcParams, ParallelMcVars]:
         mdl = CustomCpModel()
@@ -48,11 +49,11 @@ class ParallelMcModelBuilder:
 
     @staticmethod
     def _make_params(
-        j_list: list[str],
-        i_list: list[int],
-        p: dict[str, int],
-        r: dict[str, int] | None,
-        tr: dict[str, int] | None,
+        j_list: Sequence[str],
+        i_list: Sequence[str],
+        p: Mapping[str, int],
+        r: Mapping[str, int] | None,
+        tr: Mapping[str, int] | None,
     ) -> ParallelMcParams:
         return ParallelMcParams(j_list, i_list, p, r, tr)
 
@@ -118,4 +119,3 @@ class ParallelMcModelBuilder:
 
         # Set objective to minimize makespan
         mdl.minimize(variables.makespan)
-        mdl.obj_var = variables.makespan
