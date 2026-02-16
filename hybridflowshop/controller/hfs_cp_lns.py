@@ -1,8 +1,7 @@
 import logging
 import math
 import random
-
-from typing import Callable
+from typing import Any, Callable
 
 from mbls.cpsat import CpsatStatus
 from routix import ElapsedTimer
@@ -16,6 +15,9 @@ from hybridflowshop.select_and_assign import solve_selection_problem
 from identical_parallel_machine.cumulative import ParallelMcParams, ParallelMcVars
 from identical_parallel_machine.solver import SolveConfig, configure_solver
 
+from .bottleneck_stage_schedule_heuristic_option import (
+    BottleneckStageScheduleHeuristicOption,
+)
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
 
@@ -2049,11 +2051,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _schedule_from_bottleneck_stage(
         self,
         bottleneck_stage_id: str,
-        left_cap_multiplier: int | None = None,
-        right_cap_multiplier: int | None = None,
-        left_cap_portion: float | None = None,
-        right_cap_portion: float | None = None,
-        normalize_by_stage_cnt: bool = False,
+        option: BottleneckStageScheduleHeuristicOption,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         """Schedule the entire hybrid flow shop from a single bottleneck stage.
@@ -2064,6 +2062,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         Args:
             bottleneck_stage_id: The bottleneck stage ID to schedule from
+            option: The bottleneck stage schedule heuristic option
             draw_gantt: Whether to draw Gantt chart for the bottleneck stage only
 
         Returns:
@@ -2071,11 +2070,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         bottleneck_schedule, bcmax = self._get_bottleneck_stage_schedule_heuristic(
             bottleneck_stage_id,
-            left_cap_multiplier=left_cap_multiplier,
-            right_cap_multiplier=right_cap_multiplier,
-            left_cap_portion=left_cap_portion,
-            right_cap_portion=right_cap_portion,
-            normalize_by_stage_cnt=normalize_by_stage_cnt,
+            option,
             draw_gantt=draw_gantt,
         )
 
@@ -2184,6 +2179,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
         normalize_by_stage_cnt: bool = False,
+        reverse_mid_all: bool = False,
+        reverse_mid_even: bool = False,
+        randomize_mid_all: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from single bottleneck stage (loading index-based)."""
@@ -2191,13 +2189,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         bottleneck_stage_id = self._get_bottleneck_stage()
         logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
 
+        bottleneck_stage_schedule_heuristic_option = (
+            BottleneckStageScheduleHeuristicOption(
+                left_cap_multiplier=left_cap_multiplier,
+                right_cap_multiplier=right_cap_multiplier,
+                left_cap_portion=left_cap_portion,
+                right_cap_portion=right_cap_portion,
+                normalize_by_stage_cnt=normalize_by_stage_cnt,
+                reverse_mid_all=reverse_mid_all,
+                reverse_mid_even=reverse_mid_even,
+                randomize_mid_all=randomize_mid_all,
+            )
+        )
         schedule = self._schedule_from_bottleneck_stage(
             bottleneck_stage_id,
-            left_cap_multiplier=left_cap_multiplier,
-            right_cap_multiplier=right_cap_multiplier,
-            left_cap_portion=left_cap_portion,
-            right_cap_portion=right_cap_portion,
-            normalize_by_stage_cnt=normalize_by_stage_cnt,
+            bottleneck_stage_schedule_heuristic_option,
             draw_gantt=False,
         )
         if draw_gantt:
@@ -2220,6 +2226,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
         normalize_by_stage_cnt: bool = False,
+        reverse_mid_all: bool = False,
+        reverse_mid_even: bool = False,
+        randomize_mid_all: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from all stages as bottleneck and select best solution."""
@@ -2230,13 +2239,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         for bottleneck_stage_id in self.instance.stage_id_list:
             logging.info(f"Trying bottleneck stage: {bottleneck_stage_id}")
+            bottleneck_stage_schedule_heuristic_option = (
+                BottleneckStageScheduleHeuristicOption(
+                    left_cap_multiplier=left_cap_multiplier,
+                    right_cap_multiplier=right_cap_multiplier,
+                    left_cap_portion=left_cap_portion,
+                    right_cap_portion=right_cap_portion,
+                    normalize_by_stage_cnt=normalize_by_stage_cnt,
+                    reverse_mid_all=reverse_mid_all,
+                    reverse_mid_even=reverse_mid_even,
+                    randomize_mid_all=randomize_mid_all,
+                )
+            )
             schedule = self._schedule_from_bottleneck_stage(
                 bottleneck_stage_id,
-                left_cap_multiplier=left_cap_multiplier,
-                right_cap_multiplier=right_cap_multiplier,
-                left_cap_portion=left_cap_portion,
-                right_cap_portion=right_cap_portion,
-                normalize_by_stage_cnt=normalize_by_stage_cnt,
+                bottleneck_stage_schedule_heuristic_option,
                 draw_gantt=False,
             )
             makespan = schedule.makespan
@@ -2278,11 +2295,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _get_bottleneck_stage_schedule_heuristic(
         self,
         bottleneck_stage_id: str,
-        left_cap_multiplier: int | None = None,
-        right_cap_multiplier: int | None = None,
-        left_cap_portion: float | None = None,
-        right_cap_portion: float | None = None,
-        normalize_by_stage_cnt: bool = False,
+        option: BottleneckStageScheduleHeuristicOption,
         draw_gantt: bool = False,
     ) -> tuple[HybridFlowshopLiteSchedule, int]:
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
@@ -2297,7 +2310,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
             for j in self.instance.job_id_list
         }
-        if normalize_by_stage_cnt and len(before_stage_id_list) > 0:
+        if option.normalize_by_stage_cnt and len(before_stage_id_list) > 0:
             # Divide r_dict values by the number of before stage IDs
             r_dict = {
                 j: 1 + (r // len(before_stage_id_list)) for j, r in r_dict.items()
@@ -2307,7 +2320,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
             for j in self.instance.job_id_list
         }
-        if normalize_by_stage_cnt and len(after_stage_id_list) > 0:
+        if option.normalize_by_stage_cnt and len(after_stage_id_list) > 0:
             tr_dict = {
                 j: 1 + (tr // len(after_stage_id_list)) for j, tr in tr_dict.items()
             }
@@ -2318,16 +2331,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         job_cnt = self.instance.job_count
 
         left_cap_op_cnt = 0
-        if left_cap_multiplier is not None:
-            left_cap_op_cnt = left_cap_multiplier * machine_cnt
-        elif left_cap_portion is not None:
-            left_cap_op_cnt = int(left_cap_portion * job_cnt)
+        if option.left_cap_multiplier is not None:
+            left_cap_op_cnt = option.left_cap_multiplier * machine_cnt
+        elif option.left_cap_portion is not None:
+            left_cap_op_cnt = int(option.left_cap_portion * job_cnt)
 
         right_cap_op_cnt = 0
-        if right_cap_multiplier is not None:
-            right_cap_op_cnt = right_cap_multiplier * machine_cnt
-        elif right_cap_portion is not None:
-            right_cap_op_cnt = int(right_cap_portion * job_cnt)
+        if option.right_cap_multiplier is not None:
+            right_cap_op_cnt = option.right_cap_multiplier * machine_cnt
+        elif option.right_cap_portion is not None:
+            right_cap_op_cnt = int(option.right_cap_portion * job_cnt)
 
         left_cap_job_id_list: list[str]
         right_cap_job_id_list: list[str]
@@ -2388,19 +2401,22 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             for j in self.instance.job_id_list
             if j not in left_cap_job_id_list and j not in right_cap_job_id_list
         ]
-
-        # Sort mid jobs by (r_j - tr_j, tie-break by original job index)
-        sorted_j_list = (
-            left_cap_job_id_list
-            + sorted(
-                mid_job_id_list,
+        if option.randomize_mid_all:
+            random.shuffle(mid_job_id_list)
+        else:
+            # Sort mid jobs by (r_j - tr_j, tie-break by original job index)
+            mid_job_id_list.sort(
                 key=lambda j: (
                     r_dict[j] - tr_dict[j],
                     self.instance.job_id_list.index(j),
-                ),
+                )
             )
-            + right_cap_job_id_list
-        )
+            if option.reverse_mid_even:
+                reverse_even_positions(mid_job_id_list, in_place=True)
+            elif option.reverse_mid_all:
+                mid_job_id_list.reverse()
+
+        sorted_j_list = left_cap_job_id_list + mid_job_id_list + right_cap_job_id_list
 
         dispatched_schedule = self.create_empty_schedule_from_ins()
         dispatched_schedule.dispatch_stage_by_jobs(
@@ -2496,3 +2512,26 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         return dj_schedule
 
     # End subroutine definition
+
+
+def reverse_even_positions(sequence: list[Any], in_place: bool = False) -> list[Any]:
+    """
+    Reverse only even positions (1-based), keeping odd positions fixed.
+    For example, [A,B,C,D,E,F,G,H] -> [A,H,C,F,E,D,G,B]
+
+    Args:
+        sequence (list[Any]): The input sequence to be modified.
+        in_place (bool): If True, modify the input sequence in place and return it.
+            If False, return a new modified list. Defaults to False.
+
+    Returns:
+        list[Any]: The modified sequence with even positions reversed.
+    """
+    if in_place:
+        result = sequence
+    else:
+        result = sequence.copy()
+    even_position_elements = result[1::2]
+    even_position_elements.reverse()
+    result[1::2] = even_position_elements
+    return result
