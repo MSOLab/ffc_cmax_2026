@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from bisect import bisect_left
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Mapping
 
 from mbls.cpsat import CustomCpModel
@@ -295,65 +296,100 @@ class BaseModelBuilder:
         params: Params,
         variables: CumulativeVars,
         current_schedule: HybridFlowshopLiteSchedule,
+        profile_fix_by_machine: bool = False,
     ) -> None:
+        """
+        Add precedence constraints from a reference dispatch schedule.
+
+        Adds constraints of the form ``op_end[j1, i] <= op_start[j2, i]`` to
+        preserve ordering information observed in ``current_schedule``.
+
+        Modes:
+            - ``profile_fix_by_machine=True``: preserve adjacent order per
+              machine sequence at each stage.
+            - ``profile_fix_by_machine=False``: use stage-level start/end times
+              to select successor candidates and add a bounded number of arcs.
+
+        Args:
+            mdl (CustomCpModel): Target CP-SAT model.
+            params (Params): Index sets and processing parameters.
+            variables (CumulativeVars): Decision variables used in constraints.
+            current_schedule (HybridFlowshopLiteSchedule): Reference schedule
+                providing start/end times and machine-level sequences.
+            profile_fix_by_machine (bool, optional): If True, fix precedence by machine
+                adjacency; otherwise apply stage-level time-based selection.
+                Defaults to False.
+        """
         start_time_map = current_schedule.get_jik_2_start_time_map()
         end_time_map = current_schedule.get_jik_2_end_time_map()
         for i in params.i_list:
-            current_j_set = {j for j, ip, _ in start_time_map if ip == i}
-            current_j_list = [j for j in params.j_list if j in current_j_set]
-            stage_job_2_index_map = {j: idx for idx, j in enumerate(current_j_list)}
-            # Extract start and end times for jobs at stage i
-            # Map of job -> start time at stage i
-            j_2_start_time_map = {
-                j: start_time_map[j, i, k]
-                for j in current_j_list
-                for k in params.M_of[i]
-                if (j, i, k) in start_time_map
-            }
-            # Map of job -> end time at stage i
-            j_2_end_time_map = {
-                j: end_time_map[j, i, k]
-                for j in current_j_list
-                for k in params.M_of[i]
-                if (j, i, k) in end_time_map
-            }
-            # List of jobs sorted by their 1) end times 2) start times 3) job index
-            sorted_by_end = sorted(
-                current_j_list,
-                key=lambda j: (
-                    j_2_end_time_map.get(j, float("inf")),
-                    j_2_start_time_map.get(j, float("inf")),
-                    stage_job_2_index_map.get(j, float("inf")),
-                ),
-            )
-
-            # List of jobs sorted by their 1) start times 2) end times 3) job index
-            sorted_by_start = sorted(
-                current_j_list,
-                key=lambda j: (
-                    j_2_start_time_map.get(j, float("inf")),
-                    j_2_end_time_map.get(j, float("inf")),
-                    stage_job_2_index_map.get(j, float("inf")),
-                ),
-            )
-
-            # 인덱스 기반 탐색으로 변경
-            for idx, j1 in enumerate(sorted_by_end):
-                j1_end_time = j_2_end_time_map.get(j1, float("inf"))
-                max_candidates = min(len(params.M_of[i]), len(sorted_by_end) - idx - 1)
-
-                # 이진 탐색으로 j1_end_time 이후 시작하는 첫 job 찾기
-                start_idx = bisect_left(
-                    sorted_by_start,
-                    j1_end_time,
-                    key=lambda j: j_2_start_time_map.get(j, float("inf")),
+            if profile_fix_by_machine:
+                for m in params.M_of[i]:
+                    job_tuple_seq = current_schedule.get_job_sequence(i, m)
+                    for job_tuple in pairwise(job_tuple_seq):
+                        j1 = job_tuple[0][2]
+                        j2 = job_tuple[1][2]
+                        BaseModelBuilder.add_fixed_operation_precedence_constraint(
+                            mdl, params, variables, j1, j2, i
+                        )
+            else:
+                current_j_set = {j for j, ip, _ in start_time_map if ip == i}
+                current_j_list = [j for j in params.j_list if j in current_j_set]
+                stage_job_2_index_map = {j: idx for idx, j in enumerate(current_j_list)}
+                # Extract start and end times for jobs at stage i
+                # Map of job -> start time at stage i
+                j_2_start_time_map = {
+                    j: start_time_map[j, i, k]
+                    for j in current_j_list
+                    for k in params.M_of[i]
+                    if (j, i, k) in start_time_map
+                }
+                # Map of job -> end time at stage i
+                j_2_end_time_map = {
+                    j: end_time_map[j, i, k]
+                    for j in current_j_list
+                    for k in params.M_of[i]
+                    if (j, i, k) in end_time_map
+                }
+                # List of jobs sorted by their 1) end times 2) start times 3) job index
+                sorted_by_end = sorted(
+                    current_j_list,
+                    key=lambda j: (
+                        j_2_end_time_map.get(j, float("inf")),
+                        j_2_start_time_map.get(j, float("inf")),
+                        stage_job_2_index_map.get(j, float("inf")),
+                    ),
                 )
 
-                j2_list = sorted_by_start[start_idx : start_idx + max_candidates]
-                for j2 in j2_list:
-                    BaseModelBuilder.add_fixed_operation_precedence_constraint(
-                        mdl, params, variables, j1, j2, i
+                # List of jobs sorted by their 1) start times 2) end times 3) job index
+                sorted_by_start = sorted(
+                    current_j_list,
+                    key=lambda j: (
+                        j_2_start_time_map.get(j, float("inf")),
+                        j_2_end_time_map.get(j, float("inf")),
+                        stage_job_2_index_map.get(j, float("inf")),
+                    ),
+                )
+
+                # 인덱스 기반 탐색으로 변경
+                for idx, j1 in enumerate(sorted_by_end):
+                    j1_end_time = j_2_end_time_map.get(j1, float("inf"))
+                    max_candidates = min(
+                        len(params.M_of[i]), len(sorted_by_end) - idx - 1
                     )
+
+                    # 이진 탐색으로 j1_end_time 이후 시작하는 첫 job 찾기
+                    start_idx = bisect_left(
+                        sorted_by_start,
+                        j1_end_time,
+                        key=lambda j: j_2_start_time_map.get(j, float("inf")),
+                    )
+
+                    j2_list = sorted_by_start[start_idx : start_idx + max_candidates]
+                    for j2 in j2_list:
+                        BaseModelBuilder.add_fixed_operation_precedence_constraint(
+                            mdl, params, variables, j1, j2, i
+                        )
 
     @staticmethod
     def add_start_time_freezed_operation_constraints(

@@ -333,6 +333,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _fix_operations_profile_except_selected(
         self,
         rescheduled_ops: set[tuple[str, str, str]],
+        profile_fix_by_machine: bool = False,
     ) -> None:
         """
         Helper to deep-copy incumbent solution and remove operations to be rescheduled,
@@ -342,6 +343,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         Args:
             rescheduled_ops (set[tuple[str, str, str]]): set of (job, stage, machine) tuples
                 that are not part of the block (i.e., they will be re-optimized).
+            profile_fix_by_machine (bool, optional): If True, fix precedence by machine
+                adjacency; otherwise apply stage-level time-based selection.
+                Defaults to False.
 
         Raises:
             ValueError: If the incumbent solution is not a valid HybridFlowshopLiteSchedule instance.
@@ -355,7 +359,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         out_of_block_ops_sch = incumbent_solution.deepcopy()
         out_of_block_ops_sch.remove_operations(rescheduled_ops)
         BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-            self.cp_model, self.params, self.vars, out_of_block_ops_sch
+            self.cp_model,
+            self.params,
+            self.vars,
+            out_of_block_ops_sch,
+            profile_fix_by_machine=profile_fix_by_machine,
         )
 
     # Subroutine: Operation-block neighbor search (Block operator in 2025 EJOR paper)
@@ -368,13 +376,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
         seed_op_from_critical_block: bool = False,
+        profile_fix_by_machine: bool = False,
         make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         self._fix_profile_solve_reset(
             lambda: self.apply_operation_block_operator(
-                rho, seed_op_from_critical_block=seed_op_from_critical_block
+                rho,
+                seed_op_from_critical_block=seed_op_from_critical_block,
+                profile_fix_by_machine=profile_fix_by_machine,
             ),
             computational_time,
             solver_thread_cnt,
@@ -388,7 +399,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
     def apply_operation_block_operator(
-        self, rho: float, seed_op_from_critical_block: bool = False
+        self,
+        rho: float,
+        seed_op_from_critical_block: bool = False,
+        profile_fix_by_machine: bool = False,
     ) -> None:
         """Apply the operation-block operator to the current CP model.
 
@@ -396,6 +410,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             rho (float): Fraction of total number of operations to include in the block.
             seed_op_from_critical_block (bool, optional): If True, the seed operation is
                 chosen from critical blocks of the incumbent solution. Defaults to False.
+            profile_fix_by_machine (bool, optional): If True, fix precedence by machine
+                adjacency; otherwise apply stage-level time-based selection.
+                Defaults to False.
 
         Raises:
             ValueError: If rho is not strictly positive.
@@ -461,7 +478,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
         # Fix out-of-block operations' profile
-        self._fix_operations_profile_except_selected(selected_ops)
+        self._fix_operations_profile_except_selected(
+            selected_ops, profile_fix_by_machine=profile_fix_by_machine
+        )
 
     @staticmethod
     def closed_intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
@@ -483,13 +502,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
         seed_stage_from_non_singleton_cb: bool = False,
+        profile_fix_by_machine: bool = False,
         make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         self._fix_profile_solve_reset(
             lambda: self.apply_stage_operator(
-                rho, seed_stage_from_non_singleton_cb=seed_stage_from_non_singleton_cb
+                rho,
+                seed_stage_from_non_singleton_cb=seed_stage_from_non_singleton_cb,
+                profile_fix_by_machine=profile_fix_by_machine,
             ),
             computational_time,
             solver_thread_cnt,
@@ -503,7 +525,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
     def apply_stage_operator(
-        self, rho: float, seed_stage_from_non_singleton_cb: bool = False
+        self,
+        rho: float,
+        seed_stage_from_non_singleton_cb: bool = False,
+        profile_fix_by_machine: bool = False,
     ):
         """
         Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
@@ -514,6 +539,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             rho (float): The proportion of stages to free (must be between 0 and 1).
             seed_stage_from_non_singleton_cb (bool, optional): Whether to seed the stage
                 selection from non-singleton critical blocks. Defaults to False.
+            profile_fix_by_machine (bool, optional): If True, fix precedence by machine
+                adjacency; otherwise apply stage-level time-based selection.
+                Defaults to False.
 
         Raises:
             ValueError: If rho is not strictly positive.
@@ -587,7 +615,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         selected_ops = set([ops for ops in all_ops if ops[1] in selected_stages])
 
         # Fix out-of-block operations' profile
-        self._fix_operations_profile_except_selected(selected_ops)
+        self._fix_operations_profile_except_selected(
+            selected_ops, profile_fix_by_machine=profile_fix_by_machine
+        )
 
     # Subroutine: Job-block neighbor search
 
@@ -599,13 +629,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
         seed_op_from_critical_block: bool = False,
+        profile_fix_by_machine: bool = False,
         make_semi_active_after_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         self._fix_profile_solve_reset(
             lambda: self.apply_job_block_operator(
-                rho, seed_op_from_critical_block=seed_op_from_critical_block
+                rho,
+                seed_op_from_critical_block=seed_op_from_critical_block,
+                profile_fix_by_machine=profile_fix_by_machine,
             ),
             computational_time,
             solver_thread_cnt,
@@ -619,7 +652,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
     def apply_job_block_operator(
-        self, rho: float, seed_op_from_critical_block: bool = False
+        self,
+        rho: float,
+        seed_op_from_critical_block: bool = False,
+        profile_fix_by_machine: bool = False,
     ) -> None:
         """Apply the job-block operator to the current CP model.
 
@@ -627,6 +663,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             rho (float): Fraction of total number of operations to include in the block.
             seed_op_from_critical_block (bool, optional): If True, the seed operation is
                 chosen from critical blocks of the incumbent solution. Defaults to False.
+            profile_fix_by_machine (bool, optional): If True, fix precedence by machine
+                adjacency; otherwise apply stage-level time-based selection.
+                Defaults to False.
 
         Raises:
             ValueError: If rho is not strictly positive.
@@ -695,7 +734,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
         # Fix out-of-block operations' profile
-        self._fix_operations_profile_except_selected(selected_ops)
+        self._fix_operations_profile_except_selected(
+            selected_ops, profile_fix_by_machine=profile_fix_by_machine
+        )
 
     # Subroutine: Johnson-based Heuristic for initialization
 
@@ -1800,6 +1841,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
+        profile_fix_by_machine: bool = False,
         minimize_sum_ci: bool = False,
         make_semi_active_every_cp: bool = False,
         error_if_infeasible: bool = False,
@@ -1818,6 +1860,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 If None, uses the default value. Defaults to None.
             cp_tl_c_multiplier (float | None, optional): Multiplier for the time limit of each CP subproblem.
                 If None, uses the default value. Defaults to None.
+            profile_fix_by_machine (bool, optional): If True, fix precedence by machine
+                adjacency; otherwise apply stage-level time-based selection.
+                Defaults to False.
             minimize_sum_ci (bool, optional): If True, minimizes the sum of completion
                 times in each CP subproblem after minimizing the makespan.
                 Defaults to False.
@@ -1844,6 +1889,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             max_time_per_add=max_time_per_add,
             cp_tl_nc_multiplier=cp_tl_nc_multiplier,
             cp_tl_c_multiplier=cp_tl_c_multiplier,
+            profile_fix_by_machine=profile_fix_by_machine,
             minimize_sum_ci=minimize_sum_ci,
             make_semi_active_every_cp=make_semi_active_every_cp,
             solver_thread_cnt=solver_thread_cnt,

@@ -110,6 +110,7 @@ class NehCpConstructor:
         max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
+        profile_fix_by_machine: bool = False,
         minimize_sum_ci: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
@@ -196,6 +197,7 @@ class NehCpConstructor:
                 partial_sol_best,
                 instance,
                 stage_2_job_2_p_dict,
+                profile_fix_by_machine=profile_fix_by_machine,
                 max_time_per_add=max_time_per_add,
                 minimize_sum_ci=minimize_sum_ci,
                 do_make_semi_active=make_semi_active_every_cp,
@@ -306,6 +308,7 @@ class NehCpConstructor:
         self,
         partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
+        profile_fix_by_machine: bool = False,
         minimize_sum_ci: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
@@ -323,7 +326,13 @@ class NehCpConstructor:
         # mdl, params, variables = builder.build_horizon_per_stage(
         #     sub_instance, stage_2_mc_horizon
         # )
-        self._add_hints_and_additional_constraints(mdl, params, variables, partial_sol)
+        self._add_hints_and_additional_constraints(
+            mdl,
+            params,
+            variables,
+            partial_sol,
+            profile_fix_by_machine=profile_fix_by_machine,
+        )
 
         return mdl, params, variables
 
@@ -333,6 +342,7 @@ class NehCpConstructor:
         params: Params,
         variables: CumulativeVars,
         partial_sol: HybridFlowshopLiteSchedule,
+        profile_fix_by_machine: bool = False,
     ) -> None:
         st = self._require_state()
         # Apply hint from partial solution
@@ -342,7 +352,11 @@ class NehCpConstructor:
         # Fix profile of operations in previous solution
         if st.partial_sol is not None:
             BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                mdl, params, variables, st.partial_sol
+                mdl,
+                params,
+                variables,
+                st.partial_sol,
+                profile_fix_by_machine=profile_fix_by_machine,
             )
 
     def _solve_cp_model(
@@ -350,6 +364,7 @@ class NehCpConstructor:
         partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
+        profile_fix_by_machine: bool = False,
         max_time_per_add: float | None = None,
         minimize_sum_ci: bool = False,
         do_make_semi_active: bool = False,
@@ -360,8 +375,10 @@ class NehCpConstructor:
         ctx = self.ctx
         st = self._require_state()
 
-        # Build primary CP model with job_subset
-        sub_cp_mdl, params, variables = self._create_sub_cp_model(partial_sol, instance)
+        # Build CP model with job_subset
+        sub_cp_mdl, params, variables = self._create_sub_cp_model(
+            partial_sol, instance, profile_fix_by_machine=profile_fix_by_machine
+        )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
         report_1: CpsatSolverReport = self.ctx.solve_cp_model_2(
