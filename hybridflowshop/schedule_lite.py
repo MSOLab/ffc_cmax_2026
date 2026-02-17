@@ -121,6 +121,15 @@ class HybridFlowshopLiteSchedule:
 
     # Getters
 
+    def get_job_sequence(
+        self, stage_id: StageIdType, mc_id: McIdType
+    ) -> list[tuple[int, int, JobIdType]]:
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if mc_id not in self.machines_per_stage[stage_id]:
+            raise ValueError(f"Invalid machine ID: {mc_id} for stage ID: {stage_id}")
+        return self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+
     def get_machine_latest_end_time(
         self, stage_id: StageIdType, mc_id: McIdType
     ) -> int:
@@ -129,7 +138,7 @@ class HybridFlowshopLiteSchedule:
         if mc_id not in self.machines_per_stage[stage_id]:
             raise ValueError(f"Invalid machine ID: {mc_id} for stage ID: {stage_id}")
 
-        job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
         if not job_tuple_seq:
             return 0
         return job_tuple_seq[-1][1]
@@ -155,7 +164,7 @@ class HybridFlowshopLiteSchedule:
         if duration <= 0:
             raise ValueError("Duration must be greater than 0")
 
-        job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
         prev_end = release_t if release_t is not None else 0
 
         if after_last:
@@ -278,9 +287,7 @@ class HybridFlowshopLiteSchedule:
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
         for mc in self.machines_per_stage[stage_id]:
-            for start_time, end_time, job_id in self.__stage_2_mc_2_job_tuple_seq[
-                stage_id
-            ][mc]:
+            for start_time, end_time, job_id in self.get_job_sequence(stage_id, mc):
                 yield mc, start_time, end_time, job_id
 
     def _iter_operations(
@@ -383,7 +390,7 @@ class HybridFlowshopLiteSchedule:
                 f"start_time={start_time}, end_time={end_time}"
             )
 
-        job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
         starts = [job_tuple[0] for job_tuple in job_tuple_seq]
         insert_idx = bisect.bisect_right(starts, start_time)
 
@@ -890,8 +897,8 @@ class HybridFlowshopLiteSchedule:
 
         for stage_id, mc_2_job_id_set in stage_2_mc_2_job_id_set.items():
             for mc_id, job_id_set in mc_2_job_id_set.items():
-                job_tuple_seq: list[tuple[int, int, str]] = (
-                    self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+                job_tuple_seq: list[tuple[int, int, str]] = self.get_job_sequence(
+                    stage_id, mc_id
                 )
                 job_seq = [job_tuple[2] for job_tuple in job_tuple_seq]
                 index_to_be_removed = set()
@@ -1110,7 +1117,7 @@ class HybridFlowshopLiteSchedule:
             prev_stage_id = self.stages[stage_idx - 1] if stage_idx > 0 else None
 
             for mc_id in self.machines_per_stage[stage_id]:
-                job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+                job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
                 prev_end_on_mc = 0
 
                 for _start_t, _end_t, job_id in job_tuple_seq:
@@ -1161,7 +1168,7 @@ class HybridFlowshopLiteSchedule:
             )
 
             for mc_id in self.machines_per_stage[stage_id]:
-                job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+                job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
 
                 # For the last operation on a machine, machine constraint is makespan.
                 next_ls_on_mc = makespan
@@ -1314,7 +1321,7 @@ class HybridFlowshopLiteSchedule:
         """
         for stage_id in self.stages:
             for mc_id in self.machines_per_stage[stage_id]:
-                job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id]
+                job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
                 new_job_tuple_seq = []
                 for start_time, end_time, job_id in job_tuple_seq:
                     new_start = start_time + shift_amount
