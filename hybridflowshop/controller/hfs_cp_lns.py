@@ -1,7 +1,7 @@
 import logging
 import math
 import random
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from mbls.cpsat import CpsatStatus
 from routix import ElapsedTimer
@@ -1788,6 +1788,204 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         return best_schedule
 
+    def generate_from_dispatches(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_generate_from_dispatches()
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_generate_from_dispatches(self) -> HybridFlowshopLiteSchedule:
+        import heapq
+
+        # Initial sequences
+        job_sequences: set[tuple[str, ...]] = {
+            tuple(self.get_gupta_sequence()),
+            tuple(self.get_palmer_sequence()),
+        }
+        for k, stage_id in enumerate(self.instance.stage_id_list):
+            job_sequences.add(tuple(self.get_cds_sequence(k + 1)))
+            job_sequences.add(tuple(self.get_bnd_sequence(stage_id)))
+
+        # Subroutine states
+        best_makespan = float("inf")
+        best_schedule: HybridFlowshopLiteSchedule | None = None
+
+        # seq_2_solution: dict[tuple[str, ...], HybridFlowshopLiteSchedule] = {}
+        # seq_2_obj_val: dict[tuple[str, ...], float] = {}
+        # Use a dict for sequence lookup and a max-heap (via negative values) to track worst values
+        seq_2_obj_val: dict[tuple[str, ...], float] = {}
+        # Heap of (-makespan, sequence) to efficiently find and remove worst entries
+        obj_seq_heap: list[tuple[float, tuple[str, ...]]] = []
+
+        MAX_SEQUENCES = 500
+
+        def get_current_worst() -> tuple[float, tuple[str, ...]] | None:
+            """Return current valid worst entry in seq_2_obj_val (max makespan)."""
+            while obj_seq_heap:
+                neg_obj, seq = obj_seq_heap[0]
+                obj = -neg_obj
+                current_obj = seq_2_obj_val.get(seq)
+                if current_obj is None or current_obj != obj:
+                    heapq.heappop(obj_seq_heap)
+                    continue
+                return obj, seq
+            return None
+
+        def remove_current_worst() -> tuple[float, tuple[str, ...]] | None:
+            """Remove and return current valid worst entry from seq_2_obj_val."""
+            while obj_seq_heap:
+                neg_obj, seq = heapq.heappop(obj_seq_heap)
+                obj = -neg_obj
+                current_obj = seq_2_obj_val.get(seq)
+                if current_obj is None or current_obj != obj:
+                    continue
+                del seq_2_obj_val[seq]
+                return obj, seq
+            return None
+
+        # Initial schedules
+        for sequence in job_sequences:
+            schedule = self._from_job_sequence_get_schedule(sequence)
+            # seq_2_solution[sequence] = schedule
+            makespan = schedule.makespan
+            seq_2_obj_val[sequence] = makespan
+            heapq.heappush(obj_seq_heap, (-makespan, sequence))
+            if len(seq_2_obj_val) > MAX_SEQUENCES:
+                remove_current_worst()
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_schedule = schedule
+
+        logging.info(
+            f"(Best,worst) initial schedule found by dispatching heuristics with makespan={best_makespan}, {max(seq_2_obj_val.values()) if seq_2_obj_val else float('inf')}"
+        )
+
+        trial_cnt = 0
+        best_grow_makespan = float("inf")
+        while True:
+            trial_cnt += 1
+            obj_val_avg: float = sum(seq_2_obj_val.values()) / len(seq_2_obj_val)
+            new_sequence = self._from_seq_2_obj_val_get_new_sequence(seq_2_obj_val)
+            new_seq_tuple = tuple(new_sequence)
+            if new_seq_tuple in seq_2_obj_val:
+                logging.info(
+                    f"Trial {trial_cnt} New sequence already evaluated. Stopping growth from dispatches."
+                )
+                break
+            schedule = self._from_job_sequence_get_schedule(new_sequence)
+            makespan = schedule.makespan
+            logging.info(
+                f"Trial {trial_cnt} Before average {obj_val_avg:.1f} New makespan {makespan}"
+            )
+            # Keep only top-K sequences with the smallest makespans
+            if len(seq_2_obj_val) < MAX_SEQUENCES:
+                seq_2_obj_val[new_seq_tuple] = makespan
+                heapq.heappush(obj_seq_heap, (-makespan, new_seq_tuple))
+            else:
+                worst_info = get_current_worst()
+                if worst_info is None:
+                    seq_2_obj_val[new_seq_tuple] = makespan
+                    heapq.heappush(obj_seq_heap, (-makespan, new_seq_tuple))
+                else:
+                    worst_obj, worst_seq = worst_info
+                    if makespan < worst_obj:
+                        del seq_2_obj_val[worst_seq]
+                        seq_2_obj_val[new_seq_tuple] = makespan
+                        heapq.heappush(obj_seq_heap, (-makespan, new_seq_tuple))
+                    else:
+                        logging.info(
+                            f"Trial {trial_cnt} New makespan {makespan} is not better than current worst {worst_obj:.1f}. Stopping growth from dispatches."
+                        )
+                        break
+
+            # Update best solution
+            if best_grow_makespan > makespan:
+                best_grow_makespan = makespan
+            if best_makespan > makespan:
+                logging.info(
+                    f"Found better schedule by growing from dispatches (previous best={best_makespan})"
+                )
+                best_makespan = makespan
+                best_schedule = schedule
+        logging.info(
+            f"Best makespan found by growing from dispatches: {best_grow_makespan}"
+        )
+
+        if best_schedule is None:
+            raise ValueError("No schedule found after applying dispatching heuristics.")
+        logging.info(
+            f"Best schedule found by generate_from_dispatches with makespan={best_makespan}"
+        )
+        return best_schedule
+
+    def _from_seq_2_obj_val_get_new_sequence(
+        self, seq_2_obj_val: dict[tuple[str, ...], float]
+    ) -> list[str]:
+        obj_val_avg: float = sum(seq_2_obj_val.values()) / len(seq_2_obj_val)
+        # logging.info(f"Average makespan of current sequences: {obj_val_avg:.2f}")
+        seq_2_obj_val_diff: dict[tuple[str, ...], float] = {
+            seq: obj_val - obj_val_avg for seq, obj_val in seq_2_obj_val.items()
+        }
+        # x = x^2 if x>0 else -(-x)^2
+        # seq_2_obj_val_diff = {
+        #     seq: diff if diff <= 0 else diff**2
+        #     for seq, diff in seq_2_obj_val_diff.items()
+        # }
+        job_2_vop: dict[str, float] = {j: 0.0 for j in self.instance.job_id_list}
+        for seq, obj_val_diff in seq_2_obj_val_diff.items():
+            for pos, j in enumerate(seq):
+                job_2_vop[j] += obj_val_diff * pos
+
+        # Sort jobs by vop in descending order to get a new job sequence
+        return sorted(
+            self.instance.job_id_list, key=lambda j: job_2_vop[j], reverse=True
+        )
+
+    def _from_job_sequence_get_schedule(
+        self, job_sequence: Sequence[str]
+    ) -> HybridFlowshopLiteSchedule:
+        job_dispatched_schedule = self.create_empty_schedule_from_ins()
+        for j in job_sequence:
+            job_dispatched_schedule.dispatch_job_by_stages(
+                j, self.job_2_stage_2_p_dict[j]
+            )
+        job_dispatched_obj_value = job_dispatched_schedule.makespan
+        stage_dispatched_schedule = self.create_empty_schedule_from_ins()
+        for i in self.instance.stage_id_list:
+            stage_dispatched_schedule.dispatch_stage_by_jobs(
+                i, job_sequence, self.stage_2_job_2_p_dict[i]
+            )
+        stage_dispatched_obj_value = stage_dispatched_schedule.makespan
+
+        if job_dispatched_obj_value < stage_dispatched_obj_value:
+            return job_dispatched_schedule
+        return stage_dispatched_schedule
+
     def get_incumbent_midpoint_sequence(self) -> list[str]:
         """
         Returns a job sequence based on the incumbent solution, sorted in ascending order by:
@@ -2213,6 +2411,31 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             start_time_map[j] = start_value
         return start_time_map
 
+    def get_bnd_sequence(self, stage_id: str) -> list[str]:
+        stage_index = self.instance.stage_id_list.index(stage_id)
+        before_stage_id_list = self.instance.stage_id_list[:stage_index]
+        after_stage_id_list = self.instance.stage_id_list[stage_index + 1 :]
+
+        r_dict = {
+            j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
+            for j in self.instance.job_id_list
+        }
+        tr_dict = {
+            j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
+            for j in self.instance.job_id_list
+        }
+
+        # Sort jobs by (r_j - tr_j, tie-break by original job index)
+        # Jobs with higher (r_j - tr_j) value are scheduled first
+        sorted_j_list = sorted(
+            self.instance.job_id_list,
+            key=lambda j: (
+                r_dict[j] - tr_dict[j],
+                self.instance.job_id_list.index(j),
+            ),
+        )
+        return sorted_j_list
+
     def bnd_all_stage(
         self, use_dwb: bool = False, dwb_batch_size: int | None = None
     ) -> None:
@@ -2221,34 +2444,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
         for bottleneck_stage_id in self.instance.stage_id_list:
-            # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
-            bottleneck_stage_index = self.instance.stage_id_list.index(
-                bottleneck_stage_id
-            )
-            before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
-            after_stage_id_list = self.instance.stage_id_list[
-                bottleneck_stage_index + 1 :
-            ]
-
-            r_dict = {
-                j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
-                for j in self.instance.job_id_list
-            }
-            tr_dict = {
-                j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
-                for j in self.instance.job_id_list
-            }
-
-            # Sort jobs by (r_j - tr_j, tie-break by original job index)
-            # Jobs with higher (r_j - tr_j) value are scheduled first
-            sorted_j_list = sorted(
-                self.instance.job_id_list,
-                key=lambda j: (
-                    r_dict[j] - tr_dict[j],
-                    self.instance.job_id_list.index(j),
-                ),
-            )
-
+            sorted_j_list = self.get_bnd_sequence(bottleneck_stage_id)
             if use_dwb:
                 best_sch = self.create_empty_schedule_from_ins()
                 batch_size = dwb_batch_size or self.instance.machine_count_per_stage[0]
@@ -2259,24 +2455,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     self.stage_2_job_2_p_dict,
                 )
             else:
-                job_dispatched_schedule = self.create_empty_schedule_from_ins()
-                for j in sorted_j_list:
-                    job_dispatched_schedule.dispatch_job_by_stages(
-                        j, self.job_2_stage_2_p_dict[j]
-                    )
-                job_dispatched_obj_value = job_dispatched_schedule.makespan
-                stage_dispatched_schedule = self.create_empty_schedule_from_ins()
-                for i in self.instance.stage_id_list:
-                    stage_dispatched_schedule.dispatch_stage_by_jobs(
-                        i, sorted_j_list, self.stage_2_job_2_p_dict[i]
-                    )
-                stage_dispatched_obj_value = stage_dispatched_schedule.makespan
-                if job_dispatched_obj_value < stage_dispatched_obj_value:
-                    dispatched_schedule = job_dispatched_schedule
-                    dispatched_obj_value = job_dispatched_obj_value
-                else:
-                    dispatched_schedule = stage_dispatched_schedule
-                    dispatched_obj_value = stage_dispatched_obj_value
+                dispatched_schedule = self._from_job_sequence_get_schedule(
+                    sorted_j_list
+                )
+                dispatched_obj_value = dispatched_schedule.makespan
 
                 if best_obj is None or dispatched_obj_value < best_obj:
                     best_obj = dispatched_obj_value
