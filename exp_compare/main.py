@@ -150,7 +150,7 @@ def determine_reference_values(
             ref_values = best_obj_df.groupby("name")[obj_col].min()
 
     elif mode == "fixed_dataset":
-        ref_path = Path(reference_config.ref_path)
+        ref_path = Path(reference_config.ref_path)  # type: ignore[misc]
         instance_key_col = reference_config.instance_key_column_in_ref
         value_col = reference_config.reference_value_column
 
@@ -158,7 +158,7 @@ def determine_reference_values(
             logging.warning(f"Reference file not found: {ref_path}")
             return pd.Series(dtype=float)
 
-        ref_df = load_reference_csv(ref_path, instance_key_col, value_col)
+        ref_df = load_reference_csv(ref_path, instance_key_col, value_col)  # type: ignore[misc]
 
         # Create series indexed by name
         ref_values = ref_df.set_index(instance_key_col)[value_col]
@@ -243,8 +243,8 @@ def run_comparison(config: CompareConfig) -> int:
         for (run_id, scenario), group_df in grouped:
             metrics_df = compute_metrics_for_run(
                 group_df,
-                run_id,
-                scenario,
+                run_id,  # type: ignore[arg-type]
+                scenario,  # type: ignore[arg-type]
                 reference_values,
                 sense=config.reference.sense,
             )
