@@ -211,16 +211,16 @@ def run_comparison(config: CompareConfig) -> int:
         combined_rows: list[pd.DataFrame] = []
         for run_id, df in run_id_2_df.items():
             if "scenario" not in df.columns:
-                # Use first scenario if not present (single scenario runs)
-                scenario = "scenario_1"
+                # Use a placeholder scenario if not present (single scenario runs)
+                df_copy = df.copy()
+                df_copy["runId"] = run_id
+                df_copy["scenario"] = "scenario_1"
+                combined_rows.append(df_copy)
             else:
-                scenarios = df["scenario"].unique()
-                scenario = scenarios[0] if len(scenarios) == 1 else "multi_scenario"
-
-            df_copy = df.copy()
-            df_copy["runId"] = run_id
-            df_copy["scenario"] = scenario
-            combined_rows.append(df_copy)
+                # Each row keeps its own scenario value (multi-scenario runs)
+                df_copy = df.copy()
+                df_copy["runId"] = run_id
+                combined_rows.append(df_copy)
 
         combined_df = pd.concat(combined_rows, ignore_index=True)
 
