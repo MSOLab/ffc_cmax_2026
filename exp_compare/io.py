@@ -1,6 +1,7 @@
 """I/O utilities for loading and saving comparison data."""
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -29,8 +30,18 @@ class ReferenceConfig(BaseModel):
 class OutputConfig(BaseModel):
     """Configuration for output files."""
 
-    out_dir: str = "Outputs_analysis/compare_YYYYMMDD/"
+    out_dir: str = "Outputs_analysis/compare_$TIMESTAMP/"
     basename: str = "rpd_compare"
+
+    def resolve_timestamps(self) -> "OutputConfig":
+        """Replace $TIMESTAMP placeholder with current datetime (YYYYMMDD_HHMMSS format).
+
+        Returns:
+            New OutputConfig with $TIMESTAMP replaced by current datetime.
+        """
+        current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        resolved_out_dir = self.out_dir.replace("$TIMESTAMP", current_timestamp)
+        return OutputConfig(out_dir=resolved_out_dir, basename=self.basename)
 
 
 class CompareConfig(BaseModel):

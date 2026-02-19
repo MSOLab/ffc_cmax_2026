@@ -187,6 +187,9 @@ def run_comparison(config: CompareConfig) -> int:
         Exit code: 0 for success, 2 for config/file errors, 1 for other errors
     """
     try:
+        # Resolve timestamp placeholders in output directory
+        output_config = config.output.resolve_timestamps()
+
         # Load all run summaries
         run_id_2_df, run_id_2_ins_set = load_run_summaries(config.runs)
 
@@ -258,10 +261,10 @@ def run_comparison(config: CompareConfig) -> int:
         ]
 
         # Create output directory
-        out_dir = Path(config.output.out_dir)
+        out_dir = Path(output_config.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        basename = config.output.basename
+        basename = output_config.basename
 
         # 1. Long format
         long_df = build_long_format(combined_metrics)

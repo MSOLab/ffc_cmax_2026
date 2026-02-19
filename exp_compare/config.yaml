@@ -16,5 +16,5 @@ reference:
   reference_value_column: "UB"
 
 output:
-  out_dir: "Outputs_analysis/compare_YYYYMMDD/"
+  out_dir: "Outputs_analysis/compare_$TIMESTAMP/"
   basename: "rpd_compare"

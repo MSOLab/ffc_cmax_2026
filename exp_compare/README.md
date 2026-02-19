@@ -57,9 +57,11 @@ reference:
   reference_value_column: null  # e.g., "UB"
 
 output:
-  out_dir: "Outputs_analysis/compare_YYYYMMDD/"
+  out_dir: "Outputs_analysis/compare_$TIMESTAMP/"
   basename: "rpd_compare"
 ```
+
+> **Note:** Use `$TIMESTAMP` placeholder in `out_dir` to automatically insert the current datetime (format: `YYYYMMDD_HHMMSS`). For example, `Outputs_analysis/compare_$TIMESTAMP/` becomes `Outputs_analysis/compare_20260219_170600/` when run on Feb 19, 2026 at 17:06:00.
 
 ### Configuration Parameters
 
@@ -85,7 +87,7 @@ output:
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| `out_dir` | Output directory path | `"Outputs_analysis/compare_YYYYMMDD/"` |
+| `out_dir` | Output directory path (use `$TIMESTAMP` for current datetime) | `"Outputs_analysis/compare_$TIMESTAMP/"` |
 | `basename` | Output file name prefix | `"rpd_compare"` |
 
 ## Input Format
@@ -201,7 +203,7 @@ reference:
   sense: "min"
 
 output:
-  out_dir: "Outputs_analysis/compare_20260219/"
+  out_dir: "Outputs_analysis/compare_$TIMESTAMP/"
   basename: "rpd_compare"
 ```
 
@@ -222,7 +224,7 @@ reference:
   reference_value_column: "UB"
 
 output:
-  out_dir: "Outputs_analysis/compare_20260219/"
+  out_dir: "Outputs_analysis/compare_$TIMESTAMP/"
   basename: "rpd_compare"
 ```
 
@@ -254,3 +256,4 @@ output:
 - Numbers are stored without a `%` sign
 - NaN values are stored as empty cells in CSV
 - The `bestObj` column is internally renamed to `objValue`
+- Use `$TIMESTAMP` placeholder in `out_dir` for automatic datetime insertion (format: `YYYYMMDD_HHMMSS`)
