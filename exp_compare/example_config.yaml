@@ -1,0 +1,22 @@
+# Example comparison configuration
+# Run this with: python -m exp_compare.main_cli --config exp_compare/example_config.yaml
+
+runs:
+  - path: "Outputs_scenarios/20260218T012813_090868/"
+    summary_csv: "all_scenarios_summary.csv"
+  - path: "Outputs_scenarios/20260217T153612_195650/"
+    summary_csv: "all_scenarios_summary.csv"
+
+reference:
+  mode: "best_among_compared"  # or "fixed_dataset"
+  sense: "min"                 # currently only min is expected
+
+  # only when mode=fixed_dataset
+  ref_path: null               # e.g., "refs/best_known.csv"
+  ref_format: "csv"            # only csv required
+  instance_key_column_in_ref: "name"
+  reference_value_column: null # e.g., "best_known"
+
+output:
+  out_dir: "Outputs_analysis/compare_YYYYMMDD/"
+  basename: "rpd_compare"
