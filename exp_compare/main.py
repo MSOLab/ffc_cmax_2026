@@ -7,6 +7,17 @@ from pathlib import Path
 
 import pandas as pd
 
+from exp_compare.constants import (
+    ALL_RESULT_COLUMNS,
+    EXP_OBJ_VALUE_COLUMN,
+    RESULT_ALGO_UID_COLUMN,
+    RESULT_INSTANCE_ID_COLUMN,
+    RESULT_EXP_OBJ_VALUE_COLUMN,
+    RESULT_RPDF_COLUMN,
+    RESULT_RPDV_COLUMN,
+    RESULT_RUN_ID_COLUMN,
+    RESULT_SCENARIO_COLUMN,
+)
 from exp_compare.io import (
     CompareConfig,
     ReferenceConfig,
@@ -29,19 +40,7 @@ def build_long_format(
         pd.DataFrame: Long-format DataFrame with columns: name, runId, scenario, algoUid,
                       objValue, refValue, RPDf, RPDv, rank
     """
-    return combined_df[
-        [
-            "name",
-            "runId",
-            "scenario",
-            "algoUid",
-            "objValue",
-            "refValue",
-            "RPDf",
-            "RPDv",
-            "rank",
-        ]
-    ]
+    return combined_df[ALL_RESULT_COLUMNS]
 
 
 def build_wide_rpdf(combined_df: pd.DataFrame) -> pd.DataFrame:
@@ -54,9 +53,9 @@ def build_wide_rpdf(combined_df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Wide-format DataFrame with columns: name, algoUid, and RPDf values.
     """
     wide = combined_df.pivot_table(
-        index="name",
-        columns="algoUid",
-        values="RPDf",
+        index=RESULT_INSTANCE_ID_COLUMN,
+        columns=RESULT_ALGO_UID_COLUMN,
+        values=RESULT_RPDF_COLUMN,
     ).reset_index()
 
     return wide
@@ -72,29 +71,31 @@ def build_wide_rpdv(combined_df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Wide-format DataFrame with columns: name, algoUid, and RPDv values.
     """
     wide = combined_df.pivot_table(
-        index="name",
-        columns="algoUid",
-        values="RPDv",
+        index=RESULT_INSTANCE_ID_COLUMN,
+        columns=RESULT_ALGO_UID_COLUMN,
+        values=RESULT_RPDV_COLUMN,
     ).reset_index()
 
     return wide
 
 
 def build_summary_rpdf(wide_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build summary statistics DataFrame for RPDf.
+    """Build summary statistics DataFrame for RPDf.
 
-    Groupby: algoUid (columns excluding 'name')
-    Stats: count, min, max, mean, median, std
+    Args:
+        wide_df (pd.DataFrame): Wide-format DataFrame with RPDf values.
+
+    Returns:
+        pd.DataFrame: Summary DataFrame with count, min, max, mean, median, std per algoUid.
     """
-    algo_cols = [col for col in wide_df.columns if col != "name"]
+    algo_cols = [col for col in wide_df.columns if col != RESULT_INSTANCE_ID_COLUMN]
 
     summary_rows = []
     for col in algo_cols:
         col_data = wide_df[col]
         summary_rows.append(
             {
-                "algoUid": col,
+                RESULT_ALGO_UID_COLUMN: col,
                 "count": col_data.count(),
                 "min": col_data.min(),
                 "max": col_data.max(),
@@ -108,10 +109,13 @@ def build_summary_rpdf(wide_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_summary_rpdv(wide_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build summary statistics DataFrame for RPDv.
+    """Build summary statistics DataFrame for RPDv.
 
-    Same structure as build_summary_rpdf but for RPDv values.
+    Args:
+        wide_df (pd.DataFrame): Wide-format DataFrame with RPDv values.
+
+    Returns:
+        pd.DataFrame: Summary DataFrame with count, min, max, mean, median, std per algoUid.
     """
     return build_summary_rpdf(wide_df)
 
@@ -120,34 +124,32 @@ def determine_reference_values(
     combined_df: pd.DataFrame,
     reference_config: ReferenceConfig,
     intersection_names: set[str],
+    exp_obj_value_col: str = EXP_OBJ_VALUE_COLUMN,
 ) -> pd.Series:
-    """
-    Determine reference values based on mode.
+    """Determine reference values based on mode.
 
     Args:
-        combined_df: Combined DataFrame from all runs
-        reference_config: Reference configuration
-        intersection_names: Set of instance names in intersection
+        combined_df (pd.DataFrame): Combined DataFrame from all experiment runs.
+        reference_config (ReferenceConfig): Reference configuration.
+        intersection_names (set[str]): Set of instance names in intersection.
+        exp_obj_value_col (str, optional): Column name for objective values in combined_df.
+            Defaults to EXP_OBJ_VALUE_COLUMN.
 
     Returns:
-        Series indexed by name with reference values
+        pd.Series: Series indexed by instance name with reference values.
     """
     mode = reference_config.mode
     sense = reference_config.sense
 
-    # Determine which column contains objective values
-    # Supports both "objValue" (normalized) and "bestObj" (original)
-    obj_col = "objValue" if "objValue" in combined_df.columns else "bestObj"
-
     if mode == "best_among_compared":
         # For each instance, take minimum objective value across all compared algorithms
-        best_obj_df = combined_df[combined_df["name"].isin(intersection_names)][
-            ["name", obj_col]
-        ]
+        best_obj_df = combined_df[
+            combined_df[RESULT_INSTANCE_ID_COLUMN].isin(intersection_names)
+        ][[RESULT_INSTANCE_ID_COLUMN, exp_obj_value_col]]
         if sense == "max":
-            ref_values = best_obj_df.groupby("name")[obj_col].max()
+            ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[exp_obj_value_col].max()
         else:  # Default to "min"
-            ref_values = best_obj_df.groupby("name")[obj_col].min()
+            ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[exp_obj_value_col].min()
 
     elif mode == "fixed_dataset":
         ref_path = Path(reference_config.ref_path)  # type: ignore[misc]
@@ -168,23 +170,24 @@ def determine_reference_values(
 
     else:
         logging.warning(f"Unknown reference mode: {mode}, using best_among_compared")
-        best_obj_df = combined_df[combined_df["name"].isin(intersection_names)][
-            ["name", obj_col]
-        ]
-        ref_values = best_obj_df.groupby("name")[obj_col].min()
+        best_obj_df = combined_df[
+            combined_df[RESULT_INSTANCE_ID_COLUMN].isin(intersection_names)
+        ][[RESULT_INSTANCE_ID_COLUMN, exp_obj_value_col]]
+        ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[exp_obj_value_col].min()
 
     return ref_values
 
 
-def run_comparison(config: CompareConfig) -> int:
-    """
-    Run the comparison analysis.
+def run_comparison(config: CompareConfig, exp_obj_value_col: str = EXP_OBJ_VALUE_COLUMN) -> int:
+    """Run the comparison analysis.
 
     Args:
-        config: CompareConfig with all settings
+        config (CompareConfig): CompareConfig with all settings.
+        exp_obj_value_col (str): Column name for objective values in input data.
+            Defaults to EXP_OBJ_VALUE_COLUMN.
 
     Returns:
-        Exit code: 0 for success, 2 for config/file errors, 1 for other errors
+        int: Exit code: 0 for success, 2 for config/file errors, 1 for other errors.
     """
     try:
         # Resolve timestamp placeholders in output directory
@@ -210,23 +213,28 @@ def run_comparison(config: CompareConfig) -> int:
         # Combine all dataframes with runId and scenario info
         combined_rows: list[pd.DataFrame] = []
         for run_id, df in run_id_2_df.items():
-            if "scenario" not in df.columns:
+            if RESULT_SCENARIO_COLUMN not in df.columns:
                 # Use a placeholder scenario if not present (single scenario runs)
                 df_copy = df.copy()
-                df_copy["runId"] = run_id
-                df_copy["scenario"] = "scenario_1"
+                df_copy[RESULT_RUN_ID_COLUMN] = run_id
+                df_copy[RESULT_SCENARIO_COLUMN] = "scenario_1"
                 combined_rows.append(df_copy)
             else:
                 # Each row keeps its own scenario value (multi-scenario runs)
                 df_copy = df.copy()
-                df_copy["runId"] = run_id
+                df_copy[RESULT_RUN_ID_COLUMN] = run_id
                 combined_rows.append(df_copy)
 
         combined_df = pd.concat(combined_rows, ignore_index=True)
 
         # Rename bestObj to objValue for consistency
-        if "bestObj" in combined_df.columns and "objValue" not in combined_df.columns:
-            combined_df = combined_df.rename(columns={"bestObj": "objValue"})
+        if (
+            exp_obj_value_col in combined_df.columns
+            and RESULT_EXP_OBJ_VALUE_COLUMN not in combined_df.columns
+        ):
+            combined_df = combined_df.rename(
+                columns={exp_obj_value_col: RESULT_EXP_OBJ_VALUE_COLUMN}
+            )
 
         # Determine reference values
         reference_values = determine_reference_values(
@@ -241,7 +249,7 @@ def run_comparison(config: CompareConfig) -> int:
         all_metrics: list[pd.DataFrame] = []
 
         # Group by runId and scenario
-        grouped = combined_df.groupby(["runId", "scenario"])
+        grouped = combined_df.groupby([RESULT_RUN_ID_COLUMN, RESULT_SCENARIO_COLUMN])
 
         for (run_id, scenario), group_df in grouped:
             metrics_df = compute_metrics_for_run(

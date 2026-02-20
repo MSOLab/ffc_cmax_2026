@@ -8,6 +8,8 @@ from typing import Mapping, Sequence
 import pandas as pd
 from pydantic import BaseModel
 
+from exp_compare.constants import EXP_INSTANCE_ID_COLUMN
+
 
 class RunConfig(BaseModel):
     """Configuration for a single run to compare."""
@@ -53,12 +55,14 @@ class CompareConfig(BaseModel):
 
 
 def load_run_summaries(
-    runs: Sequence[RunConfig],
+    runs: Sequence[RunConfig], exp_instance_id_col: str = EXP_INSTANCE_ID_COLUMN
 ) -> tuple[dict[str, pd.DataFrame], dict[str, set[str]]]:
     """Load summary CSVs from multiple runs.
 
     Args:
         runs (Sequence[RunConfig]): specifies paths and CSV filenames.
+        exp_instance_id_col (str, optional): Column name for instance IDs in experiment CSVs.
+            Defaults to EXP_INSTANCE_ID_COLUMN.
 
     Returns:
         tuple[dict[str, pd.DataFrame], dict[str, set[str]]]:
@@ -93,26 +97,23 @@ def load_run_summaries(
 
         logging.info(f"Loaded {len(df)} rows from {run_id}")
 
-        # Normalize column names: rename instanceName to name if exists and name not present
-        if "instanceName" in df.columns and "name" not in df.columns:
-            df = df.rename(columns={"instanceName": "name"})
-            logging.info(f"  Renamed 'instanceName' to 'name' in {run_id}")
-
         # Ensure name column is string type for consistent comparison
-        if "name" in df.columns:
+        if exp_instance_id_col in df.columns:
             df = df.copy()
-            df["name"] = df["name"].astype(str)
+            df[exp_instance_id_col] = df[exp_instance_id_col].astype(str)
 
         # Store dataframe
         dataframes[run_id] = df
 
         # Extract instance names
-        if "name" in df.columns:
-            names = set(df["name"].dropna().unique())
+        if exp_instance_id_col in df.columns:
+            names = set(df[exp_instance_id_col].dropna().unique())
             instance_names[run_id] = names
             logging.info(f"  Found {len(names)} unique instances in {run_id}")
         else:
-            logging.warning(f"  'name' column not found in {summary_path}")
+            logging.warning(
+                f"  '{exp_instance_id_col}' column not found in {summary_path}"
+            )
             instance_names[run_id] = set()
 
     return dataframes, instance_names
@@ -122,7 +123,7 @@ def compute_intersection(instance_names: Mapping[str, set[str]]) -> set[str]:
     """Compute intersection of instance names across all runs.
 
     Args:
-        instance_names (Mapping[str, set[str]]): run_id -> set of instance names
+        instance_names (Mapping[str, set[str]]): run_id -> set of instance names.
 
     Returns:
         set[str]: Set of instance names present in all runs.
@@ -146,7 +147,7 @@ def load_reference_csv(
     """Load reference CSV file.
 
     Args:
-        ref_path (Path): Reference CSV file path.
+        ref_path (Path): Path to the reference CSV file.
         instance_key_col (str): Column name for instance keys in reference.
         value_col (str): Column name for reference values.
 

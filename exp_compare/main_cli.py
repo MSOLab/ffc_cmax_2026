@@ -32,7 +32,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_logging(quiet: bool) -> None:
-    """Configure logging."""
+    """Configure logging handlers.
+
+    Args:
+        quiet (bool): If True, suppress console output (logs still written to file).
+    """
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
@@ -56,7 +60,18 @@ def setup_logging(quiet: bool) -> None:
 
 
 def load_config(config_path: str) -> CompareConfig:
-    """Load configuration from YAML file."""
+    """Load configuration from YAML file.
+
+    Args:
+        config_path (str): Path to the comparison configuration YAML file.
+
+    Returns:
+        CompareConfig: CompareConfig object with validated configuration.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        ValueError: If the YAML is invalid or config validation fails.
+    """
     path = Path(config_path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -71,14 +86,22 @@ def load_config(config_path: str) -> CompareConfig:
 
 
 def get_default_config_path() -> Path:
-    """Get the default config path (exp_compare/config.yaml)."""
+    """Get the default config path (exp_compare/config.yaml).
+
+    Returns:
+        Path: Path to the default configuration file.
+    """
     # Get the directory where this module is located
     current_file = Path(__file__).resolve()
     return current_file.parent / "config.yaml"
 
 
 def main() -> int:
-    """Main entry point."""
+    """Main entry point for the experiment comparison CLI.
+
+    Returns:
+        int: Exit code: 0 for success, 2 for config/file errors, 1 for other errors.
+    """
     args = parse_args()
 
     setup_logging(args.quiet)

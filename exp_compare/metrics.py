@@ -7,12 +7,25 @@ import logging
 import numpy as np
 import pandas as pd
 
+from exp_compare.constants import (
+    ALL_RESULT_COLUMNS,
+    EXP_OBJ_VALUE_COLUMN,
+    RESULT_ALGO_UID_COLUMN,
+    RESULT_INSTANCE_ID_COLUMN,
+    RESULT_EXP_OBJ_VALUE_COLUMN,
+    RESULT_RPDF_COLUMN,
+    RESULT_RPDV_COLUMN,
+    RESULT_RANK_COLUMN,
+    RESULT_REF_OBJ_VALUE_COLUMN,
+    RESULT_RUN_ID_COLUMN,
+    RESULT_SCENARIO_COLUMN,
+)
+
 
 def compute_rpdf(
     obj: float | np.ndarray | pd.Series, ref: float | np.ndarray | pd.Series
 ) -> float | np.ndarray | pd.Series:
-    """
-    Compute Relative Percentage Difference (RPDf).
+    """Compute Relative Percentage Difference (RPDf).
 
     Formula: RPDf = (obj - ref) / ((obj + ref) / 2)
 
@@ -21,11 +34,11 @@ def compute_rpdf(
     - denominator == 0 (else) -> RPDf = NaN
 
     Args:
-        obj: Objective value(s).
-        ref: Reference value(s).
+        obj (float | np.ndarray | pd.Series): Objective value(s).
+        ref (float | np.ndarray | pd.Series): Reference value(s).
 
     Returns:
-        RPDf value(s).
+        float | np.ndarray | pd.Series: RPDf value(s).
     """
     obj = np.asarray(obj, dtype=float)
     ref = np.asarray(ref, dtype=float)
@@ -49,8 +62,7 @@ def compute_rpdf(
 def compute_rpdv(
     obj: float | np.ndarray | pd.Series, ref: float | np.ndarray | pd.Series
 ) -> float | np.ndarray | pd.Series:
-    """
-    Compute Relative Percentage Deviation (RPDv).
+    """Compute Relative Percentage Deviation (RPDv).
 
     Formula: RPDv = (obj - ref) / ref
 
@@ -58,11 +70,11 @@ def compute_rpdv(
     - ref == 0 -> RPDv = NaN
 
     Args:
-        obj: Objective value(s).
-        ref: Reference value(s).
+        obj (float | np.ndarray | pd.Series): Objective value(s).
+        ref (float | np.ndarray | pd.Series): Reference value(s).
 
     Returns:
-        RPDv value(s).
+        float | np.ndarray | pd.Series: RPDv value(s).
     """
     obj = np.asarray(obj, dtype=float)
     ref = np.asarray(ref, dtype=float)
@@ -81,15 +93,14 @@ def compute_rank(
     obj_values: pd.Series,
     sense: str = "min",
 ) -> pd.Series:
-    """
-    Compute rank of objective values within a group.
+    """Compute rank of objective values within a group.
 
     Args:
-        obj_values: Series of objective values.
-        sense: "min" for minimization (smaller is better).
+        obj_values (pd.Series): Series of objective values.
+        sense (str): "min" for minimization (smaller is better).
 
     Returns:
-        Series of ranks (dense rank, NaN for missing obj values).
+        pd.Series: Series of ranks (dense rank, NaN for missing obj values).
     """
     if sense != "min":
         logging.warning(f"Sense '{sense}' not supported, defaulting to 'min'")
@@ -109,61 +120,52 @@ def compute_metrics_for_run(
     scenario: str,
     reference_values: pd.Series,
     sense: str = "min",
+    exp_obj_value_col: str = EXP_OBJ_VALUE_COLUMN,
 ) -> pd.DataFrame:
-    """
-    Compute RPDf, RPDv, and rank for a single run's data.
+    """Compute RPDf, RPDv, and rank for a single run's data.
 
     Args:
-        df: DataFrame with columns: name, bestObj (or objValue)
-        run_id: Run identifier
-        scenario: Scenario name
-        reference_values: Series indexed by name with reference values
-        sense: Optimization sense ("min")
+        df (pd.DataFrame): DataFrame with columns: name, bestObj (or objValue).
+        run_id (str): Run identifier.
+        scenario (str): Scenario name.
+        reference_values (pd.Series): Series indexed by name with reference values.
+        sense (str): Optimization sense ("min").
+        exp_obj_value_col (str): Column name for objective values.
 
     Returns:
-        DataFrame with columns: name, runId, scenario, algoUid,
-                               objValue, refValue, RPDf, RPDv, rank
+        pd.DataFrame: DataFrame with columns: name, runId, scenario, algoUid,
+                      objValue, refValue, RPDf, RPDv, rank.
     """
-    # Determine which column contains objective values
-    # Supports both "objValue" (normalized) and "bestObj" (original)
-    obj_col = "objValue" if "objValue" in df.columns else "bestObj"
-
     # Merge with reference values
     # reference_values is a Series with name as index, so we need to convert to DataFrame
     ref_df = reference_values.reset_index()
-    ref_df.columns = ["name", "refValue"]
-    merged = df[["name", obj_col]].copy()
-    merged = merged.merge(ref_df, on="name", how="left")
+    ref_df.columns = [RESULT_INSTANCE_ID_COLUMN, RESULT_REF_OBJ_VALUE_COLUMN]
+    merged = df[[RESULT_INSTANCE_ID_COLUMN, exp_obj_value_col]].copy()
+    merged = merged.merge(ref_df, on=RESULT_INSTANCE_ID_COLUMN, how="left")
 
     # Create algoUid
-    merged["runId"] = run_id
-    merged["scenario"] = scenario
-    merged["algoUid"] = f"{run_id}::{scenario}"
+    merged[RESULT_RUN_ID_COLUMN] = run_id
+    merged[RESULT_SCENARIO_COLUMN] = scenario
+    merged[RESULT_ALGO_UID_COLUMN] = f"{run_id}::{scenario}"
 
     # Rename to objValue for consistency
-    merged = merged.rename(columns={obj_col: "objValue"})
+    merged = merged.rename(columns={exp_obj_value_col: RESULT_EXP_OBJ_VALUE_COLUMN})
 
     # Compute metrics
-    merged["RPDf"] = compute_rpdf(merged["objValue"], merged["refValue"])
-    merged["RPDv"] = compute_rpdv(merged["objValue"], merged["refValue"])
+    merged[RESULT_RPDF_COLUMN] = compute_rpdf(
+        merged[RESULT_EXP_OBJ_VALUE_COLUMN], merged[RESULT_REF_OBJ_VALUE_COLUMN]
+    )
+    merged[RESULT_RPDV_COLUMN] = compute_rpdv(
+        merged[RESULT_EXP_OBJ_VALUE_COLUMN], merged[RESULT_REF_OBJ_VALUE_COLUMN]
+    )
 
     # Compute rank within each name group using transform
-    merged["rank"] = (
-        merged.groupby("name", sort=False)["objValue"]
+    merged[RESULT_RANK_COLUMN] = (
+        merged.groupby(RESULT_INSTANCE_ID_COLUMN, sort=False)[
+            RESULT_EXP_OBJ_VALUE_COLUMN
+        ]
         .transform(lambda g: compute_rank(g, sense=sense))
         .reset_index(level=0, drop=True)
     )
 
-    return merged[
-        [
-            "name",
-            "runId",
-            "scenario",
-            "algoUid",
-            "objValue",
-            "refValue",
-            "RPDf",
-            "RPDv",
-            "rank",
-        ]
-    ]
+    return merged[ALL_RESULT_COLUMNS]
