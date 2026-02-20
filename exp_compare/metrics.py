@@ -9,14 +9,13 @@ import pandas as pd
 
 from exp_compare.constants import (
     ALL_RESULT_COLUMNS,
-    EXP_OBJ_VALUE_COLUMN,
     RESULT_ALGO_UID_COLUMN,
-    RESULT_INSTANCE_ID_COLUMN,
     RESULT_EXP_OBJ_VALUE_COLUMN,
-    RESULT_RPDF_COLUMN,
-    RESULT_RPDV_COLUMN,
+    RESULT_INSTANCE_ID_COLUMN,
     RESULT_RANK_COLUMN,
     RESULT_REF_OBJ_VALUE_COLUMN,
+    RESULT_RPDF_COLUMN,
+    RESULT_RPDV_COLUMN,
     RESULT_RUN_ID_COLUMN,
     RESULT_SCENARIO_COLUMN,
 )
@@ -120,7 +119,7 @@ def compute_metrics_for_run(
     scenario: str,
     reference_values: pd.Series,
     sense: str = "min",
-    exp_obj_value_col: str = EXP_OBJ_VALUE_COLUMN,
+    exp_obj_value_col: str = RESULT_EXP_OBJ_VALUE_COLUMN,
 ) -> pd.DataFrame:
     """Compute RPDf, RPDv, and rank for a single run's data.
 
@@ -131,6 +130,7 @@ def compute_metrics_for_run(
         reference_values (pd.Series): Series indexed by name with reference values.
         sense (str): Optimization sense ("min").
         exp_obj_value_col (str): Column name for objective values.
+            Defaults to RESULT_EXP_OBJ_VALUE_COLUMN.
 
     Returns:
         pd.DataFrame: DataFrame with columns: name, runId, scenario, algoUid,

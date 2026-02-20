@@ -11,8 +11,8 @@ from exp_compare.constants import (
     ALL_RESULT_COLUMNS,
     EXP_OBJ_VALUE_COLUMN,
     RESULT_ALGO_UID_COLUMN,
-    RESULT_INSTANCE_ID_COLUMN,
     RESULT_EXP_OBJ_VALUE_COLUMN,
+    RESULT_INSTANCE_ID_COLUMN,
     RESULT_RPDF_COLUMN,
     RESULT_RPDV_COLUMN,
     RESULT_RUN_ID_COLUMN,
@@ -124,7 +124,7 @@ def determine_reference_values(
     combined_df: pd.DataFrame,
     reference_config: ReferenceConfig,
     intersection_names: set[str],
-    exp_obj_value_col: str = EXP_OBJ_VALUE_COLUMN,
+    exp_obj_value_col: str = RESULT_EXP_OBJ_VALUE_COLUMN,
 ) -> pd.Series:
     """Determine reference values based on mode.
 
@@ -133,7 +133,7 @@ def determine_reference_values(
         reference_config (ReferenceConfig): Reference configuration.
         intersection_names (set[str]): Set of instance names in intersection.
         exp_obj_value_col (str, optional): Column name for objective values in combined_df.
-            Defaults to EXP_OBJ_VALUE_COLUMN.
+            Defaults to RESULT_EXP_OBJ_VALUE_COLUMN.
 
     Returns:
         pd.Series: Series indexed by instance name with reference values.
@@ -147,9 +147,13 @@ def determine_reference_values(
             combined_df[RESULT_INSTANCE_ID_COLUMN].isin(intersection_names)
         ][[RESULT_INSTANCE_ID_COLUMN, exp_obj_value_col]]
         if sense == "max":
-            ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[exp_obj_value_col].max()
+            ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[
+                exp_obj_value_col
+            ].max()
         else:  # Default to "min"
-            ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[exp_obj_value_col].min()
+            ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[
+                exp_obj_value_col
+            ].min()
 
     elif mode == "fixed_dataset":
         ref_path = Path(reference_config.ref_path)  # type: ignore[misc]
@@ -173,12 +177,16 @@ def determine_reference_values(
         best_obj_df = combined_df[
             combined_df[RESULT_INSTANCE_ID_COLUMN].isin(intersection_names)
         ][[RESULT_INSTANCE_ID_COLUMN, exp_obj_value_col]]
-        ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[exp_obj_value_col].min()
+        ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[
+            exp_obj_value_col
+        ].min()
 
     return ref_values
 
 
-def run_comparison(config: CompareConfig, exp_obj_value_col: str = EXP_OBJ_VALUE_COLUMN) -> int:
+def run_comparison(
+    config: CompareConfig, exp_obj_value_col: str = EXP_OBJ_VALUE_COLUMN
+) -> int:
     """Run the comparison analysis.
 
     Args:
