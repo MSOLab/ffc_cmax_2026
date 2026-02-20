@@ -13,6 +13,8 @@ from exp_compare.constants import (
     RESULT_ALGO_UID_COLUMN,
     RESULT_EXP_OBJ_VALUE_COLUMN,
     RESULT_INSTANCE_ID_COLUMN,
+    RESULT_RANK_COLUMN,
+    RESULT_REF_OBJ_VALUE_COLUMN,
     RESULT_RPDF_COLUMN,
     RESULT_RPDV_COLUMN,
     RESULT_RUN_ID_COLUMN,
@@ -38,9 +40,30 @@ def build_long_format(
 
     Returns:
         pd.DataFrame: Long-format DataFrame with columns: name, runId, scenario, algoUid,
-                      objValue, refValue, RPDf, RPDv, rank
+                      objValue, refValue, RPDf, RPDv, rank, and metadata columns.
     """
-    return combined_df[ALL_RESULT_COLUMNS]
+    # Get all columns from ALL_RESULT_COLUMNS that exist in the dataframe
+    result_cols = [col for col in ALL_RESULT_COLUMNS if col in combined_df.columns]
+
+    # Add metadata columns (columns that are not in ALL_RESULT_COLUMNS and not internal columns)
+    # Maintain the order from combined_df.columns
+    internal_cols = {RESULT_RUN_ID_COLUMN, RESULT_SCENARIO_COLUMN}
+    metadata_cols = [
+        col
+        for col in combined_df.columns
+        if col not in result_cols
+        and col not in internal_cols
+        and col != RESULT_INSTANCE_ID_COLUMN
+    ]
+
+    # Build final column order: name first, then metadata, then standard result columns
+    final_cols = (
+        [RESULT_INSTANCE_ID_COLUMN]
+        + metadata_cols
+        + [col for col in result_cols if col != RESULT_INSTANCE_ID_COLUMN]
+    )
+
+    return combined_df[final_cols]
 
 
 def build_wide_rpdf(combined_df: pd.DataFrame) -> pd.DataFrame:
@@ -50,15 +73,50 @@ def build_wide_rpdf(combined_df: pd.DataFrame) -> pd.DataFrame:
         combined_df (pd.DataFrame): Dataframe with all combined data and computed metrics.
 
     Returns:
-        pd.DataFrame: Wide-format DataFrame with columns: name, algoUid, and RPDf values.
+        pd.DataFrame: Wide-format DataFrame with columns: name, metadata columns (if any),
+                      and RPDf values per algoUid.
     """
-    wide = combined_df.pivot_table(
+    # Get metadata columns
+    non_instance_cols = {
+        RESULT_INSTANCE_ID_COLUMN,
+        RESULT_ALGO_UID_COLUMN,
+        RESULT_RUN_ID_COLUMN,
+        RESULT_SCENARIO_COLUMN,
+        RESULT_RPDF_COLUMN,
+        RESULT_RPDV_COLUMN,
+        RESULT_EXP_OBJ_VALUE_COLUMN,
+        RESULT_REF_OBJ_VALUE_COLUMN,
+        RESULT_RANK_COLUMN,
+    }
+    metadata_cols = [col for col in combined_df.columns if col not in non_instance_cols]
+
+    # Pivot only the RPDf values (use only relevant columns to avoid aggfunc issues)
+    pivot_data = combined_df[
+        [RESULT_INSTANCE_ID_COLUMN, RESULT_ALGO_UID_COLUMN, RESULT_RPDF_COLUMN]
+    ]
+    wide = pivot_data.pivot_table(
         index=RESULT_INSTANCE_ID_COLUMN,
         columns=RESULT_ALGO_UID_COLUMN,
         values=RESULT_RPDF_COLUMN,
     ).reset_index()
 
-    return wide
+    # Merge metadata columns if present (at the end initially)
+    if metadata_cols:
+        metadata_df = combined_df[
+            [RESULT_INSTANCE_ID_COLUMN] + metadata_cols
+        ].drop_duplicates()
+        wide = wide.merge(metadata_df, on=RESULT_INSTANCE_ID_COLUMN, how="left")
+
+    # Reorder columns: name, metadata (preserving config order), then algoUid columns
+    # Get all algoUid columns (all columns between name and metadata)
+    algo_cols = [
+        col
+        for col in wide.columns
+        if col not in [RESULT_INSTANCE_ID_COLUMN] + metadata_cols
+    ]
+    final_cols = [RESULT_INSTANCE_ID_COLUMN] + metadata_cols + algo_cols
+
+    return wide[final_cols]
 
 
 def build_wide_rpdv(combined_df: pd.DataFrame) -> pd.DataFrame:
@@ -68,15 +126,49 @@ def build_wide_rpdv(combined_df: pd.DataFrame) -> pd.DataFrame:
         combined_df (pd.DataFrame): Dataframe with all combined data and computed metrics.
 
     Returns:
-        pd.DataFrame: Wide-format DataFrame with columns: name, algoUid, and RPDv values.
+        pd.DataFrame: Wide-format DataFrame with columns: name, metadata columns (if any),
+                      and RPDv values per algoUid.
     """
-    wide = combined_df.pivot_table(
+    # Get metadata columns
+    non_instance_cols = {
+        RESULT_INSTANCE_ID_COLUMN,
+        RESULT_ALGO_UID_COLUMN,
+        RESULT_RUN_ID_COLUMN,
+        RESULT_SCENARIO_COLUMN,
+        RESULT_RPDV_COLUMN,
+        RESULT_RPDF_COLUMN,
+        RESULT_EXP_OBJ_VALUE_COLUMN,
+        RESULT_REF_OBJ_VALUE_COLUMN,
+        RESULT_RANK_COLUMN,
+    }
+    metadata_cols = [col for col in combined_df.columns if col not in non_instance_cols]
+
+    # Pivot only the RPDv values (use only relevant columns to avoid aggfunc issues)
+    pivot_data = combined_df[
+        [RESULT_INSTANCE_ID_COLUMN, RESULT_ALGO_UID_COLUMN, RESULT_RPDV_COLUMN]
+    ]
+    wide = pivot_data.pivot_table(
         index=RESULT_INSTANCE_ID_COLUMN,
         columns=RESULT_ALGO_UID_COLUMN,
         values=RESULT_RPDV_COLUMN,
     ).reset_index()
 
-    return wide
+    # Merge metadata columns if present (at the end initially)
+    if metadata_cols:
+        metadata_df = combined_df[
+            [RESULT_INSTANCE_ID_COLUMN] + metadata_cols
+        ].drop_duplicates()
+        wide = wide.merge(metadata_df, on=RESULT_INSTANCE_ID_COLUMN, how="left")
+
+    # Reorder columns: name, metadata, then algoUid columns
+    algo_cols = [
+        col
+        for col in wide.columns
+        if col not in [RESULT_INSTANCE_ID_COLUMN] + metadata_cols
+    ]
+    final_cols = [RESULT_INSTANCE_ID_COLUMN] + metadata_cols + algo_cols
+
+    return wide[final_cols]
 
 
 def build_summary_rpdf(wide_df: pd.DataFrame) -> pd.DataFrame:
@@ -88,11 +180,19 @@ def build_summary_rpdf(wide_df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Summary DataFrame with count, min, max, mean, median, std per algoUid.
     """
-    algo_cols = [col for col in wide_df.columns if col != RESULT_INSTANCE_ID_COLUMN]
+    # Exclude non-algorithm columns (name and any metadata columns)
+    algo_cols = [
+        col
+        for col in wide_df.columns
+        if col not in [RESULT_INSTANCE_ID_COLUMN, RESULT_ALGO_UID_COLUMN]
+    ]
 
     summary_rows = []
     for col in algo_cols:
         col_data = wide_df[col]
+        # Skip non-numeric columns (like metadata)
+        if not pd.api.types.is_numeric_dtype(col_data):
+            continue
         summary_rows.append(
             {
                 RESULT_ALGO_UID_COLUMN: col,
@@ -125,7 +225,7 @@ def determine_reference_values(
     reference_config: ReferenceConfig,
     intersection_names: set[str],
     exp_obj_value_col: str = RESULT_EXP_OBJ_VALUE_COLUMN,
-) -> pd.Series:
+) -> tuple[pd.Series, pd.DataFrame | None, list[str]]:
     """Determine reference values based on mode.
 
     Args:
@@ -136,10 +236,14 @@ def determine_reference_values(
             Defaults to RESULT_EXP_OBJ_VALUE_COLUMN.
 
     Returns:
-        pd.Series: Series indexed by instance name with reference values.
+        tuple[pd.Series, pd.DataFrame | None, list[str]]: Tuple of (reference_values, metadata_df, metadata_cols).
+            reference_values is a Series indexed by instance name.
+            metadata_df contains instance metadata (if any).
+            metadata_cols is the list of metadata column names in config order.
     """
     mode = reference_config.mode
     sense = reference_config.sense
+    metadata_cols = reference_config.instance_metadata_columns
 
     if mode == "best_among_compared":
         # For each instance, take minimum objective value across all compared algorithms
@@ -155,6 +259,9 @@ def determine_reference_values(
                 exp_obj_value_col
             ].min()
 
+        # No metadata available in best_among_compared mode
+        metadata_df: pd.DataFrame | None = None
+
     elif mode == "fixed_dataset":
         ref_path = Path(reference_config.ref_path)  # type: ignore[misc]
         instance_key_col = reference_config.instance_key_column_in_ref
@@ -162,15 +269,34 @@ def determine_reference_values(
 
         if not ref_path.exists():
             logging.warning(f"Reference file not found: {ref_path}")
-            return pd.Series(dtype=float)
+            return pd.Series(dtype=float), None, []
 
-        ref_df = load_reference_csv(ref_path, instance_key_col, value_col)  # type: ignore[misc]
+        if value_col is None:
+            value_col = exp_obj_value_col  # Default to same column as experiment objective values
+
+        ref_df, metadata_df = load_reference_csv(
+            ref_path, instance_key_col, value_col, metadata_cols
+        )
 
         # Create series indexed by name
+        # ref_df still has the original instance_key_col as the column name
         ref_values = ref_df.set_index(instance_key_col)[value_col]
 
         # Filter to intersection names, keeping NaN for missing
         ref_values = ref_values.reindex(list(intersection_names))
+        # Convert index to string for consistent merge
+        ref_values.index = ref_values.index.astype(str)
+
+        # Reindex metadata_df as well
+        if metadata_df is not None:
+            metadata_df = metadata_df.set_index(RESULT_INSTANCE_ID_COLUMN).reindex(
+                list(intersection_names)
+            )
+            metadata_df = metadata_df.reset_index()
+            # Ensure name column is string for consistent merge
+            metadata_df[RESULT_INSTANCE_ID_COLUMN] = metadata_df[
+                RESULT_INSTANCE_ID_COLUMN
+            ].astype(str)
 
     else:
         logging.warning(f"Unknown reference mode: {mode}, using best_among_compared")
@@ -180,8 +306,9 @@ def determine_reference_values(
         ref_values = best_obj_df.groupby(RESULT_INSTANCE_ID_COLUMN)[
             exp_obj_value_col
         ].min()
+        metadata_df = None
 
-    return ref_values
+    return ref_values, metadata_df, metadata_cols
 
 
 def run_comparison(
@@ -244,14 +371,16 @@ def run_comparison(
                 columns={exp_obj_value_col: RESULT_EXP_OBJ_VALUE_COLUMN}
             )
 
-        # Determine reference values
-        reference_values = determine_reference_values(
+        # Determine reference values and metadata
+        reference_values, metadata_df, metadata_cols = determine_reference_values(
             combined_df,
             config.reference,
             intersection_names,
         )
 
         logging.info(f"Reference values loaded for {len(reference_values)} instances")
+        if metadata_df is not None:
+            logging.info(f"Instance metadata loaded: {list(metadata_df.columns)}")
 
         # Compute metrics for each run
         all_metrics: list[pd.DataFrame] = []
@@ -266,10 +395,15 @@ def run_comparison(
                 scenario,  # type: ignore[arg-type]
                 reference_values,
                 sense=config.reference.sense,
+                instance_metadata=metadata_df,
+                metadata_cols=metadata_cols,
             )
             all_metrics.append(metrics_df)
 
         combined_metrics = pd.concat(all_metrics, ignore_index=True)
+
+        # Drop duplicate rows if any (should not happen, but safety check)
+        combined_metrics = combined_metrics.drop_duplicates()
 
         # Ensure intersection filter
         combined_metrics = combined_metrics[

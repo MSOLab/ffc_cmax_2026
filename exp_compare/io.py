@@ -8,7 +8,10 @@ from typing import Mapping, Sequence
 import pandas as pd
 from pydantic import BaseModel
 
-from exp_compare.constants import EXP_INSTANCE_ID_COLUMN
+from exp_compare.constants import (
+    EXP_INSTANCE_ID_COLUMN,
+    RESULT_INSTANCE_ID_COLUMN,
+)
 
 
 class RunConfig(BaseModel):
@@ -27,6 +30,7 @@ class ReferenceConfig(BaseModel):
     ref_format: str = "csv"
     instance_key_column_in_ref: str = "name"
     reference_value_column: str | None = None
+    instance_metadata_columns: list[str] = []
 
 
 class OutputConfig(BaseModel):
@@ -143,19 +147,24 @@ def load_reference_csv(
     ref_path: Path,
     instance_key_col: str,
     value_col: str,
-) -> pd.DataFrame:
+    metadata_cols: list[str] = [],
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Load reference CSV file.
 
     Args:
         ref_path (Path): Path to the reference CSV file.
         instance_key_col (str): Column name for instance keys in reference.
         value_col (str): Column name for reference values.
+        metadata_cols (list[str], optional): List of metadata column names to load.
+            Defaults to [].
 
     Raises:
         FileNotFoundError: If the reference file does not exist.
 
     Returns:
-        pd.DataFrame: DataFrame with instance_key_col and value_col.
+        tuple[pd.DataFrame, pd.DataFrame | None]: Tuple of (reference_df, metadata_df).
+            reference_df contains instance_key_col and value_col.
+            metadata_df contains instance_key_col and metadata columns (if any).
     """
     if not ref_path.exists():
         raise FileNotFoundError(f"Reference file not found: {ref_path}")
@@ -164,4 +173,29 @@ def load_reference_csv(
     # Ensure instance_key_col is string for consistent comparison with combined_df[name]
     df = df.copy()
     df[instance_key_col] = df[instance_key_col].astype(str)
-    return df[[instance_key_col, value_col]].copy()
+
+    # Build reference df (instance_key_col + value_col)
+    reference_cols = [instance_key_col, value_col]
+    reference_df = df[reference_cols].copy()
+
+    # Build metadata df if requested
+    metadata_df: pd.DataFrame | None = None
+    if metadata_cols:
+        metadata_cols_to_use = [col for col in metadata_cols if col in df.columns]
+        if metadata_cols_to_use:
+            metadata_cols_to_use = [instance_key_col] + metadata_cols_to_use
+            metadata_df = df[metadata_cols_to_use].copy()
+            # Ensure instance_key_col is string for consistent merge
+            metadata_df = metadata_df.copy()
+            metadata_df[instance_key_col] = metadata_df[instance_key_col].astype(str)
+            # Rename instance_key_col to name for consistent merge with combined_df
+            metadata_df = metadata_df.rename(
+                columns={instance_key_col: RESULT_INSTANCE_ID_COLUMN}
+            )
+            # Reorder columns to match config order (name first, then metadata cols in config order)
+            metadata_df = metadata_df[
+                [RESULT_INSTANCE_ID_COLUMN]
+                + [col for col in metadata_cols if col in metadata_df.columns]
+            ]
+
+    return reference_df, metadata_df

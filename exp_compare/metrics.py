@@ -120,6 +120,8 @@ def compute_metrics_for_run(
     reference_values: pd.Series,
     sense: str = "min",
     exp_obj_value_col: str = RESULT_EXP_OBJ_VALUE_COLUMN,
+    instance_metadata: pd.DataFrame | None = None,
+    metadata_cols: list[str] | None = None,
 ) -> pd.DataFrame:
     """Compute RPDf, RPDv, and rank for a single run's data.
 
@@ -131,17 +133,31 @@ def compute_metrics_for_run(
         sense (str): Optimization sense ("min").
         exp_obj_value_col (str): Column name for objective values.
             Defaults to RESULT_EXP_OBJ_VALUE_COLUMN.
+        instance_metadata (pd.DataFrame | None): DataFrame with instance metadata
+            columns. If provided, these columns will be included in the output.
+        metadata_cols (list[str] | None): List of metadata column names in config order.
+            If provided, metadata columns will be ordered according to this list.
 
     Returns:
         pd.DataFrame: DataFrame with columns: name, runId, scenario, algoUid,
-                      objValue, refValue, RPDf, RPDv, rank.
+                      objValue, refValue, RPDf, RPDv, rank, and metadata columns.
     """
+    # Ensure name column is string for consistent merge
+    df = df.copy()
+    df[RESULT_INSTANCE_ID_COLUMN] = df[RESULT_INSTANCE_ID_COLUMN].astype(str)
+
     # Merge with reference values
     # reference_values is a Series with name as index, so we need to convert to DataFrame
     ref_df = reference_values.reset_index()
     ref_df.columns = [RESULT_INSTANCE_ID_COLUMN, RESULT_REF_OBJ_VALUE_COLUMN]
     merged = df[[RESULT_INSTANCE_ID_COLUMN, exp_obj_value_col]].copy()
     merged = merged.merge(ref_df, on=RESULT_INSTANCE_ID_COLUMN, how="left")
+
+    # Merge instance metadata if provided
+    if instance_metadata is not None:
+        merged = merged.merge(
+            instance_metadata, on=RESULT_INSTANCE_ID_COLUMN, how="left"
+        )
 
     # Create algoUid
     merged[RESULT_RUN_ID_COLUMN] = run_id
@@ -151,15 +167,13 @@ def compute_metrics_for_run(
     # Rename to objValue for consistency
     merged = merged.rename(columns={exp_obj_value_col: RESULT_EXP_OBJ_VALUE_COLUMN})
 
-    # Compute metrics
+    # Compute metrics (these create RPDf, RPDv, rank columns)
     merged[RESULT_RPDF_COLUMN] = compute_rpdf(
         merged[RESULT_EXP_OBJ_VALUE_COLUMN], merged[RESULT_REF_OBJ_VALUE_COLUMN]
     )
     merged[RESULT_RPDV_COLUMN] = compute_rpdv(
         merged[RESULT_EXP_OBJ_VALUE_COLUMN], merged[RESULT_REF_OBJ_VALUE_COLUMN]
     )
-
-    # Compute rank within each name group using transform
     merged[RESULT_RANK_COLUMN] = (
         merged.groupby(RESULT_INSTANCE_ID_COLUMN, sort=False)[
             RESULT_EXP_OBJ_VALUE_COLUMN
@@ -168,4 +182,44 @@ def compute_metrics_for_run(
         .reset_index(level=0, drop=True)
     )
 
-    return merged[ALL_RESULT_COLUMNS]
+    # Add metadata columns if present
+    # Get columns that are not in the standard result columns
+    standard_cols_set = {
+        RESULT_INSTANCE_ID_COLUMN,
+        RESULT_RUN_ID_COLUMN,
+        RESULT_SCENARIO_COLUMN,
+        RESULT_ALGO_UID_COLUMN,
+        RESULT_EXP_OBJ_VALUE_COLUMN,
+        RESULT_REF_OBJ_VALUE_COLUMN,
+        RESULT_RPDF_COLUMN,
+        RESULT_RPDV_COLUMN,
+        RESULT_RANK_COLUMN,
+    }
+    # Use config order if provided, otherwise get from merged columns
+    if metadata_cols is not None:
+        # Filter to only columns that exist in merged
+        metadata_cols = [col for col in metadata_cols if col in merged.columns]
+    else:
+        metadata_cols = [
+            col for col in merged.columns
+            if col not in standard_cols_set and col != RESULT_INSTANCE_ID_COLUMN
+        ]
+        # Sort metadata columns for consistency
+        metadata_cols.sort()
+
+    # Build final column order: name first, then metadata, then standard columns
+    final_cols = [RESULT_INSTANCE_ID_COLUMN] + metadata_cols + [
+        RESULT_RUN_ID_COLUMN,
+        RESULT_SCENARIO_COLUMN,
+        RESULT_ALGO_UID_COLUMN,
+        RESULT_EXP_OBJ_VALUE_COLUMN,
+        RESULT_REF_OBJ_VALUE_COLUMN,
+        RESULT_RPDF_COLUMN,
+        RESULT_RPDV_COLUMN,
+        RESULT_RANK_COLUMN,
+    ]
+
+    # Filter to columns that actually exist in the dataframe
+    final_cols = [col for col in final_cols if col in merged.columns]
+
+    return merged[final_cols]

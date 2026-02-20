@@ -14,6 +14,7 @@ reference:
   ref_format: "csv"
   instance_key_column_in_ref: "Instance"
   reference_value_column: "UB"
+  instance_metadata_columns: ["n", "s", "rep"]  # Instance metadata columns to include
 
 output:
   out_dir: "Outputs_analysis/compare_$TIMESTAMP/"
