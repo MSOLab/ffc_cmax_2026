@@ -2098,8 +2098,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             solver_thread_cnt=solver_thread_cnt,
             error_if_infeasible=error_if_infeasible,
         )
-        obj_value = float(result.last_obj_value)
+        obj_value = float(result.schedule.makespan)
         logging.info(f"NEH-CP done with makespan {obj_value}")
+        # Write the objective store to a YAML file
+        # TODO: suffix from output_metadata
+        if result.sub_obj_store:
+            result.sub_obj_store.save_yaml(
+                self.get_file_path_for_subroutine("_obj_log.yaml")
+            )
 
         # Create report for the final solution and register it
         final_report = HfsSubroutineReport(
@@ -2112,20 +2118,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             final_report, result.schedule
         )
 
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
         if was_updated:
             # Re-define base CP model with the new makespan
             self.set_cp_model_as_base_cp_model()
-            log_time = self.timer.elapsed_sec
-            self.add_obj_value_log(log_time, obj_value, is_maximize=False)
             if draw_gantt:
                 self.draw_incumbent_gantt()
-
-        # Write the objective store to a YAML file
-        # TODO: suffix from output_metadata
-        if result.sub_obj_store:
-            result.sub_obj_store.save_yaml(
-                self.get_file_path_for_subroutine("_obj_log.yaml")
-            )
 
     def run_reactive_loop(
         self,
