@@ -703,10 +703,36 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260217-05.yaml"
   #   output_dir: "pra_half_nc/20260217-05"
   #   description: "Best of dispatches + BND + BN2D(25%,25%,stage_normalize) with all stages -> NEH-CP (0.5c, LS, 2nd obj) -> improve(no swap, LS)"
+
+  # Makespan objective (baseline)
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
     subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260221-01.yaml"
     output_dir: "pra_half_nc/20260221-01"
-    description: "Best of dispatches + BND + BN2D(25%,25%,stage_normalize) with all stages -> NEH-CP (0.5c, LS, 2nd obj linear)"
+    description: "Best of dispatches + BND + BN2D -> NEH-CP (0.5c, makespan)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260221-02.yaml"
+    output_dir: "pra_half_nc/20260221-02"
+    description: "Best of dispatches + BND + BN2D -> NEH-CP (0.5c, makespan, profile-fix-by-mc)"
+
+  # Lexicographic objective
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260221-03.yaml"
+    output_dir: "pra_half_nc/20260221-03"
+    description: "Best of dispatches + BND + BN2D -> NEH-CP (0.25c, lexico)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260221-04.yaml"
+    output_dir: "pra_half_nc/20260221-04"
+    description: "Best of dispatches + BND + BN2D -> NEH-CP (0.25c, lexico, profile-fix-by-mc)"
+
+  # Linear combination objective (makespan + sum other stages)
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260221-05.yaml"
+    output_dir: "pra_half_nc/20260221-05"
+    description: "Best of dispatches + BND + BN2D -> NEH-CP (0.5c, linear)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260221-06.yaml"
+    output_dir: "pra_half_nc/20260221-06"
+    description: "Best of dispatches + BND + BN2D -> NEH-CP (0.5c, linear, profile-fix-by-mc)"
 
   # - stopping_criteria_rel_path: "configs_600s/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_600s/subroutine_flow_obns.yaml"

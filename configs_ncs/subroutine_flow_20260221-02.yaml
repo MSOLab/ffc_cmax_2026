@@ -11,7 +11,7 @@
 - method: neh_cp
   added_batch_size: 10
   cp_tl_c_multiplier: 0.5
-  profile_fix_by_machine: False
+  profile_fix_by_machine: True
   minimize_sum_ci_lex: False
   minimize_sum_ci_lin: False
   make_semi_active_every_cp: True
