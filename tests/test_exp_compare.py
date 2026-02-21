@@ -4,17 +4,16 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
-from exp_compare.io import load_run_summaries, compute_intersection
-from exp_compare.metrics import compute_rpdf, compute_rpdv, compute_rank
+from exp_compare.io import compute_intersection
 from exp_compare.main import (
     CompareConfig,
+    build_summary_rpdf,
     build_wide_rpdf,
     build_wide_rpdv,
-    build_summary_rpdf,
-    build_summary_rpdv,
 )
+from exp_compare.metrics import compute_rank, compute_rpdf, compute_rpdv
+from hybridflowshop.constants import INPUT_NAME_COLUMN
 
 
 class TestRPDMetrics:
@@ -81,44 +80,50 @@ class TestWideFormat:
 
     def test_build_wide_rpdf(self):
         """Test wide format with RPDf values."""
-        df = pd.DataFrame({
-            "name": ["inst1", "inst1", "inst2", "inst2"],
-            "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
-            "RPDf": [0.1, 0.2, 0.15, 0.25],
-        })
+        df = pd.DataFrame(
+            {
+                INPUT_NAME_COLUMN: ["inst1", "inst1", "inst2", "inst2"],
+                "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
+                "RPDf": [0.1, 0.2, 0.15, 0.25],
+            }
+        )
 
         wide = build_wide_rpdf(df)
 
-        assert "name" in wide.columns
+        assert INPUT_NAME_COLUMN in wide.columns
         assert "run1::s1" in wide.columns
         assert "run2::s1" in wide.columns
         assert len(wide) == 2  # 2 instances
-        assert wide[wide["name"] == "inst1"]["run1::s1"].values[0] == 0.1
-        assert wide[wide["name"] == "inst1"]["run2::s1"].values[0] == 0.2
+        assert wide[wide[INPUT_NAME_COLUMN] == "inst1"]["run1::s1"].values[0] == 0.1
+        assert wide[wide[INPUT_NAME_COLUMN] == "inst1"]["run2::s1"].values[0] == 0.2
 
     def test_build_wide_rpdv(self):
         """Test wide format with RPDv values."""
-        df = pd.DataFrame({
-            "name": ["inst1", "inst1", "inst2", "inst2"],
-            "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
-            "RPDv": [0.15, 0.25, 0.18, 0.28],
-        })
+        df = pd.DataFrame(
+            {
+                INPUT_NAME_COLUMN: ["inst1", "inst1", "inst2", "inst2"],
+                "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
+                "RPDv": [0.15, 0.25, 0.18, 0.28],
+            }
+        )
 
         wide = build_wide_rpdv(df)
 
-        assert "name" in wide.columns
+        assert INPUT_NAME_COLUMN in wide.columns
         assert "run1::s1" in wide.columns
         assert "run2::s1" in wide.columns
         assert len(wide) == 2
-        assert wide[wide["name"] == "inst1"]["run1::s1"].values[0] == 0.15
+        assert wide[wide[INPUT_NAME_COLUMN] == "inst1"]["run1::s1"].values[0] == 0.15
 
     def test_build_summary_rpdf(self):
         """Test summary statistics computation."""
-        wide = pd.DataFrame({
-            "name": ["inst1", "inst2"],
-            "run1::s1": [0.1, 0.2],
-            "run2::s1": [0.15, 0.25],
-        })
+        wide = pd.DataFrame(
+            {
+                "name": ["inst1", "inst2"],
+                "run1::s1": [0.1, 0.2],
+                "run2::s1": [0.15, 0.25],
+            }
+        )
 
         summary = build_summary_rpdf(wide)
 
@@ -167,11 +172,13 @@ def create_test_summary_csv(
     rows = []
     for inst in instances:
         for scenario in scenarios:
-            rows.append({
-                "name": inst,
-                "scenario": scenario,
-                "bestObj": 100.0 + hash(inst + scenario) % 50,
-            })
+            rows.append(
+                {
+                    INPUT_NAME_COLUMN: inst,
+                    "scenario": scenario,
+                    "bestObj": 100.0 + hash(inst + scenario) % 50,
+                }
+            )
 
     df = pd.DataFrame(rows)
     csv_path = tmp_path / f"{run_id}_summary.csv"
@@ -233,12 +240,12 @@ class TestEndToEnd:
 
             # Verify long format
             long_df = pd.read_csv(output_dir / "test_long.csv")
-            assert "name" in long_df.columns
+            assert INPUT_NAME_COLUMN in long_df.columns
             assert "algoUid" in long_df.columns
             assert "RPDf" in long_df.columns
             assert "rank" in long_df.columns
 
             # Verify wide format
             wide_df = pd.read_csv(output_dir / "test_rpdf_wide.csv")
-            assert "name" in wide_df.columns
+            assert INPUT_NAME_COLUMN in wide_df.columns
             assert len(wide_df) == len(instances)

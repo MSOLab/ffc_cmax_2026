@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 from exp_compare.constants import (
-    ALL_RESULT_COLUMNS,
     RESULT_ALGO_UID_COLUMN,
     RESULT_EXP_OBJ_VALUE_COLUMN,
     RESULT_INSTANCE_ID_COLUMN,

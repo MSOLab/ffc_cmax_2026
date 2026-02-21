@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from exp_compare.constants import (
     EXP_INSTANCE_ID_COLUMN,
+    REF_INSTANCE_ID_COLUMN,
     RESULT_INSTANCE_ID_COLUMN,
 )
 
@@ -28,7 +29,7 @@ class ReferenceConfig(BaseModel):
     sense: str = "min"
     ref_path: str | None = None
     ref_format: str = "csv"
-    instance_key_column_in_ref: str = "name"
+    instance_key_column_in_ref: str = REF_INSTANCE_ID_COLUMN
     reference_value_column: str | None = None
     instance_metadata_columns: list[str] = []
 
@@ -188,11 +189,13 @@ def load_reference_csv(
             # Ensure instance_key_col is string for consistent merge
             metadata_df = metadata_df.copy()
             metadata_df[instance_key_col] = metadata_df[instance_key_col].astype(str)
-            # Rename instance_key_col to name for consistent merge with combined_df
+            # Rename instance_key_col to RESULT_INSTANCE_ID_COLUMN
+            # for consistent merge with combined_df
             metadata_df = metadata_df.rename(
                 columns={instance_key_col: RESULT_INSTANCE_ID_COLUMN}
             )
-            # Reorder columns to match config order (name first, then metadata cols in config order)
+            # Reorder columns to match config order
+            # (RESULT_INSTANCE_ID_COLUMN first, then metadata cols in config order)
             metadata_df = metadata_df[
                 [RESULT_INSTANCE_ID_COLUMN]
                 + [col for col in metadata_cols if col in metadata_df.columns]

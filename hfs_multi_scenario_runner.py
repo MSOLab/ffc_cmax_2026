@@ -4,6 +4,7 @@ from typing import Any, Sequence
 
 import pandas as pd
 from routix import DynamicDataObject, StoppingCriteria
+from routix.constants import SubroutineReportStatisticsKeys
 from routix.runner import MultiScenarioRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -161,22 +162,24 @@ class HfsMultiScenarioRunner(
         try:
             # 1. Pivot the raw data to get scenarios as columns
             best_obj_value_df = raw_summary_df.pivot_table(
-                index="instanceName", columns="scenario", values="bestObj"
+                index=SubroutineReportStatisticsKeys.INSTANCE_NAME,
+                columns="scenario",
+                values=SubroutineReportStatisticsKeys.BEST_OBJ,
             ).reset_index()
 
             # 1b. Pivot totalElapsedTime for running time columns
             elapsed_time_df = raw_summary_df.pivot_table(
-                index="instanceName", columns="scenario", values="totalElapsedTime"
+                index=SubroutineReportStatisticsKeys.INSTANCE_NAME,
+                columns="scenario",
+                values=SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME,
             ).reset_index()
 
             # Get clean scenario names (use last part of path)
-            from pathlib import Path
-
             # Rename elapsed time columns to totalElapsedTime_<clean_name> BEFORE merge
             # to avoid suffix conflicts (_x, _y)
             elapsed_time_df_renamed = elapsed_time_df.copy()
             for scenario in elapsed_time_df.columns:
-                if scenario != "instanceName":
+                if scenario != SubroutineReportStatisticsKeys.INSTANCE_NAME:
                     clean_name = Path(scenario).name
                     elapsed_time_df_renamed.rename(
                         columns={scenario: f"totalElapsedTime_{clean_name}"},
@@ -187,7 +190,7 @@ class HfsMultiScenarioRunner(
             dashboard_df = pd.merge(
                 best_obj_value_df,
                 elapsed_time_df_renamed,
-                on="instanceName",
+                on=SubroutineReportStatisticsKeys.INSTANCE_NAME,
                 how="left",
             )
 
@@ -195,7 +198,9 @@ class HfsMultiScenarioRunner(
             rename_map = {}
 
             original_scenario_cols = [
-                col for col in best_obj_value_df.columns if col != "instanceName"
+                col
+                for col in best_obj_value_df.columns
+                if col != SubroutineReportStatisticsKeys.INSTANCE_NAME
             ]
             for col in original_scenario_cols:
                 clean_name = Path(col).name
@@ -211,7 +216,7 @@ class HfsMultiScenarioRunner(
             # 2. Merge with baseline data if available
             if self.baseline_df is not None and not self.baseline_df.empty:
                 rename_map = {
-                    self.baseline_instance_col: "instanceName",
+                    self.baseline_instance_col: SubroutineReportStatisticsKeys.INSTANCE_NAME,
                     self.baseline_obj_val_col: "baselineObjVal",
                     self.baseline_obj_bound_col: "baselineBound",
                 }
@@ -232,7 +237,7 @@ class HfsMultiScenarioRunner(
                 dashboard_df = pd.merge(
                     dashboard_df,
                     baseline_subset,
-                    on="instanceName",
+                    on=SubroutineReportStatisticsKeys.INSTANCE_NAME,
                     how="left",
                 )
             else:
@@ -241,7 +246,9 @@ class HfsMultiScenarioRunner(
 
             # 3. Calculate gaps for each scenario
             scenarios = [
-                col for col in best_obj_value_df.columns if col != "instanceName"
+                col
+                for col in best_obj_value_df.columns
+                if col != SubroutineReportStatisticsKeys.INSTANCE_NAME
             ]
             if (
                 "baselineObjVal" in dashboard_df.columns
@@ -254,7 +261,7 @@ class HfsMultiScenarioRunner(
                     ) / dashboard_df["baselineObjVal"]
 
             # 4. Define the desired column order
-            ordered_columns = ["instanceName"]
+            ordered_columns = [SubroutineReportStatisticsKeys.INSTANCE_NAME]
             obj_val_cols = [col for col in scenarios]
             baseline_obj_val_col = (
                 ["baselineObjVal"] if "baselineObjVal" in dashboard_df.columns else []
@@ -282,9 +289,11 @@ class HfsMultiScenarioRunner(
 
             summary_rows: list[dict[str, Any]] = []
             for stat_name, stat_func in self.stat_name_func_pairs:
-                row: dict[str, Any] = {"instanceName": stat_name}
+                row: dict[str, Any] = {
+                    SubroutineReportStatisticsKeys.INSTANCE_NAME: stat_name
+                }
                 for col in final_dashboard.columns:
-                    if col != "instanceName":
+                    if col != SubroutineReportStatisticsKeys.INSTANCE_NAME:
                         if pd.api.types.is_numeric_dtype(final_dashboard[col]):
                             row[col] = getattr(final_dashboard[col], stat_func)()
                 summary_rows.append(row)
@@ -352,7 +361,7 @@ class HfsMultiScenarioRunner(
                             header.append(
                                 ("relDiff between baseline", col.replace("gap_", ""))
                             )
-                        elif col == "instanceName":
+                        elif col == SubroutineReportStatisticsKeys.INSTANCE_NAME:
                             header.append(("", "insId"))
                         elif col == "baselineObjVal":
                             header.append(("", "baselineObjVal"))
@@ -406,9 +415,7 @@ class HfsMultiScenarioRunner(
                                 running_time_last_col = col_idx
                             # Format running time as number with 4 decimal places
                             time_format = workbook.add_format({"num_format": "0.0000"})
-                            worksheet.set_column(
-                                col_idx, col_idx, max_len, time_format
-                            )
+                            worksheet.set_column(col_idx, col_idx, max_len, time_format)
 
                     if rel_diff_first_col != float("inf"):
                         worksheet.conditional_format(

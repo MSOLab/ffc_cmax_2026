@@ -23,15 +23,28 @@ class ScenarioPathConfig(BaseModel):
 
 
 class BaselineColumnMapping(BaseModel):
-    """Defines the column name mapping for the baseline data file."""
+    """Defines the column name mapping for the baseline data file.
+
+    This class allows flexible configuration of baseline CSV column names,
+    enabling compatibility with various baseline file formats.
+
+    Note: The `instance` field uses "Instance" as default (capital I), but this
+    should not be confused with:
+    - routix's INSTANCE_NAME ("insName") used internally by the algorithm
+    - hybridflowshop's INPUT_NAME_COLUMN ("insName") for summary CSVs
+    - exp_compare's REF_INSTANCE_ID_COLUMN ("name") for reference CSVs
+
+    When specifying a baseline CSV, ensure the column names in the file match
+    the configured mapping values.
+    """
 
     instance: str = Field(
         "Instance", description="Column name for the instance identifier."
     )
     job_cnt: str = Field("n", description="Column name for the job count.")
     stage_cnt: str = Field("s", description="Column name for the stage count.")
-    obj_val: str = Field("UB", description="Column name for the objective value.")
-    obj_bound: str = Field("LB", description="Column name for the objective bound.")
+    obj_val: str = Field("UB", description="Column name for the objective value (upper bound).")
+    obj_bound: str = Field("LB", description="Column name for the objective bound (lower bound).")
 
 
 class MainMetadata(BaseModel):

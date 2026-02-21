@@ -74,7 +74,47 @@ The codebase includes utilities for computing **RPDf** and **RPDv** metrics to c
 
 Instance names are matched using `str(instance_id)` to align with baseline CSV entries.
 
-## Notable Files
+## Column Naming Convention
+
+The project uses standardized column names for CSV files to ensure consistency across the codebase.
+
+### Instance Identifier Columns
+
+| Context | Value | Location |
+|---------|-------|----------|
+| Internal (routix) | `"insName"` | `routix.constants.SubroutineReportStatisticsKeys.INSTANCE_NAME` |
+| Input summary CSV | `"insName"` | `hybridflowshop.constants.INPUT_NAME_COLUMN` |
+| Baseline/reference CSV | `"Instance"` (configurable) | `hfs_config.BaselineColumnMapping.instance` |
+
+### Output Summary Columns (from routix)
+
+| Column | Value | Description |
+|--------|-------|-------------|
+| `insName` | instance identifier | |
+| `foundFeasibleSol` | boolean | Whether a feasible solution was found |
+| `totalElapsedTime` | float | Total runtime in seconds |
+| `firstObj` | float | Initial solution objective value |
+| `firstBound` | float | Initial objective bound |
+| `bestObj` | float | Best solution objective value |
+| `bestBound` | float | Final objective bound |
+| `improvementRatio` | float | Improvement from first to best |
+| `methodCallCounts` | string | Serialized dict of method call counts |
+| `reportCount` | int | Number of reports generated |
+
+### Experiment Comparison Columns
+
+| Column | Value | Description |
+|--------|-------|-------------|
+| `name` | instance identifier (for reference CSV) | Used in reference CSVs via `exp_compare.REF_INSTANCE_ID_COLUMN` |
+| `objValue` | objective value | Standardized output column name |
+| `refValue` | reference value | Baseline for RPD calculation |
+| `RPDf` | float | Relative Percentage Difference from feasible |
+| `RPDv` | float | Relative Percentage Deviation from optimal |
+| `rank` | int | Ranking within instance |
+
+---
+
+## Notable Files and Modules
 - `main.py` – Entry point, handles metadata loading and orchestrates runners.
 - `hfs_config.py` – Pydantic schemas (`MainMetadata`, `IODataPath`, etc.).
 - `schedule_lite.py` – Lightweight schedule representation used across all controllers.
