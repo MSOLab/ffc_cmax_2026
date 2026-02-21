@@ -2041,6 +2041,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
         minimize_sum_ci_lex: bool = False,
+        minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -2063,6 +2064,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 Defaults to False.
             minimize_sum_ci_lex (bool, optional): If True, minimizes the sum of completion
                 times in each CP subproblem after minimizing the makespan.
+                Defaults to False.
+            minimize_sum_ci_lin (bool, optional): If True, minimizes the sum of completion
+                times in each CP subproblem by a linear combination with the makespan.
                 Defaults to False.
             make_semi_active_every_cp (bool, optional): If True, makes the solution
                 semi-active after solving each CP subproblem. Defaults to False.
@@ -2089,6 +2093,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             cp_tl_c_multiplier=cp_tl_c_multiplier,
             profile_fix_by_machine=profile_fix_by_machine,
             minimize_sum_ci_lex=minimize_sum_ci_lex,
+            minimize_sum_ci_lin=minimize_sum_ci_lin,
             make_semi_active_every_cp=make_semi_active_every_cp,
             solver_thread_cnt=solver_thread_cnt,
             error_if_infeasible=error_if_infeasible,

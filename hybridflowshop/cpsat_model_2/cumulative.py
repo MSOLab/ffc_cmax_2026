@@ -43,7 +43,8 @@ class BaseModelBuilder:
         self,
         instance: HybridFlowshopParameters,
         horizon: int,
-        minimize_sum_ci_lex: bool = False,
+        minimize_sum_ci: bool = False,
+        minimize_makespan_plus_sum_other_stages: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
         params: Params = self._make_params(instance)
@@ -53,7 +54,8 @@ class BaseModelBuilder:
             mdl,
             params,
             variables,
-            minimize_sum_ci_lex=minimize_sum_ci_lex,
+            minimize_sum_ci=minimize_sum_ci,
+            minimize_makespan_plus_sum_other_stages=minimize_makespan_plus_sum_other_stages,
             horizon=horizon,
         )
         mdl.set_num_base_constraints()
@@ -209,15 +211,50 @@ class BaseModelBuilder:
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
-        minimize_sum_ci_lex: bool = False,
+        minimize_sum_ci: bool = False,
+        minimize_makespan_plus_sum_other_stages: bool = False,
         horizon: int = 0,
     ) -> None:
+        """Define the objective function for the CP-SAT model.
+
+        Supports three optimization objectives:
+
+        1. **Makespan minimization** (default):
+           Minimizes the maximum end time across all jobs at the last stage.
+           ``minimize max_j(op_end[j, last_i])``
+
+        2. **Sum of stage end times** (`minimize_sum_ci=True`):
+           Minimizes the sum of end times for each stage, where Ci represents
+           the end time of the last job at stage i.
+           ``minimize sum(Ci for i in stages)``
+           where ``Ci = max_j(op_end[j, i])``
+
+        3. **Linear combination (weighted) objective** (`minimize_makespan_plus_sum_other_stages=True`):
+           Minimizes a weighted sum that prioritizes makespan while also
+           considering other stage end times. This is useful for balanced
+           optimization where finishing all stages promptly is important.
+           ``minimize (stage_cnt * makespan) + sum(Ci for i in stages[:-1])``
+
+        Args:
+            mdl (CustomCpModel): The CP-SAT model to which the objective will be added.
+            params (Params): Parameters containing job and stage index sets.
+            variables (CumulativeVars): Decision variables including operation end
+                times and makespan.
+            minimize_sum_ci (bool, optional): If True, minimizes the sum of all stage
+                end times.
+            Defaults to False.
+            minimize_makespan_plus_sum_other_stages (bool, optional): If True,
+                minimizes a weighted sum of makespan and other stage end times.
+                Defaults to False.
+            horizon (int, optional): The upper bound for stage end times. If 0 or
+                negative, computed as the sum of all processing times. Defaults to 0.
+        """
         # Alias for readability
         j_list = params.j_list
         i_list = params.i_list
         last_i = i_list[-1]
 
-        if not minimize_sum_ci_lex:
+        if not minimize_sum_ci and not minimize_makespan_plus_sum_other_stages:
             # Makespan definition
             mdl.add_max_equality(
                 variables.makespan, [variables.op_end[j, last_i] for j in j_list]
@@ -227,7 +264,6 @@ class BaseModelBuilder:
         else:
             if horizon <= 0:
                 horizon = sum(params.p[j, i] for j in j_list for i in i_list)
-
             # Define objective to minimize the sum of all stage's (last) end times
             stage_end_vars = []
             for i in i_list:
@@ -235,9 +271,24 @@ class BaseModelBuilder:
                 mdl.add_max_equality(Ci, [variables.op_end[j, i] for j in j_list])
                 stage_end_vars.append(Ci)
 
-            sum_Ci = mdl.new_int_var(0, len(i_list) * horizon, "stage_end_time_sum")
-            mdl.add(sum_Ci == sum(stage_end_vars))
-            mdl.minimize(sum_Ci)
+            if minimize_sum_ci:
+                sum_Ci = mdl.new_int_var(0, len(i_list) * horizon, "stage_end_time_sum")
+                mdl.add(sum_Ci == sum(stage_end_vars))
+                mdl.minimize(sum_Ci)
+            else:
+                # minimize (stage_cnt * makespan) + (sum of all other stage's end times)
+                stage_cnt = len(i_list)
+                makespan = variables.makespan
+                sum_other_stage_end_times = mdl.new_int_var(
+                    0, (stage_cnt - 1) * horizon, "sum_other_stage_end_times"
+                )
+                other_stage_end_vars = [
+                    stage_end_vars[i]
+                    for i in range(len(stage_end_vars))
+                    if i != len(stage_end_vars) - 1
+                ]
+                mdl.add(sum_other_stage_end_times == sum(other_stage_end_vars))
+                mdl.minimize(stage_cnt * makespan + sum_other_stage_end_times)
 
     # Additional constraints
 

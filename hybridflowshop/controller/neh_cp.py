@@ -112,6 +112,7 @@ class NehCpConstructor:
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
         minimize_sum_ci_lex: bool = False,
+        minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
         error_if_infeasible: bool = False,
@@ -200,6 +201,7 @@ class NehCpConstructor:
                 profile_fix_by_machine=profile_fix_by_machine,
                 max_time_per_add=max_time_per_add,
                 minimize_sum_ci_lex=minimize_sum_ci_lex,
+                minimize_sum_ci_lin=minimize_sum_ci_lin,
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
             )
@@ -310,6 +312,7 @@ class NehCpConstructor:
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool = False,
         minimize_sum_ci_lex: bool = False,
+        minimize_sum_ci_lin: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
         horizon: int = partial_sol.makespan
@@ -321,7 +324,8 @@ class NehCpConstructor:
         mdl, params, variables = builder.build(
             sub_instance,
             horizon,
-            minimize_sum_ci_lex=minimize_sum_ci_lex,
+            minimize_sum_ci=minimize_sum_ci_lex,
+            minimize_makespan_plus_sum_other_stages=minimize_sum_ci_lin,
         )
         # mdl, params, variables = builder.build_horizon_per_stage(
         #     sub_instance, stage_2_mc_horizon
@@ -367,6 +371,7 @@ class NehCpConstructor:
         profile_fix_by_machine: bool = False,
         max_time_per_add: float | None = None,
         minimize_sum_ci_lex: bool = False,
+        minimize_sum_ci_lin: bool = False,
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
     ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
@@ -377,7 +382,10 @@ class NehCpConstructor:
 
         # Build CP model with job_subset
         sub_cp_mdl, params, variables = self._create_sub_cp_model(
-            partial_sol, instance, profile_fix_by_machine=profile_fix_by_machine
+            partial_sol,
+            instance,
+            profile_fix_by_machine=profile_fix_by_machine,
+            minimize_sum_ci_lin=minimize_sum_ci_lin,
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
