@@ -4,8 +4,10 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from mbls.cpsat import ObjValueBoundStore
 from routix import DynamicDataObject, StoppingCriteria
+from routix.constants import SubroutineReportStatisticsKeys
 from routix.io import object_to_yaml, tuple_to_pyyaml_key
 from routix.runner import SingleInstanceRunner
 from routix.type_defs import RunMode
@@ -13,6 +15,12 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from hybridflowshop.constants import (
+    INPUT_JOBCOUNT_COLUMN,
+    INPUT_MACHINESPERSTAGE_COLUMN,
+    INPUT_STAGECOUNT_COLUMN,
+    INPUT_TIMELIMIT_COLUMN,
+)
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
 from hybridflowshop.hfs_summary import HfsSummary
@@ -164,11 +172,85 @@ class HfsSingleInstanceRunner(
         finally:
             return self.post_run_process()
 
-    def post_run_process(self) -> None:
+    def post_run_process(self) -> dict[str, Any] | None:
+        """Process results after running the instance.
+
+        Returns:
+            dict[str, Any] | None: Summary row as a dictionary, or None if no summary available.
+        """
         if self.mode in {RunMode.FULL_RUN, RunMode.RESUME}:
             self.save_files(self.encoding)
 
         self.from_files_save_analysis(self.encoding)
+
+        # Return summary row for multi-instance aggregation
+        return self._create_summary_row()
+
+    def _create_summary_row(self) -> dict[str, Any] | None:
+        """Create a summary row dictionary from the instance result.
+
+        Returns:
+            dict[str, Any] | None: Summary row with instance metadata and results,
+                                   or None if summary file not found.
+        """
+        try:
+            if not self.summary_path.exists():
+                return None
+
+            df = pd.read_csv(self.summary_path)
+            if df.empty:
+                return None
+
+            # Get the last row (best result)
+            last_row = df.iloc[-1].to_dict()
+
+            machine_count_per_stage = getattr(
+                self.instance, "machine_count_per_stage", None
+            )
+            if (
+                isinstance(machine_count_per_stage, list)
+                and len(machine_count_per_stage) > 0
+            ):
+                machines_per_stage = machine_count_per_stage[0]
+            else:
+                machines_per_stage = None
+
+            # Build summary row with instance info using routix constants
+            summary_row = {
+                SubroutineReportStatisticsKeys.INSTANCE_NAME: getattr(
+                    self.instance, "name", None
+                ),
+                INPUT_JOBCOUNT_COLUMN: getattr(self.instance, "job_count", None),
+                INPUT_STAGECOUNT_COLUMN: getattr(self.instance, "stage_count", None),
+                INPUT_MACHINESPERSTAGE_COLUMN: machines_per_stage,
+                INPUT_TIMELIMIT_COLUMN: getattr(
+                    self.stopping_criteria, "timelimit", None
+                ),
+                SubroutineReportStatisticsKeys.FOUND_FEASIBLE_SOL: last_row.get(
+                    "foundFeasibleSol"
+                ),
+                SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME: last_row.get(
+                    "totalElapsedTime"
+                ),
+                SubroutineReportStatisticsKeys.FIRST_OBJ: last_row.get("firstObj"),
+                SubroutineReportStatisticsKeys.FIRST_BOUND: last_row.get("firstBound"),
+                SubroutineReportStatisticsKeys.BEST_OBJ: last_row.get("bestObj"),
+                SubroutineReportStatisticsKeys.BEST_BOUND: last_row.get("bestBound"),
+                SubroutineReportStatisticsKeys.IMPROVEMENT_RATIO: last_row.get(
+                    "improvementRatio"
+                ),
+                SubroutineReportStatisticsKeys.METHOD_CALL_COUNTS: last_row.get(
+                    "methodCallCounts"
+                ),
+                SubroutineReportStatisticsKeys.REPORT_COUNT: last_row.get(
+                    "reportCount"
+                ),
+            }
+
+            return summary_row
+        except Exception as e:
+            logging.error(f"Error creating summary row for instance '{self.name}': {e}")
+            return None
 
     def prepare_saved_file_paths(self) -> None:
         self.summary_filename = (

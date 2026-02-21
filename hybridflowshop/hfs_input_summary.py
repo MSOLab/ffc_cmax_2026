@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from .constants import INPUT_SUMMARY_HEADER
+
 
 @dataclass
 class HfsInputSummary:
@@ -16,4 +18,4 @@ class HfsInputSummary:
     @staticmethod
     def header() -> str:
         """Returns the header for the comma-separated values."""
-        return "name,jobCount,stageCount,machinesPerStage,timelimit"
+        return INPUT_SUMMARY_HEADER

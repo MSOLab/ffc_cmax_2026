@@ -4,17 +4,15 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
-from exp_compare.io import load_run_summaries, compute_intersection
-from exp_compare.metrics import compute_rpdf, compute_rpdv, compute_rank
+from exp_compare.io import compute_intersection
 from exp_compare.main import (
     CompareConfig,
+    build_summary_rpdf,
     build_wide_rpdf,
     build_wide_rpdv,
-    build_summary_rpdf,
-    build_summary_rpdv,
 )
+from exp_compare.metrics import compute_rank, compute_rpdf, compute_rpdv
 
 
 class TestRPDMetrics:
@@ -81,11 +79,13 @@ class TestWideFormat:
 
     def test_build_wide_rpdf(self):
         """Test wide format with RPDf values."""
-        df = pd.DataFrame({
-            "name": ["inst1", "inst1", "inst2", "inst2"],
-            "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
-            "RPDf": [0.1, 0.2, 0.15, 0.25],
-        })
+        df = pd.DataFrame(
+            {
+                "name": ["inst1", "inst1", "inst2", "inst2"],
+                "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
+                "RPDf": [0.1, 0.2, 0.15, 0.25],
+            }
+        )
 
         wide = build_wide_rpdf(df)
 
@@ -98,11 +98,13 @@ class TestWideFormat:
 
     def test_build_wide_rpdv(self):
         """Test wide format with RPDv values."""
-        df = pd.DataFrame({
-            "name": ["inst1", "inst1", "inst2", "inst2"],
-            "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
-            "RPDv": [0.15, 0.25, 0.18, 0.28],
-        })
+        df = pd.DataFrame(
+            {
+                "name": ["inst1", "inst1", "inst2", "inst2"],
+                "algoUid": ["run1::s1", "run2::s1", "run1::s1", "run2::s1"],
+                "RPDv": [0.15, 0.25, 0.18, 0.28],
+            }
+        )
 
         wide = build_wide_rpdv(df)
 
@@ -114,11 +116,13 @@ class TestWideFormat:
 
     def test_build_summary_rpdf(self):
         """Test summary statistics computation."""
-        wide = pd.DataFrame({
-            "name": ["inst1", "inst2"],
-            "run1::s1": [0.1, 0.2],
-            "run2::s1": [0.15, 0.25],
-        })
+        wide = pd.DataFrame(
+            {
+                "name": ["inst1", "inst2"],
+                "run1::s1": [0.1, 0.2],
+                "run2::s1": [0.15, 0.25],
+            }
+        )
 
         summary = build_summary_rpdf(wide)
 
@@ -167,11 +171,13 @@ def create_test_summary_csv(
     rows = []
     for inst in instances:
         for scenario in scenarios:
-            rows.append({
-                "name": inst,
-                "scenario": scenario,
-                "bestObj": 100.0 + hash(inst + scenario) % 50,
-            })
+            rows.append(
+                {
+                    "name": inst,
+                    "scenario": scenario,
+                    "bestObj": 100.0 + hash(inst + scenario) % 50,
+                }
+            )
 
     df = pd.DataFrame(rows)
     csv_path = tmp_path / f"{run_id}_summary.csv"

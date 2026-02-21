@@ -5,6 +5,7 @@ from typing import Any
 
 import pandas as pd
 from mbls.cpsat import ObjValueBoundStore
+from routix.constants import SubroutineReportStatisticsKeys
 from routix.runner import MultiInstanceConcurrentRunner
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
@@ -21,6 +22,53 @@ class HfsMultiInstanceRunner(
 ):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    def run(self) -> Any:
+        """Override run to append results to CSV immediately after each instance completes."""
+        instance_worker_cnt = min(self.get_instance_worker_cnt(), len(self.instances))
+        if instance_worker_cnt == 1:
+            # Sequential execution
+            return self._run_sequential()
+        else:
+            # Concurrent execution
+            return self._run_concurrent(instance_worker_cnt)
+
+    def _run_sequential(self) -> Any:
+        """Run instances sequentially, appending results to CSV after each completion."""
+        import traceback
+
+        for idx, runner in enumerate(self.runners):
+            try:
+                result = runner.run()
+                if result is not None and isinstance(result, dict):
+                    self.append_result(result)
+            except Exception as e:
+                logging.error(f"Error in instance {runner.ins_name}: {e}")
+                traceback.print_exc()
+                result = None
+                self.results.append(result)
+
+        return self.post_run_process()
+
+    def _run_concurrent(self, instance_worker_cnt: int) -> Any:
+        """Run instances concurrently, appending results to CSV as they complete."""
+        import concurrent.futures
+
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=instance_worker_cnt
+        ) as executor:
+            # Submit the run method of each pre-created runner instance
+            futures = {executor.submit(runner.run): runner for runner in self.runners}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    result = future.result()
+                    if result is not None and isinstance(result, dict):
+                        self.append_result(result)
+                except Exception as e:
+                    logging.error(f"Error in concurrent instance: {e}")
+                    self.results.append(None)
+
+        return self.post_run_process()
 
     def _load_resume_data(self) -> None:
         self._check_file_existence()
@@ -66,12 +114,9 @@ class HfsMultiInstanceRunner(
 
     def post_run_process(self) -> pd.DataFrame:
         """
-        Aggregates results from all single instance runs into a summary DataFrame
-        by reading the individual summary CSV files from disk.
-
-        Raises:
-            ValueError: If a summary file is empty or missing.
-            RuntimeError: If there is an error reading a summary file.
+        Aggregates results from all single instance runs into a summary DataFrame.
+        Each instance's summary row is appended to multi_instance_summary.csv as soon
+        as the instance completes.
 
         Returns:
             pd.DataFrame: Combined summary DataFrame for all instances.
@@ -103,50 +148,57 @@ class HfsMultiInstanceRunner(
             logging.error(f"Error processing logs for {self.working_dir}: {e}")
         logging.info("Log Processing Complete.")
 
-        summary_dfs = []
+        # Aggregate results from self.results (populated by append_result() during run())
         logging.info(f"Aggregating instance summaries in: {self.working_dir}")
 
-        result_dir_name = self.output_metadata.get("result_dir_name", "results")
-        summary_filename_format: str = self.output_metadata.get(
-            "summary_filename_format", "{}_summary.csv"
-        )
+        summary_rows = [r for r in self.results if isinstance(r, dict)]
 
-        for instance in self.instances:
-            summary_filename = summary_filename_format.format(instance.name)
-            # Path construction based on the structure created by SingleInstanceRunner
-            summary_path = (
-                self.working_dir / instance.name / result_dir_name / summary_filename
-            )
-
-            if summary_path.exists():
-                try:
-                    df = pd.read_csv(summary_path)
-                except pd.errors.EmptyDataError:
-                    raise ValueError(
-                        f"Summary file for instance '{instance.name}' is empty: {summary_path.resolve()}"
-                    )
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Error reading summary file for instance '{instance.name}' at: {summary_path.resolve()}: {e}"
-                    ) from e
-                summary_dfs.append(df)
-            else:
-                logging.warning(
-                    f"Summary file not found for instance '{instance.name}' at: {summary_path.resolve()}"
-                )
-
-        if not summary_dfs:
+        if not summary_rows:
             logging.warning("No data available to generate a multi-instance summary.")
             return pd.DataFrame()
 
-        combined_df = pd.concat(summary_dfs, ignore_index=True)
+        combined_df = pd.DataFrame(summary_rows)
 
         output_filename = "multi_instance_summary.csv"
         summary_path = self.working_dir / output_filename
+
+        # Re-write the CSV with the final combined data
         combined_df.to_csv(summary_path, index=False)
         logging.info(f"Multi-instance summary saved to {summary_path}")
 
         return combined_df
+
+    def _get_summary_csv_path(self) -> Path:
+        """Get the path to multi_instance_summary.csv."""
+        return self.working_dir / "multi_instance_summary.csv"
+
+    def append_result(self, result: dict) -> None:
+        """Append a result to self.results and write to multi_instance_summary.csv.
+
+        Args:
+            result: Summary dict from a completed instance run.
+        """
+        # Add to results list
+        self.results.append(result)
+
+        # Write to CSV file (append mode)
+        csv_path = self._get_summary_csv_path()
+
+        # Convert result to DataFrame and append
+        df = pd.DataFrame([result])
+
+        if not csv_path.exists():
+            # First result - write with header
+            df.to_csv(csv_path, index=False)
+            logging.info(f"Created multi-instance summary at {csv_path}")
+        else:
+            # Append without header
+            df.to_csv(csv_path, mode="a", index=False, header=False)
+
+        logging.info(
+            f"Appended result for instance '{result.get(SubroutineReportStatisticsKeys.INSTANCE_NAME, 'unknown')}' "
+            f"to multi_instance_summary.csv ({len(self.results)} total)"
+        )
 
     def _create_rpd_summary(self) -> pd.DataFrame | None:
         """
@@ -205,20 +257,19 @@ class HfsMultiInstanceRunner(
         # 3. Process each row (Long format: one row per method-instance)
         result_rows = []
         for _, row in method_df.iterrows():
-            instance_id = int(row["instance_id"])
-            instance_name = str(instance_id)
+            instance_id = str(row["instance_id"])
             subroutine_name = row["subroutine_name"]
 
             # Get timelimit from corresponding runner
             timelimit = None
             for runner in self.runners:
-                if hasattr(runner, "name") and str(runner.name) == instance_name:
+                if hasattr(runner, "name") and str(runner.name) == instance_id:
                     timelimit = runner.stopping_criteria.timelimit
                     break
 
             if timelimit is None:
                 logging.warning(
-                    f"Timelimit not found for instance {instance_name}, skipping."
+                    f"Timelimit not found for instance {instance_id}, skipping."
                 )
                 continue
 
@@ -231,7 +282,7 @@ class HfsMultiInstanceRunner(
 
             # Compute RPDf and RPDv
             obj_val = row.get("obj_value")
-            ref_val = ref_obj_val_dict.get(instance_name)
+            ref_val = ref_obj_val_dict.get(instance_id)
 
             rpd_f = None
             rpd_v = None
@@ -259,7 +310,9 @@ class HfsMultiInstanceRunner(
         metrics_long_df = pd.DataFrame(result_rows)
 
         # 5. Save Long format to file
-        output_long_path = self.working_dir / "summary_method_rpdf_and_norm_time_long.csv"
+        output_long_path = (
+            self.working_dir / "summary_method_rpdf_and_norm_time_long.csv"
+        )
         metrics_long_df.to_csv(output_long_path, index=False)
         logging.info(f"Metrics summary (long) saved to {output_long_path}")
 
@@ -292,7 +345,9 @@ class HfsMultiInstanceRunner(
         metrics_wide_df = metrics_wide_df.reindex(columns=existing_wide_cols)
 
         # 7. Save Wide format to file
-        output_wide_path = self.working_dir / "summary_method_rpdf_and_norm_time_wide.csv"
+        output_wide_path = (
+            self.working_dir / "summary_method_rpdf_and_norm_time_wide.csv"
+        )
         metrics_wide_df.to_csv(output_wide_path, index=False)
         logging.info(f"Metrics summary (wide) saved to {output_wide_path}")
 
