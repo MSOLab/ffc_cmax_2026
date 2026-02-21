@@ -407,7 +407,7 @@ def run_comparison(
 
         # Ensure intersection filter
         combined_metrics = combined_metrics[
-            combined_metrics["name"].isin(intersection_names)
+            combined_metrics[RESULT_INSTANCE_ID_COLUMN].isin(intersection_names)
         ]
 
         # Create output directory
