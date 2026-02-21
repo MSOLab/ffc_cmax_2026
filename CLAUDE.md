@@ -56,11 +56,30 @@ hybridflowshop/                # Core library
 - **Visualization** – `painter/gantt.py` generates PNG Gantt charts; the `report` package aggregates statistics (makespan, gaps, etc.).
 - **Configuration via Pydantic** – Guarantees type‑safe experiment definitions; any validation error aborts early with a clear log message.
 
+## Performance Comparison Metrics
+
+The codebase includes utilities for computing **RPDf** and **RPDv** metrics to compare solution quality across methods:
+
+| Metric | Formula | Use Case |
+|--------|---------|----------|
+| **RPDf** (Relative Percentage Difference from feasible) | `(obj - ref) / ((obj + ref) / 2)` | Normalized deviation, symmetric treatment |
+| **RPDv** (Relative Percentage Deviation from optimal) | `(obj - ref) / ref` | Simple percentage deviation |
+
+- **Baseline data**: Reference values (and instance metadata like job count, stage count) are loaded from a CSV file specified in `main_metadata.yaml`. The baseline CSV must include columns for instance identifier, objective value, job count, and stage count (configurable via `BaselineColumnMapping`).
+- **Output files**:
+  - `summary_method_end_time_and_obj_value_long.csv` – Long format with one row per method-instance
+  - `summary_method_end_time_and_obj_value_wide.csv` – Wide format with one row per instance
+  - `summary_method_rpdf_and_norm_time_long.csv` – Long format with RPDf, RPDv, and normalized time
+  - `summary_method_rpdf_and_norm_time_wide.csv` – Wide format with RPDf, RPDv, and normalized time
+
+Instance names are matched using `str(instance_id)` to align with baseline CSV entries.
+
 ## Notable Files
 - `main.py` – Entry point, handles metadata loading and orchestrates runners.
 - `hfs_config.py` – Pydantic schemas (`MainMetadata`, `IODataPath`, etc.).
 - `schedule_lite.py` – Lightweight schedule representation used across all controllers.
 - `controller/reactive/local_stopping_criteria.py` – Implements loop‑level stopping logic used by the LNS loop.
+- `exp_compare/` – Experiment comparison utilities including RPDf/RPDv metrics computation.
 - `tests/` – Unit tests for schedule_lite, stopping criteria, and reactive helpers.
 
 ## Development Tips

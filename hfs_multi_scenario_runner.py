@@ -97,6 +97,8 @@ class HfsMultiScenarioRunner(
             self.baseline_instance_col = column_mapping.instance
             self.baseline_obj_val_col = column_mapping.obj_val
             self.baseline_obj_bound_col = column_mapping.obj_bound
+            for m_i_runner in self.runners:
+                m_i_runner.set_baseline_df(self.baseline_df, column_mapping)
         else:
             logging.warning(f"Baseline CSV file not found at {baseline_csv_path}")
             self.baseline_df = pd.DataFrame()

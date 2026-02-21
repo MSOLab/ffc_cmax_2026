@@ -202,7 +202,14 @@ def process_instance(instance_dir: Path, methods_list: list[tuple[str, str]]):
     return df
 
 
-def process_scenario(scenario_dir: Path):
+def create_method_end_time_and_obj_value_summary(
+    scenario_dir: Path,
+    baseline_df: pd.DataFrame | None = None,
+    baseline_instance_col: str = "Instance",
+    baseline_job_cnt_col: str = "n",
+    baseline_stage_cnt_col: str = "s",
+    baseline_obj_val_col: str = "UB",
+) -> pd.DataFrame | None:
     if not scenario_dir.exists():
         logging.warning(f"Scenario directory {scenario_dir} does not exist.")
         return
@@ -213,6 +220,18 @@ def process_scenario(scenario_dir: Path):
     if not methods_list:
         logging.warning("No methods found in flow. Skipping summary generation.")
         return
+
+    # Build reference dict for instance metadata
+    ref_job_cnt_dict = {}
+    ref_stage_cnt_dict = {}
+    ref_obj_val_dict = {}
+    if baseline_df is not None and not baseline_df.empty:
+        for _, row in baseline_df.iterrows():
+            ref_name = str(row[baseline_instance_col])
+            ref_job_cnt_dict[ref_name] = row[baseline_job_cnt_col]
+            ref_stage_cnt_dict[ref_name] = row[baseline_stage_cnt_col]
+            ref_obj_val_dict[ref_name] = row[baseline_obj_val_col]
+        logging.info(f"Loaded {len(ref_job_cnt_dict)} instance metadata from baseline.")
 
     summary_rows = []
 
@@ -225,25 +244,95 @@ def process_scenario(scenario_dir: Path):
         try:
             df = process_instance(instance_dir, methods_list)
 
-            row = {"instance_id": int(instance_dir.name)}
-            for _, r in df.iterrows():
-                m_name = r["method_name"]
-                row[f"{m_name}_end_sec"] = r["method_end_sec"]
-                row[f"{m_name}_obj_value"] = r["objective_value"]
+            instance_id = int(instance_dir.name)
+            instance_name = str(instance_id)
+            job_cnt = ref_job_cnt_dict.get(instance_name)
+            stage_cnt = ref_stage_cnt_dict.get(instance_name)
+            obj_val = ref_obj_val_dict.get(instance_name)
 
-            summary_rows.append(row)
+            # Long format: one row per method
+            for _, r in df.iterrows():
+                row = {
+                    "instance_id": instance_id,
+                    "subroutine_name": r["method_name"],
+                    "end_time": r["method_end_sec"],
+                    "obj_value": r["objective_value"],
+                }
+                if job_cnt is not None:
+                    row["job_cnt"] = job_cnt
+                if stage_cnt is not None:
+                    row["stage_cnt"] = stage_cnt
+                if obj_val is not None:
+                    row["ref_obj_value"] = obj_val
+
+                summary_rows.append(row)
         except Exception as e:
             logging.error(f"Failed to process {instance_dir.name}: {e}")
 
     if summary_rows:
         summary_df = pd.DataFrame(summary_rows)
-        cols = ["instance_id"]
-        for _, m_name in methods_list:
-            cols.append(f"{m_name}_end_sec")
-            cols.append(f"{m_name}_obj_value")
-
+        # Order columns: instance_id, job_cnt, stage_cnt, ref_obj_value, subroutine_name, end_time, obj_value
+        cols = ["instance_id", "job_cnt", "stage_cnt", "ref_obj_value", "subroutine_name", "end_time", "obj_value"]
         existing_cols = [c for c in cols if c in summary_df.columns]
         summary_df = summary_df.reindex(columns=existing_cols)
+
+        # Save Long format
+        long_path = scenario_dir / "summary_method_end_time_and_obj_value_long.csv"
+        summary_df.to_csv(long_path, index=False)
+        logging.info(f"Method end time and obj value summary (long) saved to: {long_path}")
+
+        # Create and save Wide format
+        wide_rows = []
+        for instance_dir in instance_dirs:
+            try:
+                instance_id = int(instance_dir.name)
+                instance_name = str(instance_id)
+                job_cnt = ref_job_cnt_dict.get(instance_name)
+                stage_cnt = ref_stage_cnt_dict.get(instance_name)
+                obj_val = ref_obj_val_dict.get(instance_name)
+
+                row = {
+                    "instance_id": instance_id,
+                }
+                if job_cnt is not None:
+                    row["job_cnt"] = job_cnt
+                if stage_cnt is not None:
+                    row["stage_cnt"] = stage_cnt
+                if obj_val is not None:
+                    row["ref_obj_value"] = obj_val
+
+                # Get method values from the long df for this instance
+                instance_df = summary_df[summary_df["instance_id"] == instance_id]
+                for _, r in instance_df.iterrows():
+                    m_name = r["subroutine_name"]
+                    row[f"{m_name}_end_time"] = r["end_time"]
+                    row[f"{m_name}_obj_value"] = r["obj_value"]
+
+                wide_rows.append(row)
+            except Exception as e:
+                logging.error(f"Failed to create wide format for {instance_dir.name}: {e}")
+
+        wide_df = pd.DataFrame(wide_rows)
+        # Order columns: instance_id, job_cnt, stage_cnt, ref_obj_value, then method columns
+        wide_cols = ["instance_id", "job_cnt", "stage_cnt", "ref_obj_value"]
+        for _, m_name in methods_list:
+            wide_cols.append(f"{m_name}_end_time")
+            wide_cols.append(f"{m_name}_obj_value")
+        existing_wide_cols = [c for c in wide_cols if c in wide_df.columns]
+        wide_df = wide_df.reindex(columns=existing_wide_cols)
+
+        wide_path = scenario_dir / "summary_method_end_time_and_obj_value_wide.csv"
+        wide_df.to_csv(wide_path, index=False)
+        logging.info(f"Method end time and obj value summary (wide) saved to: {wide_path}")
+
+        return summary_df
+    # If no valid data was processed, return None
+    return None
+
+
+def process_scenario(scenario_dir: Path):
+    summary_df = create_method_end_time_and_obj_value_summary(scenario_dir)
+    if summary_df is not None:
         out_path = scenario_dir / "summary_method_end_time_and_obj_value.csv"
         summary_df.to_csv(out_path, index=False)
         logging.info(f"Summary saved to: {out_path}")
