@@ -1,0 +1,55 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_best_of_dispatches
+- method: bnd_all_stage
+- method: bn2d_all_stage
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: True
+- method: set_cp_model_as_base_cp_model
+- method: neh_cp
+  added_batch_size: 10
+  cp_tl_c_multiplier: 0.25
+  profile_fix_by_machine: False
+  minimize_sum_ci_lex: True
+  minimize_sum_ci_lin: False
+  make_semi_active_every_cp: True
+  solver_thread_cnt: 8
+- method: run_reactive_loop
+  params:
+    routine_data:
+      - method: operation_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+        make_semi_active_after_cp: True
+      - method: job_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+        make_semi_active_after_cp: True
+      - method: stage_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+        make_semi_active_after_cp: True
+    reactive_param_tuner_dict:
+      rho:
+        step_size: 0.02
+        min: 0.1
+        max: 0.7
+      computational_time:
+        step_size: 1
+        min: 1
+        max: 5
+    stopping_criteria:
+      max_loop_count: 1000
+      max_no_improvement_steps: null
+      lb_gap_is_leq: 0.000001
+      on_exception: "skip"
+      rho_hits_ub: true
+      tl_hits_ub: false
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8

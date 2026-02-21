@@ -1,4 +1,3 @@
-from hfs_config import BaselineColumnMapping
 import logging
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 )
 
 from exp_compare.metrics import compute_rpdf
+from hfs_config import BaselineColumnMapping
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
 from scripts.process_logs import create_method_end_time_and_obj_value_summary
@@ -135,13 +135,6 @@ class HfsMultiInstanceRunner(
                 baseline_obj_val_col=getattr(self, "baseline_obj_val_col", "UB"),
             )
             if method_end_time_obj_val_df is not None:
-                out_path = (
-                    self.working_dir / "summary_method_end_time_and_obj_value.csv"
-                )
-                method_end_time_obj_val_df.to_csv(out_path, index=False)
-                logging.info(
-                    f"Method end time and obj value summary saved to: {out_path}"
-                )
                 # Create (end time / timelimit, rpd) summary
                 self._create_rpd_summary()
         except Exception as e:
