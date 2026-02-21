@@ -2040,7 +2040,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
-        minimize_sum_ci: bool = False,
+        minimize_sum_ci_lex: bool = False,
         make_semi_active_every_cp: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -2061,7 +2061,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             profile_fix_by_machine (bool, optional): If True, fix precedence by machine
                 adjacency; otherwise apply stage-level time-based selection.
                 Defaults to False.
-            minimize_sum_ci (bool, optional): If True, minimizes the sum of completion
+            minimize_sum_ci_lex (bool, optional): If True, minimizes the sum of completion
                 times in each CP subproblem after minimizing the makespan.
                 Defaults to False.
             make_semi_active_every_cp (bool, optional): If True, makes the solution
@@ -2088,7 +2088,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             cp_tl_nc_multiplier=cp_tl_nc_multiplier,
             cp_tl_c_multiplier=cp_tl_c_multiplier,
             profile_fix_by_machine=profile_fix_by_machine,
-            minimize_sum_ci=minimize_sum_ci,
+            minimize_sum_ci_lex=minimize_sum_ci_lex,
             make_semi_active_every_cp=make_semi_active_every_cp,
             solver_thread_cnt=solver_thread_cnt,
             error_if_infeasible=error_if_infeasible,

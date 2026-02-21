@@ -111,7 +111,7 @@ class NehCpConstructor:
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
-        minimize_sum_ci: bool = False,
+        minimize_sum_ci_lex: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
         error_if_infeasible: bool = False,
@@ -199,7 +199,7 @@ class NehCpConstructor:
                 stage_2_job_2_p_dict,
                 profile_fix_by_machine=profile_fix_by_machine,
                 max_time_per_add=max_time_per_add,
-                minimize_sum_ci=minimize_sum_ci,
+                minimize_sum_ci_lex=minimize_sum_ci_lex,
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
             )
@@ -309,7 +309,7 @@ class NehCpConstructor:
         partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool = False,
-        minimize_sum_ci: bool = False,
+        minimize_sum_ci_lex: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
         horizon: int = partial_sol.makespan
@@ -321,7 +321,7 @@ class NehCpConstructor:
         mdl, params, variables = builder.build(
             sub_instance,
             horizon,
-            minimize_sum_ci=minimize_sum_ci,
+            minimize_sum_ci_lex=minimize_sum_ci_lex,
         )
         # mdl, params, variables = builder.build_horizon_per_stage(
         #     sub_instance, stage_2_mc_horizon
@@ -366,7 +366,7 @@ class NehCpConstructor:
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool = False,
         max_time_per_add: float | None = None,
-        minimize_sum_ci: bool = False,
+        minimize_sum_ci_lex: bool = False,
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
     ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
@@ -416,12 +416,12 @@ class NehCpConstructor:
             )
             new_sol = partial_sol
 
-        if not minimize_sum_ci:
+        if not minimize_sum_ci_lex:
             return report_1, new_sol
 
         # Build secondary CP model to minimize \sum(C_i)
         sub_cp_mdl, params, variables = self._create_sub_cp_model(
-            new_sol, instance, minimize_sum_ci=True
+            new_sol, instance, minimize_sum_ci_lex=True
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)

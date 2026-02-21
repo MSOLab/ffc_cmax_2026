@@ -11,6 +11,6 @@
 - method: neh_cp
   added_batch_size: 10
   cp_tl_c_multiplier: 0.5
-  minimize_sum_ci: True
+  minimize_sum_ci_lex: True
   make_semi_active_every_cp: True
   solver_thread_cnt: 8

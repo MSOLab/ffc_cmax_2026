@@ -43,7 +43,7 @@ class BaseModelBuilder:
         self,
         instance: HybridFlowshopParameters,
         horizon: int,
-        minimize_sum_ci: bool = False,
+        minimize_sum_ci_lex: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
         params: Params = self._make_params(instance)
@@ -53,7 +53,7 @@ class BaseModelBuilder:
             mdl,
             params,
             variables,
-            minimize_sum_ci=minimize_sum_ci,
+            minimize_sum_ci_lex=minimize_sum_ci_lex,
             horizon=horizon,
         )
         mdl.set_num_base_constraints()
@@ -209,7 +209,7 @@ class BaseModelBuilder:
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
-        minimize_sum_ci: bool = False,
+        minimize_sum_ci_lex: bool = False,
         horizon: int = 0,
     ) -> None:
         # Alias for readability
@@ -217,7 +217,7 @@ class BaseModelBuilder:
         i_list = params.i_list
         last_i = i_list[-1]
 
-        if not minimize_sum_ci:
+        if not minimize_sum_ci_lex:
             # Makespan definition
             mdl.add_max_equality(
                 variables.makespan, [variables.op_end[j, last_i] for j in j_list]
