@@ -2134,19 +2134,27 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             start_time_map[j] = start_value
         return start_time_map
 
-    def get_bnd_sequence(self, stage_id: str) -> list[str]:
+    def get_bnd_sequence(
+        self, stage_id: str, normalize_by_stage_cnt: bool = False
+    ) -> list[str]:
         stage_index = self.instance.stage_id_list.index(stage_id)
         before_stage_id_list = self.instance.stage_id_list[:stage_index]
         after_stage_id_list = self.instance.stage_id_list[stage_index + 1 :]
+        before_stage_cnt = len(before_stage_id_list)
+        after_stage_cnt = len(after_stage_id_list)
 
         r_dict = {
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
             for j in self.instance.job_id_list
         }
+        if normalize_by_stage_cnt and before_stage_cnt > 0:
+            r_dict = {j: math.ceil(r / before_stage_cnt) for j, r in r_dict.items()}
         tr_dict = {
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
             for j in self.instance.job_id_list
         }
+        if normalize_by_stage_cnt and after_stage_cnt > 0:
+            tr_dict = {j: math.ceil(tr / after_stage_cnt) for j, tr in tr_dict.items()}
 
         # Sort jobs by (r_j - tr_j, tie-break by original job index)
         # Jobs with higher (r_j - tr_j) value are scheduled first
@@ -2160,14 +2168,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         return sorted_j_list
 
     def bnd_all_stage(
-        self, use_dwb: bool = False, dwb_batch_size: int | None = None
+        self,
+        normalize_by_stage_cnt: bool = False,
+        use_dwb: bool = False,
+        dwb_batch_size: int | None = None,
     ) -> None:
         sub_timer = ElapsedTimer()
 
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
         for bottleneck_stage_id in self.instance.stage_id_list:
-            sorted_j_list = self.get_bnd_sequence(bottleneck_stage_id)
+            sorted_j_list = self.get_bnd_sequence(
+                bottleneck_stage_id, normalize_by_stage_cnt=normalize_by_stage_cnt
+            )
             if use_dwb:
                 best_sch = self.create_empty_schedule_from_ins()
                 batch_size = dwb_batch_size or self.instance.machine_count_per_stage[0]
@@ -2477,31 +2490,24 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         bottleneck_stage_index = self.instance.stage_id_list.index(bottleneck_stage_id)
         before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
         after_stage_id_list = self.instance.stage_id_list[bottleneck_stage_index + 1 :]
-
-        # logging.info("Before stages: %s", before_stage_id_list)
-        # logging.info("After stages: %s", after_stage_id_list)
+        before_stage_cnt = len(before_stage_id_list)
+        after_stage_cnt = len(after_stage_id_list)
 
         r_dict: dict[str, int] = {
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
             for j in self.instance.job_id_list
         }
-        if option.normalize_by_stage_cnt and len(before_stage_id_list) > 0:
+        if option.normalize_by_stage_cnt and before_stage_cnt > 0:
             # Divide r_dict values by the number of before stage IDs
-            r_dict = {
-                j: 1 + (r // len(before_stage_id_list)) for j, r in r_dict.items()
-            }
+            r_dict = {j: math.ceil(r / before_stage_cnt) for j, r in r_dict.items()}
         p_dict: dict[str, int] = self.stage_2_job_2_p_dict[bottleneck_stage_id]
         tr_dict: dict[str, int] = {
             j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
             for j in self.instance.job_id_list
         }
-        if option.normalize_by_stage_cnt and len(after_stage_id_list) > 0:
-            tr_dict = {
-                j: 1 + (tr // len(after_stage_id_list)) for j, tr in tr_dict.items()
-            }
-        # pprint(r_dict)
-        # pprint(p_dict)
-        # pprint(tr_dict)
+        if option.normalize_by_stage_cnt and after_stage_cnt > 0:
+            tr_dict = {j: math.ceil(tr / after_stage_cnt) for j, tr in tr_dict.items()}
+
         machine_cnt = len(self.instance.stage_2_machines_map[bottleneck_stage_id])
         job_cnt = self.instance.job_count
 
@@ -2760,11 +2766,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_np_candidates(self) -> list[int]:
+        """Generate candidate values for the number of priority jobs (np) for mixed dispatch.
+
+        Generates a sequence of decreasing np values by halving (ceiling) starting from
+        the total job count, ending with 0 (where all jobs are in the tail).
+        Example: job_count=8 returns [8, 4, 2, 1, 0].
+
+        Returns:
+            list[int]: List of np candidates in descending order.
+        """
         np = self.instance.job_count
         np_list = [np]
         while np > 1:
             np = math.ceil(np / 2)
             np_list.append(np)
+        np_list.append(0)  # Add the case where all jobs are in the tail
         return np_list
 
     def initialize_schedule_by_cds(
