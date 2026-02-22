@@ -740,97 +740,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     # Subroutine: Johnson-based Heuristic for initialization
 
-    def _dispatch_by_job_stage_time(
-        self,
-        job_sequence: list[str],
-        schedule: HybridFlowshopLiteSchedule,
-        draw_gantt: bool = False,
-    ):
-        """
-        Dispatches jobs according to the given sequence and registers the resulting
-        solution with the solution manager.
-
-        This is the classic job-major (job -> stage -> time) dispatching strategy.
-
-        Args:
-            job_sequence (list[str]): The sequence of job IDs to be dispatched (dispatch order).
-            schedule (HybridFlowshopLiteSchedule): The schedule to which jobs are dispatched.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        sub_timer = ElapsedTimer()
-
-        for idx, j in enumerate(job_sequence):
-            schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
-            # TODO: uncomment only for debug purpose
-            # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
-            # self.draw_gantt(schedule, output_path=output_path)
-
-        # Create report and register the new solution
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=float(schedule.makespan),
-            obj_bound=None,
-            is_init=True,
-        )
-        was_updated = self.solution_manager.register(report, schedule)
-
-        # Log and draw Gantt chart if the solution is an improvement
-        if was_updated:
-            log_time = self.timer.elapsed_sec
-            self.add_obj_value_log(
-                log_time, float(schedule.makespan), is_maximize=False
-            )
-            if draw_gantt:
-                self.draw_incumbent_gantt()
-
-    def _dispatch_by_stage_time_job(
-        self,
-        job_sequence: list[str],
-        schedule: HybridFlowshopLiteSchedule,
-        draw_gantt: bool = False,
-    ):
-        """
-        For each stage (in order), dispatch jobs in the given job_sequence order.
-        For each job in the sequence, schedule its operation in the current stage to the earliest available machine.
-
-        This is the stage-major (stage -> job -> time) dispatching strategy.
-        In hybrid flowshop, this is equivalent to dispatching jobs by stage, then by job, then by earliest time.
-
-        Args:
-            job_sequence (list[str]): The sequence of job IDs to be dispatched (dispatch order).
-            schedule (HybridFlowshopLiteSchedule): The schedule to which jobs are dispatched.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        sub_timer = ElapsedTimer()
-
-        for idx, i in enumerate(self.instance.stage_id_list):
-            schedule.dispatch_stage_by_jobs(
-                i, job_sequence, self.stage_2_job_2_p_dict[i]
-            )
-            # TODO: uncomment only for debug purpose
-            # output_path = self.get_file_path_for_subroutine(f"_gantt_{idx}_{j}.png")
-            # self.draw_gantt(schedule, output_path=output_path)
-
-        # Create report and register the new solution
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=float(schedule.makespan),
-            obj_bound=None,
-            is_init=True,
-        )
-        was_updated = self.solution_manager.register(report, schedule)
-
-        # Log and draw Gantt chart if the solution is an improvement
-        if was_updated:
-            log_time = self.timer.elapsed_sec
-            self.add_obj_value_log(
-                log_time, float(schedule.makespan), is_maximize=False
-            )
-            if draw_gantt:
-                self.draw_incumbent_gantt()
-
     @staticmethod
     def get_johnsons_rule_sequence(
         job_name_2_p1_map: dict[str, int], job_name_2_p2_map: dict[str, int]
@@ -898,37 +807,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         m = self.instance.stage_count
         p1_stages = stages[:k]  # Sum over stages 0 ~ k-1 (1~k on paper)
         p2_stages = stages[m - k :]  # Sum over stages m-k ~ m-1 (m-k+1 ~ m on paper)
-        p1 = {j: sum(p_dict[j, i] for i in p1_stages) for j in jobs}
-        p2 = {j: sum(p_dict[j, i] for i in p2_stages) for j in jobs}
-
-        return self.get_johnsons_rule_sequence(p1, p2)
-
-    def get_tp_sequence(self, k: int) -> list[str]:
-        """
-        Get two-partition sequence given $k$.
-
-        - For each job, consider the sum of processing times of stages 0 to k-1
-          as the first part (p1),
-        - and the sum of processing times of stages k to m-1 as the second part
-          (p2).
-        - Create a job sequence by applying Johnson's rule for F2||C_max.
-
-        When k = num_stages // 2, result is the same as get_sequence2().
-
-        Args:
-            k (int): Index between 1 and m-1, where m is the number of stages.
-
-        Returns:
-            list[str]: A list of job IDs ordered according to the TP rule.
-        """
-        jobs = self.instance.job_id_list
-        stages = self.instance.stage_id_list
-        p_dict: dict[tuple[str, str], int] = (
-            self.instance.p_manager.job_stage_2_value_map(jobs, stages)
-        )
-
-        p1_stages = stages[:k]  # Sum over stages 0 ~ k-1
-        p2_stages = stages[k:]  # Sum over stages k ~ m-1
         p1 = {j: sum(p_dict[j, i] for i in p1_stages) for j in jobs}
         p2 = {j: sum(p_dict[j, i] for i in p2_stages) for j in jobs}
 
@@ -1142,68 +1020,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         logging.info(f"Schedule by DJ(CDS): makespan={best_makespan} with k={best_k}")
         return best_schedule
 
-    def initialize_by_dj_tp(
-        self, error_if_infeasible: bool = False, draw_gantt: bool = False
-    ) -> None:
-        """
-        Uses the two-partition sequence as the job sequence
-        & dispatches by job - stage - time priority to initialize a schedule.
-
-        Args:
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        sub_timer = ElapsedTimer()
-
-        # Subroutine states
-        best_makespan = float("inf")
-        best_schedule: HybridFlowshopLiteSchedule | None = None
-        best_k = -1
-
-        for k in range(0, self.instance.stage_count):
-            # Create an empty schedule
-            schedule = self.create_empty_schedule_from_ins()
-            # Dispatch
-            job_sequence = self.get_tp_sequence(k)
-            for j in job_sequence:
-                schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
-            # Update subroutine states
-            makespan = schedule.makespan
-            if makespan < best_makespan:
-                best_makespan = makespan
-                best_schedule = schedule
-                best_k = k
-
-        if best_schedule is None:
-            raise ValueError("No schedule found after applying CDS sequence.")
-        if error_if_infeasible:
-            self.check_feasibility(best_schedule.get_jik_2_start_time_map())
-        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
-
-        # Create report and register the new solution
-        obj_value = float(best_schedule.makespan)
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=obj_value,
-            obj_bound=None,
-            is_init=True,
-        )
-        was_updated = self.solution_manager.register(report, best_schedule)
-
-        # Log
-        log_time = self.timer.elapsed_sec
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
-        )
-
-        # Draw Gantt chart if the solution is an improvement
-        if was_updated and draw_gantt:
-            self.draw_incumbent_gantt()
-
     def initialize_by_dj_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
@@ -1368,66 +1184,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             raise ValueError("No schedule found after applying CDS sequence.")
         logging.info(f"Schedule by DS(CDS): makespan={best_makespan} with k={best_k}")
         return best_schedule
-
-    def initialize_by_ds_tp(
-        self, error_if_infeasible: bool = False, draw_gantt: bool = False
-    ) -> None:
-        """
-        Uses the two-partition sequence as the job sequence
-        & dispatches by job - stage - time priority to initialize a schedule.
-
-        Args:
-            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
-                Defaults to False.
-            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
-                Defaults to False.
-        """
-        sub_timer = ElapsedTimer()
-
-        best_makespan = float("inf")
-        best_schedule: HybridFlowshopLiteSchedule | None = None
-        best_k = -1
-        for k in range(0, self.instance.stage_count):
-            # Create an empty schedule
-            schedule = self.create_empty_schedule_from_ins()
-            job_sequence = self.get_tp_sequence(k)
-            for i in self.instance.stage_id_list:
-                schedule.dispatch_stage_by_jobs(
-                    i, job_sequence, self.stage_2_job_2_p_dict[i]
-                )
-            makespan = schedule.makespan
-            if makespan < best_makespan:
-                best_makespan = makespan
-                best_schedule = schedule
-                best_k = k
-
-        if best_schedule is None:
-            raise ValueError("No schedule found after applying CDS sequence.")
-        if error_if_infeasible:
-            self.check_feasibility(best_schedule.get_jik_2_start_time_map())
-        logging.info(f"Best schedule found with k={best_k}, makespan={best_makespan}")
-
-        # Create report and register the new solution
-        obj_value = float(best_schedule.makespan)
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=obj_value,
-            obj_bound=None,
-            is_init=True,
-        )
-        was_updated = self.solution_manager.register(report, best_schedule)
-
-        # Log
-        log_time = self.timer.elapsed_sec
-        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
-        _last_timestamp_note = self._get_call_context_of_current_method()
-        self.obj_store.add_last_timestamp_note(
-            _last_timestamp_note, obj_value_is_valid=True
-        )
-
-        # Draw Gantt chart if the solution is an improvement
-        if was_updated and draw_gantt:
-            self.draw_incumbent_gantt()
 
     def initialize_by_ds_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1985,52 +1741,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if job_dispatched_obj_value < stage_dispatched_obj_value:
             return job_dispatched_schedule
         return stage_dispatched_schedule
-
-    def get_incumbent_midpoint_sequence(self) -> list[str]:
-        """
-        Returns a job sequence based on the incumbent solution, sorted in ascending order by:
-
-        1. midpoint := (start_time at first stage + end_time at last stage) / 2
-        2. tie-break by first stage start_time
-        3. tie-break by original job index
-
-        Raises:
-            ValueError: if no incumbent solution is available.
-
-        Returns:
-            list[str]: A list of job IDs representing the midpoint sequence.
-        """
-        incumbent = self.solution_manager.get_incumbent()
-        if incumbent is None:
-            raise ValueError(
-                "No incumbent solution available to build midpoint sequence."
-            )
-
-        start_map = incumbent.get_jik_2_start_time_map()
-        end_map = incumbent.get_jik_2_end_time_map()
-        jobs = self.instance.job_id_list
-        idx_map = {j: idx for idx, j in enumerate(jobs)}
-        first_stage = self.instance.stage_id_list[0]
-        last_stage = self.instance.stage_id_list[-1]
-
-        seq_info: list[tuple[float, int, int, str]] = []
-        for j in jobs:
-            # find any machine k for first and last stage
-            s_first = next(
-                t
-                for (job, stage, _), t in start_map.items()
-                if job == j and stage == first_stage
-            )
-            e_last = next(
-                t
-                for (job, stage, _), t in end_map.items()
-                if job == j and stage == last_stage
-            )
-            midpoint = (s_first + e_last) / 2
-            seq_info.append((midpoint, s_first, idx_map[j], j))
-
-        seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
-        return [info[3] for info in seq_info]
 
     def neh_cp(
         self,
