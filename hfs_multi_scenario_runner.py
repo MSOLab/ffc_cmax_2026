@@ -18,6 +18,8 @@ from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from output_filenames import OutputFilenames
 
+RPDF_PREFIX = "gap_"
+
 
 class HfsMultiScenarioRunner(
     MultiScenarioRunner[
@@ -244,7 +246,7 @@ class HfsMultiScenarioRunner(
                 logging.warning("Baseline data not available. Skipping merge.")
                 dashboard_df["baselineObjVal"] = None
 
-            # 3. Calculate gaps for each scenario
+            # 3. Calculate RPDf for each scenario
             scenarios = [
                 col
                 for col in best_obj_value_df.columns
@@ -255,10 +257,22 @@ class HfsMultiScenarioRunner(
                 and dashboard_df["baselineObjVal"].notna().any()
             ):
                 for scenario in scenarios:
-                    gap_col_name = f"gap_{scenario}"
-                    dashboard_df[gap_col_name] = (
-                        dashboard_df[scenario] - dashboard_df["baselineObjVal"]
-                    ) / dashboard_df["baselineObjVal"]
+                    rpdf_col_name = f"{RPDF_PREFIX}{scenario}"
+                    obj = dashboard_df[scenario]
+                    ref = dashboard_df["baselineObjVal"]
+
+                    # RPDf = (obj - ref) / ((obj + ref) / 2)
+                    # If both obj and ref are 0, define as 0
+                    numerator = obj - ref
+                    denominator = (obj + ref) / 2
+
+                    # Compute RPDf, handling 0/0 case
+                    result = numerator / denominator
+                    # Set Inf and NaN to 0 where both values were 0
+                    result = result.replace([float("inf"), -float("inf")], 0)
+                    result = result.fillna(0)
+
+                    dashboard_df[rpdf_col_name] = result
 
             # 4. Define the desired column order
             ordered_columns = [SubroutineReportStatisticsKeys.INSTANCE_NAME]
@@ -267,13 +281,13 @@ class HfsMultiScenarioRunner(
                 ["baselineObjVal"] if "baselineObjVal" in dashboard_df.columns else []
             )
             rel_diff_cols = [
-                f"gap_{scenario}"
+                f"{RPDF_PREFIX}{scenario}"
                 for scenario in scenarios
-                if f"gap_{scenario}" in dashboard_df
+                if f"{RPDF_PREFIX}{scenario}" in dashboard_df.columns
             ]
 
             # Combine lists in the desired order
-            # Order: instanceName, ObjVal cols, runningTime cols, baselineObjVal, relDiff cols
+            # Order: instanceName, ObjVal cols, runningTime cols, baselineObjVal, RPDf cols
             final_column_order = (
                 ordered_columns
                 + obj_val_cols
@@ -354,12 +368,15 @@ class HfsMultiScenarioRunner(
                 sheet_name = "BestObjDashboard"
                 if not dashboard_df.empty:
                     # Create the multi-level header
-                    # Categories: ObjVal, runningTime, baselineObjVal, relDiff between baseline
+                    # Categories: ObjVal, runningTime, baselineObjVal, RPDf between baseline
                     header = []
                     for col in dashboard_df.columns:
-                        if "gap_" in col:
+                        if RPDF_PREFIX in col:
                             header.append(
-                                ("relDiff between baseline", col.replace("gap_", ""))
+                                (
+                                    "RPDf between baseline",
+                                    col.replace(RPDF_PREFIX, ""),
+                                )
                             )
                         elif col == SubroutineReportStatisticsKeys.INSTANCE_NAME:
                             header.append(("", "insId"))
@@ -381,7 +398,7 @@ class HfsMultiScenarioRunner(
 
                     # --- Apply formatting and set column widths ---
 
-                    # relDiff first_col and last_col
+                    # RPDf first_col and last_col
                     rel_diff_first_col = float("inf")  # Placeholder for first column
                     rel_diff_last_col = 0
 
@@ -399,7 +416,7 @@ class HfsMultiScenarioRunner(
 
                         worksheet.set_column(col_idx, col_idx, width=max_len)
 
-                        if col_name[0] == "relDiff between baseline":
+                        if col_name[0] == "RPDf between baseline":
                             if rel_diff_first_col == float("inf"):
                                 rel_diff_first_col = col_idx
                             if rel_diff_last_col < col_idx:
