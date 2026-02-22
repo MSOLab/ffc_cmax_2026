@@ -2834,6 +2834,45 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         np_list.append(0)  # Add the case where all jobs are in the tail
         return np_list
 
+    def _get_job_sequence_and_np_list_get_best_mixed_schedule(
+        self,
+        job_sequence: Sequence[str],
+        head_for_all_stages: bool = False,
+        draw_gantt_per_step: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+
+        np_list = self._get_np_candidates()
+        np_2_stage_2_head: dict[int, dict[str, int]] = {}
+        for np in np_list:
+            if head_for_all_stages:
+                np_2_stage_2_head[np] = {
+                    stage_id: np for stage_id in self.instance.stage_id_list
+                }
+            else:
+                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
+
+        for np in np_list:
+            logging.debug(f"  Dispatching with np={np}")
+            dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
+                job_sequence,
+                np_2_stage_2_head[np],
+                draw_gantt_per_step=draw_gantt_per_step,
+            )
+            if dispatched_schedule is None:
+                continue
+            if best_obj is None or dispatched_schedule.makespan < best_obj:
+                best_obj = dispatched_schedule.makespan
+                best_sch = dispatched_schedule
+            if self.is_stopping_condition():
+                logging.info(
+                    "  Stopping condition met, breaking out of mixed schedule loop."
+                )
+                break
+
+        return best_sch
+
     def initialize_schedule_by_cds(
         self,
         head_for_all_stages: bool = False,
@@ -2882,7 +2921,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     ) -> HybridFlowshopLiteSchedule | None:
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
-        best_np: int | None = None
         best_stage: str | None = None
 
         np_list = self._get_np_candidates()
@@ -2896,27 +2934,33 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
 
         for k in range(1, self.instance.stage_count):
+            logging.debug(
+                f"CDS on stage index k={k} (stage_id={self.instance.stage_id_list[k]})"
+            )
             job_sequence = self.get_cds_sequence(k)
-            for np in np_list:
-                logging.debug(f"CDS dispatching: np={np}, k={k}")
-                dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
+            dispatched_schedule = (
+                self._get_job_sequence_and_np_list_get_best_mixed_schedule(
                     job_sequence,
-                    np_2_stage_2_head[np],
+                    head_for_all_stages=head_for_all_stages,
                     draw_gantt_per_step=draw_gantt_per_step,
                 )
-                if best_obj is None or dispatched_schedule.makespan < best_obj:
-                    best_obj = dispatched_schedule.makespan
-                    best_sch = dispatched_schedule
-                    best_np = np
-                    best_stage = self.instance.stage_id_list[k]
+            )
+            if dispatched_schedule is None:
                 if self.is_stopping_condition():
-                    logging.info("Stopping condition met, breaking out of loop.")
+                    logging.info("Stopping condition met, breaking out of CDS loop.")
                     break
+                else:
+                    continue
+            if best_obj is None or dispatched_schedule.makespan < best_obj:
+                best_obj = dispatched_schedule.makespan
+                best_sch = dispatched_schedule
+                best_stage = self.instance.stage_id_list[k]
+            if self.is_stopping_condition():
+                logging.info("Stopping condition met, breaking out of CDS loop.")
+                break
 
         if best_obj is not None:
-            logging.info(
-                f"CDS sequence: makespan={best_obj} at np={best_np}, CDS stage={best_stage}"
-            )
+            logging.info(f"CDS sequence: makespan={best_obj} at CDS stage={best_stage}")
         return best_sch
 
     def initialize_schedule_by_gupta(
@@ -2965,38 +3009,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-        best_np: int | None = None
+        best_sch = self._get_job_sequence_and_np_list_get_best_mixed_schedule(
+            self.get_gupta_sequence(),
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+        )
 
-        np_list = self._get_np_candidates()
-        np_2_stage_2_head: dict[int, dict[str, int]] = {}
-        for np in np_list:
-            if head_for_all_stages:
-                np_2_stage_2_head[np] = {
-                    stage_id: np for stage_id in self.instance.stage_id_list
-                }
-            else:
-                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
-
-        job_sequence = self.get_gupta_sequence()
-        for np in np_list:
-            logging.debug(f"Gupta dispatching: np={np}")
-            dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
-                job_sequence,
-                np_2_stage_2_head[np],
-                draw_gantt_per_step=draw_gantt_per_step,
+        if best_sch is not None:
+            logging.info(
+                f"Best of mixed schedule by Gupta sequence: makespan={best_sch.makespan}"
             )
-            if best_obj is None or dispatched_schedule.makespan < best_obj:
-                best_obj = dispatched_schedule.makespan
-                best_sch = dispatched_schedule
-                best_np = np
-            if self.is_stopping_condition():
-                logging.info("Stopping condition met, breaking out of loop.")
-                break
-
-        if best_obj is not None:
-            logging.info(f"Gupta sequence: makespan={best_obj} at np={best_np}")
         return best_sch
 
     def initialize_schedule_by_palmer(
@@ -3045,38 +3067,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-        best_np: int | None = None
+        best_sch = self._get_job_sequence_and_np_list_get_best_mixed_schedule(
+            self.get_palmer_sequence(),
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+        )
 
-        np_list = self._get_np_candidates()
-        np_2_stage_2_head: dict[int, dict[str, int]] = {}
-        for np in np_list:
-            if head_for_all_stages:
-                np_2_stage_2_head[np] = {
-                    stage_id: np for stage_id in self.instance.stage_id_list
-                }
-            else:
-                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
-
-        job_sequence = self.get_palmer_sequence()
-        for np in np_list:
-            logging.debug(f"Palmer dispatching: np={np}")
-            dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
-                job_sequence,
-                np_2_stage_2_head[np],
-                draw_gantt_per_step=draw_gantt_per_step,
+        if best_sch is not None:
+            logging.info(
+                f"Best of mixed schedule by Palmer sequence: makespan={best_sch.makespan}"
             )
-            if best_obj is None or dispatched_schedule.makespan < best_obj:
-                best_obj = dispatched_schedule.makespan
-                best_sch = dispatched_schedule
-                best_np = np
-            if self.is_stopping_condition():
-                logging.info("Stopping condition met, breaking out of loop.")
-                break
-
-        if best_obj is not None:
-            logging.info(f"Palmer sequence: makespan={best_obj} at np={best_np}")
         return best_sch
 
     def initialize_by_best_of_mixed_dispatches(
