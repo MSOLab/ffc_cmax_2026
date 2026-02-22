@@ -16,10 +16,10 @@
 - method: set_cp_model_as_base_cp_model
 - method: neh_cp
   added_batch_size: 10
-  cp_tl_c_multiplier: 0.25
+  cp_tl_c_multiplier: 0.3
   profile_fix_by_machine: False
   minimize_sum_ci_lex: True
-  cp_tl_c_multiplier_2nd_obj: 0.05
+  cp_tl_c_multiplier_2nd_obj: 0.2
   minimize_sum_ci_lin: False
   make_semi_active_every_cp: True
   solver_thread_cnt: 8
