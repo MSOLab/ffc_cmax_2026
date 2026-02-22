@@ -42,6 +42,8 @@ benchmark_idx_list:
   # - 194
   # - 195
   # - 196
+  # - 13
+  # - 81
   # - 217
   # - 192
   # - 216
@@ -828,38 +830,52 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-03.yaml"
   #   output_dir: "pra_half_nc/20260222-03"
   #   description: "initialize_by_best_of_mixed_dispatches (both head configs)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-04.yaml"
+  #   output_dir: "pra_half_nc/20260222-04"
+  #   description: "initialize_by_best_of_selected_dispatches(stage_normalized)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-05.yaml"
+  #   output_dir: "pra_half_nc/20260222-05"
+  #   description: "initialize_by_best_of_selected_dispatches(stage_normalized) + BND(stage_normalized)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-06.yaml"
+  #   output_dir: "pra_half_nc/20260222-06"
+  #   description: "initialize_by_best_of_selected_dispatches"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-07.yaml"
+  #   output_dir: "pra_half_nc/20260222-07"
+  #   description: "initialize_by_best_of_selected_dispatches + BND(stage_normalized)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-08.yaml"
+  #   output_dir: "pra_half_nc/20260222-08"
+  #   description: "initialize_by_best_of_selected_dispatches(stage_normalized,former_mixed)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-09.yaml"
+  #   output_dir: "pra_half_nc/20260222-09"
+  #   description: "initialize_by_best_of_selected_dispatches(stage_normalized,former_mixed) + BND(stage_normalized)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-10.yaml"
+  #   output_dir: "pra_half_nc/20260222-10"
+  #   description: "initialize_by_best_of_selected_dispatches(former_mixed)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-11.yaml"
+  #   output_dir: "pra_half_nc/20260222-11"
+  #   description: "initialize_by_best_of_selected_dispatches(former_mixed) + BND(stage_normalized)"
+
+  # NEH-CP with 2nd objective timelimit
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-04.yaml"
-    output_dir: "pra_half_nc/20260222-04"
-    description: "initialize_by_best_of_selected_dispatches(stage_normalized)"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-12.yaml"
+    output_dir: "pra_half_nc/20260222-12"
+    description: "initialize_by_best_of_selected_dispatches + NEH-CP (0.25c, lexico, 2nd obj 0.25c)"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-05.yaml"
-    output_dir: "pra_half_nc/20260222-05"
-    description: "initialize_by_best_of_selected_dispatches(stage_normalized) + BND(stage_normalized)"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-13.yaml"
+    output_dir: "pra_half_nc/20260222-13"
+    description: "initialize_by_best_of_selected_dispatches + NEH-CP (0.3c, lexico, 2nd obj 0.2c)"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-06.yaml"
-    output_dir: "pra_half_nc/20260222-06"
-    description: "initialize_by_best_of_selected_dispatches"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-07.yaml"
-    output_dir: "pra_half_nc/20260222-07"
-    description: "initialize_by_best_of_selected_dispatches + BND(stage_normalized)"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-08.yaml"
-    output_dir: "pra_half_nc/20260222-08"
-    description: "initialize_by_best_of_selected_dispatches(stage_normalized,former_mixed)"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-09.yaml"
-    output_dir: "pra_half_nc/20260222-09"
-    description: "initialize_by_best_of_selected_dispatches(stage_normalized,former_mixed) + BND(stage_normalized)"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-10.yaml"
-    output_dir: "pra_half_nc/20260222-10"
-    description: "initialize_by_best_of_selected_dispatches(former_mixed)"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-11.yaml"
-    output_dir: "pra_half_nc/20260222-11"
-    description: "initialize_by_best_of_selected_dispatches(former_mixed) + BND(stage_normalized)"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-14.yaml"
+    output_dir: "pra_half_nc/20260222-14"
+    description: "initialize_by_best_of_selected_dispatches + NEH-CP (0.4c, lexico, 2nd obj 0.1c)"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -867,7 +883,7 @@ scenario_log_filename: "hfs_multi_scenario_runner.log"
 result_dir_name: "results"
 
 # Execution configuration
-instance_worker_cnt: 32
+instance_worker_cnt: 12
 
 # Analysis and plotting options
 draw_gantt: false

@@ -112,6 +112,7 @@ class NehCpConstructor:
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
         minimize_sum_ci_lex: bool = False,
+        cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
@@ -138,6 +139,23 @@ class NehCpConstructor:
                 logging.info(
                     f"max_time_per_add is set to {max_time_per_add:.2f} seconds"
                     f" based on cp_tl_c_multiplier={cp_tl_c_multiplier} and stage count."
+                )
+        max_time_per_add_2nd_obj: float | None = None
+        if minimize_sum_ci_lex:
+            if cp_tl_c_multiplier_2nd_obj is not None:
+                max_time_per_add_2nd_obj = (
+                    cp_tl_c_multiplier_2nd_obj * instance.stage_count
+                )
+                logging.info(
+                    f"max_time_per_add for 2nd obj is set to {max_time_per_add_2nd_obj:.2f}"
+                    f"  seconds based on cp_tl_c_multiplier_2nd_obj={cp_tl_c_multiplier_2nd_obj}"
+                    " and stage count."
+                )
+            else:
+                max_time_per_add_2nd_obj = max_time_per_add
+                logging.info(
+                    "max_time_per_add for 2nd obj is set to the same as that of the "
+                    f"1st obj: {max_time_per_add_2nd_obj:.2f} seconds."
                 )
 
         sub_obj_store = ObjValueBoundStore[int]()
@@ -201,6 +219,7 @@ class NehCpConstructor:
                 profile_fix_by_machine=profile_fix_by_machine,
                 max_time_per_add=max_time_per_add,
                 minimize_sum_ci_lex=minimize_sum_ci_lex,
+                max_time_per_add_2nd_obj=max_time_per_add_2nd_obj,
                 minimize_sum_ci_lin=minimize_sum_ci_lin,
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
@@ -371,6 +390,7 @@ class NehCpConstructor:
         profile_fix_by_machine: bool = False,
         max_time_per_add: float | None = None,
         minimize_sum_ci_lex: bool = False,
+        max_time_per_add_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
@@ -432,7 +452,7 @@ class NehCpConstructor:
             new_sol, instance, minimize_sum_ci_lex=True
         )
 
-        _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
+        _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add_2nd_obj)
         report_2: CpsatSolverReport = self.ctx.solve_cp_model_2(
             sub_cp_mdl,
             _timelimit,
