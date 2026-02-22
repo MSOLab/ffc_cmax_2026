@@ -531,6 +531,32 @@ class HybridFlowshopLiteSchedule:
         # Append operation
         self.add_ops_times_2_mc(stage_id, mc_id, job_id, start_time, end_time)
 
+    def get_job_priority_queue_for_stage_dispatch(
+        self, stage_id: StageIdType, job_id_seq: Sequence[JobIdType]
+    ) -> list[JobIdType]:
+        """Returns a priority-ordered list of job IDs for dispatching to a stage.
+
+        The priority is determined by:
+        1. Previous stage completion time (earlier completion = higher priority)
+        2. Input sequence order (as tiebreaker)
+
+        Args:
+            stage_id (StageIdType): Stage identifier
+            job_id_seq (Sequence[JobIdType]): Sequence of job identifiers to prioritize
+
+        Returns:
+            list[JobIdType]: Priority-ordered list of job identifiers
+        """
+        job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
+        job_priority_queue = sorted(
+            job_id_seq,
+            key=lambda job_id: (
+                self.get_prev_stage_end_time(stage_id, job_id, default_if_missing=0),
+                job_id_2_pos[job_id],
+            ),
+        )
+        return job_priority_queue
+
     def dispatch_stage_by_jobs(
         self,
         stage_id: StageIdType,
@@ -561,16 +587,8 @@ class HybridFlowshopLiteSchedule:
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
 
-        # Priority rule:
-        # 1) jobs with smaller previous-stage completion time are scheduled earlier
-        # 2) if tied, preserve the input order of `job_id_seq`
-        job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
-        job_priority_queue = sorted(
-            job_id_seq,
-            key=lambda job_id: (
-                self.get_prev_stage_end_time(stage_id, job_id, default_if_missing=0),
-                job_id_2_pos[job_id],
-            ),
+        job_priority_queue = self.get_job_priority_queue_for_stage_dispatch(
+            stage_id, job_id_seq
         )
 
         for job_id in job_priority_queue:
@@ -607,9 +625,8 @@ class HybridFlowshopLiteSchedule:
 
         stage_iter = self.stages
         if from_stage is not None:
-            stage_iter = [
-                stage_id for stage_id in self.stages if stage_id >= from_stage
-            ]
+            from_idx = self.stages.index(from_stage)
+            stage_iter = self.stages[from_idx:]
 
         for stage_id in stage_iter:
             if stage_id not in stage_2_duration:
@@ -1455,3 +1472,174 @@ def validate_no_overlap(
                     raise ValueError(
                         f"Overlap on {stage}.{mc}: {ops[i]} vs {ops[i + 1]}"
                     )
+
+
+# Dispatch functions for mixed dispatch strategy
+
+
+def from_job_sequence_get_schedule_mixed(
+    schedule: HybridFlowshopLiteSchedule,
+    job_sequence: Sequence[JobIdType],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    head_per_stage: Mapping[StageIdType, int],
+    draw_gantt_per_step: bool = False,
+    get_file_path_for_subroutine: Callable | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Mixed dispatch strategy with per-stage k values.
+
+    Implements a hybrid dispatch strategy that combines:
+    1. dispatch_job_by_stages: dispatch k jobs through all stages
+    2. dispatch_stage_by_jobs: priority-based scheduling for remaining jobs
+
+    The strategy works as follows:
+    - For each stage (in order), determine the remaining jobs that have not been
+      fully dispatched from some earlier stage, and sort them by priority (earliest
+      previous stage end time first, then sequence order). Dispatch the first k jobs
+      from this priority queue through all remaining stages using dispatch_job_by_stages.
+    - Fill remaining slots at each stage using dispatch_stage_by_jobs with the
+      same priority rule.
+    - A job that has been dispatched through all remaining stages via
+      dispatch_job_by_stages is treated as completed and skipped in subsequent stages.
+      (Jobs scheduled only at a single stage via dispatch_stage_by_jobs are not
+      considered completed; they will be scheduled again at later stages.)
+
+    This allows for a flexible mix of sequence-based dispatch (for priority jobs)
+    and priority-based dispatch (for remaining jobs).
+
+    Args:
+        schedule: An empty HybridFlowshopLiteSchedule to populate. The schedule
+            is modified in-place and also returned.
+        job_sequence: Sequence of job IDs to schedule. The order represents the
+            tiebreaker priority when jobs have the same previous stage end time.
+        stage_2_job_2_p: stage -> job -> processing time mapping. Must include all
+            jobs and stages.
+        head_per_stage: Mapping from stage_id to the number of jobs to dispatch via
+            dispatch_job_by_stages at that stage. These values are applied as a
+            cumulative cap across stages: once k jobs have been fully dispatched from
+            earlier stages, they reduce the remaining budget for later stages.
+            E.g., with 5 jobs and head_per_stage={"s1": 3, "s2": 3}, s2 effectively
+            uses min(3, 5-3) = 2 since only 2 jobs remain after s1 dispatches 3 jobs.
+
+    Returns:
+        The populated HybridFlowshopLiteSchedule.
+
+    Raises:
+        ValueError: If schedule is not empty.
+        ValueError: If head_per_stage contains an unknown stage_id or a negative value.
+        ValueError: If a job's duration is missing for any stage.
+
+    Example:
+        >>> sched = HybridFlowshopLiteSchedule(
+        ...     jobs=["j1", "j2", "j3"],
+        ...     stages=["s1", "s2"],
+        ...     machines_per_stage={"s1": ["m1"], "s2": ["m1"]}
+        ... )
+        >>> duration = {
+        ...     "s1": {"j1": 2, "j2": 3, "j3": 2},
+        ...     "s2": {"j1": 3, "j2": 2, "j3": 4}
+        ... }
+        >>> from_job_sequence_get_schedule_mixed(sched, ["j1", "j2", "j3"], duration, {"s1": 2})
+        >>> print(sched.makespan)
+    """
+    # Validation: schedule must be empty (no operations already scheduled)
+    if schedule.get_operation_set():
+        raise ValueError(
+            "schedule must be empty when calling from_job_sequence_get_schedule_mixed()"
+        )
+
+    # Validation: head_per_stage keys must be valid stages, and values must be non-negative
+    for stage_id, k in head_per_stage.items():
+        if stage_id not in schedule.stages:
+            raise ValueError(f"Unknown stage_id in head_per_stage: {stage_id}")
+        if k < 0:
+            raise ValueError(
+                f"head_per_stage values must be non-negative, got {k} for stage {stage_id}"
+            )
+
+    # Validation: check all required durations are provided
+    for stage_id in schedule.stages:
+        for job_id in job_sequence:
+            if job_id not in stage_2_job_2_p.get(stage_id, {}):
+                raise ValueError(
+                    f"Duration for job ID {job_id} at stage {stage_id} not provided"
+                )
+
+    if get_file_path_for_subroutine is None:
+        draw_gantt_per_step = False
+    if draw_gantt_per_step:
+        plotter = GanttPlotter()
+
+    # Preprocess head_per_stage with cumulative adjustment
+    # If head_per_stage = {"s1": 3, "s2": 3} and total jobs = 5,
+    # adjust to {"s1": 3, "s2": 2} because only 2 jobs remain after s1 dispatches 3
+    _head_per_stage: dict[StageIdType, int] = {}
+    remaining_jobs_for_stage = len(job_sequence)
+    for stage_id in schedule.stages:
+        if stage_id in head_per_stage:
+            _head_per_stage[stage_id] = min(
+                head_per_stage[stage_id], remaining_jobs_for_stage
+            )
+            remaining_jobs_for_stage -= _head_per_stage[stage_id]
+        else:
+            _head_per_stage[stage_id] = 0
+
+    completed_job_set: set[JobIdType] = set()
+    # For each stage, dispatch k jobs via dispatch_job_by_stages,
+    # then fill remaining slots via dispatch_stage_by_jobs
+    for stage_idx, stage_id in enumerate(schedule.stages):
+        # Job priority queue for this stage: sorted by (1) earliest start time, then (2) sequence order
+        remaining_job_sequence = [
+            job_id for job_id in job_sequence if job_id not in completed_job_set
+        ]
+        job_priority_queue = schedule.get_job_priority_queue_for_stage_dispatch(
+            stage_id, remaining_job_sequence
+        )
+
+        # Phase 1: dispatch k jobs through all remaining stages (skip if stage_k is 0)
+        stage_k = _head_per_stage.get(stage_id, 0)
+        if stage_k > 0:
+            stages_from_here = schedule.stages[stage_idx:]
+            first_k_jobs = list(job_priority_queue)[:stage_k]
+
+            for job_id in first_k_jobs:
+                job_stage_dur = {
+                    s: stage_2_job_2_p[s][job_id] for s in stages_from_here
+                }
+                schedule.dispatch_job_by_stages(
+                    job_id,
+                    job_stage_dur,
+                    from_stage=stage_id,
+                )
+                completed_job_set.add(job_id)
+        if draw_gantt_per_step:
+            output_path: Path = get_file_path_for_subroutine(
+                f"{stage_id}_after_job_by_stages.png"
+            )
+            plotter.export_hybrid_flowshop_plot(
+                output_path,
+                schedule.get_jik_2_start_time_map(),
+                schedule.get_jik_2_end_time_map(),
+                job_sequence,
+                schedule.stages,
+            )
+        # Phase 2: Fill remaining slots at this stage using dispatch_stage_by_jobs
+        unscheduled_jobs = [
+            job_id for job_id in job_priority_queue if job_id not in completed_job_set
+        ]
+        if unscheduled_jobs:
+            schedule.dispatch_stage_by_jobs(
+                stage_id, unscheduled_jobs, stage_2_job_2_p[stage_id]
+            )
+            if draw_gantt_per_step:
+                output_path = get_file_path_for_subroutine(
+                    f"{stage_id}_after_stage_by_jobs.png"
+                )
+                plotter.export_hybrid_flowshop_plot(
+                    output_path,
+                    schedule.get_jik_2_start_time_map(),
+                    schedule.get_jik_2_end_time_map(),
+                    job_sequence,
+                    schedule.stages,
+                )
+
+    return schedule

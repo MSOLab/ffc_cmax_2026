@@ -1,7 +1,7 @@
 import logging
 import math
 import random
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from mbls.cpsat import CpsatStatus
 from routix import ElapsedTimer
@@ -10,7 +10,10 @@ from schore.parameters_examples import HybridFlowshopParameters
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
 from hybridflowshop.report import HfsSubroutineReport
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    from_job_sequence_get_schedule_mixed,
+)
 from hybridflowshop.select_and_assign import solve_selection_problem
 from identical_parallel_machine.cumulative import ParallelMcParams, ParallelMcVars
 from identical_parallel_machine.solver import SolveConfig, configure_solver
@@ -1540,7 +1543,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if best_schedule is None:
             raise ValueError("No schedule found after applying dispatching heuristics.")
         logging.info(
-            f"Best schedule found by {best_method_name} with makespan={best_makespan}"
+            f"Best schedule found by {best_method_name} with makespan {best_makespan}"
         )
         return best_schedule
 
@@ -2682,6 +2685,400 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if ds_schedule.makespan < dj_schedule.makespan:
             return ds_schedule
         return dj_schedule
+
+    # Dispatch
+
+    def _from_job_sequence_get_schedule_mixed(
+        self,
+        job_sequence: Sequence[str],
+        stage_2_head: Mapping[str, int],
+        draw_gantt_per_step: bool = False,
+    ) -> HybridFlowshopLiteSchedule:
+        schedule = self.create_empty_schedule_from_ins()
+        return from_job_sequence_get_schedule_mixed(
+            schedule,
+            job_sequence,
+            self.stage_2_job_2_p_dict,
+            stage_2_head,
+            draw_gantt_per_step=draw_gantt_per_step,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine
+            if draw_gantt_per_step
+            else None,
+        )
+
+    def get_sample_schedule_by_cds(
+        self,
+        np: int,
+        k: int,
+        head_for_all_stages: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt_per_step: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        if head_for_all_stages:
+            stage_2_head = {stage_id: np for stage_id in self.instance.stage_id_list}
+        else:
+            stage_2_head = {self.instance.stage_id_list[0]: np}
+
+        stage_id = self.instance.stage_id_list[k]
+        job_sequence = self.get_cds_sequence(k)
+        dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
+            job_sequence, stage_2_head, draw_gantt_per_step=draw_gantt_per_step
+        )
+        best_obj = dispatched_schedule.makespan
+
+        if best_obj is None:
+            # Failed to find a solution
+            return
+        if error_if_infeasible:
+            self.check_feasibility(dispatched_schedule.get_jik_2_start_time_map())
+
+        logging.info(
+            f"CDS sequence: makespan={best_obj} at k={k}, CDS stage={stage_id}"
+        )
+
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, dispatched_schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(best_obj), is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_np_candidates(self) -> list[int]:
+        np = self.instance.job_count
+        np_list = [np]
+        while np > 1:
+            np = math.ceil(np / 2)
+            np_list.append(np)
+        return np_list
+
+    def initialize_schedule_by_cds(
+        self,
+        head_for_all_stages: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt_per_step: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        best_sch = self._get_schedule_by_cds(
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+        )
+
+        if best_sch is None:
+            # Failed to find a solution
+            return
+        if error_if_infeasible:
+            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+
+        best_obj = best_sch.makespan
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_sch)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(best_obj), is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_cds(
+        self,
+        head_for_all_stages: bool = False,
+        draw_gantt_per_step: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_np: int | None = None
+        best_stage: str | None = None
+
+        np_list = self._get_np_candidates()
+        np_2_stage_2_head: dict[int, dict[str, int]] = {}
+        for np in np_list:
+            if head_for_all_stages:
+                np_2_stage_2_head[np] = {
+                    stage_id: np for stage_id in self.instance.stage_id_list
+                }
+            else:
+                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
+
+        for k in range(1, self.instance.stage_count):
+            job_sequence = self.get_cds_sequence(k)
+            for np in np_list:
+                logging.debug(f"CDS dispatching: np={np}, k={k}")
+                dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
+                    job_sequence,
+                    np_2_stage_2_head[np],
+                    draw_gantt_per_step=draw_gantt_per_step,
+                )
+                if best_obj is None or dispatched_schedule.makespan < best_obj:
+                    best_obj = dispatched_schedule.makespan
+                    best_sch = dispatched_schedule
+                    best_np = np
+                    best_stage = self.instance.stage_id_list[k]
+                if self.is_stopping_condition():
+                    logging.info("Stopping condition met, breaking out of loop.")
+                    break
+
+        if best_obj is not None:
+            logging.info(
+                f"CDS sequence: makespan={best_obj} at np={best_np}, CDS stage={best_stage}"
+            )
+        return best_sch
+
+    def initialize_schedule_by_gupta(
+        self,
+        head_for_all_stages: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt_per_step: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        best_sch = self._get_schedule_by_gupta(
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+        )
+
+        if best_sch is None:
+            # Failed to find a solution
+            return
+        if error_if_infeasible:
+            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+
+        best_obj = best_sch.makespan
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_sch)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(best_obj), is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_gupta(
+        self,
+        head_for_all_stages: bool = False,
+        draw_gantt_per_step: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_np: int | None = None
+
+        np_list = self._get_np_candidates()
+        np_2_stage_2_head: dict[int, dict[str, int]] = {}
+        for np in np_list:
+            if head_for_all_stages:
+                np_2_stage_2_head[np] = {
+                    stage_id: np for stage_id in self.instance.stage_id_list
+                }
+            else:
+                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
+
+        job_sequence = self.get_gupta_sequence()
+        for np in np_list:
+            logging.debug(f"Gupta dispatching: np={np}")
+            dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
+                job_sequence,
+                np_2_stage_2_head[np],
+                draw_gantt_per_step=draw_gantt_per_step,
+            )
+            if best_obj is None or dispatched_schedule.makespan < best_obj:
+                best_obj = dispatched_schedule.makespan
+                best_sch = dispatched_schedule
+                best_np = np
+            if self.is_stopping_condition():
+                logging.info("Stopping condition met, breaking out of loop.")
+                break
+
+        if best_obj is not None:
+            logging.info(f"Gupta sequence: makespan={best_obj} at np={best_np}")
+        return best_sch
+
+    def initialize_schedule_by_palmer(
+        self,
+        head_for_all_stages: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt_per_step: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        best_sch = self._get_schedule_by_palmer(
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+        )
+
+        if best_sch is None:
+            # Failed to find a solution
+            return
+        if error_if_infeasible:
+            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+
+        best_obj = best_sch.makespan
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_sch)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(best_obj), is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_palmer(
+        self,
+        head_for_all_stages: bool = False,
+        draw_gantt_per_step: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_np: int | None = None
+
+        np_list = self._get_np_candidates()
+        np_2_stage_2_head: dict[int, dict[str, int]] = {}
+        for np in np_list:
+            if head_for_all_stages:
+                np_2_stage_2_head[np] = {
+                    stage_id: np for stage_id in self.instance.stage_id_list
+                }
+            else:
+                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
+
+        job_sequence = self.get_palmer_sequence()
+        for np in np_list:
+            logging.debug(f"Palmer dispatching: np={np}")
+            dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
+                job_sequence,
+                np_2_stage_2_head[np],
+                draw_gantt_per_step=draw_gantt_per_step,
+            )
+            if best_obj is None or dispatched_schedule.makespan < best_obj:
+                best_obj = dispatched_schedule.makespan
+                best_sch = dispatched_schedule
+                best_np = np
+            if self.is_stopping_condition():
+                logging.info("Stopping condition met, breaking out of loop.")
+                break
+
+        if best_obj is not None:
+            logging.info(f"Palmer sequence: makespan={best_obj} at np={best_np}")
+        return best_sch
+
+    def initialize_by_best_of_mixed_dispatches(
+        self,
+        head_for_all_stages: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        best_sch = self._get_schedule_by_best_of_mixed_dispatches(
+            head_for_all_stages=head_for_all_stages
+        )
+
+        if best_sch is None:
+            # Failed to find a solution
+            return
+        if error_if_infeasible:
+            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+        best_obj = best_sch.makespan
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_sch)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(best_obj), is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_best_of_mixed_dispatches(
+        self, head_for_all_stages: bool = False
+    ) -> HybridFlowshopLiteSchedule | None:
+        schedule_gen_methods = [
+            self._get_schedule_by_cds,
+            self._get_schedule_by_gupta,
+            self._get_schedule_by_palmer,
+        ]
+
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_method_name = ""
+
+        for method in schedule_gen_methods:
+            logging.info(f"Generating schedule using {method.__name__}...")
+            sch = method(head_for_all_stages=head_for_all_stages)
+            if sch is not None:
+                obj = sch.makespan
+                logging.info(f"  -> Schedule makespan: {obj}")
+                if best_obj is None or obj < best_obj:
+                    best_obj = obj
+                    best_sch = sch
+                    best_method_name = method.__name__
+
+        if best_sch is not None:
+            logging.info(
+                f"Best schedule generated by {best_method_name} with makespan {best_obj}"
+            )
+        return best_sch
 
     # End subroutine definition
 
