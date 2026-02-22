@@ -1156,7 +1156,9 @@ def test_wave_batch_missing_duration():
         "s2": {"j1": 3},  # j2 missing
     }
 
-    with pytest.raises(ValueError, match="Duration for job ID j2 at stage s2 not provided"):
+    with pytest.raises(
+        ValueError, match="Duration for job ID j2 at stage s2 not provided"
+    ):
         sched.dispatch_wave_batches(
             batch_size=2,
             job_ids=["j1", "j2"],
@@ -1285,16 +1287,18 @@ def test_from_job_sequence_get_schedule_mixed_validation():
         "s2": {"j1": 3},  # j2 missing
     }
 
-    with pytest.raises(ValueError, match="Duration for job ID j2 at stage s2 not provided"):
+    with pytest.raises(
+        ValueError, match="Duration for job ID j2 at stage s2 not provided"
+    ):
         from_job_sequence_get_schedule_mixed(
             sched, ["j1", "j2"], stage_2_duration, {"s1": 2}
         )
 
 
-def test_from_job_sequence_get_schedule_mixed_head_per_stage_cumulative():
-    """Test that head_per_stage is cumulatively adjusted based on remaining jobs.
+def test_from_job_sequence_get_schedule_mixed_stage_2_head_cumulative():
+    """Test that stage_2_head is cumulatively adjusted based on remaining jobs.
 
-    With 5 jobs and head_per_stage={"s1": 3, "s2": 3}:
+    With 5 jobs and stage_2_head={"s1": 3, "s2": 3}:
     - s1 dispatches 3 jobs (j1, j2, j3) via dispatch_job_by_stages
     - s2 sees only 2 jobs remaining, so it dispatches min(3, 2) = 2 jobs via dispatch_job_by_stages
     - All remaining jobs are filled via dispatch_stage_by_jobs
@@ -1424,13 +1428,19 @@ def test_from_job_sequence_get_schedule_mixed_all_via_dispatch_job():
     # All jobs should be scheduled at all stages via dispatch_job_by_stages
     # s1: j1(0-2), j2(2-5), j3(5-6)
     assert schedule.get_job_end_time("s1", "j1") == 2
-    assert schedule.get_job_end_time("s2", "j1") == 5  # s1 end + s2 duration = 2 + 3 = 5
+    assert (
+        schedule.get_job_end_time("s2", "j1") == 5
+    )  # s1 end + s2 duration = 2 + 3 = 5
 
     assert schedule.get_job_end_time("s1", "j2") == 5
-    assert schedule.get_job_end_time("s2", "j2") == 7  # s1 end + s2 duration = 5 + 2 = 7
+    assert (
+        schedule.get_job_end_time("s2", "j2") == 7
+    )  # s1 end + s2 duration = 5 + 2 = 7
 
     assert schedule.get_job_end_time("s1", "j3") == 6
-    assert schedule.get_job_end_time("s2", "j3") == 11  # s1 end + s2 duration = 6 + 4 = 10... wait, 11?
+    assert (
+        schedule.get_job_end_time("s2", "j3") == 11
+    )  # s1 end + s2 duration = 6 + 4 = 10... wait, 11?
 
     # The actual behavior: j1 ends at 5 on s2, j2 starts at 5 ends at 7, j3 starts at 7 ends at 11
     # This is because dispatch_job_by_stages schedules jobs sequentially on the same machine
@@ -1438,7 +1448,7 @@ def test_from_job_sequence_get_schedule_mixed_all_via_dispatch_job():
 
 
 def test_from_job_sequence_get_schedule_mixed_empty_head():
-    """Test when head_per_stage has 0 for all stages (all via dispatch_stage_by_jobs)."""
+    """Test when stage_2_head has 0 for all stages (all via dispatch_stage_by_jobs)."""
     from hybridflowshop.schedule_lite import from_job_sequence_get_schedule_mixed
 
     sched = HybridFlowshopLiteSchedule(
@@ -1541,7 +1551,7 @@ def test_from_job_sequence_get_schedule_mixed_validation_empty_schedule():
 
 
 def test_from_job_sequence_get_schedule_mixed_validation_invalid_head():
-    """Test that invalid head_per_stage raises ValueError."""
+    """Test that invalid stage_2_head raises ValueError."""
     from hybridflowshop.schedule_lite import from_job_sequence_get_schedule_mixed
 
     sched = HybridFlowshopLiteSchedule(
@@ -1555,13 +1565,13 @@ def test_from_job_sequence_get_schedule_mixed_validation_invalid_head():
     }
 
     # Invalid stage_id
-    with pytest.raises(ValueError, match="Unknown stage_id in head_per_stage"):
+    with pytest.raises(ValueError, match="Unknown stage_id in stage_2_head"):
         from_job_sequence_get_schedule_mixed(
             sched, ["j1"], stage_2_duration, {"invalid_stage": 1}
         )
 
     # Negative value
-    with pytest.raises(ValueError, match="head_per_stage values must be non-negative"):
+    with pytest.raises(ValueError, match="stage_2_head values must be non-negative"):
         from_job_sequence_get_schedule_mixed(
             sched, ["j1"], stage_2_duration, {"s1": -1}
         )
@@ -1612,9 +1622,7 @@ def test_get_job_priority_queue_for_stage_dispatch():
     # At s2, priority based on s1 end times:
     # j2 has default_if_missing=0, j1 ends at 2, j3 ends at 3
     # Priority order: j2 (0), j1 (2), j3 (3)
-    priority = sched.get_job_priority_queue_for_stage_dispatch(
-        "s2", ["j1", "j2", "j3"]
-    )
+    priority = sched.get_job_priority_queue_for_stage_dispatch("s2", ["j1", "j2", "j3"])
     assert priority == ["j2", "j1", "j3"], f"Got {priority}"
 
     # With release times: add j2 at s2
@@ -1623,9 +1631,7 @@ def test_get_job_priority_queue_for_stage_dispatch():
 
     # At s3, priorities based on s2 end times:
     # j1 ends at 5 (2+3), j3 ends at 7 (3+4), j2 ends at 12
-    priority = sched.get_job_priority_queue_for_stage_dispatch(
-        "s3", ["j1", "j2", "j3"]
-    )
+    priority = sched.get_job_priority_queue_for_stage_dispatch("s3", ["j1", "j2", "j3"])
     assert priority == ["j1", "j3", "j2"], f"Got {priority}"
 
 
@@ -1636,4 +1642,3 @@ def test_get_job_priority_queue_for_stage_dispatch():
 # These tests are deprecated and kept for reference only.
 # The dispatch_stage_by_jobs_filtered method was removed in favor of the
 # new standalone from_job_sequence_get_schedule_mixed function.
-

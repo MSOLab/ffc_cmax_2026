@@ -6,7 +6,7 @@
   reverse_mid_even: False
   reverse_mid_all: False
   use_dwb: False
-  mixed_schedule_for_former_stages: False
+  mixed_schedule_for_former_stages: True
   head_for_all_stages: False
   error_if_infeasible: False
   draw_gantt: False

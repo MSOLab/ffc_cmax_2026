@@ -2226,6 +2226,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         option: BottleneckStageScheduleHeuristicOption,
         use_dwb: bool = False,
         dwb_batch_size: int | None = None,
+        mixed_schedule_for_former_stages: bool = False,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         """Schedule the entire hybrid flow shop from a single bottleneck stage.
@@ -2331,7 +2332,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
             # Dispatch former stages
             former_schedule = self._dispatch_former_stages(
-                instance_for_former_stages, job_2_release
+                instance_for_former_stages,
+                job_2_release,
+                get_mixed_schedule=mixed_schedule_for_former_stages,
             )
             former_schedule_makespan = former_schedule.makespan
             logging.debug(
@@ -2416,6 +2419,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_even: bool = False,
         use_dwb: bool = False,
         dwb_batch_size: int | None = None,
+        mixed_schedule_for_former_stages: bool = False,
         randomize_mid_all: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -2433,6 +2437,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_even=reverse_mid_even,
             use_dwb=use_dwb,
             dwb_batch_size=dwb_batch_size,
+            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             randomize_mid_all=randomize_mid_all,
         )
 
@@ -2474,6 +2479,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_even: bool = False,
         use_dwb: bool = False,
         dwb_batch_size: int | None = None,
+        mixed_schedule_for_former_stages: bool = False,
         randomize_mid_all: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         best_obj: int | None = None
@@ -2496,6 +2502,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 option,
                 use_dwb=use_dwb,
                 dwb_batch_size=dwb_batch_size,
+                mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
                 draw_gantt=False,
             )
             makespan = schedule.makespan
@@ -2664,7 +2671,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if last_stage_completion > makespan:
                 makespan = last_stage_completion
 
-        logging.info(f"Bottleneck parallel MC: partial_obj={makespan}")
+        logging.debug(f"Bottleneck parallel MC: partial_obj={makespan}")
         # Draw Gantt chart; force start time as zero and end time as makespan by CP
         if draw_gantt:
             self.draw_gantt(dispatched_schedule, force_start=0, force_end=makespan)
@@ -2709,7 +2716,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         instance_for_former_stages: HybridFlowshopParameters,
         job_2_release: dict[str, int],
-    ) -> HybridFlowshopLiteSchedule:
+        get_mixed_schedule: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
         # list of jobs sorted by release time (ascending)
         sorted_j_list = sorted(
             instance_for_former_stages.job_id_list,
@@ -2718,6 +2726,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 instance_for_former_stages.job_id_list.index(j),
             ),
         )
+        if get_mixed_schedule:
+            return self._from_job_sequence_and_np_list_get_best_mixed_schedule(
+                sorted_j_list,
+                prob_instance=instance_for_former_stages,
+                job_2_release=job_2_release,
+                draw_gantt_per_step=False,
+            )
 
         ds_schedule = self.create_empty_schedule_from_ins(instance_for_former_stages)
         for stage_id in instance_for_former_stages.stage_id_list:
@@ -2749,14 +2764,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         job_sequence: Sequence[str],
         stage_2_head: Mapping[str, int],
+        prob_instance: HybridFlowshopParameters | None = None,
+        job_2_release: dict[str, int] | None = None,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule:
-        schedule = self.create_empty_schedule_from_ins()
+        schedule = self.create_empty_schedule_from_ins(instance=prob_instance)
         return from_job_sequence_get_schedule_mixed(
             schedule,
             job_sequence,
             self.stage_2_job_2_p_dict,
             stage_2_head,
+            job_2_release=job_2_release,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -2834,9 +2852,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         np_list.append(0)  # Add the case where all jobs are in the tail
         return np_list
 
-    def _get_job_sequence_and_np_list_get_best_mixed_schedule(
+    def _from_job_sequence_and_np_list_get_best_mixed_schedule(
         self,
         job_sequence: Sequence[str],
+        prob_instance: HybridFlowshopParameters | None = None,
+        job_2_release: dict[str, int] | None = None,
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
@@ -2858,6 +2878,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
                 job_sequence,
                 np_2_stage_2_head[np],
+                prob_instance=prob_instance,
+                job_2_release=job_2_release,
                 draw_gantt_per_step=draw_gantt_per_step,
             )
             if dispatched_schedule is None:
@@ -2939,7 +2961,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
             job_sequence = self.get_cds_sequence(k)
             dispatched_schedule = (
-                self._get_job_sequence_and_np_list_get_best_mixed_schedule(
+                self._from_job_sequence_and_np_list_get_best_mixed_schedule(
                     job_sequence,
                     head_for_all_stages=head_for_all_stages,
                     draw_gantt_per_step=draw_gantt_per_step,
@@ -3009,7 +3031,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
-        best_sch = self._get_job_sequence_and_np_list_get_best_mixed_schedule(
+        best_sch = self._from_job_sequence_and_np_list_get_best_mixed_schedule(
             self.get_gupta_sequence(),
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
@@ -3067,7 +3089,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
-        best_sch = self._get_job_sequence_and_np_list_get_best_mixed_schedule(
+        best_sch = self._from_job_sequence_and_np_list_get_best_mixed_schedule(
             self.get_palmer_sequence(),
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
@@ -3158,6 +3180,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_even: bool = False,
         use_dwb: bool = False,
         dwb_batch_size: int | None = None,
+        mixed_schedule_for_former_stages: bool = False,
         randomize_mid_all: bool = False,
         head_for_all_stages: bool = False,
         error_if_infeasible: bool = False,
@@ -3176,6 +3199,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_even=reverse_mid_even,
             use_dwb=use_dwb,
             dwb_batch_size=dwb_batch_size,
+            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             randomize_mid_all=randomize_mid_all,
         )
         best_obj_1 = sch_1.makespan if sch_1 is not None else None

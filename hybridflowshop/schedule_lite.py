@@ -532,26 +532,39 @@ class HybridFlowshopLiteSchedule:
         self.add_ops_times_2_mc(stage_id, mc_id, job_id, start_time, end_time)
 
     def get_job_priority_queue_for_stage_dispatch(
-        self, stage_id: StageIdType, job_id_seq: Sequence[JobIdType]
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        job_2_release: Mapping[JobIdType, int] | None = None,
     ) -> list[JobIdType]:
         """Returns a priority-ordered list of job IDs for dispatching to a stage.
 
         The priority is determined by:
-        1. Previous stage completion time (earlier completion = higher priority)
+        1. Effective start time (max of previous stage end time and release time)
+           - Earlier effective start time = higher priority
         2. Input sequence order (as tiebreaker)
 
         Args:
             stage_id (StageIdType): Stage identifier
             job_id_seq (Sequence[JobIdType]): Sequence of job identifiers to prioritize
+            job_2_release (Mapping[JobIdType, int] | None, optional): Mapping from job
+                ID to release time. If provided, each job's effective start time is
+                calculated as max(prev_stage_end_time, release_time). Jobs not in the
+                mapping use release_time=0 (can start immediately). Defaults to None.
 
         Returns:
-            list[JobIdType]: Priority-ordered list of job identifiers
+            list[JobIdType]: Priority-ordered list of job identifiers (highest priority first)
         """
         job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
         job_priority_queue = sorted(
             job_id_seq,
             key=lambda job_id: (
-                self.get_prev_stage_end_time(stage_id, job_id, default_if_missing=0),
+                max(
+                    self.get_prev_stage_end_time(
+                        stage_id, job_id, default_if_missing=0
+                    ),
+                    job_2_release.get(job_id, 0) if job_2_release else 0,
+                ),
                 job_id_2_pos[job_id],
             ),
         )
@@ -568,7 +581,7 @@ class HybridFlowshopLiteSchedule:
 
         This method schedules all jobs in the sequence to the specified stage.
         Jobs are scheduled in priority order based on:
-        1. Previous stage completion time (earlier completion = higher priority)
+        1. Effective start time (max of previous stage end time and release time)
         2. Input sequence order (as tiebreaker)
 
         This priority rule ensures that jobs ready earlier can claim earlier time slots,
@@ -579,7 +592,9 @@ class HybridFlowshopLiteSchedule:
             job_id_seq (Sequence[JobIdType]): Sequence of job identifiers to dispatch
             job_2_duration (Mapping[JobIdType, int]): Mapping from job ID to operation duration
             job_2_release (Mapping[JobIdType, int] | None, optional): Mapping from job ID to release time.
+                If provided, each job's effective start time is max(prev_stage_end_time, release_time).
                 Defaults to None.
+
         Raises:
             ValueError: If stage_id is invalid
             ValueError: If a job's duration is not provided in job_2_duration
@@ -614,7 +629,10 @@ class HybridFlowshopLiteSchedule:
         Args:
             job_id (JobIdType): Job identifier
             stage_2_duration (Mapping[StageIdType, int]): Mapping from stage ID to operation duration
-            release_t (int | None, optional): Release time for the job. Defaults to None.
+            from_stage (StageIdType | None, optional): Stage to start from. If provided,
+                scheduling begins at this stage (skipping earlier stages). Defaults to None.
+            release_t (int | None, optional): Release time for the job. All stages for
+                this job will respect this release time. Defaults to None.
 
         Raises:
             ValueError: If job_id is invalid
@@ -1481,7 +1499,8 @@ def from_job_sequence_get_schedule_mixed(
     schedule: HybridFlowshopLiteSchedule,
     job_sequence: Sequence[JobIdType],
     stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
-    head_per_stage: Mapping[StageIdType, int],
+    stage_2_head: Mapping[StageIdType, int],
+    job_2_release: dict[str, int] | None = None,
     draw_gantt_per_step: bool = False,
     get_file_path_for_subroutine: Callable | None = None,
 ) -> HybridFlowshopLiteSchedule:
@@ -1513,19 +1532,23 @@ def from_job_sequence_get_schedule_mixed(
             tiebreaker priority when jobs have the same previous stage end time.
         stage_2_job_2_p: stage -> job -> processing time mapping. Must include all
             jobs and stages.
-        head_per_stage: Mapping from stage_id to the number of jobs to dispatch via
+        stage_2_head: Mapping from stage_id to the number of jobs to dispatch via
             dispatch_job_by_stages at that stage. These values are applied as a
             cumulative cap across stages: once k jobs have been fully dispatched from
             earlier stages, they reduce the remaining budget for later stages.
-            E.g., with 5 jobs and head_per_stage={"s1": 3, "s2": 3}, s2 effectively
+            E.g., with 5 jobs and stage_2_head={"s1": 3, "s2": 3}, s2 effectively
             uses min(3, 5-3) = 2 since only 2 jobs remain after s1 dispatches 3 jobs.
+        job_2_release: Optional mapping from job ID to release time, used for the first
+            stage's priority queue (as a lower bound on when the job can start). If
+            provided, the priority is max(prev_stage_end, release_time). Ignored for
+            later stages since their priority is determined by previous stage completion.
 
     Returns:
         The populated HybridFlowshopLiteSchedule.
 
     Raises:
         ValueError: If schedule is not empty.
-        ValueError: If head_per_stage contains an unknown stage_id or a negative value.
+        ValueError: If stage_2_head contains an unknown stage_id or a negative value.
         ValueError: If a job's duration is missing for any stage.
 
     Example:
@@ -1547,13 +1570,13 @@ def from_job_sequence_get_schedule_mixed(
             "schedule must be empty when calling from_job_sequence_get_schedule_mixed()"
         )
 
-    # Validation: head_per_stage keys must be valid stages, and values must be non-negative
-    for stage_id, k in head_per_stage.items():
+    # Validation: stage_2_head keys must be valid stages, and values must be non-negative
+    for stage_id, k in stage_2_head.items():
         if stage_id not in schedule.stages:
-            raise ValueError(f"Unknown stage_id in head_per_stage: {stage_id}")
+            raise ValueError(f"Unknown stage_id in stage_2_head: {stage_id}")
         if k < 0:
             raise ValueError(
-                f"head_per_stage values must be non-negative, got {k} for stage {stage_id}"
+                f"stage_2_head values must be non-negative, got {k} for stage {stage_id}"
             )
 
     # Validation: check all required durations are provided
@@ -1569,36 +1592,43 @@ def from_job_sequence_get_schedule_mixed(
     if draw_gantt_per_step:
         plotter = GanttPlotter()
 
-    # Preprocess head_per_stage with cumulative adjustment
-    # If head_per_stage = {"s1": 3, "s2": 3} and total jobs = 5,
+    target_stage_list = schedule.stages
+
+    # Preprocess stage_2_head with cumulative adjustment
+    # If stage_2_head = {"s1": 3, "s2": 3} and total jobs = 5,
     # adjust to {"s1": 3, "s2": 2} because only 2 jobs remain after s1 dispatches 3
-    _head_per_stage: dict[StageIdType, int] = {}
+    _stage_2_head: dict[StageIdType, int] = {}
     remaining_jobs_for_stage = len(job_sequence)
-    for stage_id in schedule.stages:
-        if stage_id in head_per_stage:
-            _head_per_stage[stage_id] = min(
-                head_per_stage[stage_id], remaining_jobs_for_stage
+    for stage_id in target_stage_list:
+        if stage_id in stage_2_head:
+            _stage_2_head[stage_id] = min(
+                stage_2_head[stage_id], remaining_jobs_for_stage
             )
-            remaining_jobs_for_stage -= _head_per_stage[stage_id]
+            remaining_jobs_for_stage -= _stage_2_head[stage_id]
         else:
-            _head_per_stage[stage_id] = 0
+            _stage_2_head[stage_id] = 0
 
     completed_job_set: set[JobIdType] = set()
     # For each stage, dispatch k jobs via dispatch_job_by_stages,
     # then fill remaining slots via dispatch_stage_by_jobs
-    for stage_idx, stage_id in enumerate(schedule.stages):
+    for stage_idx, stage_id in enumerate(target_stage_list):
+        if stage_idx == 0:
+            _job_2_release = job_2_release
+        else:
+            _job_2_release = None
+
         # Job priority queue for this stage: sorted by (1) earliest start time, then (2) sequence order
         remaining_job_sequence = [
             job_id for job_id in job_sequence if job_id not in completed_job_set
         ]
         job_priority_queue = schedule.get_job_priority_queue_for_stage_dispatch(
-            stage_id, remaining_job_sequence
+            stage_id, remaining_job_sequence, job_2_release=_job_2_release
         )
 
         # Phase 1: dispatch k jobs through all remaining stages (skip if stage_k is 0)
-        stage_k = _head_per_stage.get(stage_id, 0)
+        stage_k = _stage_2_head.get(stage_id, 0)
         if stage_k > 0:
-            stages_from_here = schedule.stages[stage_idx:]
+            stages_from_here = target_stage_list[stage_idx:]
             first_k_jobs = list(job_priority_queue)[:stage_k]
 
             for job_id in first_k_jobs:
@@ -1609,6 +1639,7 @@ def from_job_sequence_get_schedule_mixed(
                     job_id,
                     job_stage_dur,
                     from_stage=stage_id,
+                    release_t=_job_2_release.get(job_id, 0) if _job_2_release else 0,
                 )
                 completed_job_set.add(job_id)
         if draw_gantt_per_step:
@@ -1628,7 +1659,10 @@ def from_job_sequence_get_schedule_mixed(
         ]
         if unscheduled_jobs:
             schedule.dispatch_stage_by_jobs(
-                stage_id, unscheduled_jobs, stage_2_job_2_p[stage_id]
+                stage_id,
+                unscheduled_jobs,
+                stage_2_job_2_p[stage_id],
+                job_2_release=_job_2_release,
             )
             if draw_gantt_per_step:
                 output_path = get_file_path_for_subroutine(
