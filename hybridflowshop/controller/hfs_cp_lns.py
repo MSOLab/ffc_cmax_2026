@@ -1750,6 +1750,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         added_batch_size: int = 1,
         max_time_per_add: float | None = None,
+        job_seq_by_bottleneck_stage: bool = False,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
@@ -1764,28 +1765,37 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         Builds a CP-guided solution using a midpoint sequence from the incumbent solution.
 
         Args:
-            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
-            added_batch_size (int, optional): The number of jobs to add in each iteration.
-                Defaults to 1.
-            max_time_per_add (float | None, optional): Time limit (in seconds) for solving each incremental subproblem.
-                If None, uses the remaining time limit. Defaults to None.
-            cp_tl_nc_multiplier (float | None, optional): Multiplier for the time limit of each CP subproblem.
-                If None, uses the default value. Defaults to None.
-            cp_tl_c_multiplier (float | None, optional): Multiplier for the time limit of each CP subproblem.
-                If None, uses the default value. Defaults to None.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to
+                use during search.
+            added_batch_size (int, optional): The number of jobs to add in each
+                iteration. Defaults to 1.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for
+                solving each incremental subproblem. If None, uses the remaining time
+                limit. Defaults to None.
+            job_seq_by_bottleneck_stage (bool, optional): If True, defines the job
+                sequence according to incumbent schedule's bottleck stage schedule.
+                Otherwise, uses the job sequence by increasing order of
+                (first stage start time + last stage end time) / 2.
+                Defaults to False.
+            cp_tl_nc_multiplier (float | None, optional): Multiplier for the time
+                limit of each CP subproblem. If None, uses the default value.
+                Defaults to None.
+            cp_tl_c_multiplier (float | None, optional): Multiplier for the time limit
+                of each CP subproblem. If None, uses the default value.
+                Defaults to None.
             profile_fix_by_machine (bool, optional): If True, fix precedence by machine
                 adjacency; otherwise apply stage-level time-based selection.
                 Defaults to False.
-            minimize_sum_ci_lex (bool, optional): If True, minimizes the sum of completion
-                times in each CP subproblem after minimizing the makespan.
+            minimize_sum_ci_lex (bool, optional): If True, minimizes the sum of
+                completion times in each CP subproblem after minimizing the makespan.
                 Defaults to False.
-            minimize_sum_ci_lin (bool, optional): If True, minimizes the sum of completion
-                times in each CP subproblem by a linear combination with the makespan.
-                Defaults to False.
+            minimize_sum_ci_lin (bool, optional): If True, minimizes the sum of
+                completion times in each CP subproblem by a linear combination with the
+                makespan. Defaults to False.
             make_semi_active_every_cp (bool, optional): If True, makes the solution
                 semi-active after solving each CP subproblem. Defaults to False.
-            error_if_infeasible (bool, optional): If True, raises an error if the solution is infeasible.
-                Defaults to False.
+            error_if_infeasible (bool, optional): If True, raises an error if the
+                solution is infeasible. Defaults to False.
             draw_gantt (bool, optional): If True, draws a Gantt chart of the solution.
                 Defaults to False.
         """
@@ -1803,6 +1813,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.stage_2_job_2_p_dict,
             added_batch_size=added_batch_size,
             max_time_per_add=max_time_per_add,
+            job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
             cp_tl_nc_multiplier=cp_tl_nc_multiplier,
             cp_tl_c_multiplier=cp_tl_c_multiplier,
             profile_fix_by_machine=profile_fix_by_machine,

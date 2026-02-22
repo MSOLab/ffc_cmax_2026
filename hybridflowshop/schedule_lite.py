@@ -339,6 +339,31 @@ class HybridFlowshopLiteSchedule:
                 stage_2_mc_2_last_end_time[stage][mc] = end
         return stage_2_mc_2_last_end_time
 
+    def get_stage_2_mc_2_idle_time_map(
+        self, include_idle_before_first_op: bool = False
+    ) -> dict[StageIdType, dict[McIdType, int]]:
+        stage_2_mc_2_idle_time = {
+            stage: {mc: 0 for mc in self.machines_per_stage[stage]}
+            for stage in self.stages
+        }
+        for stage_id in self.stages:
+            for mc_id in self.machines_per_stage[stage_id]:
+                former_end_time: int | None = None
+                for start_time, end_time, job_id in self.get_job_sequence(
+                    stage_id, mc_id
+                ):
+                    if former_end_time is None:
+                        if include_idle_before_first_op:
+                            former_end_time = 0
+                        else:
+                            former_end_time = start_time
+                    idle_time = start_time - former_end_time
+                    if idle_time > 0:
+                        stage_2_mc_2_idle_time[stage_id][mc_id] += idle_time
+                    former_end_time = end_time
+
+        return stage_2_mc_2_idle_time
+
     # Setters
 
     def sort_by_start_times(self) -> None:

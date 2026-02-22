@@ -108,6 +108,7 @@ class NehCpConstructor:
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         added_batch_size: int | None = None,
         max_time_per_add: float | None = None,
+        job_seq_by_bottleneck_stage: bool = False,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
@@ -169,8 +170,13 @@ class NehCpConstructor:
             current_job_id_list=[],
             full_sol=ref_schedule,
         )
-
-        job_sequence: list[str] = self.get_midpoint_sequence(instance, ref_schedule)
+        job_sequence: list[str]
+        if job_seq_by_bottleneck_stage:
+            job_sequence = self.get_bottleneck_stage_job_sequence(
+                instance, ref_schedule
+            )
+        else:
+            job_sequence = self.get_midpoint_sequence(instance, ref_schedule)
         job_cnt = len(job_sequence)
         sequence_of_job_sublist = [
             job_sequence[i : i + _added_batch_size]
@@ -287,6 +293,53 @@ class NehCpConstructor:
         )
 
     @staticmethod
+    def get_bottleneck_stage_job_sequence(
+        instance: HybridFlowshopParameters,
+        schedule: HybridFlowshopLiteSchedule,
+    ) -> list[str]:
+        """Get job sequence based on bottleneck stage.
+
+        Args:
+            instance (HybridFlowshopParameters): The hybrid flowshop problem instance.
+            schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
+
+        Returns:
+            list[str]: A list of job names ordered by starting time at the bottleneck stage,
+            with ties broken by (starting time + end time) / 2 and then by
+            original job order index.
+        """
+        # Identify bottleneck stage as the stage with the smallest type 2 idle time
+        stage_2_mc_2_idle_time_map = schedule.get_stage_2_mc_2_idle_time_map()
+        stage_2_total_idle_time = {
+            stage: sum(mc_2_idle_time.values())
+            for stage, mc_2_idle_time in stage_2_mc_2_idle_time_map.items()
+        }
+        bottleneck_stage = min(stage_2_total_idle_time, key=stage_2_total_idle_time.get)
+
+        start_map = schedule.get_jik_2_start_time_map()
+        end_map = schedule.get_jik_2_end_time_map()
+        jobs = instance.job_id_list
+        idx_map = {j: idx for idx, j in enumerate(jobs)}
+
+        seq_info: list[tuple[int, float, int, str]] = []
+        for j in jobs:
+            s_bottleneck = next(
+                t
+                for (job, stage, _), t in start_map.items()
+                if job == j and stage == bottleneck_stage
+            )
+            e_bottleneck = next(
+                t
+                for (job, stage, _), t in end_map.items()
+                if job == j and stage == bottleneck_stage
+            )
+            midpoint = (s_bottleneck + e_bottleneck) / 2
+            seq_info.append((s_bottleneck, midpoint, idx_map[j], j))
+
+        seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
+        return [info[3] for info in seq_info]
+
+    @staticmethod
     def get_midpoint_sequence(
         instance: HybridFlowshopParameters,
         schedule: HybridFlowshopLiteSchedule,
@@ -294,6 +347,7 @@ class NehCpConstructor:
         """Get job sequence based on midpoint criteria.
 
         Args:
+            instance (HybridFlowshopParameters): The hybrid flowshop problem instance.
             schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
 
         Returns:
