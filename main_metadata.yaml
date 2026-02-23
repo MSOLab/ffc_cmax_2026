@@ -923,11 +923,15 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-23.yaml"
   #   output_dir: "pra_half_nc/20260222-23"
   #   description: "initialize_by_best_of_selected_dispatches + NEH-CP (0.4c, lexico, 2nd obj 0.1c)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260222-24.yaml"
+    output_dir: "pra_half_nc/20260222-24"
+    description: "initialize_by_best_of_selected_dispatches + NEH-CP (0.5c)"
 
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260223-01.yaml"
-    output_dir: "pra_half_nc/20260223-01"
-    description: "Dispatch -> NEH-CP (0.3c, lexico, 2nd obj 0.2c) -> baseCP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260223-01.yaml"
+  #   output_dir: "pra_half_nc/20260223-01"
+  #   description: "Dispatch -> NEH-CP (0.3c, lexico, 2nd obj 0.2c) -> baseCP"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
