@@ -2,8 +2,6 @@
 BaseDispatcher class with shared utilities for all dispatchers.
 """
 
-import math
-
 from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
@@ -173,21 +171,3 @@ class BaseDispatcher:
 
         sorted_jobs = sorted(jobs, key=lambda j: (palmer_score[j], j))
         return sorted_jobs
-
-    def get_np_candidates(self) -> list[int]:
-        """
-        Generate candidate values for the number of priority jobs (np) for mixed dispatch.
-
-        Generates a sequence of decreasing np values by halving (ceiling) starting from
-        the total job count, ending with 0.
-
-        Returns:
-            List of np candidates in descending order.
-        """
-        np = self.job_count
-        np_list = [np]
-        while np > 1:
-            np = math.ceil(np / 2)
-            np_list.append(np)
-        np_list.append(0)
-        return np_list

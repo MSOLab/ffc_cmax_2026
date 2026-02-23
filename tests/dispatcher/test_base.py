@@ -29,15 +29,6 @@ class TestBaseDispatcher:
         # Result: [B, A, C]
         assert sequence == ["B", "A", "C"]
 
-    def test_get_np_candidates(self) -> None:
-        """Test NP candidate generation."""
-        dispatcher = BaseDispatcher.__new__(BaseDispatcher)
-        dispatcher.job_count = 8  # Must be set since __init__ isn't called
-        np_list = dispatcher.get_np_candidates()
-        # job_count=8, so candidates should be [8, 4, 2, 1, 0]
-        # (ceiling of 8/2 = 4, ceiling of 4/2 = 2, ceiling of 2/2 = 1, then 0)
-        assert np_list == [8, 4, 2, 1, 0]
-
 
 class TestDispatcherStructure:
     """Tests for dispatcher class hierarchy."""
