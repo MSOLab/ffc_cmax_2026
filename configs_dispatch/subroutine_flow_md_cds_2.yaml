@@ -1,4 +1,4 @@
-- method: get_schedule_by_cds
+- method: initialize_schedule_by_cds
   head_for_all_stages: true
   error_if_infeasible: true
   draw_gantt_per_step: false
