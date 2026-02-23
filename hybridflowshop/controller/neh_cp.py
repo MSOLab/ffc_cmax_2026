@@ -6,7 +6,10 @@ from typing import Protocol
 from mbls.cpsat import CpsatSolverReport, CustomCpModel, ObjValueBoundStore
 from ortools.sat.python.cp_model import CpModel
 from routix import ElapsedTimer
-from schore.parameters_examples import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+    create_instance_of_job_subset,
+)
 
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
 from hybridflowshop.cpsat_model_2.params import Params
@@ -392,7 +395,7 @@ class NehCpConstructor:
         # stage_2_mc_horizon: dict[str, dict[str, int]] = (
         #     partial_sol.get_stage_2_mc_2_last_end_time_map()
         # )
-        sub_instance = instance.create_instance_of_job_subset(st.current_job_id_list)
+        sub_instance = create_instance_of_job_subset(instance, st.current_job_id_list)
         builder = BaseModelBuilder()
         mdl, params, variables = builder.build(
             sub_instance,

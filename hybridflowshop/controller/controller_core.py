@@ -75,13 +75,9 @@ class HybridFlowShopCpLnsControllerCore(
         assert "" not in self.method_names_to_run_before_resume
 
         # Frequently used parameters
-        self.job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
-            self.instance.job_id_list, self.instance.stage_id_list
-        )
+        self.job_2_stage_2_p_dict = self.instance.job_2_stage_2_p_map
         """Job name -> stage name -> processing time map"""
-        self.stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
+        self.stage_2_job_2_p_dict = self.instance.stage_2_job_2_p_map
         """Stage name -> job name -> processing time map"""
 
         logging.info(
