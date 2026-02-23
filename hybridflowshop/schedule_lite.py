@@ -1525,21 +1525,24 @@ def from_job_sequence_get_schedule_mixed(
     job_sequence: Sequence[JobIdType],
     stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
     stage_2_head: Mapping[StageIdType, int],
+    from_stage: StageIdType | None = None,
     job_2_release: dict[str, int] | None = None,
     draw_gantt_per_step: bool = False,
     get_file_path_for_subroutine: Callable | None = None,
-) -> HybridFlowshopLiteSchedule:
-    """Mixed dispatch strategy with per-stage k values.
+) -> None:
+    """Mixed dispatch strategy with per-stage k values that supports incremental
+    scheduling.
 
     Implements a hybrid dispatch strategy that combines:
-    1. dispatch_job_by_stages: dispatch k jobs through all stages
+    1. dispatch_job_by_stages: dispatch k jobs through all stages from from_stage onward
     2. dispatch_stage_by_jobs: priority-based scheduling for remaining jobs
 
     The strategy works as follows:
-    - For each stage (in order), determine the remaining jobs that have not been
-      fully dispatched from some earlier stage, and sort them by priority (earliest
-      previous stage end time first, then sequence order). Dispatch the first k jobs
-      from this priority queue through all remaining stages using dispatch_job_by_stages.
+    - For each stage from from_stage to the last stage (in order), determine the
+      remaining jobs that have not been fully dispatched from some earlier stage,
+      and sort them by priority (earliest previous stage end time first, then
+      sequence order). Dispatch the first k jobs from this priority queue through
+      all remaining stages using dispatch_job_by_stages.
     - Fill remaining slots at each stage using dispatch_stage_by_jobs with the
       same priority rule.
     - A job that has been dispatched through all remaining stages via
@@ -1551,61 +1554,65 @@ def from_job_sequence_get_schedule_mixed(
     and priority-based dispatch (for remaining jobs).
 
     Args:
-        schedule: An empty HybridFlowshopLiteSchedule to populate. The schedule
-            is modified in-place and also returned.
-        job_sequence: Sequence of job IDs to schedule. The order represents the
-            tiebreaker priority when jobs have the same previous stage end time.
-        stage_2_job_2_p: stage -> job -> processing time mapping. Must include all
-            jobs and stages.
-        stage_2_head: Mapping from stage_id to the number of jobs to dispatch via
-            dispatch_job_by_stages at that stage. These values are applied as a
-            cumulative cap across stages: once k jobs have been fully dispatched from
-            earlier stages, they reduce the remaining budget for later stages.
+        schedule (HybridFlowshopLiteSchedule): A HybridFlowshopLiteSchedule to
+            populate.The schedule may be empty or partially scheduled. The schedule is
+            modified in-place.
+        job_sequence (Sequence[JobIdType]): Sequence of job IDs to schedule. The order
+            represents the tiebreaker priority when jobs have the same previous stage
+            end time.
+        stage_2_job_2_p (Mapping[StageIdType, Mapping[JobIdType, int]]): stage -> job
+            -> processing time mapping. Must include all jobs and stages.
+        stage_2_head (Mapping[StageIdType, int]): Mapping from stage_id to the number
+            of jobs to dispatch via dispatch_job_by_stages at that stage. These values
+            are applied as a cumulative cap across stages: once k jobs have been fully
+            dispatched from earlier stages, they reduce the remaining budget for later
+            stages.
             E.g., with 5 jobs and stage_2_head={"s1": 3, "s2": 3}, s2 effectively
             uses min(3, 5-3) = 2 since only 2 jobs remain after s1 dispatches 3 jobs.
-        job_2_release: Optional mapping from job ID to release time, used for the first
-            stage's priority queue (as a lower bound on when the job can start). If
-            provided, the priority is max(prev_stage_end, release_time). Ignored for
-            later stages since their priority is determined by previous stage completion.
-
-    Returns:
-        The populated HybridFlowshopLiteSchedule.
+        from_stage (StageIdType | None, optional): Stage to start scheduling from.
+            If provided, scheduling begins at this stage using existing completion
+            times from the previous stage as precedence constraints. If not provided,
+            scheduling starts from the first stage. Defaults to None.
+        job_2_release (dict[str, int] | None, optional): Mapping from job ID to release
+            time, used for the first stage's priority queue (as a lower bound on when
+            the job can start).
+            If provided, the priority is max(prev_stage_end, release_time).
+            Ignored for later stages since their priority is determined by previous
+            stage completion. Defaults to None.
+        draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each step
+            being scheduled. Defaults to False.
+        get_file_path_for_subroutine (Callable | None, optional): Callable that returns
+            a file path for each subroutine call. If provided, it is called with the
+            subroutine name and stage ID to generate a file path for saving Gantt
+            charts. Defaults to None.
 
     Raises:
-        ValueError: If schedule is not empty.
-        ValueError: If stage_2_head contains an unknown stage_id or a negative value.
-        ValueError: If a job's duration is missing for any stage.
-
-    Example:
-        >>> sched = HybridFlowshopLiteSchedule(
-        ...     jobs=["j1", "j2", "j3"],
-        ...     stages=["s1", "s2"],
-        ...     machines_per_stage={"s1": ["m1"], "s2": ["m1"]}
-        ... )
-        >>> duration = {
-        ...     "s1": {"j1": 2, "j2": 3, "j3": 2},
-        ...     "s2": {"j1": 3, "j2": 2, "j3": 4}
-        ... }
-        >>> from_job_sequence_get_schedule_mixed(sched, ["j1", "j2", "j3"], duration, {"s1": 2})
-        >>> print(sched.makespan)
+        ValueError: If *from_stage* is provided but is not a valid stage in the schedule.
+        ValueError: If any stage_id in *stage_2_head* is not a valid stage in the schedule.
+        ValueError: If any value in *stage_2_head* is negative.
+        ValueError: If any required duration in *stage_2_job_2_p* is missing for the jobs and stages being scheduled.
     """
-    # Validation: schedule must be empty (no operations already scheduled)
-    if schedule.get_operation_set():
-        raise ValueError(
-            "schedule must be empty when calling from_job_sequence_get_schedule_mixed()"
-        )
+    # Validate from_stage if provided
+    if from_stage is not None and from_stage not in schedule.stages:
+        raise ValueError(f"from_stage '{from_stage}' is not in schedule.stages")
+
+    # Determine target stage list
+    if from_stage is None:
+        target_stage_list = schedule.stages
+    else:
+        target_stage_list = schedule.stages[schedule.stages.index(from_stage) :]
 
     # Validation: stage_2_head keys must be valid stages, and values must be non-negative
     for stage_id, k in stage_2_head.items():
-        if stage_id not in schedule.stages:
+        if stage_id not in target_stage_list:
             raise ValueError(f"Unknown stage_id in stage_2_head: {stage_id}")
         if k < 0:
             raise ValueError(
                 f"stage_2_head values must be non-negative, got {k} for stage {stage_id}"
             )
 
-    # Validation: check all required durations are provided
-    for stage_id in schedule.stages:
+    # Validation: check all required durations are provided for target stages
+    for stage_id in target_stage_list:
         for job_id in job_sequence:
             if job_id not in stage_2_job_2_p.get(stage_id, {}):
                 raise ValueError(
@@ -1616,8 +1623,6 @@ def from_job_sequence_get_schedule_mixed(
         draw_gantt_per_step = False
     if draw_gantt_per_step:
         plotter = GanttPlotter()
-
-    target_stage_list = schedule.stages
 
     # Preprocess stage_2_head with cumulative adjustment
     # If stage_2_head = {"s1": 3, "s2": 3} and total jobs = 5,
@@ -1700,5 +1705,3 @@ def from_job_sequence_get_schedule_mixed(
                     job_sequence,
                     schedule.stages,
                 )
-
-    return schedule

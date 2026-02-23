@@ -9,7 +9,7 @@ from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
-from hybridflowshop.dispatcher import JobDispatcher, StageDispatcher
+from hybridflowshop.dispatcher import JobDispatcher, StageDispatcher, MixedDispatcher
 from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
@@ -2921,49 +2921,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-        best_stage: str | None = None
-
-        np_list = self._get_np_candidates()
-        np_2_stage_2_head: dict[int, dict[str, int]] = {}
-        for np in np_list:
-            if head_for_all_stages:
-                np_2_stage_2_head[np] = {
-                    stage_id: np for stage_id in self.instance.stage_id_list
-                }
-            else:
-                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
-
-        for k in range(1, self.instance.stage_count):
-            logging.debug(
-                f"CDS on stage index k={k} (stage_id={self.instance.stage_id_list[k]})"
+        dispatcher = MixedDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_cds(
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine
+            if draw_gantt_per_step
+            else None,
+        )
+        if schedule is not None:
+            logging.info(
+                f"Best of mixed schedule by CDS sequence: makespan={schedule.makespan}"
             )
-            job_sequence = self.get_cds_sequence(k)
-            dispatched_schedule = (
-                self._from_job_sequence_and_np_list_get_best_mixed_schedule(
-                    job_sequence,
-                    head_for_all_stages=head_for_all_stages,
-                    draw_gantt_per_step=draw_gantt_per_step,
-                )
-            )
-            if dispatched_schedule is None:
-                if self.is_stopping_condition():
-                    logging.info("Stopping condition met, breaking out of CDS loop.")
-                    break
-                else:
-                    continue
-            if best_obj is None or dispatched_schedule.makespan < best_obj:
-                best_obj = dispatched_schedule.makespan
-                best_sch = dispatched_schedule
-                best_stage = self.instance.stage_id_list[k]
-            if self.is_stopping_condition():
-                logging.info("Stopping condition met, breaking out of CDS loop.")
-                break
-
-        if best_obj is not None:
-            logging.info(f"CDS sequence: makespan={best_obj} at CDS stage={best_stage}")
-        return best_sch
+        return schedule
 
     def initialize_schedule_by_gupta(
         self,
@@ -3011,17 +2981,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
-        best_sch = self._from_job_sequence_and_np_list_get_best_mixed_schedule(
-            self.get_gupta_sequence(),
+        dispatcher = MixedDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_gupta(
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine
+            if draw_gantt_per_step
+            else None,
         )
-
-        if best_sch is not None:
+        if schedule is not None:
             logging.info(
-                f"Best of mixed schedule by Gupta sequence: makespan={best_sch.makespan}"
+                f"Best of mixed schedule by Gupta sequence: makespan={schedule.makespan}"
             )
-        return best_sch
+        return schedule
 
     def initialize_schedule_by_palmer(
         self,
@@ -3069,17 +3041,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
-        best_sch = self._from_job_sequence_and_np_list_get_best_mixed_schedule(
-            self.get_palmer_sequence(),
+        dispatcher = MixedDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_palmer(
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine
+            if draw_gantt_per_step
+            else None,
         )
-
-        if best_sch is not None:
+        if schedule is not None:
             logging.info(
-                f"Best of mixed schedule by Palmer sequence: makespan={best_sch.makespan}"
+                f"Best of mixed schedule by Palmer sequence: makespan={schedule.makespan}"
             )
-        return best_sch
+        return schedule
 
     def initialize_by_best_of_mixed_dispatches(
         self,

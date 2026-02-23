@@ -13,10 +13,12 @@ Usage:
 
 from hybridflowshop.dispatcher.base import BaseDispatcher
 from hybridflowshop.dispatcher.job import JobDispatcher
+from hybridflowshop.dispatcher.mixed import MixedDispatcher
 from hybridflowshop.dispatcher.stage import StageDispatcher
 
 __all__ = [
     "BaseDispatcher",
     "StageDispatcher",
     "JobDispatcher",
+    "MixedDispatcher",
 ]
