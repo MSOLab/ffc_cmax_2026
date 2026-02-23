@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 
-from hybridflowshop.controller.neh_cp import NehCpConstructor
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    get_bottleneck_stage_job_sequence,
+)
 
 
 def test_get_bottleneck_stage_job_sequence_orders_by_start_midpoint_and_job_index():
@@ -28,7 +31,7 @@ def test_get_bottleneck_stage_job_sequence_orders_by_start_midpoint_and_job_inde
         "s2": {"m1": 1, "m2": 1},
     }
 
-    seq = NehCpConstructor.get_bottleneck_stage_job_sequence(instance, schedule)
+    seq = get_bottleneck_stage_job_sequence(schedule)
 
     # 정렬 기준: start -> midpoint -> original job order index
     # c: (10, 14, 2), b: (10, 15, 0), a: (10, 15, 1), d: (12, 14, 3)

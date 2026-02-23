@@ -13,7 +13,11 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
 from hybridflowshop.cpsat_model_2.params import Params
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    get_bottleneck_stage_job_sequence,
+    get_midpoint_sequence,
+)
 
 
 class NehCpContext(Protocol):
@@ -175,11 +179,9 @@ class NehCpConstructor:
         )
         job_sequence: list[str]
         if job_seq_by_bottleneck_stage:
-            job_sequence = self.get_bottleneck_stage_job_sequence(
-                instance, ref_schedule
-            )
+            job_sequence = get_bottleneck_stage_job_sequence(ref_schedule)
         else:
-            job_sequence = self.get_midpoint_sequence(instance, ref_schedule)
+            job_sequence = get_midpoint_sequence(ref_schedule)
         job_cnt = len(job_sequence)
         sequence_of_job_sublist = [
             job_sequence[i : i + _added_batch_size]
@@ -294,93 +296,6 @@ class NehCpConstructor:
             sub_obj_store=sub_obj_store,
             last_obj_value=st.full_sol.makespan,
         )
-
-    @staticmethod
-    def get_bottleneck_stage_job_sequence(
-        instance: HybridFlowshopParameters,
-        schedule: HybridFlowshopLiteSchedule,
-    ) -> list[str]:
-        """Get job sequence based on bottleneck stage.
-
-        Args:
-            instance (HybridFlowshopParameters): The hybrid flowshop problem instance.
-            schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
-
-        Returns:
-            list[str]: A list of job names ordered by starting time at the bottleneck stage,
-            with ties broken by (starting time + end time) / 2 and then by
-            original job order index.
-        """
-        # Identify bottleneck stage as the stage with the smallest type 2 idle time
-        stage_2_mc_2_idle_time_map = schedule.get_stage_2_mc_2_idle_time_map()
-        stage_2_total_idle_time = {
-            stage: sum(mc_2_idle_time.values())
-            for stage, mc_2_idle_time in stage_2_mc_2_idle_time_map.items()
-        }
-        bottleneck_stage = min(stage_2_total_idle_time, key=stage_2_total_idle_time.get)
-
-        start_map = schedule.get_jik_2_start_time_map()
-        end_map = schedule.get_jik_2_end_time_map()
-        jobs = instance.job_id_list
-        idx_map = {j: idx for idx, j in enumerate(jobs)}
-
-        seq_info: list[tuple[int, float, int, str]] = []
-        for j in jobs:
-            s_bottleneck = next(
-                t
-                for (job, stage, _), t in start_map.items()
-                if job == j and stage == bottleneck_stage
-            )
-            e_bottleneck = next(
-                t
-                for (job, stage, _), t in end_map.items()
-                if job == j and stage == bottleneck_stage
-            )
-            midpoint = (s_bottleneck + e_bottleneck) / 2
-            seq_info.append((s_bottleneck, midpoint, idx_map[j], j))
-
-        seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
-        return [info[3] for info in seq_info]
-
-    @staticmethod
-    def get_midpoint_sequence(
-        instance: HybridFlowshopParameters,
-        schedule: HybridFlowshopLiteSchedule,
-    ) -> list[str]:
-        """Get job sequence based on midpoint criteria.
-
-        Args:
-            instance (HybridFlowshopParameters): The hybrid flowshop problem instance.
-            schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
-
-        Returns:
-            list[str]: A list of job names ordered by midpoint criteria.
-        """
-        start_map = schedule.get_jik_2_start_time_map()
-        end_map = schedule.get_jik_2_end_time_map()
-        jobs = instance.job_id_list
-        idx_map = {j: idx for idx, j in enumerate(jobs)}
-        first_stage = instance.stage_id_list[0]
-        last_stage = instance.stage_id_list[-1]
-
-        seq_info: list[tuple[float, int, int, str]] = []
-        for j in jobs:
-            # find any machine k for first and last stage
-            s_first = next(
-                t
-                for (job, stage, _), t in start_map.items()
-                if job == j and stage == first_stage
-            )
-            e_last = next(
-                t
-                for (job, stage, _), t in end_map.items()
-                if job == j and stage == last_stage
-            )
-            midpoint = (s_first + e_last) / 2
-            seq_info.append((midpoint, s_first, idx_map[j], j))
-
-        seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
-        return [info[3] for info in seq_info]
 
     def _create_sub_cp_model(
         self,

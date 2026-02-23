@@ -60,7 +60,7 @@ class MixedDispatcher(BaseDispatcher):
             else:
                 _schedule = self._create_empty_schedule()
             job_sequence = self.get_cds_sequence(k)
-            dispatched_schedule = self._get_schedule_by_sequence_and_np_list(
+            dispatched_schedule = self.get_best_mixed_schedule_by_sequence(
                 job_sequence,
                 schedule=_schedule,
                 from_stage=from_stage,
@@ -112,7 +112,7 @@ class MixedDispatcher(BaseDispatcher):
         Returns:
             The generated schedule, or None if infeasible.
         """
-        return self._get_schedule_by_sequence_and_np_list(
+        return self.get_best_mixed_schedule_by_sequence(
             self.get_gupta_sequence(),
             schedule=schedule,
             head_for_all_stages=head_for_all_stages,
@@ -149,7 +149,7 @@ class MixedDispatcher(BaseDispatcher):
         Returns:
             The generated schedule, or None if infeasible.
         """
-        return self._get_schedule_by_sequence_and_np_list(
+        return self.get_best_mixed_schedule_by_sequence(
             self.get_palmer_sequence(),
             schedule=schedule,
             head_for_all_stages=head_for_all_stages,
@@ -177,7 +177,7 @@ class MixedDispatcher(BaseDispatcher):
         np_list.append(0)
         return np_list
 
-    def _get_schedule_by_sequence_and_np_list(
+    def get_best_mixed_schedule_by_sequence(
         self,
         job_sequence: Sequence[str],
         schedule: HybridFlowshopLiteSchedule | None = None,

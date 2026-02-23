@@ -1705,3 +1705,85 @@ def from_job_sequence_get_schedule_mixed(
                     job_sequence,
                     schedule.stages,
                 )
+
+
+def get_midpoint_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:
+    """Get job sequence based on midpoint criteria.
+
+    Args:
+        instance (HybridFlowshopParameters): The hybrid flowshop problem instance.
+        schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
+
+    Returns:
+        list[str]: A list of job names ordered by midpoint criteria.
+    """
+    start_map = schedule.get_jik_2_start_time_map()
+    end_map = schedule.get_jik_2_end_time_map()
+    jobs = schedule.jobs
+    idx_map = {j: idx for idx, j in enumerate(jobs)}
+    first_stage = schedule.stages[0]
+    last_stage = schedule.stages[-1]
+
+    seq_info: list[tuple[float, int, int, str]] = []
+    for j in jobs:
+        # find any machine k for first and last stage
+        s_first = next(
+            t
+            for (job, stage, _), t in start_map.items()
+            if job == j and stage == first_stage
+        )
+        e_last = next(
+            t
+            for (job, stage, _), t in end_map.items()
+            if job == j and stage == last_stage
+        )
+        midpoint = (s_first + e_last) / 2
+        seq_info.append((midpoint, s_first, idx_map[j], j))
+
+    seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
+    return [info[3] for info in seq_info]
+
+
+def get_bottleneck_stage_job_sequence(
+    schedule: HybridFlowshopLiteSchedule,
+) -> list[str]:
+    """Get job sequence based on bottleneck stage.
+
+    Args:
+        schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
+
+    Returns:
+        list[str]: A list of job names ordered by starting time at the bottleneck stage,
+        with ties broken by (starting time + end time) / 2 and then by
+        original job order index.
+    """
+    # Identify bottleneck stage as the stage with the smallest type 2 idle time
+    stage_2_mc_2_idle_time_map = schedule.get_stage_2_mc_2_idle_time_map()
+    stage_2_total_idle_time = {
+        stage: sum(mc_2_idle_time.values())
+        for stage, mc_2_idle_time in stage_2_mc_2_idle_time_map.items()
+    }
+    bottleneck_stage = min(stage_2_total_idle_time, key=stage_2_total_idle_time.get)
+
+    start_map = schedule.get_jik_2_start_time_map()
+    end_map = schedule.get_jik_2_end_time_map()
+    jobs = schedule.jobs
+    idx_map = {j: idx for idx, j in enumerate(jobs)}
+
+    seq_info: list[tuple[int, float, int, str]] = []
+    for j in jobs:
+        s_bottleneck = next(
+            t
+            for (job, stage, _), t in start_map.items()
+            if job == j and stage == bottleneck_stage
+        )
+        e_bottleneck = next(
+            t
+            for (job, stage, _), t in end_map.items()
+            if job == j and stage == bottleneck_stage
+        )
+        midpoint = (s_bottleneck + e_bottleneck) / 2
+        seq_info.append((s_bottleneck, midpoint, idx_map[j], j))
+
+    seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
+    return [info[3] for info in seq_info]
