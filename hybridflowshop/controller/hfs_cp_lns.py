@@ -2555,32 +2555,41 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         bottleneck_stage_id: str,
         option: BottleneckStageScheduleHeuristicOption,
+        instance: HybridFlowshopParameters | None = None,
         draw_gantt: bool = False,
     ) -> tuple[HybridFlowshopLiteSchedule, int]:
+        if instance is None:
+            instance = self.instance
+            job_2_stage_2_p_dict = self.job_2_stage_2_p_dict
+            stage_2_job_2_p_dict = self.stage_2_job_2_p_dict
+        else:
+            job_2_stage_2_p_dict = instance.job_2_stage_2_p_map
+            stage_2_job_2_p_dict = instance.stage_2_job_2_p_map
+
         # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
-        bottleneck_stage_index = self.instance.stage_id_list.index(bottleneck_stage_id)
-        before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
-        after_stage_id_list = self.instance.stage_id_list[bottleneck_stage_index + 1 :]
+        bottleneck_stage_index = instance.stage_id_list.index(bottleneck_stage_id)
+        before_stage_id_list = instance.stage_id_list[:bottleneck_stage_index]
+        after_stage_id_list = instance.stage_id_list[bottleneck_stage_index + 1 :]
         before_stage_cnt = len(before_stage_id_list)
         after_stage_cnt = len(after_stage_id_list)
 
         r_dict: dict[str, int] = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
-            for j in self.instance.job_id_list
+            j: sum(job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
+            for j in instance.job_id_list
         }
         if option.normalize_by_stage_cnt and before_stage_cnt > 0:
             # Divide r_dict values by the number of before stage IDs
             r_dict = {j: math.ceil(r / before_stage_cnt) for j, r in r_dict.items()}
-        p_dict: dict[str, int] = self.stage_2_job_2_p_dict[bottleneck_stage_id]
+        p_dict: dict[str, int] = stage_2_job_2_p_dict[bottleneck_stage_id]
         tr_dict: dict[str, int] = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
-            for j in self.instance.job_id_list
+            j: sum(job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
+            for j in instance.job_id_list
         }
         if option.normalize_by_stage_cnt and after_stage_cnt > 0:
             tr_dict = {j: math.ceil(tr / after_stage_cnt) for j, tr in tr_dict.items()}
 
-        machine_cnt = len(self.instance.stage_2_machines_map[bottleneck_stage_id])
-        job_cnt = self.instance.job_count
+        machine_cnt = len(instance.stage_2_machines_map[bottleneck_stage_id])
+        job_cnt = instance.job_count
 
         left_cap_op_cnt = 0
         if option.left_cap_multiplier is not None:
@@ -2599,7 +2608,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if left_cap_op_cnt > 0 or right_cap_op_cnt > 0:
             # Use CP solver to optimally select head and tail jobs
             result = solve_selection_problem(
-                jobs=self.instance.job_id_list,
+                jobs=instance.job_id_list,
                 r=r_dict,
                 t=tr_dict,
                 K_L=left_cap_op_cnt,
@@ -2650,7 +2659,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Update mid_job_id_list to only include jobs that are not in head or tail job lists
         mid_job_id_list = [
             j
-            for j in self.instance.job_id_list
+            for j in instance.job_id_list
             if j not in left_cap_job_id_list and j not in right_cap_job_id_list
         ]
         if option.randomize_mid_all:
@@ -2660,7 +2669,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             mid_job_id_list.sort(
                 key=lambda j: (
                     r_dict[j] - tr_dict[j],
-                    self.instance.job_id_list.index(j),
+                    instance.job_id_list.index(j),
                 )
             )
             if option.reverse_mid_even:
@@ -2670,7 +2679,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         sorted_j_list = left_cap_job_id_list + mid_job_id_list + right_cap_job_id_list
 
-        dispatched_schedule = self.create_empty_schedule_from_ins()
+        dispatched_schedule = self.create_empty_schedule_from_ins(instance=instance)
         dispatched_schedule.dispatch_stage_by_jobs(
             bottleneck_stage_id,
             sorted_j_list,
