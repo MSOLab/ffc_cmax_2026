@@ -2042,8 +2042,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
         solve_cfg = SolveConfig(
-            log_search_progress=self.log_search_progress,
-            time_limit_s=self.get_remaining_time_limit(computational_time),
+            log_search_progress=False,
+            max_time_in_seconds=self.get_remaining_time_limit(computational_time),
             num_workers=solver_thread_cnt,
         )
         self.solver = configure_solver(solve_cfg)

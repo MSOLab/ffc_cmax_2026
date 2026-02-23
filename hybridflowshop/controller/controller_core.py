@@ -50,12 +50,6 @@ class HybridFlowShopCpLnsControllerCore(
     method_names_to_run_before_resume: set[str]
     """Name of methods to run before resuming from a paused state."""
 
-    log_solver_level: int
-    """Logging level for the solver output."""
-
-    log_search_progress: bool
-    """Whether to log search progress during CP solving."""
-
     # End controller pre-defined values
 
     def __init__(
@@ -79,8 +73,6 @@ class HybridFlowShopCpLnsControllerCore(
             "set_cp_model_as_base_cp_model",
         }
         assert "" not in self.method_names_to_run_before_resume
-        self.log_solver_level = logging.INFO  # TODO: make it configurable
-        self.log_search_progress = False  # TODO: make it configurable
 
         # Frequently used parameters
         self.job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
@@ -390,6 +382,7 @@ class HybridFlowShopCpLnsControllerCore(
         obj_bound_is_valid: bool = False,
         keep_all_feasible_solutions_in_presolve: bool | None = None,
         e_timer: ElapsedTimer | None = None,
+        print_search_progress: bool = False,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
         log_level_obj_value: int = logging.INFO,
@@ -402,8 +395,8 @@ class HybridFlowShopCpLnsControllerCore(
             e_timer = self.timer
 
         solve_cfg = SolveConfig(
-            log_search_progress=self.log_search_progress,
-            time_limit_s=computational_time,
+            log_search_progress=print_search_progress,
+            max_time_in_seconds=computational_time,
             num_workers=solver_thread_cnt,
             keep_all_feasible_solutions_in_presolve=keep_all_feasible_solutions_in_presolve,
             random_seed=self.random_seed,
