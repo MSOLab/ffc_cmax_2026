@@ -9,6 +9,7 @@ from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
+from hybridflowshop.dispatcher import JobDispatcher, StageDispatcher
 from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
@@ -999,29 +1000,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_dj_cds(self) -> HybridFlowshopLiteSchedule:
-        # Subroutine states
-        best_makespan = float("inf")
-        best_schedule: HybridFlowshopLiteSchedule | None = None
-        best_k = -1
-
-        for k in range(1, self.instance.stage_count):
-            # Create an empty schedule
-            schedule = self.create_empty_schedule_from_ins()
-            # Dispatch
-            job_sequence = self.get_cds_sequence(k)
-            for j in job_sequence:
-                schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
-            # Update subroutine states
-            makespan = schedule.makespan
-            if makespan < best_makespan:
-                best_makespan = makespan
-                best_schedule = schedule
-                best_k = k
-
-        if best_schedule is None:
-            raise ValueError("No schedule found after applying CDS sequence.")
-        logging.info(f"Schedule by DJ(CDS): makespan={best_makespan} with k={best_k}")
-        return best_schedule
+        dispatcher = JobDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_dj_cds()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DJ(CDS).")
+        logging.info(f"Schedule by DJ(CDS): makespan={schedule.makespan}")
+        return schedule
 
     def initialize_by_dj_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1065,12 +1049,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_dj_gupta(self) -> HybridFlowshopLiteSchedule:
-        schedule = self.create_empty_schedule_from_ins()
-        # Dispatch
-        job_sequence = self.get_gupta_sequence()
-        for j in job_sequence:
-            schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
-
+        dispatcher = JobDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_dj_gupta()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DJ(Gupta).")
         logging.info(f"Schedule by DJ(Gupta): makespan={schedule.makespan}")
         return schedule
 
@@ -1116,11 +1098,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_dj_palmer(self) -> HybridFlowshopLiteSchedule:
-        schedule = self.create_empty_schedule_from_ins()
-        # Dispatch
-        job_sequence = self.get_palmer_sequence()
-        for j in job_sequence:
-            schedule.dispatch_job_by_stages(j, self.job_2_stage_2_p_dict[j])
+        dispatcher = JobDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_dj_palmer()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DJ(Palmer).")
         logging.info(f"Schedule by DJ(Palmer): makespan={schedule.makespan}")
         return schedule
 
@@ -1166,27 +1147,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_ds_cds(self) -> HybridFlowshopLiteSchedule:
-        best_makespan = float("inf")
-        best_schedule: HybridFlowshopLiteSchedule | None = None
-        best_k = -1
-        for k in range(1, self.instance.stage_count):
-            # Create an empty schedule
-            schedule = self.create_empty_schedule_from_ins()
-            job_sequence = self.get_cds_sequence(k)
-            for i in self.instance.stage_id_list:
-                schedule.dispatch_stage_by_jobs(
-                    i, job_sequence, self.stage_2_job_2_p_dict[i]
-                )
-            makespan = schedule.makespan
-            if makespan < best_makespan:
-                best_makespan = makespan
-                best_schedule = schedule
-                best_k = k
-
-        if best_schedule is None:
-            raise ValueError("No schedule found after applying CDS sequence.")
-        logging.info(f"Schedule by DS(CDS): makespan={best_makespan} with k={best_k}")
-        return best_schedule
+        dispatcher = StageDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_ds_cds()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DS(CDS).")
+        logging.info(f"Schedule by DS(CDS): makespan={schedule.makespan}")
+        return schedule
 
     def initialize_by_ds_gupta(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -1230,14 +1196,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_ds_gupta(self) -> HybridFlowshopLiteSchedule:
-        schedule = self.create_empty_schedule_from_ins()
-        # Dispatch
-        job_sequence = self.get_gupta_sequence()
-        for i in self.instance.stage_id_list:
-            schedule.dispatch_stage_by_jobs(
-                i, job_sequence, self.stage_2_job_2_p_dict[i]
-            )
-
+        dispatcher = StageDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_ds_gupta()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DS(Gupta).")
         logging.info(f"Schedule by DS(Gupta): makespan={schedule.makespan}")
         return schedule
 
@@ -1283,14 +1245,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_ds_palmer(self) -> HybridFlowshopLiteSchedule:
-        schedule = self.create_empty_schedule_from_ins()
-        # Dispatch
-        job_sequence = self.get_palmer_sequence()
-        for i in self.instance.stage_id_list:
-            schedule.dispatch_stage_by_jobs(
-                i, job_sequence, self.stage_2_job_2_p_dict[i]
-            )
-
+        dispatcher = StageDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_ds_palmer()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DS(Palmer).")
         logging.info(f"Schedule by DS(Palmer): makespan={schedule.makespan}")
         return schedule
 
