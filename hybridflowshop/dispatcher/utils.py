@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.schedule_lite import (
@@ -251,3 +251,26 @@ def from_job_sequence_get_schedule_mixed(
                     job_sequence,
                     schedule.stages,
                 )
+
+
+def reverse_even_positions(sequence: list[Any], in_place: bool = False) -> list[Any]:
+    """Reverse only even positions (1-based), keeping odd positions fixed.
+
+    For example, [A,B,C,D,E,F,G,H] -> [A,H,C,F,E,D,G,B]
+
+    Args:
+        sequence: The input sequence to be modified.
+        in_place: If True, modify the input sequence in place and return it.
+            If False, return a new modified list. Defaults to False.
+
+    Returns:
+        The modified sequence with even positions reversed.
+    """
+    if in_place:
+        result = sequence
+    else:
+        result = sequence.copy()
+    even_position_elements = result[1::2]
+    even_position_elements.reverse()
+    result[1::2] = even_position_elements
+    return result

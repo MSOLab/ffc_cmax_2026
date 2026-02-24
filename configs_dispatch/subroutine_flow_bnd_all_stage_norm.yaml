@@ -1,4 +1,3 @@
 - method: bn2d_all_stage
   normalize_by_stage_cnt: True
-  use_dwb: False
   draw_gantt: False

@@ -2,6 +2,8 @@
 BaseDispatcher class with shared utilities for all dispatchers.
 """
 
+import logging
+
 from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.schedule_lite import (
@@ -24,7 +26,7 @@ class BaseDispatcher:
     - NP candidate generation for mixed dispatch
     """
 
-    def __init__(self, instance: HybridFlowshopParameters) -> None:
+    def __init__(self, instance: HybridFlowshopParameters, logger=None) -> None:
         """
         Initialize the BaseDispatcher.
 
@@ -45,18 +47,21 @@ class BaseDispatcher:
         self.stage_count: int = instance.stage_count
         self.job_count: int = instance.job_count
 
-    def _create_empty_schedule(self) -> HybridFlowshopLiteSchedule:
-        """
-        Create an empty schedule for the instance.
+        self.logger: logging.Logger = logger or logging.getLogger(__name__)
 
-        Returns:
-            An empty HybridFlowshopLiteSchedule.
-        """
-        return HybridFlowshopLiteSchedule(
-            jobs=self.job_id_list,
-            stages=self.stage_id_list,
-            machines_per_stage=self.machines_per_stage,
-        )
+    def _create_empty_schedule(
+        self, instance: HybridFlowshopParameters | None = None
+    ) -> HybridFlowshopLiteSchedule:
+        """Create empty schedule from instance."""
+        if instance is None:
+            jobs = self.job_id_list
+            stages = self.stage_id_list
+            machines_per_stage = self.machines_per_stage
+        else:
+            jobs = instance.job_id_list
+            stages = instance.stage_id_list
+            machines_per_stage = instance.stage_2_machines_map
+        return HybridFlowshopLiteSchedule(jobs, stages, machines_per_stage)
 
     def _prepare_schedule_for_dispatch(
         self,

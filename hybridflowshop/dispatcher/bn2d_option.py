@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class BottleneckStageScheduleHeuristicOption:
+class BN2DOption:
     left_cap_multiplier: int | None = None
     right_cap_multiplier: int | None = None
     left_cap_portion: float | None = None
@@ -25,4 +25,14 @@ class BottleneckStageScheduleHeuristicOption:
     reverse_mid_all: bool = False
     """
     If True, the order of mid-jobs is reversed.
+    """
+
+    mixed_schedule_for_former_stages: bool = False
+    """
+    If True, use mixed schedule for stages before bottleneck stage.
+    """
+
+    mixed_schedule_for_later_stages: bool = False
+    """
+    If True, use mixed schedule for stages after bottleneck stage.
     """

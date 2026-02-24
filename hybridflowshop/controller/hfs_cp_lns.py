@@ -1,7 +1,7 @@
 import logging
 import math
 import random
-from typing import Any, Callable, Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from mbls.cpsat import CpsatStatus
 from routix import ElapsedTimer
@@ -9,19 +9,21 @@ from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
-from hybridflowshop.dispatcher import JobDispatcher, MixedDispatcher, StageDispatcher
+from hybridflowshop.dispatcher import (
+    BN2DDispatcher,
+    BN2DOption,
+    JobDispatcher,
+    MixedDispatcher,
+    StageDispatcher,
+)
 from hybridflowshop.dispatcher.utils import from_job_sequence_get_schedule_mixed
 from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
 )
-from hybridflowshop.select_and_assign import solve_selection_problem
 from identical_parallel_machine.cumulative import ParallelMcParams, ParallelMcVars
 from identical_parallel_machine.solver import SolveConfig, configure_solver
 
-from .bottleneck_stage_schedule_heuristic_option import (
-    BottleneckStageScheduleHeuristicOption,
-)
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
 
@@ -2191,145 +2193,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         #     encoding="utf-8",
         # )
 
-    def _schedule_from_bottleneck_stage(
-        self,
-        bottleneck_stage_id: str,
-        option: BottleneckStageScheduleHeuristicOption,
-        use_dwb: bool = False,
-        dwb_batch_size: int | None = None,
-        mixed_schedule_for_former_stages: bool = False,
-        draw_gantt: bool = False,
-    ) -> HybridFlowshopLiteSchedule:
-        """Schedule the entire hybrid flow shop from a single bottleneck stage.
-
-        Uses two-way dispatching:
-        1. Dispatch later stages (after bottleneck) based on bottleneck completion times
-        2. Dispatch former stages (before bottleneck) using reversed instance with release times
-
-        Args:
-            bottleneck_stage_id: The bottleneck stage ID to schedule from
-            option: The bottleneck stage schedule heuristic option
-            draw_gantt: Whether to draw Gantt chart for the bottleneck stage only
-
-        Returns:
-            Complete schedule for all stages
-        """
-        bottleneck_schedule, bcmax = self._get_bottleneck_stage_schedule_heuristic(
-            bottleneck_stage_id,
-            option,
-            draw_gantt=draw_gantt,
-        )
-
-        # Create a later-dispatched schedule by dispatching from the bottleneck schedule
-        later_stage_list = self.instance.stage_id_list[
-            self.instance.stage_id_list.index(bottleneck_stage_id) + 1 :
-        ]
-        logging.debug(f"Later stages: {later_stage_list}")
-        if later_stage_list:
-            bottleneck_stage_end_time_map = bottleneck_schedule.get_jik_2_end_time_map()
-            # Sort jobs by end time at bottleneck stage (ascending)
-            job_2_bottleneck_end_time = {}
-            for (
-                job_id,
-                stage_id,
-                _,
-            ), end_time in bottleneck_stage_end_time_map.items():
-                if stage_id == bottleneck_stage_id:
-                    job_2_bottleneck_end_time[job_id] = end_time
-            sorted_j_list = sorted(
-                self.instance.job_id_list,
-                key=lambda j: (
-                    job_2_bottleneck_end_time[j],
-                    self.instance.job_id_list.index(j),
-                ),
-            )
-            # Dispatch later stages
-            if use_dwb:
-                later_schedule = bottleneck_schedule.deepcopy()
-                batch_size = dwb_batch_size or self.instance.machine_count_per_stage[0]
-                later_schedule.dispatch_wave_batches(
-                    batch_size,
-                    sorted_j_list,
-                    later_stage_list,
-                    self.stage_2_job_2_p_dict,
-                )
-            else:
-                later_ds_schedule = bottleneck_schedule.deepcopy()
-                for stage_id in later_stage_list:
-                    later_ds_schedule.dispatch_stage_by_jobs(
-                        stage_id, sorted_j_list, self.stage_2_job_2_p_dict[stage_id]
-                    )
-                later_ds_obj_value = later_ds_schedule.makespan
-                later_dj_schedule = bottleneck_schedule.deepcopy()
-                for job_id in sorted_j_list:
-                    later_dj_schedule.dispatch_job_by_stages(
-                        job_id,
-                        self.job_2_stage_2_p_dict[job_id],
-                        from_stage=later_stage_list[0],
-                    )
-                later_dj_obj_value = later_dj_schedule.makespan
-                if later_ds_obj_value < later_dj_obj_value:
-                    later_schedule = later_ds_schedule
-                else:
-                    later_schedule = later_dj_schedule
-        else:
-            later_schedule = bottleneck_schedule.deepcopy()
-
-        if draw_gantt:
-            self.draw_gantt(later_schedule, force_start=0)
-
-        # Create a former-dispatched schedule
-        before_stage_list = self.instance.stage_id_list[
-            : self.instance.stage_id_list.index(bottleneck_stage_id)
-        ]
-        logging.debug(f"Before stages: {before_stage_list}")
-        if before_stage_list:
-            bottleneck_stage_start_time_map = (
-                bottleneck_schedule.get_jik_2_start_time_map()
-            )
-            job_2_bottleneck_start_time = {}
-            for (
-                job_id,
-                stage_id,
-                _,
-            ), start_time in bottleneck_stage_start_time_map.items():
-                if stage_id == bottleneck_stage_id:
-                    job_2_bottleneck_start_time[job_id] = start_time
-            # Define a new problem for former stages
-            instance_for_former_stages, job_2_release = (
-                self._create_reversed_instance_for_former_stages(
-                    before_stage_list, job_2_bottleneck_start_time, bcmax
-                )
-            )
-            # Dispatch former stages
-            former_schedule = self._dispatch_former_stages(
-                instance_for_former_stages,
-                job_2_release,
-                get_mixed_schedule=mixed_schedule_for_former_stages,
-            )
-            former_schedule_makespan = former_schedule.makespan
-            logging.debug(
-                f"Former stages schedule makespan: {former_schedule_makespan}"
-            )
-            discrepancy = former_schedule_makespan - bcmax
-            logging.debug(
-                f"Discrepancy between former schedule and bottleneck schedule: {discrepancy}"
-            )
-            # Right-shift original schedule by discrepancy
-            later_schedule.right_shift(discrepancy)
-
-            former_schedule_end_time_map = former_schedule.get_jik_2_end_time_map()
-            for op, end_time in former_schedule_end_time_map.items():
-                job_id, stage_id, mc_id = op
-                start_time = former_schedule_makespan - end_time
-                duration = self.job_2_stage_2_p_dict[job_id][stage_id]
-                later_schedule.add_ops_times_2_mc(
-                    stage_id, mc_id, job_id, start_time, start_time + duration
-                )
-        later_schedule.make_semi_active(self.stage_2_job_2_p_dict)
-
-        return later_schedule
-
     def bn2d_single_stage(
         self,
         left_cap_multiplier: int | None = None,
@@ -2339,17 +2202,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         normalize_by_stage_cnt: bool = False,
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
-        use_dwb: bool = False,
-        dwb_batch_size: int | None = None,
         randomize_mid_all: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        """Schedule from single bottleneck stage (loading index-based)."""
+        """Schedule from single bottleneck stage using BN2D option."""
         sub_timer = ElapsedTimer()
-        bottleneck_stage_id = self._get_bottleneck_stage()
-        logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
-
-        option = BottleneckStageScheduleHeuristicOption(
+        option = BN2DOption(
             left_cap_multiplier=left_cap_multiplier,
             right_cap_multiplier=right_cap_multiplier,
             left_cap_portion=left_cap_portion,
@@ -2359,15 +2217,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_even=reverse_mid_even,
             randomize_mid_all=randomize_mid_all,
         )
-        schedule = self._schedule_from_bottleneck_stage(
-            bottleneck_stage_id,
-            option,
-            use_dwb=use_dwb,
-            dwb_batch_size=dwb_batch_size,
-            draw_gantt=False,
+        dispatcher = BN2DDispatcher(self.instance)
+
+        schedule = dispatcher.get_schedule_by_bn2d_single_stage(
+            option=option,
+            gantt_draw_func=self.draw_gantt if draw_gantt else None,
         )
-        if draw_gantt:
-            self.draw_gantt(schedule)
+
+        if schedule is None:
+            raise RuntimeError("Failed to create schedule by BN2D")
         complete_makespan = schedule.makespan
         logging.info(f"Bottleneck parallel MC: full_schedule_obj={complete_makespan}")
 
@@ -2388,17 +2246,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         normalize_by_stage_cnt: bool = False,
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
-        use_dwb: bool = False,
-        dwb_batch_size: int | None = None,
         mixed_schedule_for_former_stages: bool = False,
         randomize_mid_all: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        """Schedule from all stages as bottleneck and select best solution."""
+        """Schedule from all stages as bottleneck using BN2D option."""
         sub_timer = ElapsedTimer()
-
-        best_sch = self._get_schedule_by_bn2d_all_stage(
+        option = BN2DOption(
             left_cap_multiplier=left_cap_multiplier,
             right_cap_multiplier=right_cap_multiplier,
             left_cap_portion=left_cap_portion,
@@ -2406,26 +2261,29 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             normalize_by_stage_cnt=normalize_by_stage_cnt,
             reverse_mid_all=reverse_mid_all,
             reverse_mid_even=reverse_mid_even,
-            use_dwb=use_dwb,
-            dwb_batch_size=dwb_batch_size,
-            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             randomize_mid_all=randomize_mid_all,
         )
+        dispatcher = BN2DDispatcher(self.instance)
 
-        if best_sch is None:
+        schedule = dispatcher.get_schedule_by_bn2d_all_stages(
+            option=option,
+            gantt_draw_func=self.draw_gantt if draw_gantt else None,
+        )
+
+        if schedule is None:
             # Failed to find a solution
             return
         if error_if_infeasible:
-            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
 
-        best_obj = best_sch.makespan
+        best_obj = schedule.makespan
         report = HfsSubroutineReport(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
         )
-        was_updated = self.solution_manager.register(report, best_sch)
+        was_updated = self.solution_manager.register(report, schedule)
 
         # Log
         log_time = self.timer.elapsed_sec
@@ -2438,305 +2296,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
-
-    def _get_schedule_by_bn2d_all_stage(
-        self,
-        left_cap_multiplier: int | None = None,
-        right_cap_multiplier: int | None = None,
-        left_cap_portion: float | None = None,
-        right_cap_portion: float | None = None,
-        normalize_by_stage_cnt: bool = False,
-        reverse_mid_all: bool = False,
-        reverse_mid_even: bool = False,
-        use_dwb: bool = False,
-        dwb_batch_size: int | None = None,
-        mixed_schedule_for_former_stages: bool = False,
-        randomize_mid_all: bool = False,
-    ) -> HybridFlowshopLiteSchedule | None:
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-
-        for bottleneck_stage_id in self.instance.stage_id_list:
-            logging.debug(f"BN2D on bottleneck stage: {bottleneck_stage_id}")
-            option = BottleneckStageScheduleHeuristicOption(
-                left_cap_multiplier=left_cap_multiplier,
-                right_cap_multiplier=right_cap_multiplier,
-                left_cap_portion=left_cap_portion,
-                right_cap_portion=right_cap_portion,
-                normalize_by_stage_cnt=normalize_by_stage_cnt,
-                reverse_mid_all=reverse_mid_all,
-                reverse_mid_even=reverse_mid_even,
-                randomize_mid_all=randomize_mid_all,
-            )
-            schedule = self._schedule_from_bottleneck_stage(
-                bottleneck_stage_id,
-                option,
-                use_dwb=use_dwb,
-                dwb_batch_size=dwb_batch_size,
-                mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
-                draw_gantt=False,
-            )
-            makespan = schedule.makespan
-            logging.debug(
-                f"Bottleneck stage {bottleneck_stage_id}: makespan={makespan}"
-            )
-
-            if best_obj is None or makespan < best_obj:
-                best_obj = makespan
-                best_sch = schedule
-                logging.debug("  -> New best solution found!")
-            if self.is_stopping_condition():
-                logging.info("Stopping condition met, breaking out of loop.")
-                break
-
-        if best_obj is not None:
-            logging.info(f"BN2D on all stages: best_makespan={best_obj}")
-        return best_sch
-
-    def _get_bottleneck_stage(self) -> str:
-        stage_id_2_total_p = {}
-        for stage_id in self.instance.stage_id_list:
-            stage_id_2_total_p[stage_id] = sum(
-                self.stage_2_job_2_p_dict[stage_id][job_id]
-                for job_id in self.instance.job_id_list
-            )
-        stage_id_2_bottleneck_index = {
-            stage_id: total_p / len(self.instance.stage_2_machines_map[stage_id])
-            for stage_id, total_p in stage_id_2_total_p.items()
-        }
-        bottleneck_stage_id = max(
-            stage_id_2_bottleneck_index, key=lambda s: stage_id_2_bottleneck_index[s]
-        )
-        return bottleneck_stage_id
-
-    def _get_bottleneck_stage_schedule_heuristic(
-        self,
-        bottleneck_stage_id: str,
-        option: BottleneckStageScheduleHeuristicOption,
-        instance: HybridFlowshopParameters | None = None,
-        draw_gantt: bool = False,
-    ) -> tuple[HybridFlowshopLiteSchedule, int]:
-        if instance is None:
-            instance = self.instance
-            job_2_stage_2_p_dict = self.job_2_stage_2_p_dict
-            stage_2_job_2_p_dict = self.stage_2_job_2_p_dict
-        else:
-            job_2_stage_2_p_dict = instance.job_2_stage_2_p_map
-            stage_2_job_2_p_dict = instance.stage_2_job_2_p_map
-
-        # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
-        bottleneck_stage_index = instance.stage_id_list.index(bottleneck_stage_id)
-        before_stage_id_list = instance.stage_id_list[:bottleneck_stage_index]
-        after_stage_id_list = instance.stage_id_list[bottleneck_stage_index + 1 :]
-        before_stage_cnt = len(before_stage_id_list)
-        after_stage_cnt = len(after_stage_id_list)
-
-        r_dict: dict[str, int] = {
-            j: sum(job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
-            for j in instance.job_id_list
-        }
-        if option.normalize_by_stage_cnt and before_stage_cnt > 0:
-            # Divide r_dict values by the number of before stage IDs
-            r_dict = {j: math.ceil(r / before_stage_cnt) for j, r in r_dict.items()}
-        p_dict: dict[str, int] = stage_2_job_2_p_dict[bottleneck_stage_id]
-        tr_dict: dict[str, int] = {
-            j: sum(job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
-            for j in instance.job_id_list
-        }
-        if option.normalize_by_stage_cnt and after_stage_cnt > 0:
-            tr_dict = {j: math.ceil(tr / after_stage_cnt) for j, tr in tr_dict.items()}
-
-        machine_cnt = len(instance.stage_2_machines_map[bottleneck_stage_id])
-        job_cnt = instance.job_count
-
-        left_cap_op_cnt = 0
-        if option.left_cap_multiplier is not None:
-            left_cap_op_cnt = option.left_cap_multiplier * machine_cnt
-        elif option.left_cap_portion is not None:
-            left_cap_op_cnt = int(option.left_cap_portion * job_cnt)
-
-        right_cap_op_cnt = 0
-        if option.right_cap_multiplier is not None:
-            right_cap_op_cnt = option.right_cap_multiplier * machine_cnt
-        elif option.right_cap_portion is not None:
-            right_cap_op_cnt = int(option.right_cap_portion * job_cnt)
-
-        left_cap_job_id_list: list[str]
-        right_cap_job_id_list: list[str]
-        if left_cap_op_cnt > 0 or right_cap_op_cnt > 0:
-            # Use CP solver to optimally select head and tail jobs
-            result = solve_selection_problem(
-                jobs=instance.job_id_list,
-                r=r_dict,
-                t=tr_dict,
-                K_L=left_cap_op_cnt,
-                K_R=right_cap_op_cnt,
-            )
-            # from pprint import pformat
-
-            # logging.info(pformat(result))
-
-            if result["status"] in ("OPTIMAL", "FEASIBLE"):
-                left_cap_job_id_list = result["L_set"]
-                # Sort by r_j in ascending order
-                left_cap_job_id_list.sort(key=lambda j: r_dict[j])
-                right_cap_job_id_list = result["R_set"]
-                # Sort by tr_j in descending order
-                right_cap_job_id_list.sort(key=lambda j: tr_dict[j], reverse=True)
-            else:
-                # Fallback to greedy selection if CP solver does not return a solution
-                if left_cap_op_cnt > 0:
-                    sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
-                    left_cap_job_id_list = [j for j, _ in sorted_by_r[:left_cap_op_cnt]]
-                else:
-                    left_cap_job_id_list = []
-
-                if right_cap_op_cnt > 0:
-                    sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
-                    # Exclude those in head_job_id_list
-                    sorted_by_tr = [
-                        (j, t) for j, t in sorted_by_tr if j not in left_cap_job_id_list
-                    ]
-                    right_cap_job_id_list = [
-                        j for j, _ in sorted_by_tr[:right_cap_op_cnt]
-                    ]
-                else:
-                    right_cap_job_id_list = []
-            for j in left_cap_job_id_list:
-                logging.debug(
-                    f"Left cap job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}"
-                )
-            for j in right_cap_job_id_list:
-                logging.debug(
-                    f"Right cap job {j}: r={r_dict[j]}, p={p_dict[j]}, tr={tr_dict[j]}"
-                )
-        else:
-            left_cap_job_id_list = []
-            right_cap_job_id_list = []
-
-        # Update mid_job_id_list to only include jobs that are not in head or tail job lists
-        mid_job_id_list = [
-            j
-            for j in instance.job_id_list
-            if j not in left_cap_job_id_list and j not in right_cap_job_id_list
-        ]
-        if option.randomize_mid_all:
-            random.shuffle(mid_job_id_list)
-        else:
-            # Sort mid jobs by (r_j - tr_j, tie-break by original job index)
-            mid_job_id_list.sort(
-                key=lambda j: (
-                    r_dict[j] - tr_dict[j],
-                    instance.job_id_list.index(j),
-                )
-            )
-            if option.reverse_mid_even:
-                reverse_even_positions(mid_job_id_list, in_place=True)
-            elif option.reverse_mid_all:
-                mid_job_id_list.reverse()
-
-        sorted_j_list = left_cap_job_id_list + mid_job_id_list + right_cap_job_id_list
-
-        dispatched_schedule = self.create_empty_schedule_from_ins(instance=instance)
-        dispatched_schedule.dispatch_stage_by_jobs(
-            bottleneck_stage_id,
-            sorted_j_list,
-            p_dict,
-            job_2_release=r_dict,
-        )
-        end_time_dict = dispatched_schedule.get_jik_2_end_time_map()
-        makespan = 0
-        for op, end_time in end_time_dict.items():
-            last_stage_completion = end_time + tr_dict[op[0]]
-            if last_stage_completion > makespan:
-                makespan = last_stage_completion
-
-        logging.debug(f"Bottleneck parallel MC: partial_obj={makespan}")
-        # Draw Gantt chart; force start time as zero and end time as makespan by CP
-        if draw_gantt:
-            self.draw_gantt(dispatched_schedule, force_start=0, force_end=makespan)
-        return dispatched_schedule, makespan
-
-    def _create_reversed_instance_for_former_stages(
-        self,
-        before_stage_list: list[str],
-        bottleneck_stage_start_time_map: dict[str, int],
-        bcmax: int,
-    ) -> tuple[HybridFlowshopParameters, dict[str, int]]:
-        """Create a reverse scheduling problem.
-
-        Args:
-            before_stage_list (list[str]): List of stage IDs for the former stages (i.e. stages before the bottleneck stage).
-            bottleneck_stage_start_time_map (dict[str, int]): job ID -> start time at bottleneck stage
-            bcmax (int): The makespan of the bottleneck stage schedule.
-
-        Returns:
-            tuple[HybridFlowshopParameters, dict[str, int]]:
-                - HybridFlowshopParameters: An instance of HybridFlowshopParameters for the former stages.
-                - dict[str, int]: A dictionary mapping job IDs to their release dates.
-        """
-        # Create a new instance for the former stages
-        stage_list = reversed(before_stage_list)
-        job_2_release = {}
-        for j in self.instance.job_id_list:
-            bottleneck_start_time = bottleneck_stage_start_time_map[j]
-            job_2_release[j] = bcmax - bottleneck_start_time
-        return HybridFlowshopParameters(
-            name=self.instance.name,
-            job_id_list=self.instance.job_id_list,
-            stage_id_list=list(stage_list),
-            stage_2_machines_map={
-                stage_id: self.instance.stage_2_machines_map[stage_id]
-                for stage_id in before_stage_list
-            },
-            p_manager=self.instance.p_manager,
-        ), job_2_release
-
-    def _dispatch_former_stages(
-        self,
-        instance_for_former_stages: HybridFlowshopParameters,
-        job_2_release: dict[str, int],
-        get_mixed_schedule: bool = False,
-    ) -> HybridFlowshopLiteSchedule | None:
-        # list of jobs sorted by release time (ascending)
-        sorted_j_list = sorted(
-            instance_for_former_stages.job_id_list,
-            key=lambda j: (
-                job_2_release[j],
-                instance_for_former_stages.job_id_list.index(j),
-            ),
-        )
-        if get_mixed_schedule:
-            return self._from_job_sequence_and_np_list_get_best_mixed_schedule(
-                sorted_j_list,
-                prob_instance=instance_for_former_stages,
-                job_2_release=job_2_release,
-                draw_gantt_per_step=False,
-            )
-
-        ds_schedule = self.create_empty_schedule_from_ins(instance_for_former_stages)
-        for stage_id in instance_for_former_stages.stage_id_list:
-            ds_schedule.dispatch_stage_by_jobs(
-                stage_id,
-                sorted_j_list,
-                {j: self.job_2_stage_2_p_dict[j][stage_id] for j in sorted_j_list},
-                job_2_release=job_2_release,
-            )
-
-        dj_schedule = self.create_empty_schedule_from_ins(instance_for_former_stages)
-        for job_id in sorted_j_list:
-            dj_schedule.dispatch_job_by_stages(
-                job_id,
-                {
-                    stage_id: self.job_2_stage_2_p_dict[job_id][stage_id]
-                    for stage_id in instance_for_former_stages.stage_id_list
-                },
-                release_t=job_2_release[job_id],
-            )
-
-        if ds_schedule.makespan < dj_schedule.makespan:
-            return ds_schedule
-        return dj_schedule
 
     # Dispatch
 
@@ -3313,26 +2872,3 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         return schedule
 
     # End subroutine definition
-
-
-def reverse_even_positions(sequence: list[Any], in_place: bool = False) -> list[Any]:
-    """
-    Reverse only even positions (1-based), keeping odd positions fixed.
-    For example, [A,B,C,D,E,F,G,H] -> [A,H,C,F,E,D,G,B]
-
-    Args:
-        sequence (list[Any]): The input sequence to be modified.
-        in_place (bool): If True, modify the input sequence in place and return it.
-            If False, return a new modified list. Defaults to False.
-
-    Returns:
-        list[Any]: The modified sequence with even positions reversed.
-    """
-    if in_place:
-        result = sequence
-    else:
-        result = sequence.copy()
-    even_position_elements = result[1::2]
-    even_position_elements.reverse()
-    result[1::2] = even_position_elements
-    return result
