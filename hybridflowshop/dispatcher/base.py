@@ -4,7 +4,12 @@ BaseDispatcher class with shared utilities for all dispatchers.
 
 from schore.parameters_examples import HybridFlowshopParameters
 
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    JobIdType,
+    McIdType,
+    StageIdType,
+)
 
 
 class BaseDispatcher:
@@ -26,11 +31,17 @@ class BaseDispatcher:
         Args:
             instance: The HybridFlowshopParameters instance.
         """
-        self.stage_2_job_2_p: dict[str, dict[str, int]] = instance.stage_2_job_2_p_map
-        self.job_2_stage_2_p: dict[str, dict[str, int]] = instance.job_2_stage_2_p_map
-        self.stage_id_list: list[str] = instance.stage_id_list
-        self.job_id_list: list[str] = instance.job_id_list
-        self.machines_per_stage: dict[str, list[str]] = instance.stage_2_machines_map
+        self.stage_2_job_2_p: dict[StageIdType, dict[JobIdType, int]] = (
+            instance.stage_2_job_2_p_map
+        )
+        self.job_2_stage_2_p: dict[JobIdType, dict[StageIdType, int]] = (
+            instance.job_2_stage_2_p_map
+        )
+        self.stage_id_list: list[StageIdType] = instance.stage_id_list
+        self.job_id_list: list[JobIdType] = instance.job_id_list
+        self.machines_per_stage: dict[StageIdType, list[McIdType]] = (
+            instance.stage_2_machines_map
+        )
         self.stage_count: int = instance.stage_count
         self.job_count: int = instance.job_count
 
@@ -72,22 +83,23 @@ class BaseDispatcher:
 
     @staticmethod
     def get_johnsons_rule_sequence(
-        job_name_2_p1_map: dict[str, int], job_name_2_p2_map: dict[str, int]
-    ) -> list[str]:
-        """
-        Apply Johnson's rule to determine the job sequence.
+        job_name_2_p1_map: dict[JobIdType, int], job_name_2_p2_map: dict[JobIdType, int]
+    ) -> list[JobIdType]:
+        """Apply Johnson's rule to determine the job sequence.
 
         Args:
-            job_name_2_p1_map: job ID -> processing time for the 1st stage
-            job_name_2_p2_map: job ID -> processing time for the 2nd stage
+            job_name_2_p1_map (dict[JobIdType, int]): job ID -> processing time for
+                the 1st stage
+            job_name_2_p2_map (dict[JobIdType, int]): job ID -> processing time for
+                the 2nd stage
 
         Returns:
-            A list of job IDs ordered according to Johnson's rule.
+            list[JobIdType]: job IDs ordered according to Johnson's rule.
         """
         jobs = list(job_name_2_p1_map.keys())
 
-        l1: list[str] = []
-        l2: list[str] = []
+        l1: list[JobIdType] = []
+        l2: list[JobIdType] = []
 
         for job in jobs:
             if job_name_2_p1_map[job] <= job_name_2_p2_map[job]:
@@ -100,15 +112,14 @@ class BaseDispatcher:
 
         return l1 + l2
 
-    def get_cds_sequence(self, k: int) -> list[str]:
-        """
-        Get Campbell-Dudek-Smith (CDS) sequence given k.
+    def get_cds_sequence(self, k: int) -> list[JobIdType]:
+        """Get Campbell-Dudek-Smith (CDS) sequence given k.
 
         Args:
-            k: Index between 1 and m-1, where m is the number of stages.
+            k (int): Index between 1 and m-1, where m is the number of stages.
 
         Returns:
-            A list of job IDs ordered according to the CDS rule.
+            list[JobIdType]: A list of job IDs ordered according to the CDS rule.
         """
         jobs = self.job_id_list
         stages = self.stage_id_list
@@ -122,12 +133,11 @@ class BaseDispatcher:
 
         return self.get_johnsons_rule_sequence(p1, p2)
 
-    def get_gupta_sequence(self) -> list[str]:
-        """
-        Return the job sequence according to Gupta's functional heuristic algorithm.
+    def get_gupta_sequence(self) -> list[JobIdType]:
+        """Return the job sequence according to Gupta's functional heuristic algorithm.
 
         Returns:
-            A list of job IDs in Gupta heuristic order.
+            list[JobIdType]: Job ID list in Gupta heuristic order.
         """
         jobs = self.job_id_list
         stages = self.stage_id_list
@@ -149,12 +159,11 @@ class BaseDispatcher:
         sorted_jobs = sorted(jobs, key=lambda j: (gupta_score[j], total_p[j], j))
         return sorted_jobs
 
-    def get_palmer_sequence(self) -> list[str]:
-        """
-        Return the job sequence according to Palmer's slope index heuristic.
+    def get_palmer_sequence(self) -> list[JobIdType]:
+        """Return the job sequence according to Palmer's slope index heuristic.
 
         Returns:
-            Job ID list in Palmer slope order (descending s_i).
+            list[JobIdType]: Job ID list in Palmer slope order (descending s_i).
         """
         jobs = self.job_id_list
         stages = self.stage_id_list

@@ -9,11 +9,11 @@ from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
-from hybridflowshop.dispatcher import JobDispatcher, StageDispatcher, MixedDispatcher
+from hybridflowshop.dispatcher import JobDispatcher, MixedDispatcher, StageDispatcher
+from hybridflowshop.dispatcher.utils import from_job_sequence_get_schedule_mixed
 from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
-    from_job_sequence_get_schedule_mixed,
 )
 from hybridflowshop.select_and_assign import solve_selection_problem
 from identical_parallel_machine.cumulative import ParallelMcParams, ParallelMcVars
@@ -1959,7 +1959,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             stage: self.get_shdlb_for_stage(stage)
             for stage in self.instance.stage_id_list
         }
-        bottleneck_stage_id = max(stage_2_shd_bound, key=stage_2_shd_bound.get)
+        bottleneck_stage_id = max(stage_2_shd_bound, key=lambda s: stage_2_shd_bound[s])
 
         logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
 
@@ -2505,7 +2505,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             for stage_id, total_p in stage_id_2_total_p.items()
         }
         bottleneck_stage_id = max(
-            stage_id_2_bottleneck_index, key=stage_id_2_bottleneck_index.get
+            stage_id_2_bottleneck_index, key=lambda s: stage_id_2_bottleneck_index[s]
         )
         return bottleneck_stage_id
 
@@ -2749,7 +2749,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         schedule = self.create_empty_schedule_from_ins(instance=prob_instance)
-        return from_job_sequence_get_schedule_mixed(
+        from_job_sequence_get_schedule_mixed(
             schedule,
             job_sequence,
             self.stage_2_job_2_p_dict,
@@ -2760,6 +2760,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if draw_gantt_per_step
             else None,
         )
+        return schedule
 
     def get_sample_schedule_by_cds(
         self,

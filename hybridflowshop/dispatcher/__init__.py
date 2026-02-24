@@ -16,9 +16,18 @@ from hybridflowshop.dispatcher.job import JobDispatcher
 from hybridflowshop.dispatcher.mixed import MixedDispatcher
 from hybridflowshop.dispatcher.stage import StageDispatcher
 
+from .utils import (
+    dispatch_job_sequence_by_stages,
+    dispatch_stages_by_job_sequence,
+    from_job_sequence_get_schedule_mixed,
+)
+
 __all__ = [
     "BaseDispatcher",
     "StageDispatcher",
     "JobDispatcher",
     "MixedDispatcher",
+    "dispatch_job_sequence_by_stages",
+    "dispatch_stages_by_job_sequence",
+    "from_job_sequence_get_schedule_mixed",
 ]
