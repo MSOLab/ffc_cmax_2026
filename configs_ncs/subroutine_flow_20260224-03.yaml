@@ -1,0 +1,77 @@
+- method: initialize_by_best_of_selected_dispatches
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: False
+  randomize_mid_all: False
+  reverse_mid_even: False
+  reverse_mid_all: False
+  mixed_schedule_for_former_stages: True
+  mixed_schedule_for_later_stages: True
+  head_for_all_stages: False
+  error_if_infeasible: False
+  draw_gantt: False
+- method: initialize_by_job_sequence_from_stage_aggregated_problem
+  stage_agg_count: 2
+  head_for_all_stages: False
+  head_stages_to_keep: 0
+  p_agg_method: "sum"
+  mi_agg_method: "max"
+  error_if_infeasible: True
+  draw_gantt_stage_aggregated: False
+  draw_gantt: False
+- method: initialize_by_job_sequence_from_stage_aggregated_problem
+  stage_agg_count: 2
+  head_for_all_stages: False
+  head_stages_to_keep: 1
+  p_agg_method: "sum"
+  mi_agg_method: "max"
+  error_if_infeasible: True
+  draw_gantt_stage_aggregated: False
+  draw_gantt: False
+- method: neh_cp
+  added_batch_size: 10
+  cp_tl_c_multiplier: 0.3
+  profile_fix_by_machine: False
+  minimize_sum_ci_lex: True
+  cp_tl_c_multiplier_2nd_obj: 0.2
+  minimize_sum_ci_lin: False
+  make_semi_active_every_cp: True
+  solver_thread_cnt: 8
+- method: set_cp_model_as_base_cp_model
+- method: run_reactive_loop
+  params:
+    routine_data:
+      - method: operation_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+        make_semi_active_after_cp: True
+      - method: job_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+        make_semi_active_after_cp: True
+      - method: stage_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+        make_semi_active_after_cp: True
+    reactive_param_tuner_dict:
+      rho:
+        step_size: 0.01
+        min: 0.1
+        max: 0.7
+      computational_time:
+        step_size: 1
+        min: 1
+        max: 5
+    stopping_criteria:
+      max_loop_count: 1000
+      max_no_improvement_steps: null
+      lb_gap_is_leq: 0.000001
+      on_exception: "skip"
+      rho_hits_ub: true
+      tl_hits_ub: false
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8
