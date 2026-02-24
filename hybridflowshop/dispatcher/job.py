@@ -19,28 +19,28 @@ class JobDispatcher(BaseDispatcher):
     def get_schedule_by_dj_cds(
         self,
         schedule: HybridFlowshopLiteSchedule | None = None,
-        in_place: bool = False,
         from_stage: StageIdType | None = None,
         job_2_release_t: dict[JobIdType, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        """Get schedule using DJ (Job-Sequence) with CDS sequence.
+        """Get schedule using DJ (Job-first dispatch) with CDS sequence.
 
         Args:
-            in_place: If True, modify the incumbent schedule directly.
-                     If False, work on a deepcopy and return new schedule.
+            schedule (HybridFlowshopLiteSchedule | None, optional): Given schedule,
+                may be empty or partially scheduled. Defaults to None.
+            from_stage (StageIdType | None, optional): The first stage to dispatch jobs.
+                If not provided, defaults to the first stage in schedule.
+            job_2_release_t (dict[JobIdType, int] | None, optional): The release time
+                for each job. Defaults to None.
 
         Returns:
-            The generated schedule, or None if infeasible.
+            HybridFlowshopLiteSchedule | None: The generated schedule, or None if infeasible.
         """
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
         best_k = -1
 
         for k in range(1, self.stage_count):
-            if schedule is not None:
-                _schedule = schedule.deepcopy()
-            else:
-                _schedule = self._create_empty_schedule()
+            _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=False)
             job_sequence = self.get_cds_sequence(k)
             dispatch_job_sequence_by_stages(
                 _schedule,
@@ -56,30 +56,29 @@ class JobDispatcher(BaseDispatcher):
                 best_sch = _schedule
                 best_k = k
 
-        print(f"Best CDS schedule found with k={best_k}, makespan={best_obj}")
-        if in_place and best_sch is not None:
-            schedule = best_sch
-            return None
-        else:
-            return best_sch
+        print(f"Best DJ(CDS) schedule found with k={best_k}, makespan={best_obj}")
+        return best_sch
 
     def get_schedule_by_dj_gupta(
         self,
         schedule: HybridFlowshopLiteSchedule | None = None,
-        in_place: bool = False,
         from_stage: StageIdType | None = None,
         job_2_release_t: dict[JobIdType, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        """Get schedule using DJ (Job-Sequence) with Gupta sequence.
+        """Get schedule using DJ (Job-first dispatch) with Gupta sequence.
 
         Args:
-            in_place: If True, modify the incumbent schedule directly.
-                     If False, work on a deepcopy and return new schedule.
+            schedule (HybridFlowshopLiteSchedule | None, optional): Given schedule,
+                may be empty or partially scheduled. Defaults to None.
+            from_stage (StageIdType | None, optional): The first stage to dispatch jobs.
+                If not provided, defaults to the first stage in schedule.
+            job_2_release_t (dict[JobIdType, int] | None, optional): The release time
+                for each job. Defaults to None.
 
         Returns:
-            The generated schedule, or None if infeasible.
+            HybridFlowshopLiteSchedule | None: The generated schedule, or None if infeasible.
         """
-        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=in_place)
+        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=False)
         job_sequence = self.get_gupta_sequence()
         dispatch_job_sequence_by_stages(
             _schedule,
@@ -88,27 +87,28 @@ class JobDispatcher(BaseDispatcher):
             from_stage=from_stage,
             job_2_release_t=job_2_release_t,
         )
-        if in_place:
-            return None
         return _schedule
 
     def get_schedule_by_dj_palmer(
         self,
         schedule: HybridFlowshopLiteSchedule | None = None,
-        in_place: bool = False,
         from_stage: StageIdType | None = None,
         job_2_release_t: dict[JobIdType, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        """Get schedule using DJ (Job-Sequence) with Palmer sequence.
+        """Get schedule using DJ (Job-first dispatch) with Palmer sequence.
 
         Args:
-            in_place: If True, modify the incumbent schedule directly.
-                     If False, work on a deepcopy and return new schedule.
+            schedule (HybridFlowshopLiteSchedule | None, optional): Given schedule,
+                may be empty or partially scheduled. Defaults to None.
+            from_stage (StageIdType | None, optional): The first stage to dispatch jobs.
+                If not provided, defaults to the first stage in schedule.
+            job_2_release_t (dict[JobIdType, int] | None, optional): The release time
+                for each job. Defaults to None.
 
         Returns:
-            The generated schedule, or None if infeasible.
+            HybridFlowshopLiteSchedule | None: The generated schedule, or None if infeasible.
         """
-        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=in_place)
+        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=False)
         job_sequence = self.get_palmer_sequence()
         dispatch_job_sequence_by_stages(
             _schedule,
@@ -117,6 +117,4 @@ class JobDispatcher(BaseDispatcher):
             from_stage=from_stage,
             job_2_release_t=job_2_release_t,
         )
-        if in_place:
-            return None
         return _schedule

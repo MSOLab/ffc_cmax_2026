@@ -2,7 +2,11 @@
 
 import pytest
 
-from hybridflowshop.dispatcher.utils import from_job_sequence_get_schedule_mixed
+from hybridflowshop.dispatcher.utils import (
+    dispatch_job_sequence_by_stages,
+    dispatch_stages_by_job_sequence,
+    from_job_sequence_get_schedule_mixed,
+)
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
 
 # ============================================================================
@@ -61,6 +65,254 @@ def test_from_job_sequence_get_schedule_mixed_basic():
 
     # Makespan should be 20
     assert sched.makespan == 20
+
+
+# ============================================================================
+# Tests for dispatch_job_sequence_by_stages()
+# ============================================================================
+
+
+def test_dispatch_job_sequence_by_stages_basic():
+    """Test basic job sequence dispatch across all stages."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
+    )
+    job_2_stage_2_p = {
+        "j1": {"s1": 2, "s2": 3, "s3": 1},
+        "j2": {"s1": 3, "s2": 2, "s3": 2},
+        "j3": {"s1": 1, "s2": 4, "s3": 3},
+    }
+
+    dispatch_job_sequence_by_stages(sched, ["j1", "j2", "j3"], job_2_stage_2_p)
+
+    # j1: s1 ends at 2, s2 ends at 5, s3 ends at 6
+    assert sched.get_job_end_time("s1", "j1") == 2
+    assert sched.get_job_end_time("s2", "j1") == 5
+    assert sched.get_job_end_time("s3", "j1") == 6
+
+    # j2: s1 starts at 2 ends at 5, s2 starts at 5 ends at 7, s3 starts at 7 ends at 9
+    assert sched.get_job_end_time("s1", "j2") == 5
+    assert sched.get_job_end_time("s2", "j2") == 7
+    assert sched.get_job_end_time("s3", "j2") == 9
+
+    # j3: s1 starts at 5 ends at 6, s2 starts at 7 ends at 11, s3 starts at 11 ends at 14
+    assert sched.get_job_end_time("s1", "j3") == 6
+    assert sched.get_job_end_time("s2", "j3") == 11
+    assert sched.get_job_end_time("s3", "j3") == 14
+
+    assert sched.makespan == 14
+
+
+def test_dispatch_job_sequence_by_stages_with_from_stage():
+    """Test dispatch starting from a specific stage."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
+    )
+    job_2_stage_2_p = {
+        "j1": {"s1": 2, "s2": 3, "s3": 1},
+        "j2": {"s1": 3, "s2": 2, "s3": 2},
+    }
+
+    # Schedule both jobs from s2 onward (s1 is skipped)
+    dispatch_job_sequence_by_stages(
+        sched, ["j1", "j2"], job_2_stage_2_p, from_stage="s2"
+    )
+
+    # j1 at s2 starts at 0, ends at 3; at s3 ends at 4
+    assert sched.get_job_end_time("s2", "j1") == 3
+    assert sched.get_job_end_time("s3", "j1") == 4
+
+    # j2 at s2 starts at 3, ends at 5; at s3 ends at 7
+    assert sched.get_job_end_time("s2", "j2") == 5
+    assert sched.get_job_end_time("s3", "j2") == 7
+
+
+def test_dispatch_job_sequence_by_stages_with_release_time():
+    """Test dispatch with job release times."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    job_2_stage_2_p = {
+        "j1": {"s1": 2, "s2": 3},
+        "j2": {"s1": 3, "s2": 2},
+    }
+    job_2_release_t = {"j1": 0, "j2": 5}
+
+    dispatch_job_sequence_by_stages(
+        sched, ["j1", "j2"], job_2_stage_2_p, job_2_release_t=job_2_release_t
+    )
+
+    # j1: s1 ends at 2, s2 ends at 5
+    assert sched.get_job_end_time("s1", "j1") == 2
+    assert sched.get_job_end_time("s2", "j1") == 5
+
+    # j2: release time is 5, s1 ends at max(5, 2) + 3 = 8, s2 ends at 8 + 2 = 10
+    assert sched.get_job_end_time("s1", "j2") == 8
+    assert sched.get_job_end_time("s2", "j2") == 10
+
+
+def test_dispatch_job_sequence_by_stages_multiple_machines():
+    """Test dispatch with multiple machines per stage."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1"]},
+    )
+    job_2_stage_2_p = {
+        "j1": {"s1": 2, "s2": 3},
+        "j2": {"s1": 3, "s2": 2},
+        "j3": {"s1": 1, "s2": 1},
+    }
+
+    dispatch_job_sequence_by_stages(sched, ["j1", "j2", "j3"], job_2_stage_2_p)
+
+    # At s1: j1 on m1 ends at 2, j2 on m2 ends at 3, j3 on m1 ends at 3
+    assert sched.get_job_end_time("s1", "j1") == 2
+    assert sched.get_job_end_time("s1", "j2") == 3
+    assert sched.get_job_end_time("s1", "j3") == 3
+
+    # At s2: all jobs use m1
+    # Priority: j1 (end=2), j2 (end=3), j3 (end=3)
+    # j1 starts at 2, ends at 5
+    # j2 starts at max(3, 5) = 5, ends at 7
+    # j3 starts at max(3, 7) = 7, ends at 8
+    assert sched.get_job_end_time("s2", "j1") == 5
+    assert sched.get_job_end_time("s2", "j2") == 7
+    assert sched.get_job_end_time("s2", "j3") == 8
+
+
+# ============================================================================
+# Tests for dispatch_stages_by_job_sequence()
+# ============================================================================
+
+
+def test_dispatch_stages_by_job_sequence_basic():
+    """Test basic stage dispatch with job sequence."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
+    )
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3, "j3": 1},
+        "s2": {"j1": 3, "j2": 2, "j3": 4},
+        "s3": {"j1": 1, "j2": 2, "j3": 3},
+    }
+
+    dispatch_stages_by_job_sequence(sched, ["j1", "j2", "j3"], stage_2_job_2_p)
+
+    # All stages scheduled sequentially for each job
+    # j1: s1=2, s2=5, s3=6
+    assert sched.get_job_end_time("s1", "j1") == 2
+    assert sched.get_job_end_time("s2", "j1") == 5
+    assert sched.get_job_end_time("s3", "j1") == 6
+
+    # j2: s1=5, s2=7, s3=9
+    assert sched.get_job_end_time("s1", "j2") == 5
+    assert sched.get_job_end_time("s2", "j2") == 7
+    assert sched.get_job_end_time("s3", "j2") == 9
+
+    # j3: s1=6, s2=11, s3=14
+    # At s2: j3 starts at max(6, 7) = 7 (wait for j2@S2 end at 7), ends at 11
+    # At s3: j3 starts at max(11, 6) = 11 (wait for j3@S2 end at 11), ends at 14
+    assert sched.get_job_end_time("s1", "j3") == 6
+    assert sched.get_job_end_time("s2", "j3") == 11
+    assert sched.get_job_end_time("s3", "j3") == 14
+
+    assert sched.makespan == 14
+
+
+def test_dispatch_stages_by_job_sequence_with_from_stage():
+    """Test stage dispatch starting from a specific stage."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
+    )
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3},
+        "s2": {"j1": 3, "j2": 2},
+        "s3": {"j1": 1, "j2": 2},
+    }
+
+    # First dispatch at s1
+    sched.dispatch_stage_by_jobs("s1", ["j1", "j2"], stage_2_job_2_p["s1"])
+
+    # Then dispatch from s2 onward
+    dispatch_stages_by_job_sequence(
+        sched, ["j1", "j2"], stage_2_job_2_p, from_stage="s2"
+    )
+
+    assert sched.get_job_end_time("s1", "j1") == 2
+    assert sched.get_job_end_time("s1", "j2") == 5
+    assert sched.get_job_end_time("s2", "j1") == 5
+    assert sched.get_job_end_time("s3", "j1") == 6
+    assert sched.get_job_end_time("s2", "j2") == 7
+    assert sched.get_job_end_time("s3", "j2") == 9
+
+
+def test_dispatch_stages_by_job_sequence_with_release_time():
+    """Test stage dispatch with job release times."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3},
+        "s2": {"j1": 3, "j2": 2},
+    }
+    job_2_release_t = {"j1": 0, "j2": 5}
+
+    dispatch_stages_by_job_sequence(
+        sched, ["j1", "j2"], stage_2_job_2_p, job_2_release_t=job_2_release_t
+    )
+
+    # j1: s1 ends at 2
+    assert sched.get_job_end_time("s1", "j1") == 2
+
+    # j2: release time is 5, s1 ends at max(5, 2) + 3 = 8
+    assert sched.get_job_end_time("s1", "j2") == 8
+
+    # j1: s2 starts at 2, ends at 5
+    assert sched.get_job_end_time("s2", "j1") == 5
+
+    # j2: s2 starts at max(8, 5) = 8, ends at 10
+    assert sched.get_job_end_time("s2", "j2") == 10
+
+
+def test_dispatch_stages_by_job_sequence_multiple_machines():
+    """Test stage dispatch with multiple machines per stage."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1"]},
+    )
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3, "j3": 1},
+        "s2": {"j1": 3, "j2": 2, "j3": 1},
+    }
+
+    dispatch_stages_by_job_sequence(sched, ["j1", "j2", "j3"], stage_2_job_2_p)
+
+    # At s1: j1 on m1 ends at 2, j2 on m2 ends at 3, j3 on m1 ends at 3
+    assert sched.get_job_end_time("s1", "j1") == 2
+    assert sched.get_job_end_time("s1", "j2") == 3
+    assert sched.get_job_end_time("s1", "j3") == 3
+
+    # At s2: all jobs use m1, priority by s1 end times
+    # j1 (end=2) -> ends at 5
+    # j2 (end=3) -> starts at max(3, 5)=5, ends at 7
+    # j3 (end=3) -> starts at max(3, 7)=7, ends at 8
+    assert sched.get_job_end_time("s2", "j1") == 5
+    assert sched.get_job_end_time("s2", "j2") == 7
+    assert sched.get_job_end_time("s2", "j3") == 8
 
 
 def test_from_job_sequence_get_schedule_mixed_k_per_stage():

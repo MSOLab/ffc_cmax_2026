@@ -24,7 +24,7 @@ def dispatch_job_sequence_by_stages(
         job_2_stage_2_p (Mapping[JobIdType, Mapping[StageIdType, int]]): The processing
             time for each job on each stage.
         from_stage (StageIdType | None, optional): The first stage to dispatch jobs.
-            Defaults to None.
+            If not provided, defaults to the first stage in schedule.
         job_2_release_t (Mapping[JobIdType, int] | None, optional): The release time
             for each job. Defaults to None.
     """
@@ -52,7 +52,7 @@ def dispatch_stages_by_job_sequence(
         stage_2_job_2_p (Mapping[StageIdType, Mapping[JobIdType, int]]): The processing
             time for each stage on each job.
         from_stage (StageIdType | None, optional): The first stage to dispatch jobs.
-            Defaults to None.
+            If not provided, defaults to the first stage in schedule.
         job_2_release_t (Mapping[JobIdType, int] | None, optional): The release time
             for each job. Defaults to None.
     """
@@ -117,10 +117,8 @@ def from_job_sequence_get_schedule_mixed(
             stages.
             E.g., with 5 jobs and stage_2_head={"s1": 3, "s2": 3}, s2 effectively
             uses min(3, 5-3) = 2 since only 2 jobs remain after s1 dispatches 3 jobs.
-        from_stage (StageIdType | None, optional): Stage to start scheduling from.
-            If provided, scheduling begins at this stage using existing completion
-            times from the previous stage as precedence constraints. If not provided,
-            scheduling starts from the first stage. Defaults to None.
+        from_stage (StageIdType | None, optional): The first stage to dispatch jobs.
+            If not provided, defaults to the first stage in schedule.
         job_2_release (dict[str, int] | None, optional): Mapping from job ID to release
             time, used for the first stage's priority queue (as a lower bound on when
             the job can start).

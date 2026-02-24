@@ -5,7 +5,11 @@ MixedDispatcher class for mixed dispatch methods with head/tail concept.
 import math
 from typing import Callable, Sequence
 
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    JobIdType,
+    StageIdType,
+)
 
 from .base import BaseDispatcher
 from .utils import from_job_sequence_get_schedule_mixed
@@ -23,13 +27,14 @@ class MixedDispatcher(BaseDispatcher):
 
     def _get_np_candidates(self) -> list[int]:
         """
-        Generate candidate values for the number of priority jobs (np) for mixed dispatch.
+        Generate candidate values for the number of priority jobs (np)
+        for mixed dispatch.
 
-        Generates a sequence of decreasing np values by halving (ceiling) starting from
-        the total job count, ending with 0.
+        Generates a sequence of decreasing np values by halving (ceiling)
+        starting from the total job count, ending with 0.
 
         Returns:
-            List of np candidates in descending order.
+            list[int]: List of np candidates in descending order.
         """
         np = self.job_count
         np_list = [np]
@@ -41,11 +46,10 @@ class MixedDispatcher(BaseDispatcher):
 
     def get_best_mixed_schedule_by_sequence(
         self,
-        job_sequence: Sequence[str],
+        job_sequence: Sequence[JobIdType],
         schedule: HybridFlowshopLiteSchedule | None = None,
-        in_place: bool = False,
-        from_stage: str | None = None,
-        job_2_release_t: dict[str, int] | None = None,
+        from_stage: StageIdType | None = None,
+        job_2_release_t: dict[JobIdType, int] | None = None,
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
@@ -54,15 +58,30 @@ class MixedDispatcher(BaseDispatcher):
         Get best mixed schedule by trying multiple np (number of priority jobs) values.
 
         Args:
-            job_sequence: The job sequence to use for dispatching.
-            schedule: If provided and in_place=True, modify directly. Otherwise copy.
-            head_for_all_stages: If True, apply head to all stages.
-                                If False, only apply head to the first stage.
-            from_stage: Optional stage to start dispatching from.
-            job_2_release_t: Optional mapping from job ID to release time.
+            job_sequence (Sequence[JobIdType]): The job sequence to use for
+                dispatching.
+            schedule (HybridFlowshopLiteSchedule | None, optional): Given schedule,
+                may be empty or partially scheduled. Defaults to None.
+            from_stage (StageIdType | None, optional): The first stage to dispatch
+                jobs. If not provided, defaults to the first stage in schedule.
+            job_2_release_t (dict[JobIdType, int] | None, optional): The release time
+                for each job. Defaults to None.
+            head_for_all_stages (bool, optional): If True, apply head to all stages.
+                If False, apply head only to the first stage. Defaults to False.
+            draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
+                step being scheduled. Defaults to False.
+            get_file_path_for_subroutine (Callable | None, optional): Callable that
+                returns a file path for each subroutine call. If provided, it is called
+                with the subroutine name and stage ID to generate a file path for
+                saving Gantt charts. Defaults to None.
+
+        Raises:
+            ValueError: If *from_stage* is provided but is not a valid stage in the
+                schedule.
 
         Returns:
-            The best generated schedule, or None if infeasible.
+            HybridFlowshopLiteSchedule | None: The best schedule found,
+                or None if no schedule is found.
         """
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
@@ -84,7 +103,10 @@ class MixedDispatcher(BaseDispatcher):
                     np_2_stage_2_head[np] = {self.stage_id_list[0]: np}
 
         for np in np_list:
-            _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=False)
+            if schedule is not None:
+                _schedule = schedule.deepcopy()
+            else:
+                _schedule = self._create_empty_schedule()
             from_job_sequence_get_schedule_mixed(
                 _schedule,
                 job_sequence,
@@ -101,38 +123,38 @@ class MixedDispatcher(BaseDispatcher):
                 best_obj = _schedule.makespan
                 best_sch = _schedule
 
-        if in_place and best_sch is not None:
-            schedule = best_sch
-            return None
-        else:
-            return best_sch
+        return best_sch
 
     def get_schedule_by_cds(
         self,
         schedule: HybridFlowshopLiteSchedule | None = None,
-        in_place: bool = False,
-        head_for_all_stages: bool = False,
         from_stage: str | None = None,
         job_2_release_t: dict[str, int] | None = None,
+        head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        """
-        Get schedule using mixed dispatch with CDS sequence.
+        """Get schedule using mixed dispatch with CDS sequence.
 
         Args:
-            schedule: If provided and in_place=True, modify directly. Otherwise copy.
-            in_place: If True, modify the incumbent schedule directly.
-                     If False, work on a deepcopy and return new schedule.
-            head_for_all_stages: If True, apply head to all stages.
-                                If False, only apply head to the first stage.
-            from_stage: Optional stage to start dispatching from.
-            job_2_release_t: Optional mapping from job ID to release time.
-            draw_gantt_per_step: If True, draw Gantt chart for each step of dispatching.
-            get_file_path_for_subroutine: Optional callable to get file path for subroutine.
+            schedule (HybridFlowshopLiteSchedule | None, optional): Given schedule,
+                may be empty or partially scheduled. Defaults to None.
+            from_stage (StageIdType | None, optional): The first stage to dispatch
+                jobs. If not provided, defaults to the first stage in schedule.
+            job_2_release_t (dict[JobIdType, int] | None, optional): The release time
+                for each job. Defaults to None.
+            head_for_all_stages (bool, optional): If True, apply head to all stages.
+                If False, apply head only to the first stage. Defaults to False.
+            draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
+                step being scheduled. Defaults to False.
+            get_file_path_for_subroutine (Callable | None, optional): Callable that
+                returns a file path for each subroutine call. If provided, it is called
+                with the subroutine name and stage ID to generate a file path for
+                saving Gantt charts. Defaults to None.
 
         Returns:
-            The generated schedule, or None if infeasible.
+            HybridFlowshopLiteSchedule | None: The best schedule found,
+                or None if no schedule is found.
         """
         best_obj_val: int | None = None
         best_schedule: HybridFlowshopLiteSchedule | None = None
@@ -163,19 +185,14 @@ class MixedDispatcher(BaseDispatcher):
                 best_k = k
 
         print(f"Best CDS schedule found with k={best_k}, makespan={best_obj_val}")
-        if in_place and best_schedule is not None:
-            schedule = best_schedule
-            return None
-        else:
-            return best_schedule
+        return best_schedule
 
     def get_schedule_by_gupta(
         self,
         schedule: HybridFlowshopLiteSchedule | None = None,
-        in_place: bool = False,
-        head_for_all_stages: bool = False,
         from_stage: str | None = None,
         job_2_release_t: dict[str, int] | None = None,
+        head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
@@ -183,21 +200,27 @@ class MixedDispatcher(BaseDispatcher):
         Get schedule using mixed dispatch with Gupta sequence.
 
         Args:
-            schedule: If provided and in_place=True, modify directly. Otherwise copy.
-            in_place: If True, modify the incumbent schedule directly.
-                     If False, work on a deepcopy and return new schedule.
-            head_for_all_stages: If True, apply head to all stages.
-                                If False, only apply head to the first stage.
-            from_stage: Optional stage to start dispatching from.
-            job_2_release_t: Optional mapping from job ID to release time.
-            draw_gantt_per_step: If True, draw Gantt chart for each step of dispatching.
-            get_file_path_for_subroutine: Optional callable to get file path for subroutine.
+            schedule (HybridFlowshopLiteSchedule | None, optional): Given schedule,
+                may be empty or partially scheduled. Defaults to None.
+            from_stage (StageIdType | None, optional): The first stage to dispatch
+                jobs. If not provided, defaults to the first stage in schedule.
+            job_2_release_t (dict[JobIdType, int] | None, optional): The release time
+                for each job. Defaults to None.
+            head_for_all_stages (bool, optional): If True, apply head to all stages.
+                If False, apply head only to the first stage. Defaults to False.
+            draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
+                step being scheduled. Defaults to False.
+            get_file_path_for_subroutine (Callable | None, optional): Callable that
+                returns a file path for each subroutine call. If provided, it is called
+                with the subroutine name and stage ID to generate a file path for
+                saving Gantt charts. Defaults to None.
 
         Returns:
-            The generated schedule, or None if infeasible.
+            HybridFlowshopLiteSchedule | None: The best schedule found,
+                or None if no schedule is found.
         """
-        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=in_place)
-        self.get_best_mixed_schedule_by_sequence(
+        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=False)
+        return self.get_best_mixed_schedule_by_sequence(
             self.get_gupta_sequence(),
             schedule=_schedule,
             head_for_all_stages=head_for_all_stages,
@@ -207,39 +230,39 @@ class MixedDispatcher(BaseDispatcher):
             get_file_path_for_subroutine=get_file_path_for_subroutine,
         )
 
-        if in_place:
-            return None
-        return _schedule
-
     def get_schedule_by_palmer(
         self,
         schedule: HybridFlowshopLiteSchedule | None = None,
-        in_place: bool = False,
         head_for_all_stages: bool = False,
         from_stage: str | None = None,
         job_2_release_t: dict[str, int] | None = None,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        """
-        Get schedule using mixed dispatch with Palmer sequence.
+        """Get schedule using mixed dispatch with Palmer sequence.
 
         Args:
-            schedule: If provided and in_place=True, modify directly. Otherwise copy.
-            in_place: If True, modify the incumbent schedule directly.
-                     If False, work on a deepcopy and return new schedule.
-            head_for_all_stages: If True, apply head to all stages.
-                                If False, only apply head to the first stage.
-            from_stage: Optional stage to start dispatching from.
-            job_2_release_t: Optional mapping from job ID to release time.
-            draw_gantt_per_step: If True, draw Gantt chart for each step of dispatching.
-            get_file_path_for_subroutine: Optional callable to get file path for subroutine.
+            schedule (HybridFlowshopLiteSchedule | None, optional): Given schedule,
+                may be empty or partially scheduled. Defaults to None.
+            from_stage (StageIdType | None, optional): The first stage to dispatch
+                jobs. If not provided, defaults to the first stage in schedule.
+            job_2_release_t (dict[JobIdType, int] | None, optional): The release time
+                for each job. Defaults to None.
+            head_for_all_stages (bool, optional): If True, apply head to all stages.
+                If False, apply head only to the first stage. Defaults to False.
+            draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
+                step being scheduled. Defaults to False.
+            get_file_path_for_subroutine (Callable | None, optional): Callable that
+                returns a file path for each subroutine call. If provided, it is called
+                with the subroutine name and stage ID to generate a file path for
+                saving Gantt charts. Defaults to None.
 
         Returns:
-            The generated schedule, or None if infeasible.
+            HybridFlowshopLiteSchedule | None: The best schedule found,
+                or None if no schedule is found.
         """
-        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=in_place)
-        self.get_best_mixed_schedule_by_sequence(
+        _schedule = self._prepare_schedule_for_dispatch(schedule, in_place=False)
+        return self.get_best_mixed_schedule_by_sequence(
             self.get_palmer_sequence(),
             schedule=_schedule,
             head_for_all_stages=head_for_all_stages,
@@ -248,7 +271,3 @@ class MixedDispatcher(BaseDispatcher):
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=get_file_path_for_subroutine,
         )
-
-        if in_place:
-            return None
-        return _schedule
