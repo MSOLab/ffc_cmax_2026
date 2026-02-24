@@ -7,12 +7,14 @@ import random
 from typing import Callable
 
 from schore.parameters_examples import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
+    create_instance_of_stage_subset,
+)
 
 from hybridflowshop.dispatcher.mixed import MixedDispatcher
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
     JobIdType,
-    McIdType,
     StageIdType,
 )
 
@@ -219,18 +221,10 @@ class BN2DDispatcher(BaseDispatcher):
             bottleneck_start_time = job_2_bottleneck_start_time[j]
             job_2_release_t[j] = bcmax - bottleneck_start_time
 
-        reversed_stage_2_machines: dict[StageIdType, list[McIdType]] = {
-            stage_id: self.machines_per_stage[stage_id]
-            for stage_id in before_stage_list
-        }
-
         # Create a new instance for former stages with reversed time
-        reversed_instance = HybridFlowshopParameters(
-            name=self.instance.name + "_former",
-            job_id_list=self.job_id_list,
-            stage_id_list=stage_list,
-            stage_2_machines_map=reversed_stage_2_machines,
-            p_manager=self.instance.p_manager,
+        reversed_instance = create_instance_of_stage_subset(
+            self.instance,
+            stage_list,
         )
 
         return reversed_instance, job_2_release_t

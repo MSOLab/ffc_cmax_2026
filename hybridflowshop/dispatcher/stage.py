@@ -1,5 +1,5 @@
 """
-StageDispatcher class for stage-sequence dispatch methods (DS and DWB).
+StageDispatcher class for stage-sequence dispatch method (DS).
 """
 
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
@@ -10,7 +10,7 @@ from .utils import dispatch_stages_by_job_sequence
 
 class StageDispatcher(BaseDispatcher):
     """
-    Stage-sequence dispatch methods (DS and DWB).
+    Stage-sequence dispatch methods (DS).
 
     These methods dispatch all jobs through one stage at a time,
     rather than dispatching jobs one-by-one through all stages.
