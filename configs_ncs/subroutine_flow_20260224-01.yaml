@@ -17,7 +17,7 @@
   p_agg_method: "sum"
   mi_agg_method: "max"
   error_if_infeasible: True
-  draw_gantt_stage_aggregated: False
+  draw_gantt_per_step: False
   draw_gantt: False
 - method: initialize_by_job_sequence_from_stage_aggregated_problem
   stage_agg_count: 2
@@ -26,5 +26,5 @@
   p_agg_method: "sum"
   mi_agg_method: "max"
   error_if_infeasible: True
-  draw_gantt_stage_aggregated: False
+  draw_gantt_per_step: False
   draw_gantt: False
