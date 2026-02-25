@@ -194,7 +194,7 @@ def run_experiment(
 
 def read_yaml(path: Path) -> Any:
     try:
-        return yaml.safe_load(path.read_text())
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception as e:
         raise RuntimeError(f"Error reading YAML from {path}: {e}")
 
@@ -204,7 +204,7 @@ def load_hfs_instance(
 ) -> HybridFlowshopParameters:
     try:
         ins_name = file_path.stem
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             if is_ff2020_format:
                 return HybridFlowshopParameters.from_ff2020_data(ins_name, f)
             else:

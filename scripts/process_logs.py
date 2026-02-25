@@ -114,7 +114,7 @@ def get_methods_from_flow(scenario_dir: Path) -> list[tuple[str, str]]:
         return []
 
     try:
-        with open(flow_path, "r") as f:
+        with open(flow_path, "r", encoding="utf-8") as f:
             flow = yaml.safe_load(f)
             if isinstance(flow, list):
                 methods = []
@@ -272,14 +272,24 @@ def create_method_end_time_and_obj_value_summary(
     if summary_rows:
         summary_df = pd.DataFrame(summary_rows)
         # Order columns: instance_id, job_cnt, stage_cnt, ref_obj_value, subroutine_name, end_time, obj_value
-        cols = ["instance_id", "job_cnt", "stage_cnt", "ref_obj_value", "subroutine_name", "end_time", "obj_value"]
+        cols = [
+            "instance_id",
+            "job_cnt",
+            "stage_cnt",
+            "ref_obj_value",
+            "subroutine_name",
+            "end_time",
+            "obj_value",
+        ]
         existing_cols = [c for c in cols if c in summary_df.columns]
         summary_df = summary_df.reindex(columns=existing_cols)
 
         # Save Long format
         long_path = scenario_dir / "summary_method_end_time_and_obj_value_long.csv"
         summary_df.to_csv(long_path, index=False)
-        logging.info(f"Method end time and obj value summary (long) saved to: {long_path}")
+        logging.info(
+            f"Method end time and obj value summary (long) saved to: {long_path}"
+        )
 
         # Create and save Wide format
         wide_rows = []
@@ -310,7 +320,9 @@ def create_method_end_time_and_obj_value_summary(
 
                 wide_rows.append(row)
             except Exception as e:
-                logging.error(f"Failed to create wide format for {instance_dir.name}: {e}")
+                logging.error(
+                    f"Failed to create wide format for {instance_dir.name}: {e}"
+                )
 
         wide_df = pd.DataFrame(wide_rows)
         # Order columns: instance_id, job_cnt, stage_cnt, ref_obj_value, then method columns
@@ -323,7 +335,9 @@ def create_method_end_time_and_obj_value_summary(
 
         wide_path = scenario_dir / "summary_method_end_time_and_obj_value_wide.csv"
         wide_df.to_csv(wide_path, index=False)
-        logging.info(f"Method end time and obj value summary (wide) saved to: {wide_path}")
+        logging.info(
+            f"Method end time and obj value summary (wide) saved to: {wide_path}"
+        )
 
         return summary_df
     # If no valid data was processed, return None

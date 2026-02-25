@@ -90,7 +90,7 @@ def load_config(config_path: str) -> CompareConfig:
         raise FileNotFoundError(f"Config file not found: {path}")
 
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         return CompareConfig(**raw)
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse YAML config: {e}")
