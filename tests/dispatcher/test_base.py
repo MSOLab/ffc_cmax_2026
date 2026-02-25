@@ -2,7 +2,7 @@
 
 from hybridflowshop.dispatcher import (
     BaseDispatcher,
-    Dispatcher,
+    BN2DDispatcher,
     JobDispatcher,
     MixedDispatcher,
     StageDispatcher,
@@ -33,14 +33,6 @@ class TestBaseDispatcher:
 class TestDispatcherStructure:
     """Tests for dispatcher class hierarchy."""
 
-    def test_dispatcher_extends_mixed_dispatcher(self) -> None:
-        """Test Dispatcher extends MixedDispatcher."""
-        assert issubclass(Dispatcher, MixedDispatcher)
-
-    def test_mixed_dispatcher_extends_base_dispatcher(self) -> None:
-        """Test MixedDispatcher extends BaseDispatcher."""
-        assert issubclass(MixedDispatcher, BaseDispatcher)
-
     def test_stage_dispatcher_extends_base_dispatcher(self) -> None:
         """Test StageDispatcher extends BaseDispatcher."""
         assert issubclass(StageDispatcher, BaseDispatcher)
@@ -48,3 +40,11 @@ class TestDispatcherStructure:
     def test_job_dispatcher_extends_base_dispatcher(self) -> None:
         """Test JobDispatcher extends BaseDispatcher."""
         assert issubclass(JobDispatcher, BaseDispatcher)
+
+    def test_mixed_dispatcher_extends_base_dispatcher(self) -> None:
+        """Test MixedDispatcher extends BaseDispatcher."""
+        assert issubclass(MixedDispatcher, BaseDispatcher)
+
+    def test_bn2d_dispatcher_extends_base_dispatcher(self) -> None:
+        """Test BN2DDispatcher extends BaseDispatcher."""
+        assert issubclass(BN2DDispatcher, BaseDispatcher)
