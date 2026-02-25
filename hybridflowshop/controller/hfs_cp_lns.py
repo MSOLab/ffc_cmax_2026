@@ -3,7 +3,6 @@ import math
 import random
 from typing import Callable, Mapping, Sequence
 
-from mbls.cpsat import CpsatStatus
 from routix import ElapsedTimer
 from schore.parameters_examples import HybridFlowshopParameters
 
@@ -21,8 +20,6 @@ from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
 )
-from identical_parallel_machine.cumulative import ParallelMcParams, ParallelMcVars
-from identical_parallel_machine.solver import SolveConfig, configure_solver
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
@@ -1522,6 +1519,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
         minimize_sum_ci_lex: bool = False,
+        cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
@@ -1556,6 +1554,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             minimize_sum_ci_lex (bool, optional): If True, minimizes the sum of
                 completion times in each CP subproblem after minimizing the makespan.
                 Defaults to False.
+            cp_tl_nc_multiplier_2nd_obj (float | None, optional): Multiplier for the time
+                limit of each CP subproblem for the second objective. If None, uses the default value.
+                Defaults to None.
+            cp_tl_c_multiplier_2nd_obj (float | None, optional): Multiplier for the time limit
+                of each CP subproblem for the second objective. If None, uses the default value.
+                Defaults to None.
             minimize_sum_ci_lin (bool, optional): If True, minimizes the sum of
                 completion times in each CP subproblem by a linear combination with the
                 makespan. Defaults to False.
@@ -1585,6 +1589,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             cp_tl_c_multiplier=cp_tl_c_multiplier,
             profile_fix_by_machine=profile_fix_by_machine,
             minimize_sum_ci_lex=minimize_sum_ci_lex,
+            cp_tl_nc_multiplier_2nd_obj=cp_tl_nc_multiplier_2nd_obj,
             cp_tl_c_multiplier_2nd_obj=cp_tl_c_multiplier_2nd_obj,
             minimize_sum_ci_lin=minimize_sum_ci_lin,
             make_semi_active_every_cp=make_semi_active_every_cp,
@@ -1733,255 +1738,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound_is_valid=obj_bound_is_valid,
         )
 
-    # Subroutine: bottleneck parallel machine scheduling
-
-    def bottleneck_parallel_mc(
-        self,
-        computational_time: float | None = None,
-        solver_thread_cnt: int | None = None,
-    ) -> None:
-        # # Identify bottleneck stage
-        # stage_id_2_total_p = {}
-        # for stage_id in self.instance.stage_id_list:
-        #     stage_id_2_total_p[stage_id] = sum(
-        #         self.stage_2_job_2_p_dict[stage_id][job_id]
-        #         for job_id in self.instance.job_id_list
-        #     )
-        # # pprint(stage_id_2_total_p)
-        # # stage_2_machine_count = {
-        # #     stage_id: len(self.instance.stage_2_machines_map[stage_id])
-        # #     for stage_id in self.instance.stage_id_list
-        # # }
-        # # pprint(stage_2_machine_count)
-        # stage_id_2_bottleneck_index = {
-        #     stage_id: total_p / len(self.instance.stage_2_machines_map[stage_id])
-        #     for stage_id, total_p in stage_id_2_total_p.items()
-        # }
-        # # pprint(stage_id_2_bottleneck_index)
-
-        # # Bottleneck stage is the one with the highest stage_id_2_bottleneck_index
-        # bottleneck_stage_id = max(
-        #     stage_id_2_bottleneck_index, key=stage_id_2_bottleneck_index.get
-        # )
-
-        stage_2_shd_bound = {
-            stage: self.get_shdlb_for_stage(stage)
-            for stage in self.instance.stage_id_list
-        }
-        bottleneck_stage_id = max(stage_2_shd_bound, key=lambda s: stage_2_shd_bound[s])
-
-        logging.info(f"Bottleneck stage: {bottleneck_stage_id}")
-
-        # From hybrid flow shop problem define parallel machine scheduling problem for the bottleneck stage
-        bottleneck_stage_index = self.instance.stage_id_list.index(bottleneck_stage_id)
-        before_stage_id_list = self.instance.stage_id_list[:bottleneck_stage_index]
-        after_stage_id_list = self.instance.stage_id_list[bottleneck_stage_index + 1 :]
-
-        # logging.info("Before stages: %s", before_stage_id_list)
-        # logging.info("After stages: %s", after_stage_id_list)
-
-        r_dict = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
-            for j in self.instance.job_id_list
-        }
-        p_dict = {
-            j: self.job_2_stage_2_p_dict[j][bottleneck_stage_id]
-            for j in self.instance.job_id_list
-        }
-        tr_dict = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
-            for j in self.instance.job_id_list
-        }
-        # pprint(r_dict)
-        # pprint(p_dict)
-        # pprint(tr_dict)
-
-        from identical_parallel_machine.cumulative import ParallelMcModelBuilder
-
-        builder = ParallelMcModelBuilder()
-        mdl, params, variables = builder.build(
-            self.instance.job_id_list,
-            self.instance.stage_2_machines_map[bottleneck_stage_id],
-            p_dict,
-            r_dict,
-            tr_dict,
-            horizon=self.get_horizon(),
-        )
-
-        solve_cfg = SolveConfig(
-            log_search_progress=False,
-            max_time_in_seconds=self.get_remaining_time_limit(computational_time),
-            num_workers=solver_thread_cnt,
-        )
-        self.solver = configure_solver(solve_cfg)
-        cp_solver_status = self.solver.solve(mdl)
-        cpsat_status = CpsatStatus.from_cp_solver_status(cp_solver_status)
-        elapsed_time = self.solver.wall_time
-        if cpsat_status.is_feasible:
-            obj_value = self.solver.objective_value
-            if cpsat_status == CpsatStatus.OPTIMAL:
-                obj_bound = obj_value
-            else:
-                obj_bound = self.solver.best_objective_bound
-            logging.info(
-                f"Bottleneck parallel MC done with obj_value {obj_value} and obj_bound {obj_bound} in {elapsed_time:.2f} seconds."
-            )
-        else:
-            obj_value, obj_bound = CpsatStatus.get_obj_value_and_bound_for_infeasible(
-                False
-            )
-            logging.info(
-                f"Bottleneck parallel MC found no feasible solution in {elapsed_time:.2f} seconds."
-            )
-
-        if cpsat_status.is_feasible:
-            # Make bottleneck-stage-only schedule
-            bottleneck_only_schedule = self._extract_schedule_from_parallel_mc_solution(
-                params, variables, bottleneck_stage_id
-            )
-            # Draw Gantt chart; force start time as zero and end time as makespan by CP
-            self.draw_gantt(
-                bottleneck_only_schedule, force_start=0, force_end=int(obj_value)
-            )
-            # Create a job sequence from the bottleneck-only schedule
-            # Sort by (start time at bottleneck stage - r_dict[j], tie-break by original job index)
-            bottleneck_only_start_time_map = self.extract_job_2_start_time_map(
-                params, variables
-            )
-            sorted_j_list = sorted(
-                params.j_list,
-                key=lambda j: (
-                    bottleneck_only_start_time_map[j] - r_dict[j],
-                    self.instance.job_id_list.index(j),
-                ),
-            )
-            dispatched_schedule = self.create_empty_schedule_from_ins()
-            for j in sorted_j_list:
-                dispatched_schedule.dispatch_job_by_stages(
-                    j, self.job_2_stage_2_p_dict[j]
-                )
-            dispatched_obj_value = dispatched_schedule.makespan
-            logging.info(
-                f"Bottleneck parallel MC: CP_obj={int(obj_value)}, full_schedule_obj={dispatched_obj_value}"
-            )
-
-            report = HfsSubroutineReport(
-                elapsed_time=elapsed_time,
-                obj_value=dispatched_obj_value,
-                obj_bound=obj_bound,
-                is_init=True,
-            )
-            self.solution_manager.register(report, dispatched_schedule)
-
-            # solution_dict = {
-            #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_start_time_map()),
-            #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_end_time_map()),
-            # }
-            # object_to_yaml(
-            #     solution_dict,
-            #     self.get_file_path_for_subroutine("_solution.yaml"),
-            #     encoding="utf-8",
-            # )
-
-    def _extract_schedule_from_parallel_mc_solution(
-        self, params: ParallelMcParams, variables: ParallelMcVars, target_stage_id: str
-    ) -> HybridFlowshopLiteSchedule:
-        start_time_map = self.extract_job_2_start_time_map(params, variables)
-
-        schedule = self.create_empty_schedule_from_ins()
-        sorted_j_list = sorted(
-            params.j_list,
-            key=lambda j: (start_time_map[j], params.j_list.index(j)),
-        )
-        for j in sorted_j_list:
-            start_time = start_time_map[j]
-            schedule.add_operation_2_stage(
-                target_stage_id,
-                j,
-                self.job_2_stage_2_p_dict[j][target_stage_id],
-                release_t=start_time,
-            )
-
-        return schedule
-
-    def extract_job_2_start_time_map(
-        self, params: ParallelMcParams, variables: ParallelMcVars
-    ) -> dict[str, int]:
-        start_time_map: dict[str, int] = {}
-        """job ID -> start time"""
-        for j in params.j_list:
-            start_value = self.solver.Value(variables.op_start[j])
-            start_time_map[j] = start_value
-        return start_time_map
-
-    def get_bnd_sequence(
-        self, stage_id: str, normalize_by_stage_cnt: bool = False
-    ) -> list[str]:
-        stage_index = self.instance.stage_id_list.index(stage_id)
-        before_stage_id_list = self.instance.stage_id_list[:stage_index]
-        after_stage_id_list = self.instance.stage_id_list[stage_index + 1 :]
-        before_stage_cnt = len(before_stage_id_list)
-        after_stage_cnt = len(after_stage_id_list)
-
-        r_dict = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in before_stage_id_list)
-            for j in self.instance.job_id_list
-        }
-        if normalize_by_stage_cnt and before_stage_cnt > 0:
-            r_dict = {j: math.ceil(r / before_stage_cnt) for j, r in r_dict.items()}
-        tr_dict = {
-            j: sum(self.job_2_stage_2_p_dict[j][s] for s in after_stage_id_list)
-            for j in self.instance.job_id_list
-        }
-        if normalize_by_stage_cnt and after_stage_cnt > 0:
-            tr_dict = {j: math.ceil(tr / after_stage_cnt) for j, tr in tr_dict.items()}
-
-        # Sort jobs by (r_j - tr_j, tie-break by original job index)
-        # Jobs with higher (r_j - tr_j) value are scheduled first
-        sorted_j_list = sorted(
-            self.instance.job_id_list,
-            key=lambda j: (
-                r_dict[j] - tr_dict[j],
-                self.instance.job_id_list.index(j),
-            ),
-        )
-        return sorted_j_list
-
-    def bnd_all_stage(self, normalize_by_stage_cnt: bool = False) -> None:
-        sub_timer = ElapsedTimer()
-
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-        for bottleneck_stage_id in self.instance.stage_id_list:
-            sorted_j_list = self.get_bnd_sequence(
-                bottleneck_stage_id, normalize_by_stage_cnt=normalize_by_stage_cnt
-            )
-            dispatched_schedule = self._from_job_sequence_get_schedule(sorted_j_list)
-            dispatched_obj_value = dispatched_schedule.makespan
-
-            if best_obj is None or dispatched_obj_value < best_obj:
-                best_obj = dispatched_obj_value
-                best_sch = dispatched_schedule
-
-        logging.info(f"Bottleneck parallel MC: full_schedule_obj={best_obj}")
-
-        report = HfsSubroutineReport(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=best_obj,
-            obj_bound=None,
-            is_init=True,
-        )
-        self.solution_manager.register(report, best_sch)
-
-        # solution_dict = {
-        #     START_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_start_time_map()),
-        #     END_TIME_MAP_KEY: tuple_to_pyyaml_key(schedule.get_jik_2_end_time_map()),
-        # }
-        # object_to_yaml(
-        #     solution_dict,
-        #     self.get_file_path_for_subroutine("_solution.yaml"),
-        #     encoding="utf-8",
-        # )
+    # Subroutine: bottleneck stage centric initialization
 
     def bn2d_single_stage(
         self,

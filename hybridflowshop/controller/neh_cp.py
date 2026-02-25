@@ -120,6 +120,7 @@ class NehCpConstructor:
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
         minimize_sum_ci_lex: bool = False,
+        cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
@@ -150,7 +151,17 @@ class NehCpConstructor:
                 )
         max_time_per_add_2nd_obj: float | None = None
         if minimize_sum_ci_lex:
-            if cp_tl_c_multiplier_2nd_obj is not None:
+            if cp_tl_nc_multiplier_2nd_obj is not None:
+                max_time_per_add_2nd_obj = (
+                    cp_tl_nc_multiplier_2nd_obj
+                    * instance.job_count
+                    * instance.stage_count
+                )
+                logging.info(
+                    f"max_time_per_add_2nd_obj is set to {max_time_per_add_2nd_obj:.2f} seconds"
+                    f" based on cp_tl_nc_multiplier_2nd_obj={cp_tl_nc_multiplier_2nd_obj}, job & stage count."
+                )
+            elif cp_tl_c_multiplier_2nd_obj is not None:
                 max_time_per_add_2nd_obj = (
                     cp_tl_c_multiplier_2nd_obj * instance.stage_count
                 )
