@@ -11,10 +11,10 @@ def get_start_time_dict(sol_path: Path, encoding: str = "utf-8") -> dict:
     data = None
     with open(sol_path, "r", encoding=encoding) as f:
         solution_dict = yaml.load(f, Loader=yaml.UnsafeLoader)
-        if "start_times" in solution_dict:
+        if START_TIME_MAP_KEY in solution_dict:
+            data = solution_dict[START_TIME_MAP_KEY]
+        elif "start_times" in solution_dict:
             data = solution_dict["start_times"]  # backward compatibility
-        elif "start_time_map" in solution_dict:
-            data = solution_dict["start_time_map"]
         else:
             raise ValueError(
                 f"Neither 'start_times' nor 'start_time_map' found in solution file: {sol_path}"
@@ -26,10 +26,10 @@ def get_end_time_dict(sol_path: Path, encoding: str = "utf-8") -> dict:
     data = None
     with open(sol_path, "r", encoding=encoding) as f:
         solution_dict = yaml.load(f, Loader=yaml.UnsafeLoader)
-        if "end_times" in solution_dict:
+        if END_TIME_MAP_KEY in solution_dict:
+            data = solution_dict[END_TIME_MAP_KEY]
+        elif "end_times" in solution_dict:
             data = solution_dict["end_times"]  # backward compatibility
-        elif "end_time_map" in solution_dict:
-            data = solution_dict["end_time_map"]
         else:
             raise ValueError(
                 f"Neither 'end_times' nor 'end_time_map' found in solution file: {sol_path}"
