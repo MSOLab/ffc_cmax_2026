@@ -19,6 +19,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from cpsat_solver_config import SolveConfig, configure_solver
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
 from hybridflowshop.cpsat_model_2.params import Params
 from hybridflowshop.report import HfsCpsatSolverReport
@@ -385,8 +386,6 @@ class HybridFlowShopCpLnsControllerCore(
         log_level_obj_bound: int = logging.INFO,
         last_timestamp_note: Any | None = None,
     ) -> CpsatSolverReport:
-        from ..cpsat_model_2.solver import SolveConfig, configure_solver
-
         if e_timer is None:
             e_timer = self.timer
 

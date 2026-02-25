@@ -7,8 +7,9 @@ Usage:
     python -m exp_compare --config path/to/config.yaml
 """
 
-from exp_compare.main_cli import main
 import sys
+
+from exp_compare.main_cli import main
 
 if __name__ == "__main__":
     sys.exit(main())
