@@ -2,6 +2,8 @@
 JobDispatcher class for job-sequence dispatch methods (DJ).
 """
 
+import logging
+
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from .base import BaseDispatcher, JobIdType, StageIdType
@@ -56,7 +58,9 @@ class JobDispatcher(BaseDispatcher):
                 best_sch = _schedule
                 best_k = k
 
-        print(f"Best DJ(CDS) schedule found with k={best_k}, makespan={best_obj}")
+        logging.debug(
+            f"Best DJ(CDS) schedule found with k={best_k}, makespan={best_obj}"
+        )
         return best_sch
 
     def get_schedule_by_dj_gupta(

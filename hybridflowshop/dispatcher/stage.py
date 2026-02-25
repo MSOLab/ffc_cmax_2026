@@ -2,6 +2,8 @@
 StageDispatcher class for stage-sequence dispatch method (DS).
 """
 
+import logging
+
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from .base import BaseDispatcher, JobIdType, StageIdType
@@ -56,7 +58,9 @@ class StageDispatcher(BaseDispatcher):
                 best_sch = _schedule
                 best_k = k
 
-        print(f"Best DS(CDS) schedule found with k={best_k}, makespan={best_obj}")
+        logging.debug(
+            f"Best DS(CDS) schedule found with k={best_k}, makespan={best_obj}"
+        )
         return best_sch
 
     def get_schedule_by_ds_gupta(

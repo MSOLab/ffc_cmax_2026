@@ -83,7 +83,7 @@ def run_experiment(
             pra_common_params_dict = read_yaml(pra_common_params_dump_path)
 
         benchmark_filenames = config.get_benchmark_filename_list(
-            reversed=REVERSE_INSTANCE_ORDER
+            reverse=REVERSE_INSTANCE_ORDER
         )
         instances = load_list_of_instances(config.input_dir, benchmark_filenames)
 

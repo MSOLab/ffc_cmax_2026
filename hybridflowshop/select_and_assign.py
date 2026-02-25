@@ -47,9 +47,10 @@ def solve_selection_problem(
         return {"status": "INFEASIBLE"}
 
     optimal_cost = solver.objective_value
+    optimal_cost_int = int(round(optimal_cost))
 
     # Add constraint: primary objective must equal optimal value
-    model.add(primary_obj == int(optimal_cost))
+    model.add(primary_obj == optimal_cost_int)
 
     # Secondary objective: minimize sum of selected job indices (tie-breaking)
     j_idx: dict[Hashable, int] = {
