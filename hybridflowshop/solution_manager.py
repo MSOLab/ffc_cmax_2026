@@ -2,12 +2,12 @@ from routix.solution_manager import SolutionManager
 from routix.util.comparison import float_equals
 
 from .report import HfsSubroutineReport
-from .scheduling.hybrid_flowshop_schedule import (
-    HybridFlowshopSchedule,
-)
+from .schedule_lite import HybridFlowshopLiteSchedule
 
 
-class HfsSolutionManager(SolutionManager[HfsSubroutineReport, HybridFlowshopSchedule]):
+class HfsSolutionManager(
+    SolutionManager[HfsSubroutineReport, HybridFlowshopLiteSchedule]
+):
     """
     A concrete solution manager for Hybrid Flowshop Scheduling.
 
@@ -17,7 +17,7 @@ class HfsSolutionManager(SolutionManager[HfsSubroutineReport, HybridFlowshopSche
 
     # --- Abstract Methods Implementation ---
 
-    def _get_obj_value(self, solution: HybridFlowshopSchedule) -> float:
+    def _get_obj_value(self, solution: HybridFlowshopLiteSchedule) -> float:
         return float(solution.makespan)
 
     def _a_is_better_obj_value(self, value_a: float, value_b: float | None) -> bool:

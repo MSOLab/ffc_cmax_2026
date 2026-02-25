@@ -1,0 +1,5 @@
+- method: generate_from_dispatches
+- method: bn2d_all_stage
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: True

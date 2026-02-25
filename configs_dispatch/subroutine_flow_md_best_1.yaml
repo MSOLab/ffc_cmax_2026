@@ -1,0 +1,4 @@
+- method: initialize_by_best_of_mixed_dispatches
+  head_for_all_stages: false
+  error_if_infeasible: false
+  draw_gantt: false

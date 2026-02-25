@@ -1,0 +1,7 @@
+- method: initialize_by_best_of_dispatches
+- method: bnd_all_stage
+- method: bn2d_all_stage
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: True
+  draw_gantt: False

@@ -9,11 +9,19 @@
   solver_thread_cnt: 8
 - method: run_reactive_loop
   params:
-    subroutine_names: [operation_block_ns, job_block_ns, stage_block_ns]
-    opening_kwargs:
-      rho: 0.1
-      computational_time: 1
-      solver_thread_cnt: 8
+    routine_data:
+      - method: operation_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+      - method: job_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
+      - method: stage_block_ns
+        rho: 0.1
+        computational_time: 1
+        solver_thread_cnt: 8
     reactive_param_tuner_dict:
       rho:
         step_size: 0.05

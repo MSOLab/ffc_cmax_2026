@@ -1,0 +1,5 @@
+- method: initialize_schedule_by_cds
+  head_for_all_stages: false
+  error_if_infeasible: true
+  draw_gantt_per_step: false
+  draw_gantt: false

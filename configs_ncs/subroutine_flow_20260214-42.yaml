@@ -1,0 +1,4 @@
+- method: bn2d_all_stage
+  draw_gantt: False
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25

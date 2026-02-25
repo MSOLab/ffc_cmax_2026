@@ -20,7 +20,9 @@ def test_report_entry_row_and_header():
         kwargs={"rho": 0.2, "computational_time": 5},
         time_start=0.0,
         time_elapsed=0.1,
+        prev_obj_value=999.0,
         obj_value=123.0,
+        timelimit_reached=False,
         is_optimal=False,
         is_improved=True,
     )
@@ -107,8 +109,9 @@ def test_reactive_looper_writes_reports(tmp_path):
 
     setattr(ctrl, "dummy", dummy_method)
 
-    subroutine_names = ["dummy"]
+    routine_name = "dummy"
     opening_kwargs = {"rho": 0.1, "computational_time": 1.0}
+    routine_data = {routine_name: opening_kwargs}
     reactive_param_tuner_dict = {
         "rho": {"step_size": 0.1, "min": 0.0, "max": 1.0},
         "computational_time": {"step_size": 1.0, "min": 0.1, "max": 10.0},
@@ -117,11 +120,11 @@ def test_reactive_looper_writes_reports(tmp_path):
 
     looper = ReactiveLooper(
         cast(HybridFlowShopCpLnsControllerCore, ctrl),
-        subroutine_names,
-        opening_kwargs,
+        routine_data,
         reactive_param_tuner_dict,
         stopping_criteria,
     )
+    looper.initialize_states()
     # Ensure stopping criteria attributes exist on looper.stopping_criteria
     looper.stopping_criteria.max_loop_count = 1
     looper.stopping_criteria.stop_at_global_timelimit_minus = None
@@ -139,7 +142,9 @@ def test_reactive_looper_writes_reports(tmp_path):
             kwargs=opening_kwargs,
             time_start=0.0,
             time_elapsed=0.01,
+            prev_obj_value=1.0,
             obj_value=1.0,
+            timelimit_reached=False,
             is_optimal=False,
             is_improved=False,
         )

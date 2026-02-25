@@ -1,0 +1,14 @@
+- method: initialize_by_best_of_selected_dispatches
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: False
+  randomize_mid_all: False
+  reverse_mid_even: False
+  reverse_mid_all: False
+  mixed_schedule_for_former_stages: False
+  head_for_all_stages: False
+  error_if_infeasible: False
+  draw_gantt: False
+- method: bn2d_all_stage
+  normalize_by_stage_cnt: True
+  draw_gantt: False

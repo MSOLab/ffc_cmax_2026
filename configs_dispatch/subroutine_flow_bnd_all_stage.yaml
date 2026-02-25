@@ -1,0 +1,2 @@
+- method: bn2d_all_stage
+  draw_gantt: False

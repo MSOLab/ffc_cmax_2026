@@ -1,0 +1,8 @@
+- method: bn2d_single_stage
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: False
+  randomize_mid_all: False
+  reverse_mid_even: False
+  reverse_mid_all: True
+  draw_gantt: False

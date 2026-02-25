@@ -1,0 +1,7 @@
+- method: get_sample_schedule_by_cds
+  np: 3
+  k: 2
+  head_for_all_stages: true
+  error_if_infeasible: true
+  draw_gantt_per_step: true
+  draw_gantt: false

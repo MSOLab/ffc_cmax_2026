@@ -1,39 +1,57 @@
 import datetime
 import logging
+import math
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from mbls.cpsat import (
+    CpsatSolverReport,
     CpsatStatus,
     CpSubroutineController,
+    CustomCpModel,
+    ObjectiveBoundRecorder,
+    ObjectiveValueRecorder,
 )
+from mbls.cpsat.callbacks import ValueBoundPair
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
 from routix.util.comparison import float_a_leq_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from ..cp_2023_naderi_cumulative import CP2023NaderiCumulative
+from cpsat_solver_config import SolveConfig, configure_solver
+from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
+from hybridflowshop.cpsat_model_2.params import Params
+from hybridflowshop.report import HfsCpsatSolverReport
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+
 from ..painter.gantt import GanttPlotter
-from ..scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
 from ..solution_manager import HfsSolutionManager
 
 
 class HybridFlowShopCpLnsControllerCore(
-    CpSubroutineController[
-        HybridFlowshopParameters, CP2023NaderiCumulative, StoppingCriteria
-    ]
+    CpSubroutineController[HybridFlowshopParameters, CustomCpModel, StoppingCriteria]
 ):
     """
     Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
     """
 
     # Start controller state
+
     solution_manager: HfsSolutionManager
     """Solution manager for Hybrid Flow Shop scheduling solutions."""
+
     total_elapsed_time: float
     """Total elapsed time for the controller."""
+
     # End controller state
+
+    # Start controller pre-defined values
+
+    method_names_to_run_before_resume: set[str]
+    """Name of methods to run before resuming from a paused state."""
+
+    # End controller pre-defined values
 
     def __init__(
         self,
@@ -45,7 +63,7 @@ class HybridFlowShopCpLnsControllerCore(
         super().__init__(
             instance,
             shared_param_dict,
-            CP2023NaderiCumulative,
+            CustomCpModel,
             subroutine_flow,
             stopping_criteria,
         )
@@ -58,13 +76,9 @@ class HybridFlowShopCpLnsControllerCore(
         assert "" not in self.method_names_to_run_before_resume
 
         # Frequently used parameters
-        self.job_2_stage_2_p_dict = self.instance.p_manager.job_2_stage_2_value_map(
-            self.instance.job_id_list, self.instance.stage_id_list
-        )
+        self.job_2_stage_2_p_dict = self.instance.job_2_stage_2_p_map
         """Job name -> stage name -> processing time map"""
-        self.stage_2_job_2_p_dict = self.instance.p_manager.stage_2_job_2_value_map(
-            self.instance.stage_id_list, self.instance.job_id_list
-        )
+        self.stage_2_job_2_p_dict = self.instance.stage_2_job_2_p_map
         """Stage name -> job name -> processing time map"""
 
         logging.info(
@@ -74,19 +88,36 @@ class HybridFlowShopCpLnsControllerCore(
 
     # Start abstract getters
 
-    def create_base_cp_model(
-        self, impose_all_stage_capacity_constr: bool = True, **kwargs
-    ) -> CP2023NaderiCumulative:
-        return self.cp_model_class.from_instance(
-            self.instance,
-            self.get_horizon(),
-            impose_all_stage_capacity_constr=impose_all_stage_capacity_constr,
-        )
+    def create_base_cp_model(self, **kwargs) -> CustomCpModel:
+        builder = BaseModelBuilder()
+        horizon = self.get_horizon()
+        mdl, params, variables = builder.build(self.instance, horizon)
+        self.params: Params = params
+        self.vars: CumulativeVars = variables
+        mdl.minimize(variables.makespan)
+        return mdl
 
     # End abstract getters
 
     def get_horizon(self) -> int:
-        """Returns the horizon of the scheduling problem."""
+        """
+        Get the horizon for the CP model.
+
+        - If the best objective value is available from the solution manager,
+          use its ceiling as the horizon.
+        - Otherwise, retrieve the horizon from the shared parameters.
+
+        Raises:
+            ValueError: If no best objective value from the solution manager
+                and the horizon is not found in shared parameters.
+
+        Returns:
+            int: The horizon value for the CP model.
+        """
+        if self.solution_manager.best_obj_value:
+            return math.ceil(self.solution_manager.best_obj_value)
+        if not isinstance(self.shared_param_dict, dict):
+            raise ValueError("Shared parameters is not a dictionary.")
         if "horizon" not in self.shared_param_dict:
             raise ValueError("Horizon not found in shared parameters.")
         return self.shared_param_dict["horizon"]
@@ -201,23 +232,31 @@ class HybridFlowShopCpLnsControllerCore(
     # Start visualization
 
     def draw_gantt(
-        self, schedule: HybridFlowshopSchedule, output_path: Path | None = None
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        output_path: Path | None = None,
+        stage_list: list[str] | None = None,
+        force_start: int | None = None,
+        force_end: int | None = None,
     ):
         """Draws the Gantt chart of the given schedule.
 
         Args:
-            schedule (HybridFlowshopSchedule): The schedule to draw.
+            schedule (HybridFlowshopLiteSchedule): The schedule to draw.
             output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
         if output_path is None:
             output_path = self.get_file_path_for_subroutine("_gantt.png")
-        if isinstance(schedule, HybridFlowshopSchedule):
+        if isinstance(schedule, HybridFlowshopLiteSchedule):
             plotter = GanttPlotter()
             plotter.export_hybrid_flowshop_plot(
                 output_path,
-                schedule.get_start_time_map(),
-                schedule.get_end_time_map(),
+                schedule.get_jik_2_start_time_map(),
+                schedule.get_jik_2_end_time_map(),
                 self.instance.job_id_list,
+                stage_list=stage_list,
+                force_start=force_start,
+                force_end=force_end,
             )
 
     def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
@@ -227,7 +266,7 @@ class HybridFlowShopCpLnsControllerCore(
             output_path (Path | None, optional): The output path for the Gantt chart image. Defaults to None.
         """
         incumbent_solution = self.solution_manager.get_incumbent()
-        if isinstance(incumbent_solution, HybridFlowshopSchedule):
+        if isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
             self.draw_gantt(incumbent_solution, output_path=output_path)
         else:
             logging.warning("No incumbent solution available to draw Gantt chart.")
@@ -275,7 +314,7 @@ class HybridFlowShopCpLnsControllerCore(
         """
         incumbent = self.solution_manager.get_incumbent()
         if incumbent:
-            self.check_feasibility(incumbent.get_start_time_map())
+            self.check_feasibility(incumbent.get_jik_2_start_time_map())
         self.release_log_handlers()
         self.total_elapsed_time = self.timer.elapsed_sec
 
@@ -301,33 +340,468 @@ class HybridFlowShopCpLnsControllerCore(
                 raise ValueError(
                     f"Invalid start time for job {j}, stage {i}, machine {k}: {start_time}"
                 )
-        base_cp = self.create_base_cp_model()
-
-        # Freeze operation start times and machine assignments
+        makespan = 0
+        end_time_map: dict[tuple[str, str, str], int] = {}
         for (j, i, k), start_time in start_time_map.items():
-            base_cp.add(self.cp_model.var_op_start[j, i] == start_time)
+            end_time = start_time + self.job_2_stage_2_p_dict[j][i]
+            end_time_map[(j, i, k)] = end_time
+            if end_time > makespan:
+                makespan = end_time
 
-        # Solve with tight time limit
-        timelimit = 2.0
-        solver_thread_cnt = 1
-        solver_report = self.solve_cp_model(base_cp, timelimit, solver_thread_cnt)
-        if solver_report.status not in (CpsatStatus.FEASIBLE, CpsatStatus.OPTIMAL):
-            mdl_txt_path = self.get_file_path_for_subroutine(
-                "_feasibility_check_failed.txt"
-            )
-            base_cp.export_to_file(str(mdl_txt_path))
-            if solver_report.status == CpsatStatus.INFEASIBLE:
-                raise RuntimeError(
-                    f"Feasibility check failed: INFEASIBLE. Model saved to {mdl_txt_path}"
-                )
-            else:
-                raise ValueError(
-                    f"Feasibility check failed with status {solver_report.status}. "
-                    f"Model saved to {mdl_txt_path}"
-                )
+        from ..schedule_lite import (
+            validate_duration,
+            validate_no_overlap,
+            validate_precedence,
+        )
+
+        validate_duration(start_time_map, end_time_map, self.stage_2_job_2_p_dict)
+        validate_precedence(start_time_map, end_time_map, self.instance.stage_id_list)
+        validate_no_overlap(
+            start_time_map,
+            end_time_map,
+            self.instance.stage_id_list,
+            self.instance.stage_2_machines_map,
+        )
+
         logging.info("Feasibility check passed")
-        if solver_report.obj_value is None:
-            raise ValueError("Feasibility check did not return an objective value.")
-        return solver_report.obj_value
+        return makespan
 
     # End post-run process
+
+    # Start solver call methods
+
+    def solve_cp_model_2(
+        self,
+        mdl: CustomCpModel,
+        computational_time: float,
+        solver_thread_cnt: int,
+        obj_value_is_valid: bool = False,
+        obj_bound_is_valid: bool = False,
+        keep_all_feasible_solutions_in_presolve: bool | None = None,
+        e_timer: ElapsedTimer | None = None,
+        print_search_progress: bool = False,
+        print_on_obj_value_update: bool = False,
+        print_on_obj_bound_update: bool = False,
+        log_level_obj_value: int = logging.INFO,
+        log_level_obj_bound: int = logging.INFO,
+        last_timestamp_note: Any | None = None,
+    ) -> CpsatSolverReport:
+        if e_timer is None:
+            e_timer = self.timer
+
+        solve_cfg = SolveConfig(
+            log_search_progress=print_search_progress,
+            max_time_in_seconds=computational_time,
+            num_workers=solver_thread_cnt,
+            keep_all_feasible_solutions_in_presolve=keep_all_feasible_solutions_in_presolve,
+            random_seed=self.random_seed,
+        )
+        self.solver = configure_solver(solve_cfg)
+        obj_value_recorder = ObjectiveValueRecorder(
+            e_timer,
+            print_on_record=print_on_obj_value_update,
+            log_level_on_record=log_level_obj_value,
+        )
+
+        obj_bound_recorder = ObjectiveBoundRecorder(
+            e_timer,
+            print_on_record=print_on_obj_bound_update,
+            log_level_on_record=log_level_obj_bound,
+        )
+        self.solver.best_bound_callback = obj_bound_recorder
+
+        cp_solver_status = self.solver.solve(mdl, solution_callback=obj_value_recorder)
+        cpsat_status = CpsatStatus.from_cp_solver_status(cp_solver_status)
+        elapsed_time = self.solver.wall_time
+        if cpsat_status.is_feasible:
+            obj_value = self.solver.objective_value
+            if cpsat_status == CpsatStatus.OPTIMAL:
+                obj_bound = obj_value
+            else:
+                obj_bound = self.solver.best_objective_bound
+        else:
+            obj_value, obj_bound = CpsatStatus.get_obj_value_and_bound_for_infeasible(
+                False
+            )
+
+        last_timestamp = e_timer.elapsed_sec
+
+        # Store the objective value and bound logs
+
+        def get_obj_value_records() -> list[tuple[float, float]]:
+            """Returns the recorded objective values and elapsed times.
+
+            Returns:
+                list[tuple[float, float]]: A list of tuples containing (elapsed time, objective value).
+            """
+            return_list: list[tuple[float, float]] = []
+            list_by_value_recorder: list[tuple[float, ValueBoundPair]] = (
+                obj_value_recorder.entries
+            )
+            for entry in list_by_value_recorder:
+                return_list.append((entry[0], entry[1].value))
+            return return_list
+
+        obj_value_records: list[tuple[float, float]] = []
+        if obj_value_is_valid:
+            obj_value_records = get_obj_value_records()
+            if cpsat_status.is_feasible:
+                obj_value_records.append((last_timestamp, obj_value))
+            self.extend_obj_value_log(
+                obj_value_records, is_maximize=self.cp_model.is_maximize()
+            )
+            # Record value for the last timestamp if it is the same as the last value
+            # and is not recorded for the last timestamp
+            if (
+                obj_value == self.obj_store.get_last_obj_value()
+                and (last_timestamp, obj_value) not in obj_value_records
+            ):
+                self.add_obj_value_log(last_timestamp, obj_value, is_maximize=None)
+
+        def get_obj_bound_records() -> list[tuple[float, float]]:
+            """Returns the recorded objective bounds and elapsed times.
+
+            Returns:
+                list[tuple[float, float]]: A list of tuples containing (elapsed time, objective bound).
+            """
+            timestamp_list = []
+            timestamp_2_bound_map: dict[float, float] = {}
+
+            list_by_bound_recorder: list[tuple[float, float]] = (
+                obj_bound_recorder.elapsed_time_and_bound
+            )
+            for b_entry in list_by_bound_recorder:
+                timestamp = b_entry[0]
+                bound = b_entry[1]
+                if timestamp not in timestamp_list:
+                    timestamp_list.append(timestamp)
+                timestamp_2_bound_map[timestamp] = bound
+
+            list_by_value_recorder: list[tuple[float, ValueBoundPair]] = (
+                obj_value_recorder.entries
+            )
+            for v_entry in list_by_value_recorder:
+                timestamp = v_entry[0]
+                bound = v_entry[1].bound
+                if timestamp not in timestamp_list:
+                    timestamp_list.append(timestamp)
+                if timestamp not in timestamp_2_bound_map:
+                    timestamp_2_bound_map[timestamp] = bound
+
+            timestamp_list.sort()
+            return [
+                (timestamp, timestamp_2_bound_map[timestamp])
+                for timestamp in timestamp_list
+            ]
+
+        obj_bound_records: list[tuple[float, float]] = []
+        if obj_bound_is_valid:
+            obj_bound_records = get_obj_bound_records()
+            if cpsat_status.is_feasible:
+                obj_bound_records.append((last_timestamp, obj_bound))
+            self.extend_obj_bound_log(obj_bound_records, is_maximize=False)
+            # Record bound for the last timestamp if it is the same as the last bound
+            # and is not recorded for the last timestamp
+            if (
+                obj_bound == self.obj_store.get_last_obj_bound()
+                and (last_timestamp, obj_bound) not in obj_bound_records
+            ):
+                self.add_obj_bound_log(last_timestamp, obj_bound, is_maximize=None)
+
+        _last_timestamp_note = (
+            last_timestamp_note or self._get_call_context_of_current_method()
+        )
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
+        )
+
+        solver_report = CpsatSolverReport(
+            elapsed_time,
+            obj_value,
+            obj_bound,
+            cpsat_status,
+            obj_value_records,
+            obj_bound_records,
+        )
+        return solver_report
+
+    def extract_stage_2_job_2_start_time_map(
+        self, params: Params, variables: CumulativeVars
+    ) -> dict[str, dict[str, int]]:
+        start_time_map: dict[str, dict[str, int]] = {}
+        """stage ID -> job ID -> start time"""
+        for i in params.i_list:
+            start_time_map[i] = {}
+            for j in params.j_list:
+                start_value = self.solver.Value(variables.op_start[j, i])
+                start_time_map[i][j] = start_value
+        return start_time_map
+
+    def extract_stage_2_job_2_end_time_map(
+        self, params: Params, variables: CumulativeVars
+    ) -> dict[str, dict[str, int]]:
+        end_time_map: dict[str, dict[str, int]] = {}
+        """stage ID -> job ID -> end time"""
+        for i in params.i_list:
+            end_time_map[i] = {}
+            for j in params.j_list:
+                end_value = self.solver.Value(variables.op_end[j, i])
+                end_time_map[i][j] = end_value
+        return end_time_map
+
+    def create_empty_schedule_from_ins(
+        self, instance: HybridFlowshopParameters | None = None
+    ) -> HybridFlowshopLiteSchedule:
+        """Creates an empty HybridFlowshopLiteSchedule for the problem instance.
+
+        Args:
+            instance (HybridFlowshopParameters | None, optional): the problem instance.
+                If None, uses self.instance. Defaults to None.
+
+        Returns:
+            HybridFlowshopLiteSchedule: An empty schedule object.
+        """
+        if instance is None:
+            instance = self.instance
+        return HybridFlowshopLiteSchedule(
+            instance.job_id_list,
+            instance.stage_id_list,
+            instance.stage_2_machines_map,
+        )
+
+    def create_schedule(
+        self, params: Params, variables: CumulativeVars, make_semi_active: bool = False
+    ) -> HybridFlowshopLiteSchedule:
+        """
+        Constructs a full HybridFlowshopLiteSchedule from the solved CP model.
+
+        - This method first extracts the start and end times for each operation
+        (job, stage) from the CP solver.
+        - It then uses a greedy approach to assign each operation
+        to a specific machine within its stage.
+          - Operations are assigned in the order of their start times
+          to the earliest available machine.
+
+        Raises:
+            RuntimeError: If an operation cannot be scheduled due to timing conflicts
+                          or if the machine assignment fails.
+            RuntimeError: If an operation fails to be scheduled on any machine,
+                          indicating a potential inconsistency or issue.
+
+        Returns:
+            HybridFlowshopLiteSchedule: A complete schedule object with all operations
+                                    assigned to specific machines and time slots.
+        """
+        start_time_map = self.extract_stage_2_job_2_start_time_map(params, variables)
+
+        schedule = self.create_empty_schedule_from_ins()
+        for i in params.i_list:
+            # For greedy machine assignment,
+            # Sort operations at stage i by 1) their start time 2) their job index in self.j_list
+            # This ensures that operations are assigned to machines in a consistent order.
+            # This is important for the greedy assignment to work correctly.
+            sorted_j_list = sorted(
+                params.j_list,
+                key=lambda j: (start_time_map[i][j], params.j_list.index(j)),
+            )
+            for j in sorted_j_list:
+                start_time = start_time_map[i][j]
+                schedule.add_operation_2_stage(
+                    i, j, params.p[j, i], release_t=start_time
+                )
+        if make_semi_active:
+            schedule.make_semi_active(self.stage_2_job_2_p_dict)
+
+        return schedule
+
+    def extract_start_end_time_map(
+        self,
+        params: Params,
+        variables: CumulativeVars,
+    ) -> tuple[dict[tuple[str, str, str], int], dict[tuple[str, str, str], int]]:
+        """
+        Extracts the final start and end time maps from the solved model.
+
+        This method orchestrates the post-solution process by first calling
+        `create_schedule()` to build a complete, feasible schedule with specific
+        machine assignments. It then extracts and returns the detailed start
+        and end time dictionaries from that schedule.
+
+        Returns:
+            tuple[dict[tuple[str, str, str], int], dict[tuple[str, str, str], int]]:
+                A tuple containing two dictionaries:
+                - The first maps (job, stage, machine) to the operation start time.
+                - The second maps (job, stage, machine) to the operation end time.
+        """
+        schedule = self.create_schedule(params, variables)
+        return schedule.get_jik_2_start_time_map(), schedule.get_jik_2_end_time_map()
+
+    def solve_current_cp_remaining_time_limit(
+        self,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        make_semi_active_after_cp: bool = False,
+        obj_value_is_valid: bool = False,
+        obj_bound_is_valid: bool = False,
+        is_initial_solution: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
+        """Solves the current CP model, creates a schedule, and registers the result.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            no_improvement_timelimit (float | None, optional): If there is no improvement in this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
+            obj_value_is_valid (bool, optional): If True, adds the objective value log.
+                Defaults to False.
+            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
+                Defaults to False.
+            is_initial_solution (bool, optional): If True, indicates that this is an initial solution.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+        # Utilize the objective bound if available
+        if (
+            obj_value_is_valid
+            and self.solution_manager.best_obj_bound is not None
+            and not math.isnan(self.solution_manager.best_obj_bound)
+        ):
+            BaseModelBuilder.set_obj_lower_bound(
+                self.cp_model, self.vars, self.solution_manager.best_obj_bound
+            )
+
+        # mdl_txt_path = self.get_file_path_for_subroutine("_cp_sat_model.txt")
+        # self.cp_model.export_to_file(str(mdl_txt_path))
+
+        _timelimit = self.get_remaining_time_limit(computational_time)
+        solver_report = self.solve_cp_model_2(
+            self.cp_model,
+            _timelimit,
+            solver_thread_cnt,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
+            log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
+        )
+
+        hfs_solver_report = HfsCpsatSolverReport.from_other(
+            solver_report, is_init=is_initial_solution
+        )
+
+        # If the objective value or bound is not valid, use the best known values.
+        report_updates: dict[str, Any] = {}
+        if obj_value_is_valid:
+            report_updates["obj_value"] = hfs_solver_report.obj_value
+        else:
+            report_updates["obj_value"] = self.solution_manager.best_obj_value
+        if obj_bound_is_valid:
+            report_updates["obj_bound"] = hfs_solver_report.obj_bound
+        else:
+            report_updates["obj_bound"] = self.solution_manager.best_obj_bound
+
+        if report_updates:
+            hfs_solver_report = hfs_solver_report.copy(
+                obj_value=report_updates.get("obj_value"),
+                obj_bound=report_updates.get("obj_bound"),
+            )
+
+        solution: HybridFlowshopLiteSchedule | None = None
+        if hfs_solver_report.obj_value is None:
+            if obj_value_is_valid:
+                logging.warning("Failed to find a valid objective value.")
+        else:
+            if hfs_solver_report.is_feasible:
+                solution = self.create_schedule(
+                    self.params, self.vars, make_semi_active=make_semi_active_after_cp
+                )
+                if error_if_infeasible:
+                    self.check_feasibility(solution.get_jik_2_start_time_map())
+                # Ensure consistency between report and solution
+                if solution.makespan != hfs_solver_report.obj_value:
+                    # solution.makespan may be better than the reported objective value
+                    # due to the way the CP solver reports values
+                    # (e.g., due to presolve or how it handles bounds).
+                    # In such cases, we update the report to reflect the actual solution value.
+                    logging.info(
+                        f"Objective value in report ({hfs_solver_report.obj_value}) "
+                        f"does not match the makespan of the created solution ({solution.makespan}). "
+                        f"Updating the report to reflect the solution's makespan."
+                    )
+                    hfs_solver_report = hfs_solver_report.copy(
+                        elapsed_time=sub_timer.elapsed_sec, obj_value=solution.makespan
+                    )
+            else:
+                logging.warning(
+                    "No feasible solution found in the current CP model solving."
+                )
+
+        return hfs_solver_report, solution
+
+    def solve_with_initial_solution(
+        self,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        make_semi_active_after_cp: bool = False,
+        obj_value_is_valid: bool = False,
+        obj_bound_is_valid: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
+        """Solves the current CP model using the incumbent solution as a hint.
+
+        Args:
+            computational_time (float): The maximum computational time in seconds.
+            solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
+            no_improvement_timelimit (float | None, optional): If there is no improvement in this
+                amount of time, the search will be stopped. If None, no timeout is set.
+                Defaults to None.
+            obj_value_is_valid (bool, optional): If True, adds the objective value log.
+                Defaults to False.
+            obj_bound_is_valid (bool, optional): If True, adds the objective bound log.
+                Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of the solution.
+                Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
+                Defaults to False.
+
+        Raises:
+            TypeError: If the incumbent solution is not compatible with the CP model.
+        """
+        incumbent_solution = self.solution_manager.get_incumbent()
+        is_initial_run = incumbent_solution is None
+
+        if incumbent_solution:
+            self.cp_model.clear_hints()
+            logging.info(
+                "Applying incumbent solution with objValue "
+                f"{incumbent_solution.makespan} as a hint."
+            )
+            BaseModelBuilder.apply_start_hints_from_start_time_map(
+                self.cp_model,
+                self.params,
+                self.vars,
+                incumbent_solution.get_jik_2_start_time_map(),
+            )
+
+        return self.solve_current_cp_remaining_time_limit(
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
+            is_initial_solution=is_initial_run,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    # End solver call methods

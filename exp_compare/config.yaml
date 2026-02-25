@@ -1,0 +1,21 @@
+# Default configuration for exp_compare
+# Copy and modify this file for your needs
+
+runs:
+  - path: "Outputs_scenarios/20260218T012410_296079/"
+    summary_csv: "all_scenarios_summary.csv"
+  - path: "Outputs_scenarios/20260218T012813_090868/"
+    summary_csv: "all_scenarios_summary.csv"
+
+reference:
+  mode: "fixed_dataset" # "best_among_compared"
+  sense: "min"
+  ref_path: "resources/ff2020big_ref/fan2023.csv" # null
+  ref_format: "csv"
+  instance_key_column_in_ref: "Instance"
+  reference_value_column: "UB"
+  instance_metadata_columns: ["n", "s", "rep"]  # Instance metadata columns to include
+
+output:
+  out_dir: "Outputs_analysis/compare_$TIMESTAMP/"
+  basename: "rpd_compare"

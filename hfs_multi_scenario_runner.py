@@ -4,6 +4,7 @@ from typing import Any, Sequence
 
 import pandas as pd
 from routix import DynamicDataObject, StoppingCriteria
+from routix.constants import SubroutineReportStatisticsKeys
 from routix.runner import MultiScenarioRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -16,6 +17,8 @@ from hfs_config import BaselineColumnMapping
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from output_filenames import OutputFilenames
+
+RPDF_PREFIX = "gap_"
 
 
 class HfsMultiScenarioRunner(
@@ -97,6 +100,8 @@ class HfsMultiScenarioRunner(
             self.baseline_instance_col = column_mapping.instance
             self.baseline_obj_val_col = column_mapping.obj_val
             self.baseline_obj_bound_col = column_mapping.obj_bound
+            for m_i_runner in self.runners:
+                m_i_runner.set_baseline_df(self.baseline_df, column_mapping)
         else:
             logging.warning(f"Baseline CSV file not found at {baseline_csv_path}")
             self.baseline_df = pd.DataFrame()
@@ -115,7 +120,9 @@ class HfsMultiScenarioRunner(
                 scenario_name = self.scenario_configs[i].get(
                     "output_subdir", f"scenario_{i + 1}"
                 )
-                df["scenario"] = str(scenario_name)
+                # Convert path to a valid column name (use last part of path)
+                scenario_col_name = Path(scenario_name).name
+                df["scenario"] = str(scenario_col_name)
                 all_summary_dfs.append(df)
             else:
                 logging.warning(
@@ -157,13 +164,61 @@ class HfsMultiScenarioRunner(
         try:
             # 1. Pivot the raw data to get scenarios as columns
             best_obj_value_df = raw_summary_df.pivot_table(
-                index="instanceName", columns="scenario", values="bestObj"
+                index=SubroutineReportStatisticsKeys.INSTANCE_NAME,
+                columns="scenario",
+                values=SubroutineReportStatisticsKeys.BEST_OBJ,
             ).reset_index()
+
+            # 1b. Pivot totalElapsedTime for running time columns
+            elapsed_time_df = raw_summary_df.pivot_table(
+                index=SubroutineReportStatisticsKeys.INSTANCE_NAME,
+                columns="scenario",
+                values=SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME,
+            ).reset_index()
+
+            # Get clean scenario names (use last part of path)
+            # Rename elapsed time columns to totalElapsedTime_<clean_name> BEFORE merge
+            # to avoid suffix conflicts (_x, _y)
+            elapsed_time_df_renamed = elapsed_time_df.copy()
+            for scenario in elapsed_time_df.columns:
+                if scenario != SubroutineReportStatisticsKeys.INSTANCE_NAME:
+                    clean_name = Path(scenario).name
+                    elapsed_time_df_renamed.rename(
+                        columns={scenario: f"totalElapsedTime_{clean_name}"},
+                        inplace=True,
+                    )
+
+            # 1c. Merge elapsed time into best_obj_value_df to create dashboard_df
+            dashboard_df = pd.merge(
+                best_obj_value_df,
+                elapsed_time_df_renamed,
+                on=SubroutineReportStatisticsKeys.INSTANCE_NAME,
+                how="left",
+            )
+
+            # Rename all scenario columns to use clean names (without path)
+            rename_map = {}
+
+            original_scenario_cols = [
+                col
+                for col in best_obj_value_df.columns
+                if col != SubroutineReportStatisticsKeys.INSTANCE_NAME
+            ]
+            for col in original_scenario_cols:
+                clean_name = Path(col).name
+                if col != clean_name:
+                    rename_map[col] = clean_name
+
+            if rename_map:
+                dashboard_df.rename(columns=rename_map, inplace=True)
+
+            # Now extract clean scenario names after renaming
+            scenarios = [Path(col).name for col in original_scenario_cols]
 
             # 2. Merge with baseline data if available
             if self.baseline_df is not None and not self.baseline_df.empty:
                 rename_map = {
-                    self.baseline_instance_col: "instanceName",
+                    self.baseline_instance_col: SubroutineReportStatisticsKeys.INSTANCE_NAME,
                     self.baseline_obj_val_col: "baselineObjVal",
                     self.baseline_obj_bound_col: "baselineBound",
                 }
@@ -182,45 +237,63 @@ class HfsMultiScenarioRunner(
                     ]
 
                 dashboard_df = pd.merge(
-                    best_obj_value_df,
+                    dashboard_df,
                     baseline_subset,
-                    on="instanceName",
+                    on=SubroutineReportStatisticsKeys.INSTANCE_NAME,
                     how="left",
                 )
             else:
                 logging.warning("Baseline data not available. Skipping merge.")
-                dashboard_df = best_obj_value_df
                 dashboard_df["baselineObjVal"] = None
 
-            # 3. Calculate gaps for each scenario
+            # 3. Calculate RPDf for each scenario
             scenarios = [
-                col for col in best_obj_value_df.columns if col != "instanceName"
+                col
+                for col in best_obj_value_df.columns
+                if col != SubroutineReportStatisticsKeys.INSTANCE_NAME
             ]
             if (
                 "baselineObjVal" in dashboard_df.columns
                 and dashboard_df["baselineObjVal"].notna().any()
             ):
                 for scenario in scenarios:
-                    gap_col_name = f"gap_{scenario}"
-                    dashboard_df[gap_col_name] = (
-                        dashboard_df[scenario] - dashboard_df["baselineObjVal"]
-                    ) / dashboard_df["baselineObjVal"]
+                    rpdf_col_name = f"{RPDF_PREFIX}{scenario}"
+                    obj = dashboard_df[scenario]
+                    ref = dashboard_df["baselineObjVal"]
+
+                    # RPDf = (obj - ref) / ((obj + ref) / 2)
+                    # If both obj and ref are 0, define as 0
+                    numerator = obj - ref
+                    denominator = (obj + ref) / 2
+
+                    # Compute RPDf, handling 0/0 case
+                    result = numerator / denominator
+                    # Set Inf and NaN to 0 where both values were 0
+                    result = result.replace([float("inf"), -float("inf")], 0)
+                    result = result.fillna(0)
+
+                    dashboard_df[rpdf_col_name] = result
 
             # 4. Define the desired column order
-            ordered_columns = ["instanceName"]
+            ordered_columns = [SubroutineReportStatisticsKeys.INSTANCE_NAME]
             obj_val_cols = [col for col in scenarios]
             baseline_obj_val_col = (
                 ["baselineObjVal"] if "baselineObjVal" in dashboard_df.columns else []
             )
             rel_diff_cols = [
-                f"gap_{scenario}"
+                f"{RPDF_PREFIX}{scenario}"
                 for scenario in scenarios
-                if f"gap_{scenario}" in dashboard_df
+                if f"{RPDF_PREFIX}{scenario}" in dashboard_df.columns
             ]
 
             # Combine lists in the desired order
+            # Order: instanceName, ObjVal cols, runningTime cols, baselineObjVal, RPDf cols
             final_column_order = (
-                ordered_columns + obj_val_cols + baseline_obj_val_col + rel_diff_cols
+                ordered_columns
+                + obj_val_cols
+                + [f"totalElapsedTime_{scenario}" for scenario in scenarios]
+                + baseline_obj_val_col
+                + rel_diff_cols
             )
 
             # Reorder the DataFrame
@@ -230,9 +303,11 @@ class HfsMultiScenarioRunner(
 
             summary_rows: list[dict[str, Any]] = []
             for stat_name, stat_func in self.stat_name_func_pairs:
-                row: dict[str, Any] = {"instanceName": stat_name}
+                row: dict[str, Any] = {
+                    SubroutineReportStatisticsKeys.INSTANCE_NAME: stat_name
+                }
                 for col in final_dashboard.columns:
-                    if col != "instanceName":
+                    if col != SubroutineReportStatisticsKeys.INSTANCE_NAME:
                         if pd.api.types.is_numeric_dtype(final_dashboard[col]):
                             row[col] = getattr(final_dashboard[col], stat_func)()
                 summary_rows.append(row)
@@ -293,16 +368,24 @@ class HfsMultiScenarioRunner(
                 sheet_name = "BestObjDashboard"
                 if not dashboard_df.empty:
                     # Create the multi-level header
+                    # Categories: ObjVal, runningTime, baselineObjVal, RPDf between baseline
                     header = []
                     for col in dashboard_df.columns:
-                        if "gap_" in col:
+                        if RPDF_PREFIX in col:
                             header.append(
-                                ("relDiff between baseline", col.replace("gap_", ""))
+                                (
+                                    "RPDf between baseline",
+                                    col.replace(RPDF_PREFIX, ""),
+                                )
                             )
-                        elif col == "instanceName":
+                        elif col == SubroutineReportStatisticsKeys.INSTANCE_NAME:
                             header.append(("", "insId"))
                         elif col == "baselineObjVal":
                             header.append(("", "baselineObjVal"))
+                        elif col.startswith("totalElapsedTime_"):
+                            header.append(
+                                ("runningTime", col.replace("totalElapsedTime_", ""))
+                            )
                         else:
                             header.append(("ObjVal", col))
                     dashboard_df.columns = pd.MultiIndex.from_tuples(header)
@@ -315,27 +398,25 @@ class HfsMultiScenarioRunner(
 
                     # --- Apply formatting and set column widths ---
 
-                    # relDiff first_col and last_col
+                    # RPDf first_col and last_col
                     rel_diff_first_col = float("inf")  # Placeholder for first column
                     rel_diff_last_col = 0
+
+                    # runningTime first_col and last_col
+                    running_time_first_col = float("inf")
+                    running_time_last_col = 0
 
                     # +1 for the index column
                     for col_idx, col_name in enumerate(dashboard_df.columns, 1):
                         # Calculate max width
                         header_l1 = str(col_name[0])
                         header_l2 = str(col_name[1])
-                        max_len = (
-                            max(
-                                len(header_l1),
-                                len(header_l2),
-                                dashboard_df[col_name].astype(str).map(len).max(),
-                            )
-                            + 2
-                        )  # Add padding
+                        data_len = _safe_max_str_len(dashboard_df[col_name])
+                        max_len = max(len(header_l1), len(header_l2), data_len) + 2
 
                         worksheet.set_column(col_idx, col_idx, width=max_len)
 
-                        if col_name[0] == "relDiff between baseline":
+                        if col_name[0] == "RPDf between baseline":
                             if rel_diff_first_col == float("inf"):
                                 rel_diff_first_col = col_idx
                             if rel_diff_last_col < col_idx:
@@ -343,6 +424,15 @@ class HfsMultiScenarioRunner(
                             worksheet.set_column(
                                 col_idx, col_idx, max_len, percent_format
                             )
+
+                        if col_name[0] == "runningTime":
+                            if running_time_first_col == float("inf"):
+                                running_time_first_col = col_idx
+                            if running_time_last_col < col_idx:
+                                running_time_last_col = col_idx
+                            # Format running time as number with 4 decimal places
+                            time_format = workbook.add_format({"num_format": "0.0000"})
+                            worksheet.set_column(col_idx, col_idx, max_len, time_format)
 
                     if rel_diff_first_col != float("inf"):
                         worksheet.conditional_format(
@@ -362,13 +452,9 @@ class HfsMultiScenarioRunner(
                 info_df.to_excel(writer, sheet_name="Scenario_Info", index=False)
                 worksheet = writer.sheets["Scenario_Info"]
                 for col_idx, col_name in enumerate(info_df.columns):
-                    max_len = (
-                        max(
-                            len(str(col_name)),
-                            info_df[col_name].astype(str).map(len).max(),
-                        )
-                        + 2
-                    )
+                    data_len = _safe_max_str_len(info_df[col_name])
+                    max_len = max(len(str(col_name)), data_len) + 2
+
                     if col_name in {"Subroutine Flow", "Stopping Criteria"}:
                         worksheet.set_column(col_idx, col_idx, options={"hidden": True})
                     else:
@@ -378,13 +464,9 @@ class HfsMultiScenarioRunner(
                 raw_summary_df.to_excel(writer, sheet_name="Raw_Summary", index=False)
                 worksheet = writer.sheets["Raw_Summary"]
                 for col_idx, col_name in enumerate(raw_summary_df.columns):
-                    max_len = (
-                        max(
-                            len(str(col_name)),
-                            raw_summary_df[col_name].astype(str).map(len).max(),
-                        )
-                        + 2
-                    )
+                    data_len = _safe_max_str_len(raw_summary_df[col_name])
+                    max_len = max(len(str(col_name)), data_len) + 2
+
                     if col_name == "methodCallCounts":
                         worksheet.set_column(col_idx, col_idx, options={"hidden": True})
                     else:
@@ -401,13 +483,9 @@ class HfsMultiScenarioRunner(
                     )
                     worksheet = writer.sheets["Baseline_Data"]
                     for col_idx, col_name in enumerate(baseline_df.columns):
-                        max_len = (
-                            max(
-                                len(str(col_name)),
-                                baseline_df[col_name].astype(str).map(len).max(),
-                            )
-                            + 2
-                        )
+                        data_len = _safe_max_str_len(baseline_df[col_name])
+                        max_len = max(len(str(col_name)), data_len) + 2
+
                         worksheet.set_column(col_idx, col_idx, width=max_len)
                         if col_name in {"Gap", "RPD"}:
                             worksheet.set_column(
@@ -420,3 +498,10 @@ class HfsMultiScenarioRunner(
             logging.info(f"Successfully generated Excel report at: {path}")
         except Exception as e:
             logging.error(f"Failed to write Excel report: {e}", exc_info=True)
+
+
+def _safe_max_str_len(s: pd.Series) -> int:
+    # Robust against floats/NaN/None and mixed dtypes.
+    lens = s.astype("string").fillna("").str.len()
+    m = lens.max()
+    return 0 if pd.isna(m) else int(m)

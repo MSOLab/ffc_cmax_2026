@@ -1,0 +1,5 @@
+- method: initialize_schedule_by_palmer
+  head_for_all_stages: true
+  error_if_infeasible: true
+  draw_gantt_per_step: false
+  draw_gantt: false

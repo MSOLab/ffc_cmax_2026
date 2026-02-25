@@ -23,13 +23,28 @@ class ScenarioPathConfig(BaseModel):
 
 
 class BaselineColumnMapping(BaseModel):
-    """Defines the column name mapping for the baseline data file."""
+    """Defines the column name mapping for the baseline data file.
+
+    This class allows flexible configuration of baseline CSV column names,
+    enabling compatibility with various baseline file formats.
+
+    Note: The `instance` field uses "Instance" as default (capital I), but this
+    should not be confused with:
+    - routix's INSTANCE_NAME ("insName") used internally by the algorithm
+    - hybridflowshop's INPUT_NAME_COLUMN ("insName") for summary CSVs
+    - exp_compare's REF_INSTANCE_ID_COLUMN ("name") for reference CSVs
+
+    When specifying a baseline CSV, ensure the column names in the file match
+    the configured mapping values.
+    """
 
     instance: str = Field(
         "Instance", description="Column name for the instance identifier."
     )
-    obj_val: str = Field("UB", description="Column name for the objective value.")
-    obj_bound: str = Field("LB", description="Column name for the objective bound.")
+    job_cnt: str = Field("n", description="Column name for the job count.")
+    stage_cnt: str = Field("s", description="Column name for the stage count.")
+    obj_val: str = Field("UB", description="Column name for the objective value (upper bound).")
+    obj_bound: str = Field("LB", description="Column name for the objective bound (lower bound).")
 
 
 class MainMetadata(BaseModel):
@@ -152,12 +167,23 @@ class MainMetadata(BaseModel):
             return list(range(self.first, self.last + 1))
         raise ValueError("Invalid benchmark index configuration.")
 
-    def get_benchmark_filename_list(self) -> list[str]:
-        """Generates a list of benchmark filenames based on the indices and filename format."""
-        return [
+    def get_benchmark_filename_list(self, reverse: bool = False) -> list[str]:
+        """Generates a list of benchmark filenames based on the indices and filename format.
+
+        Args:
+            reverse (bool, optional): Whether to reverse the list of filenames.
+                Defaults to False.
+
+        Returns:
+            list[str]: List of benchmark filenames.
+        """
+        filenames = [
             self.benchmark_filename_format.format(i)
             for i in self.get_benchmark_idx_list()
         ]
+        if reverse:
+            filenames.reverse()
+        return filenames
 
     def get_analysis_dir_path(self) -> Path | None:
         """Returns the analysis directory path if specified, otherwise None."""

@@ -1,12 +1,13 @@
+import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
+from routix.io.path import extract_prefix_from_filename
 
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
 from hybridflowshop.painter.gantt import GanttPlotter
-from hybridflowshop.utils import extract_prefix_from_filename
 
 
 def draw_gantt_charts_from_solutions(
@@ -36,6 +37,11 @@ def draw_gantt_charts_from_solutions(
     """
     working_dir = Path(working_dir)
     files = list(working_dir.rglob(solution_filename_format.format("*")))
+    if not files:
+        logging.info(
+            f"No solution files found in {working_dir} with pattern {solution_filename_format}"
+        )
+        return
     max_worker_cnt = min(painter_thread_cnt, len(files))
 
     _result_gantt_filename_format = result_gantt_filename_format or "{}_gantt.png"

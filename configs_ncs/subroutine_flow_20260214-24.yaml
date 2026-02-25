@@ -1,0 +1,14 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_best_of_dispatches
+- method: bnd_all_stage
+- method: bn2d_all_stage
+  draw_gantt: False
+  left_cap_multiplier: 2
+  right_cap_multiplier: 2
+- method: set_cp_model_as_base_cp_model
+- method: neh_cp
+  added_batch_size: 10
+  cp_tl_nc_multiplier: 0.0025
+  solver_thread_cnt: 8

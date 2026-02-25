@@ -1,27 +1,35 @@
 import datetime
 import logging
+import traceback
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from mbls.cpsat import ObjValueBoundStore
 from routix import DynamicDataObject, StoppingCriteria
-from routix.io import object_to_yaml
+from routix.constants import SubroutineReportStatisticsKeys
+from routix.io.yaml import dump_yaml
 from routix.runner import SingleInstanceRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
+from hybridflowshop.constants import (
+    INPUT_JOBCOUNT_COLUMN,
+    INPUT_MACHINESPERSTAGE_COLUMN,
+    INPUT_STAGECOUNT_COLUMN,
+    INPUT_TIMELIMIT_COLUMN,
+)
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from hybridflowshop.hfs_input_summary import HfsInputSummary
 from hybridflowshop.hfs_summary import HfsSummary
+from hybridflowshop.io_solution import END_TIME_MAP_KEY, START_TIME_MAP_KEY
 from hybridflowshop.report.hfs_subroutine_report import HfsSubroutineReport
 from hybridflowshop.report.hfs_subroutine_report_statistics import (
     HfsSubroutineReportStatistics,
 )
-from hybridflowshop.scheduling.hybrid_flowshop_operation import HybridFlowshopOperation
-from hybridflowshop.scheduling.hybrid_flowshop_schedule import HybridFlowshopSchedule
-from hybridflowshop.utils import tuple_to_pyyaml_key
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 
 class HfsSingleInstanceRunner(
@@ -47,11 +55,12 @@ class HfsSingleInstanceRunner(
         output_metadata: dict[str, Any],
         mode: RunMode = RunMode.FULL_RUN,
     ):
+        _stopping_criteria = StoppingCriteria.from_dict(stopping_criteria.to_obj())
         super().__init__(
             instance=instance,
             shared_param_dict=shared_param_dict,
             subroutine_flow=subroutine_flow,
-            stopping_criteria=stopping_criteria,
+            stopping_criteria=_stopping_criteria,
             output_dir=output_dir,
             output_metadata=output_metadata,
             mode=mode,
@@ -62,6 +71,25 @@ class HfsSingleInstanceRunner(
         self.result_dir = self.working_dir / result_dir_name
         self.result_dir.mkdir(parents=True, exist_ok=True)
         self.prepare_saved_file_paths()
+
+        # Apply instance-wise timelimit if specified
+        if (
+            isinstance(self.stopping_criteria, StoppingCriteria)
+            and hasattr(self.stopping_criteria, "timelimit_n_by_c_multiplier")
+            and self.stopping_criteria.timelimit_n_by_c_multiplier is not None
+            and self.stopping_criteria.timelimit_n_by_c_multiplier > 0
+        ):
+            n = self.instance.job_count
+            c = self.instance.stage_count
+            adjusted_timelimit = self.stopping_criteria.timelimit_n_by_c_multiplier * (
+                n * c
+            )
+            # Override the timelimit
+            logging.info(
+                f"Adjusting timelimit for instance '{self.name}' with n={n}, m={c}: "
+                f"new timelimit = {adjusted_timelimit} seconds."
+            )
+            self.stopping_criteria.timelimit = adjusted_timelimit
 
     def get_controller(self) -> HybridFlowShopCpLnsController:
         """Initialize the controller with the given instance and parameters."""
@@ -96,27 +124,21 @@ class HfsSingleInstanceRunner(
                 obj_bound=self.resume_summary_dict.get("bestBound", None),
                 is_init=False,
             )
-            last_solution = HybridFlowshopSchedule.from_stage_name_2_mc_name_list_map(
-                self.ctrlr.instance.stage_2_machines_map
+            last_solution = HybridFlowshopLiteSchedule(
+                jobs=self.ctrlr.instance.job_id_list,
+                stages=self.ctrlr.instance.stage_id_list,
+                machines_per_stage=self.ctrlr.instance.stage_2_machines_map,
             )
             for key, start_time in self.resume_start_time_map.items():
                 end_time = self.resume_end_time_map[key]
                 j, i, k = key
-                stage = last_solution.get_stage_by_name(i)
-                operation = stage.add_operation(
-                    HybridFlowshopOperation(
-                        job_name=j,
-                        stage_name=i,
-                        mc_name=k,
-                        start=start_time,
-                        end=end_time,
-                    )
+                last_solution.add_ops_times_2_mc(
+                    stage_id=i,
+                    mc_id=k,
+                    job_id=j,
+                    start_time=start_time,
+                    end_time=end_time,
                 )
-                if operation is None:
-                    raise RuntimeError(
-                        f"Failed to schedule operation of job {j} at stage {i} during extraction "
-                        f"on machine {k} with start time {start_time} and end time {end_time}."
-                    )
             self.ctrlr.solution_manager.register(last_report, last_solution)
 
             # current datetime - last_report.elapsed_time
@@ -133,19 +155,102 @@ class HfsSingleInstanceRunner(
         - If the mode is POST_PROCESS_ONLY, it skips the controller run and directly
         calls the post_run_process method.
         """
-        if self.mode == RunMode.RESUME:
-            self.ctrlr = self.get_controller()
-            self.ctrlr.set_working_dir(self.working_dir)
-            self._try_apply_resume()
-            self.ctrlr.run(flow_resume_idx=self.flow_resume_idx)
+        try:
+            if self.mode == RunMode.RESUME:
+                self.ctrlr = self.get_controller()
+                self.ctrlr.set_working_dir(self.working_dir)
+                self._try_apply_resume()
+                self.ctrlr.run(flow_resume_idx=self.flow_resume_idx)
+            elif self.mode == RunMode.FULL_RUN:
+                self.ctrlr = self.get_controller()
+                self.ctrlr.set_working_dir(self.working_dir)
+                self.ctrlr.run()
+        except:
+            exc_str = traceback.format_exc()
+            logging.error(f"An error occurred during the run - {exc_str}")
+            raise
+        finally:
+            return self.post_run_process()
 
-        return super().run()
+    def post_run_process(self) -> dict[str, Any] | None:
+        """Process results after running the instance.
 
-    def post_run_process(self) -> None:
+        Returns:
+            dict[str, Any] | None: Summary row as a dictionary, or None if no summary available.
+        """
         if self.mode in {RunMode.FULL_RUN, RunMode.RESUME}:
             self.save_files(self.encoding)
 
         self.from_files_save_analysis(self.encoding)
+
+        # Return summary row for multi-instance aggregation
+        return self._create_summary_row()
+
+    def _create_summary_row(self) -> dict[str, Any] | None:
+        """Create a summary row dictionary from the instance result.
+
+        Returns:
+            dict[str, Any] | None: Summary row with instance metadata and results,
+                                   or None if summary file not found.
+        """
+        try:
+            if not self.summary_path.exists():
+                return None
+
+            df = pd.read_csv(self.summary_path)
+            if df.empty:
+                return None
+
+            # Get the last row (best result)
+            last_row = df.iloc[-1].to_dict()
+
+            machine_count_per_stage = getattr(
+                self.instance, "machine_count_per_stage", None
+            )
+            if (
+                isinstance(machine_count_per_stage, list)
+                and len(machine_count_per_stage) > 0
+            ):
+                machines_per_stage = machine_count_per_stage[0]
+            else:
+                machines_per_stage = None
+
+            # Build summary row with instance info using routix constants
+            summary_row = {
+                SubroutineReportStatisticsKeys.INSTANCE_NAME: getattr(
+                    self.instance, "name", None
+                ),
+                INPUT_JOBCOUNT_COLUMN: getattr(self.instance, "job_count", None),
+                INPUT_STAGECOUNT_COLUMN: getattr(self.instance, "stage_count", None),
+                INPUT_MACHINESPERSTAGE_COLUMN: machines_per_stage,
+                INPUT_TIMELIMIT_COLUMN: getattr(
+                    self.stopping_criteria, "timelimit", None
+                ),
+                SubroutineReportStatisticsKeys.FOUND_FEASIBLE_SOL: last_row.get(
+                    "foundFeasibleSol"
+                ),
+                SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME: last_row.get(
+                    "totalElapsedTime"
+                ),
+                SubroutineReportStatisticsKeys.FIRST_OBJ: last_row.get("firstObj"),
+                SubroutineReportStatisticsKeys.FIRST_BOUND: last_row.get("firstBound"),
+                SubroutineReportStatisticsKeys.BEST_OBJ: last_row.get("bestObj"),
+                SubroutineReportStatisticsKeys.BEST_BOUND: last_row.get("bestBound"),
+                SubroutineReportStatisticsKeys.IMPROVEMENT_RATIO: last_row.get(
+                    "improvementRatio"
+                ),
+                SubroutineReportStatisticsKeys.METHOD_CALL_COUNTS: last_row.get(
+                    "methodCallCounts"
+                ),
+                SubroutineReportStatisticsKeys.REPORT_COUNT: last_row.get(
+                    "reportCount"
+                ),
+            }
+
+            return summary_row
+        except Exception as e:
+            logging.error(f"Error creating summary row for instance '{self.name}': {e}")
+            return None
 
     def prepare_saved_file_paths(self) -> None:
         self.summary_filename = (
@@ -197,12 +302,10 @@ class HfsSingleInstanceRunner(
         incumbent_solution = self.ctrlr.solution_manager.get_incumbent()
         if incumbent_solution:
             solution_dict = {
-                "start_times": tuple_to_pyyaml_key(
-                    incumbent_solution.get_start_time_map()
-                ),
-                "end_times": tuple_to_pyyaml_key(incumbent_solution.get_end_time_map()),
+                START_TIME_MAP_KEY: incumbent_solution.get_jik_2_start_time_map(),
+                END_TIME_MAP_KEY: incumbent_solution.get_jik_2_end_time_map(),
             }
-            object_to_yaml(solution_dict, self.solution_path, encoding=encoding)
+            dump_yaml(solution_dict, self.solution_path, encoding=encoding)
 
     def save_obj_value_bound_store(self, encoding: str = "utf-8") -> None:
         self.ctrlr.obj_store.save_yaml(self.obj_log_path, encoding=encoding)

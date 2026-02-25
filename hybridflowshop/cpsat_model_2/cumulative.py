@@ -1,0 +1,473 @@
+from __future__ import annotations
+
+import math
+from bisect import bisect_left
+from dataclasses import dataclass
+from itertools import pairwise
+from typing import Mapping
+
+from mbls.cpsat import CustomCpModel
+from ortools.sat.python.cp_model import IntervalVar, IntVar
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
+
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+
+from .params import Params
+
+
+@dataclass
+class CumulativeVars:
+    op_start: dict[tuple[str, str], IntVar]
+    """
+    (j,i) -> start time variables for each operation in a job.
+    """
+
+    op_end: dict[tuple[str, str], IntVar]
+    """
+    (j,i) -> end time variables for each operation in a job.
+    """
+
+    op_intvl: dict[tuple[str, str], IntervalVar]
+    """
+    (j,i) -> interval variables for each operation in a job.
+    """
+
+    makespan: IntVar
+    """Makespan variable"""
+
+
+class BaseModelBuilder:
+    def build(
+        self,
+        instance: HybridFlowshopParameters,
+        horizon: int,
+        minimize_sum_ci: bool = False,
+        minimize_makespan_plus_sum_other_stages: bool = False,
+    ) -> tuple[CustomCpModel, Params, CumulativeVars]:
+        mdl = CustomCpModel()
+        params: Params = self._make_params(instance)
+        variables: CumulativeVars = self._make_vars(mdl, params, horizon)
+        self._add_structural_constraints(mdl, params, variables)
+        self._define_objective(
+            mdl,
+            params,
+            variables,
+            minimize_sum_ci=minimize_sum_ci,
+            minimize_makespan_plus_sum_other_stages=minimize_makespan_plus_sum_other_stages,
+            horizon=horizon,
+        )
+        mdl.set_num_base_constraints()
+
+        return mdl, params, variables
+
+    def build_horizon_per_stage(
+        self,
+        instance: HybridFlowshopParameters,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+    ) -> tuple[CustomCpModel, Params, CumulativeVars]:
+        mdl = CustomCpModel()
+        params: Params = self._make_params(instance)
+        variables: CumulativeVars = self._make_vars_horizon_per_stage(
+            mdl, params, stage_2_mc_2_horizon
+        )
+        self._add_structural_constraints(mdl, params, variables, stage_2_mc_2_horizon)
+        self._define_objective(mdl, params, variables)
+        mdl.set_num_base_constraints()
+
+        return mdl, params, variables
+
+    @staticmethod
+    def _make_params(instance: HybridFlowshopParameters) -> Params:
+        j_list = instance.job_id_list
+        i_list = instance.stage_id_list
+        M_of = instance.stage_2_machines_map
+        _p = instance.p_manager.job_stage_2_value_map(j_list, i_list)
+        p = {(j, i): int(float(_p[j, i])) for j in j_list for i in i_list}
+        return Params(
+            j_list=j_list,
+            i_list=i_list,
+            M_of=M_of,
+            p=p,
+        )
+
+    @staticmethod
+    def _make_vars(mdl: CustomCpModel, params: Params, horizon: int) -> CumulativeVars:
+        op_start: dict[tuple[str, str], IntVar] = {}
+        op_end: dict[tuple[str, str], IntVar] = {}
+        op_intvl: dict[tuple[str, str], IntervalVar] = {}
+
+        for j in params.j_list:
+            for i in params.i_list:
+                start_var = mdl.new_int_var(0, horizon, f"start_{j}_{i}")
+                end_var = mdl.new_int_var(0, horizon, f"end_{j}_{i}")
+                interval_var = mdl.new_interval_var(
+                    start_var,
+                    params.p[j, i],
+                    end_var,
+                    f"interval_{j}_{i}",
+                )
+
+                op_start[(j, i)] = start_var
+                op_end[(j, i)] = end_var
+                op_intvl[(j, i)] = interval_var
+
+        makespan = mdl.new_int_var(0, horizon, "makespan")
+
+        return CumulativeVars(
+            op_start=op_start,
+            op_end=op_end,
+            op_intvl=op_intvl,
+            makespan=makespan,
+        )
+
+    @staticmethod
+    def _make_vars_horizon_per_stage(
+        mdl: CustomCpModel,
+        params: Params,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+    ) -> CumulativeVars:
+        op_start: dict[tuple[str, str], IntVar] = {}
+        op_end: dict[tuple[str, str], IntVar] = {}
+        op_intvl: dict[tuple[str, str], IntervalVar] = {}
+
+        stage_2_horizon: dict[str, int] = {
+            stage: max(mc_2_horizon.values())
+            for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
+        }
+
+        for j in params.j_list:
+            for i in params.i_list:
+                stage_horizon = stage_2_horizon[i]
+                p = params.p[j, i]
+                start_var = mdl.new_int_var(0, stage_horizon - p, f"start_{j}_{i}")
+                end_var = mdl.new_int_var(p, stage_horizon, f"end_{j}_{i}")
+                interval_var = mdl.new_interval_var(
+                    start_var, p, end_var, f"interval_{j}_{i}"
+                )
+
+                op_start[(j, i)] = start_var
+                op_end[(j, i)] = end_var
+                op_intvl[(j, i)] = interval_var
+
+        makespan = mdl.new_int_var(0, stage_2_horizon[params.i_list[-1]], "makespan")
+
+        return CumulativeVars(
+            op_start=op_start,
+            op_end=op_end,
+            op_intvl=op_intvl,
+            makespan=makespan,
+        )
+
+    @staticmethod
+    def _add_structural_constraints(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]] = {},
+    ) -> None:
+        # Alias for readability
+        j_list = params.j_list
+        i_list = params.i_list
+        last_i = i_list[-1]
+
+        # Precedence between consecutive stages for each job
+        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
+        for j in j_list:
+            for i, next_i in consecutive_stage_pairs:
+                mdl.add(variables.op_end[j, i] <= variables.op_start[j, next_i])
+
+        stage_2_horizon: dict[str, int] = {
+            stage: max(mc_2_horizon.values())
+            for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
+        }
+
+        # Capacity constraints for each stage
+        for i in i_list:
+            intervals = [variables.op_intvl[j, i] for j in j_list]
+            demands = [1] * len(j_list)
+            # Additional dummy intervals based on stage_2_mc_2_horizon
+            if i in stage_2_mc_2_horizon and i != last_i:
+                stage_horizon = stage_2_horizon[i]
+                dummy_idx = 0
+                for mc_horizon in stage_2_mc_2_horizon[i].values():
+                    if mc_horizon < stage_horizon:
+                        dummy_interval = mdl.new_interval_var(
+                            mc_horizon,
+                            stage_horizon - mc_horizon,
+                            stage_horizon,
+                            f"dummy_{i}_{dummy_idx}",
+                        )
+                        intervals.append(dummy_interval)
+                        demands.append(1)
+                        dummy_idx += 1
+
+            capacity = len(params.M_of[i])
+            mdl.add_cumulative(intervals, demands, capacity)
+
+    @staticmethod
+    def _define_objective(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        minimize_sum_ci: bool = False,
+        minimize_makespan_plus_sum_other_stages: bool = False,
+        horizon: int = 0,
+    ) -> None:
+        """Define the objective function for the CP-SAT model.
+
+        Supports three optimization objectives:
+
+        1. **Makespan minimization** (default):
+           Minimizes the maximum end time across all jobs at the last stage.
+           ``minimize max_j(op_end[j, last_i])``
+
+        2. **Sum of stage end times** (`minimize_sum_ci=True`):
+           Minimizes the sum of end times for each stage, where Ci represents
+           the end time of the last job at stage i.
+           ``minimize sum(Ci for i in stages)``
+           where ``Ci = max_j(op_end[j, i])``
+
+        3. **Linear combination (weighted) objective** (`minimize_makespan_plus_sum_other_stages=True`):
+           Minimizes a weighted sum that prioritizes makespan while also
+           considering other stage end times. This is useful for balanced
+           optimization where finishing all stages promptly is important.
+           ``minimize (stage_cnt * makespan) + sum(Ci for i in stages[:-1])``
+
+        Args:
+            mdl (CustomCpModel): The CP-SAT model to which the objective will be added.
+            params (Params): Parameters containing job and stage index sets.
+            variables (CumulativeVars): Decision variables including operation end
+                times and makespan.
+            minimize_sum_ci (bool, optional): If True, minimizes the sum of all stage
+                end times.
+            Defaults to False.
+            minimize_makespan_plus_sum_other_stages (bool, optional): If True,
+                minimizes a weighted sum of makespan and other stage end times.
+                Defaults to False.
+            horizon (int, optional): The upper bound for stage end times. If 0 or
+                negative, computed as the sum of all processing times. Defaults to 0.
+        """
+        # Alias for readability
+        j_list = params.j_list
+        i_list = params.i_list
+        last_i = i_list[-1]
+
+        if not minimize_sum_ci and not minimize_makespan_plus_sum_other_stages:
+            # Makespan definition
+            mdl.add_max_equality(
+                variables.makespan, [variables.op_end[j, last_i] for j in j_list]
+            )
+            # Set objective to minimize makespan
+            mdl.minimize(variables.makespan)
+        else:
+            if horizon <= 0:
+                horizon = sum(params.p[j, i] for j in j_list for i in i_list)
+            # Define objective to minimize the sum of all stage's (last) end times
+            stage_end_vars = []
+            for i in i_list:
+                Ci = mdl.new_int_var(0, horizon, f"Ci_{i}")
+                mdl.add_max_equality(Ci, [variables.op_end[j, i] for j in j_list])
+                stage_end_vars.append(Ci)
+
+            if minimize_sum_ci:
+                sum_Ci = mdl.new_int_var(0, len(i_list) * horizon, "stage_end_time_sum")
+                mdl.add(sum_Ci == sum(stage_end_vars))
+                mdl.minimize(sum_Ci)
+            else:
+                # minimize (stage_cnt * makespan) + (sum of all other stage's end times)
+                stage_cnt = len(i_list)
+                makespan = variables.makespan
+                sum_other_stage_end_times = mdl.new_int_var(
+                    0, (stage_cnt - 1) * horizon, "sum_other_stage_end_times"
+                )
+                other_stage_end_vars = [
+                    stage_end_vars[i]
+                    for i in range(len(stage_end_vars))
+                    if i != len(stage_end_vars) - 1
+                ]
+                mdl.add(sum_other_stage_end_times == sum(other_stage_end_vars))
+                mdl.minimize(stage_cnt * makespan + sum_other_stage_end_times)
+
+    # Additional constraints
+
+    @staticmethod
+    def set_obj_lower_bound(
+        mdl: CustomCpModel,
+        variables: CumulativeVars,
+        lower_bound: int | float,
+    ) -> None:
+        """Sets a lower bound on the makespan objective.
+
+        Args:
+            lower_bound (int | float): The lower bound value to set.
+        """
+        # A small tolerance to handle floating point inaccuracies
+        epsilon = 1e-9
+
+        # If the bound is very close to an integer, treat it as such.
+        # Otherwise, use ceiling to ensure we don't cut off valid integer solutions.
+        if abs(lower_bound - round(lower_bound)) < epsilon:
+            int_bound = round(lower_bound)
+        else:
+            int_bound = math.ceil(lower_bound)
+
+        mdl.add(variables.makespan >= int_bound)
+
+    @staticmethod
+    def add_fixed_operation_precedence_constraint(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        j1: str,
+        j2: str,
+        i: str,
+        ignore_integrity_check: bool = True,
+    ) -> None:
+        """Adds a precedence constraint between two operations.
+        The operation of job j1 must finish before the operation of job j2 starts.
+
+        Args:
+            j1 (str): preceding job index
+            j2 (str): succeeding job index
+            i (str): stage index
+            ignore_integrity_check (bool, optional): Skip data integrity check. Defaults to True.
+        """
+        if not ignore_integrity_check:
+            assert j1 in params.j_list, f"Job {j1} not in job list."
+            assert j2 in params.j_list, f"Job {j2} not in job list."
+            assert i in params.i_list, f"Stage {i} not in stage list."
+
+        mdl.add(variables.op_end[j1, i] <= variables.op_start[j2, i])
+
+    @staticmethod
+    def add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        current_schedule: HybridFlowshopLiteSchedule,
+        profile_fix_by_machine: bool = False,
+    ) -> None:
+        """
+        Add precedence constraints from a reference dispatch schedule.
+
+        Adds constraints of the form ``op_end[j1, i] <= op_start[j2, i]`` to
+        preserve ordering information observed in ``current_schedule``.
+
+        Modes:
+            - ``profile_fix_by_machine=True``: preserve adjacent order per
+              machine sequence at each stage.
+            - ``profile_fix_by_machine=False``: use stage-level start/end times
+              to select successor candidates and add a bounded number of arcs.
+
+        Args:
+            mdl (CustomCpModel): Target CP-SAT model.
+            params (Params): Index sets and processing parameters.
+            variables (CumulativeVars): Decision variables used in constraints.
+            current_schedule (HybridFlowshopLiteSchedule): Reference schedule
+                providing start/end times and machine-level sequences.
+            profile_fix_by_machine (bool, optional): If True, fix precedence by machine
+                adjacency; otherwise apply stage-level time-based selection.
+                Defaults to False.
+        """
+        start_time_map = current_schedule.get_jik_2_start_time_map()
+        end_time_map = current_schedule.get_jik_2_end_time_map()
+        for i in params.i_list:
+            if profile_fix_by_machine:
+                for m in params.M_of[i]:
+                    job_tuple_seq = current_schedule.get_job_sequence(i, m)
+                    for job_tuple in pairwise(job_tuple_seq):
+                        j1 = job_tuple[0][2]
+                        j2 = job_tuple[1][2]
+                        BaseModelBuilder.add_fixed_operation_precedence_constraint(
+                            mdl, params, variables, j1, j2, i
+                        )
+            else:
+                current_j_set = {j for j, ip, _ in start_time_map if ip == i}
+                current_j_list = [j for j in params.j_list if j in current_j_set]
+                stage_job_2_index_map = {j: idx for idx, j in enumerate(current_j_list)}
+                # Extract start and end times for jobs at stage i
+                # Map of job -> start time at stage i
+                j_2_start_time_map = {
+                    j: start_time_map[j, i, k]
+                    for j in current_j_list
+                    for k in params.M_of[i]
+                    if (j, i, k) in start_time_map
+                }
+                # Map of job -> end time at stage i
+                j_2_end_time_map = {
+                    j: end_time_map[j, i, k]
+                    for j in current_j_list
+                    for k in params.M_of[i]
+                    if (j, i, k) in end_time_map
+                }
+                # List of jobs sorted by their 1) end times 2) start times 3) job index
+                sorted_by_end = sorted(
+                    current_j_list,
+                    key=lambda j: (
+                        j_2_end_time_map.get(j, float("inf")),
+                        j_2_start_time_map.get(j, float("inf")),
+                        stage_job_2_index_map.get(j, float("inf")),
+                    ),
+                )
+
+                # List of jobs sorted by their 1) start times 2) end times 3) job index
+                sorted_by_start = sorted(
+                    current_j_list,
+                    key=lambda j: (
+                        j_2_start_time_map.get(j, float("inf")),
+                        j_2_end_time_map.get(j, float("inf")),
+                        stage_job_2_index_map.get(j, float("inf")),
+                    ),
+                )
+
+                # 인덱스 기반 탐색으로 변경
+                for idx, j1 in enumerate(sorted_by_end):
+                    j1_end_time = j_2_end_time_map.get(j1, float("inf"))
+                    max_candidates = min(
+                        len(params.M_of[i]), len(sorted_by_end) - idx - 1
+                    )
+
+                    # 이진 탐색으로 j1_end_time 이후 시작하는 첫 job 찾기
+                    start_idx = bisect_left(
+                        sorted_by_start,
+                        j1_end_time,
+                        key=lambda j: j_2_start_time_map.get(j, float("inf")),
+                    )
+
+                    j2_list = sorted_by_start[start_idx : start_idx + max_candidates]
+                    for j2 in j2_list:
+                        BaseModelBuilder.add_fixed_operation_precedence_constraint(
+                            mdl, params, variables, j1, j2, i
+                        )
+
+    @staticmethod
+    def add_start_time_freezed_operation_constraints(
+        mdl: CustomCpModel,
+        variables: CumulativeVars,
+        start_time_map: dict[tuple[str, str, str], int],
+    ) -> None:
+        for (j, i, k), s_time in start_time_map.items():
+            mdl.add(variables.op_start[j, i] == s_time)
+
+    # Hints
+
+    @staticmethod
+    def apply_start_hints_from_start_time_map(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        start_time_map: dict[tuple[str, str, str], int],
+        ignore_integrity_check: bool = True,
+    ) -> None:
+        """Applies start time hints to the model from a given start time map.
+
+        Args:
+            start_time_map (dict[tuple[str, str, str], int]): A mapping from (job_id, stage_id, machine_id) to start time.
+        """
+        for (j, i, _), s_time in start_time_map.items():
+            if not ignore_integrity_check:
+                assert j in params.j_list, f"Job {j} not in job list."
+                assert i in params.i_list, f"Stage {i} not in stage list."
+            mdl.add_hint(variables.op_start[j, i], s_time)
