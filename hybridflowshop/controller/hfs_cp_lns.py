@@ -2326,40 +2326,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         draw_gantt_stage_aggregated: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        from hybridflowshop.schedule_lite import (
-            get_bottleneck_stage_job_sequence,
-            get_midpoint_sequence,
-        )
 
         sub_timer = ElapsedTimer()
-        stage_aggregated_schedule = self._get_schedule_from_stage_aggregated_problem(
+
+        best_sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
             stage_agg_count,
             head_stages_to_keep=head_stages_to_keep,
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
             head_for_all_stages=head_for_all_stages,
-            draw_gantt=draw_gantt,
+            draw_gantt_stage_aggregated=draw_gantt_stage_aggregated,
         )
-        if stage_aggregated_schedule is None:
-            return None
-
-        job_sequences = [
-            get_bottleneck_stage_job_sequence(stage_aggregated_schedule),
-            get_midpoint_sequence(stage_aggregated_schedule),
-        ]
-
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-
-        dispatcher = MixedDispatcher(self.instance)
-        for job_sequence in job_sequences:
-            dispatched_schedule = dispatcher.get_best_mixed_schedule_by_sequence(
-                job_sequence, head_for_all_stages=head_for_all_stages
-            )
-            if dispatched_schedule is not None:
-                if best_obj is None or dispatched_schedule.makespan < best_obj:
-                    best_obj = dispatched_schedule.makespan
-                    best_sch = dispatched_schedule
 
         if best_sch is None:
             # Failed to find a solution
@@ -2395,6 +2372,51 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
+    def _get_schedule_by_job_sequence_from_stage_aggregated_problem(
+        self,
+        stage_agg_count: int,
+        head_stages_to_keep: int = 0,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "min",
+        head_for_all_stages: bool = False,
+        draw_gantt_stage_aggregated: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
+        from hybridflowshop.schedule_lite import (
+            get_bottleneck_stage_job_sequence,
+            get_midpoint_sequence,
+        )
+
+        stage_aggregated_schedule = self._get_schedule_from_stage_aggregated_problem(
+            stage_agg_count,
+            head_stages_to_keep=head_stages_to_keep,
+            p_agg_method=p_agg_method,
+            mi_agg_method=mi_agg_method,
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt=draw_gantt_stage_aggregated,
+        )
+        if stage_aggregated_schedule is None:
+            return None
+
+        job_sequences = [
+            get_bottleneck_stage_job_sequence(stage_aggregated_schedule),
+            get_midpoint_sequence(stage_aggregated_schedule),
+        ]
+
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+
+        dispatcher = MixedDispatcher(self.instance)
+        for job_sequence in job_sequences:
+            dispatched_schedule = dispatcher.get_best_mixed_schedule_by_sequence(
+                job_sequence, head_for_all_stages=head_for_all_stages
+            )
+            if dispatched_schedule is not None:
+                if best_obj is None or dispatched_schedule.makespan < best_obj:
+                    best_obj = dispatched_schedule.makespan
+                    best_sch = dispatched_schedule
+
+        return best_sch
+
     def _get_schedule_from_stage_aggregated_problem(
         self,
         stage_agg_count: int,
@@ -2423,5 +2445,69 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             output_path = self.get_file_path_for_subroutine("_gantt_stage_agg.png")
             self.draw_gantt(schedule, output_path=output_path)
         return schedule
+
+    def init_by_best_of_job_seq_from_stage_agg_problem(
+        self,
+        stage_agg_count: int,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "min",
+        head_for_all_stages: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt_stage_aggregated: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        best_sch: HybridFlowshopLiteSchedule | None = None
+
+        for head_stages_to_keep in range(stage_agg_count):
+            dispatched_sch = (
+                self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count,
+                    head_stages_to_keep=head_stages_to_keep,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_stage_aggregated=draw_gantt_stage_aggregated,
+                )
+            )
+
+            if dispatched_sch is not None:
+                if best_sch is None or dispatched_sch.makespan < best_sch.makespan:
+                    best_sch = dispatched_sch
+
+        if best_sch is None:
+            # Failed to find a solution
+            return
+        if error_if_infeasible:
+            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+
+        best_obj = best_sch.makespan
+        logging.info(
+            f"Schedule from stage-aggregated problem: makespan={best_obj}"
+            f" with stage_agg_count={stage_agg_count}"
+        )
+
+        # Create report and register the new solution
+        obj_value = float(best_sch.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_sch)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     # End subroutine definition
