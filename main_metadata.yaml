@@ -977,9 +977,13 @@ dicts_of_i_o_data_path:
   #   output_dir: "pra_half_nc/20260225-03"
   #   description: "Dispatch -> NEH-CP (10, 0.008nc, lexico, 2nd obj 0.002nc) -> improve [nc/2]"
 
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260226-01.yaml"
+  #   output_dir: "pra_half_nc/20260226-01"
+  #   description: "Dispatch -> NEH-CP (5, 0.003nc, lexico, 2nd obj 0.002nc)"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260226-01.yaml"
-    output_dir: "pra_half_nc/20260226-01"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260226-02.yaml"
+    output_dir: "pra_half_nc/20260226-02"
     description: "Dispatch -> NEH-CP (5, 0.003nc, lexico, 2nd obj 0.002nc) -> improve [nc/2]"
 
 # Output and Logging configuration
