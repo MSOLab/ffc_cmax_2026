@@ -1020,13 +1020,16 @@ class HybridFlowshopLiteSchedule:
             Returns:
                 tuple: (-tr_j, p_j, position)
             """
-            p = p_j[j]
             tr = tr_j[j]
+            p = p_j[j]
+            # p multiplier := -(c - i + 1)/10
+            c = len(self.stages)
+            p_multiplier = -(c - stage_idx - 2) * c / 80
             # Primary: tr_j (longer sum of current and remaining processing time)
             # Tiebreaker 1: p_j (shorter first if SPT, longer if LPT)
             # Tiebreaker 2: position in _job_id_seq
             stage_tb = lpt_sign * p if is_last_stage else p
-            return (-tr, stage_tb, j)
+            return (-(tr + p_multiplier * p), stage_tb, j)
 
         dispatched_ops_cnt = 0
 
