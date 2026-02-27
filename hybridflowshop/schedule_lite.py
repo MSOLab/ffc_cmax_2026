@@ -1,12 +1,7 @@
 from __future__ import annotations
 
 import bisect
-import heapq
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Iterator, Mapping, Sequence, TypeAlias
-
-from hybridflowshop.painter.gantt import GanttPlotter
+from typing import Iterator, Mapping, Sequence, TypeAlias
 
 JobIdType = str
 StageIdType = str
@@ -15,19 +10,6 @@ McIdType = str
 # Wave batch scheduling type aliases
 ReadyHeapEntry: TypeAlias = tuple[int, int, JobIdType, int]
 """(end_time, tie_breaker, job_id, stage_idx) for heap entries"""
-
-
-@dataclass
-class WaveBatchState:
-    """State for wave batch scheduling algorithm."""
-
-    ready_heaps: list[list[ReadyHeapEntry]]
-    job_2_duration: dict[int, Mapping[JobIdType, int]]
-    job_2_pos: dict[JobIdType, int]
-    iteration_no: int
-    total_jobs: int
-    stage_ids: Sequence[StageIdType]
-    _prev_scheduled_last_stage: int = 0
 
 
 class HybridFlowshopLiteSchedule:
@@ -57,9 +39,6 @@ class HybridFlowshopLiteSchedule:
     __stage_2_job_2_end_time: dict[StageIdType, dict[JobIdType, int]]
     """map(stage ID -> map(job ID -> end time))"""
 
-    __wave_batch_state: WaveBatchState | None
-    """Wave batch dispatching internal state (WaveBatchState or None)"""
-
     def __init__(
         self,
         jobs: Sequence[JobIdType],
@@ -80,8 +59,6 @@ class HybridFlowshopLiteSchedule:
             for stage in self.stages
         }
         self.__stage_2_job_2_end_time = {stage: {} for stage in self.stages}
-        # Wave batch dispatching internal state
-        self.__wave_batch_state = None
 
     def deepcopy(
         self, job_subsequence: set[JobIdType] | None = None
@@ -676,271 +653,6 @@ class HybridFlowshopLiteSchedule:
                 raise ValueError(f"Duration for stage ID {stage_id} not provided")
             duration = stage_2_duration[stage_id]
             self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
-
-    # ============================================================================
-    # Helper methods for wave batch dispatching
-    # ============================================================================
-
-    def _get_scheduled_count(self, stage_idx: int) -> int:
-        """Count jobs scheduled at a specific stage index.
-
-        Args:
-            stage_idx (int): Index of the stage to count scheduled jobs.
-
-        Returns:
-            int: Number of jobs scheduled at the specified stage.
-        """
-        if self.__wave_batch_state is None:
-            return 0
-        stage_id = self.__wave_batch_state.stage_ids[stage_idx]
-        return len(self.__stage_2_job_2_end_time[stage_id])
-
-    def _push_ready(
-        self,
-        stage_idx: int,
-        job_id: JobIdType,
-        tie_breaker: int,
-    ) -> None:
-        """Push a job to the ready heap for a stage.
-
-        Args:
-            stage_idx (int): Index of the stage.
-            job_id (JobIdType): Job ID to push.
-            tie_breaker (int): Tie-breaking value (e.g., job position in original sequence).
-        """
-        if self.__wave_batch_state is None:
-            return
-        stage_id: str = self.__wave_batch_state.stage_ids[stage_idx]
-        end_time: int = self.__stage_2_job_2_end_time[stage_id][job_id]
-        ready_heap: list[ReadyHeapEntry] = self.__wave_batch_state.ready_heaps[
-            stage_idx
-        ]
-        # Heap entries: (end_time, tie_breaker, job_id, stage_idx)
-        heapq.heappush(ready_heap, (end_time, tie_breaker, job_id, stage_idx))
-
-    def _promote(self, stage_idx: int, batch_size: int) -> int:
-        """Promote jobs from stage i to stage i+1.
-
-        This moves completed jobs from the current stage to the next stage
-        by scheduling their operations on the next stage's machines.
-
-        Args:
-            stage_idx (int): Index of the stage to promote from.
-            batch_size (int): Maximum number of jobs to promote.
-
-        Returns:
-            int: Number of jobs promoted.
-        """
-        if self.__wave_batch_state is None:
-            return 0
-
-        num_stages: int = len(self.__wave_batch_state.stage_ids)
-
-        # Don't promote from the last stage
-        if stage_idx >= num_stages - 1:
-            return 0
-
-        next_stage_idx = stage_idx + 1
-        ready_heap: list[ReadyHeapEntry] = self.__wave_batch_state.ready_heaps[
-            stage_idx
-        ]
-        promoted_count = 0
-
-        while ready_heap and promoted_count < batch_size:
-            entry: ReadyHeapEntry = heapq.heappop(ready_heap)
-            end_time, tie_breaker, job_id, _ = entry
-
-            # Check if this job can be promoted (has duration for next stage)
-            if job_id not in self.__wave_batch_state.job_2_duration[next_stage_idx]:
-                continue
-
-            # Schedule the job on the next stage
-            next_stage_id: str = self.__wave_batch_state.stage_ids[next_stage_idx]
-            duration: int = self.__wave_batch_state.job_2_duration[next_stage_idx][
-                job_id
-            ]
-            self.add_operation_2_stage(next_stage_id, job_id, duration)
-
-            # Push to ready heap for next stage
-            self._push_ready(
-                next_stage_idx,
-                job_id,
-                self.__wave_batch_state.job_2_pos.get(job_id, 0),
-            )
-            promoted_count += 1
-
-        return promoted_count
-
-    def _feed_stage1(
-        self,
-        batch_jobs: list[JobIdType],
-        job_2_release: Mapping[JobIdType, int] | None,
-    ) -> None:
-        """Inject a batch of jobs to stage 1.
-
-        Args:
-            batch_jobs: List of job IDs to inject to stage 1.
-            job_2_release: Mapping from job ID to release time.
-        """
-        if self.__wave_batch_state is None:
-            return
-        stage_id: str = self.__wave_batch_state.stage_ids[0]
-
-        for job_id in batch_jobs:
-            duration: int = self.__wave_batch_state.job_2_duration[0][job_id]
-            release_t: int | None = (
-                job_2_release.get(job_id) if job_2_release is not None else None
-            )
-            self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
-            # Push to ready heap for stage 0
-            self._push_ready(
-                0, job_id, self.__wave_batch_state.job_2_pos.get(job_id, 0)
-            )
-
-    # ============================================================================
-    # Main dispatching method for wave batch scheduling
-    # ============================================================================
-
-    def dispatch_wave_batches(
-        self,
-        batch_size: int,
-        job_ids: Sequence[JobIdType],
-        stage_ids: Sequence[StageIdType],
-        stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
-        job_2_release_time: Mapping[JobIdType, int] | None = None,
-        get_file_path_for_subroutine: Callable | None = None,
-    ) -> None:
-        """Dispatch jobs using wave batch scheduling.
-
-        This method implements a wave batch scheduling algorithm that injects jobs
-        to stage 1 in batches and allows them to propagate forward through stages
-        based on completion times.
-
-        Algorithm:
-        - Iteration-based: each iteration injects B jobs to stage 1, then promotes jobs forward
-        - Uses min-heap per stage to track completed jobs not yet promoted
-        - Promotion depth = min(iter_no - 1, num_stages - 1)
-
-        Args:
-            job_ids: Sequence of job IDs to schedule.
-            stage_ids: Sequence of stage IDs to use.
-            stage_2_job_2_duration: stage -> job -> duration mapping.
-            batch_size: Number of jobs to inject per iteration to stage 1.
-            job_2_release_time: Optional mapping from job ID to release time.
-                Defaults to None.
-
-        Raises:
-            ValueError: If batch_size <= 0.
-            ValueError: If any job's duration is missing.
-        """
-        if batch_size <= 0:
-            raise ValueError(f"batch_size must be positive, got {batch_size}")
-        if not job_ids:
-            return
-        if not stage_ids:
-            return
-
-        # Validation: Check if stage_ids is a subsequence of self.stages
-        # Check elements
-        stage_id_set = set(self.stages)
-        for stage_id in stage_ids:
-            if stage_id not in stage_id_set:
-                raise ValueError(
-                    f"Stage ID {stage_id} in stage_ids is not in self.stages"
-                )
-
-        # Check contiguity
-        start_idx = self.stages.index(stage_ids[0])
-        expected_slice = list(self.stages[start_idx : start_idx + len(stage_ids)])
-        if list(stage_ids) != expected_slice:
-            raise ValueError(
-                "stage_ids must be a contiguous subsequence of self.stages. "
-                f"Expected {expected_slice}, got {list(stage_ids)}"
-            )
-
-        # Validation: check all required durations are provided
-        for stage_id in stage_ids:
-            for job_id in job_ids:
-                if job_id not in stage_2_job_2_duration.get(stage_id, {}):
-                    raise ValueError(
-                        f"Duration for job ID {job_id} at stage {stage_id} not provided"
-                    )
-
-        # Initialize wave batch state
-        num_stages = len(stage_ids)
-        stage_2_idx = {stage_id: i for i, stage_id in enumerate(stage_ids)}
-
-        # Convert job_2_duration to stage_idx -> job -> duration format
-        job_2_duration_by_stage_idx: dict[int, Mapping[JobIdType, int]] = {}
-        for stage_id, job_2_duration in stage_2_job_2_duration.items():
-            if stage_id in stage_2_idx:
-                stage_idx = stage_2_idx[stage_id]
-                job_2_duration_by_stage_idx[stage_idx] = job_2_duration
-
-        self.__wave_batch_state = WaveBatchState(
-            ready_heaps=[[] for _ in range(num_stages)],  # One min-heap per stage
-            job_2_duration=job_2_duration_by_stage_idx,
-            job_2_pos={job_id: pos for pos, job_id in enumerate(job_ids)},
-            iteration_no=0,
-            total_jobs=len(job_ids),
-            stage_ids=stage_ids,
-        )
-
-        if get_file_path_for_subroutine is not None:
-            plotter = GanttPlotter()
-
-        # Main loop: while not all jobs in last stage
-        num_jobs = len(job_ids)
-        while self._get_scheduled_count(num_stages - 1) < num_jobs:
-            self.__wave_batch_state.iteration_no += 1
-            iter_no = self.__wave_batch_state.iteration_no
-
-            # Feed stage 1: inject batch_size jobs
-            start_idx = (iter_no - 1) * batch_size
-            end_idx = min(start_idx + batch_size, len(job_ids))
-            batch_jobs = list(job_ids[start_idx:end_idx])
-
-            # Inject batch to stage 1 (may be empty on final iterations)
-            if batch_jobs:
-                self._feed_stage1(batch_jobs, job_2_release_time)
-
-            # Promote jobs forward through stages based on iteration number.
-            # In iteration iter_no, jobs can propagate up to (iter_no - 1) stages forward.
-            # For example:
-            #   Iteration 1: jobs injected to stage 1 only (no promotion yet)
-            #   Iteration 2: jobs from iter 1 can move to stage 2
-            #   Iteration 3: jobs from iter 1 can move to stage 3, jobs from iter 2 can move to stage 2
-            promote_depth = min(iter_no - 1, num_stages - 1)
-
-            # Promote from stage 0 to 1, then 1 to 2, etc. up to promote_depth stages
-            for stage_idx in range(promote_depth):
-                self._promote(stage_idx, batch_size)
-
-            # For debug: draw gantt chart after each iteration
-            if get_file_path_for_subroutine is not None:
-                output_path: Path = get_file_path_for_subroutine(f"{iter_no}_gantt.png")
-                plotter.export_hybrid_flowshop_plot(
-                    output_path,
-                    self.get_jik_2_start_time_map(),
-                    self.get_jik_2_end_time_map(),
-                    job_ids,
-                    stage_ids,
-                )
-
-            # Check if we made progress - if no jobs were added to last stage this iteration
-            # and there are no more jobs to promote, we're done
-            curr_count = self._get_scheduled_count(num_stages - 1)
-            self.__wave_batch_state._prev_scheduled_last_stage = curr_count
-
-            no_more_injection = end_idx >= num_jobs
-            all_empty = all(
-                len(h) == 0 for h in self.__wave_batch_state.ready_heaps[:-1]
-            )
-            if no_more_injection and all_empty:
-                break
-
-        # Clean up state
-        self.__wave_batch_state = None
 
     # Setters - remove
 
