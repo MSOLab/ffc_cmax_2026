@@ -174,9 +174,29 @@ class HybridFlowshopLiteSchedule:
 
         return prev_end
 
-    def get_machine_and_earliest_available_time_by_start_idle_idx(
+    def select_machine_by_earliest_start_then_idle(
         self, stage_id: StageIdType, duration: int, release_t: int | None = None
     ) -> tuple[McIdType, int]:
+        """Select the best machine in a stage and return its earliest available time.
+
+        Machines are compared lexicographically by:
+            1. Earliest available time (EAT): smaller is better.
+            2. Idle time (EAT - machine's latest end time, clamped to 0): smaller
+               is better, preferring machines that have been busy more recently.
+
+        Args:
+            stage_id (StageIdType): Target stage.
+            duration (int): Processing time of the operation.
+            release_t (int | None, optional): Earliest time the operation can start.
+                Defaults to None (uses previous stage end time or 0).
+
+        Raises:
+            ValueError: If stage_id is invalid, the stage has no machines,
+                or duration is not positive.
+
+        Returns:
+            tuple[McIdType, int]: (selected machine ID, earliest available time on that machine)
+        """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
         if not self.machines_per_stage[stage_id]:
@@ -190,7 +210,10 @@ class HybridFlowshopLiteSchedule:
         best_eat = self.get_machine_earliest_start_time(
             stage_id, first_mc, duration, release_t=release_t
         )
-        best_idle = best_eat - self.get_machine_latest_end_time(stage_id, first_mc)
+
+        best_idle = max(
+            best_eat - self.get_machine_latest_end_time(stage_id, first_mc), 0
+        )
 
         best_mc = first_mc
 
@@ -199,7 +222,7 @@ class HybridFlowshopLiteSchedule:
             eat = self.get_machine_earliest_start_time(
                 stage_id, mc, duration, release_t=release_t
             )
-            idle = eat - self.get_machine_latest_end_time(stage_id, mc)
+            idle = max(eat - self.get_machine_latest_end_time(stage_id, mc), 0)
 
             # (1) earliest available time (2) smallest idle time
             if eat < best_eat or (eat == best_eat and idle < best_idle):
@@ -527,10 +550,8 @@ class HybridFlowshopLiteSchedule:
         if release_t is None or release_t < prev_ops_end_time:
             release_t = prev_ops_end_time
         # Find machine and earliest available time
-        mc_id, start_time = (
-            self.get_machine_and_earliest_available_time_by_start_idle_idx(
-                stage_id, duration, release_t=release_t
-            )
+        mc_id, start_time = self.select_machine_by_earliest_start_then_idle(
+            stage_id, duration, release_t=release_t
         )
         # Compute end time
         end_time = start_time + duration
