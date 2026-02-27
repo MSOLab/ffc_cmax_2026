@@ -69,7 +69,7 @@ def dispatch_stages_by_job_sequence(
         _stage_id_list = _stage_id_list[from_stage_index:]
     for stage_id in _stage_id_list:
         if machine_then_job:
-            schedule.dispatch_stage_by_machines(
+            schedule.dispatch_stage_by_machines_2(
                 stage_id,
                 job_sequence,
                 stage_2_job_2_p,

@@ -905,6 +905,280 @@ class HybridFlowshopLiteSchedule:
                 if cur is None or best_eat < cur:
                     mc_2_best_eat[best_mc] = best_eat
 
+    def dispatch_stage_by_machines_2(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        job_2_release: Mapping[JobIdType, int] | None = None,
+        spt_on_last_stage: bool = False,
+    ) -> None:
+        """Dispatch multiple jobs to a stage using machine-centric selection (v2).
+
+        Priority: Stage → Machine → Job
+
+        Algorithm (plan document version):
+            1. For each unscheduled job, compute release time r_j = max(prev_stage_end, external_release)
+            2. Initialize J' (candidate set) as empty, J'' (remaining set) as all jobs
+            3. While J' ∪ J'' is not empty:
+               a. Update J': move jobs with r_j <= t' from J'' to J'
+               b. Select machine with smallest t_k (time cursor)
+               c. Select job with smallest (p_j + tr_j) from J'
+               d. Dispatch job to machine and update state
+
+        Tie-breaking for machine selection:
+            1. smallest idle time at EAT
+            2. smallest machine index
+
+        Tie-breaking for job selection:
+            1. smallest p_j (current stage duration)
+            2. position in input job sequence
+
+        Args:
+            stage_id: Target stage identifier.
+            job_id_seq: Sequence of job identifiers to dispatch.
+            stage_2_job_2_p: Stage ID -> job ID -> duration.
+            job_2_release: Optional mapping from job ID to release time.
+            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
+                If False, use LPT (longest processing time first). Defaults to False.
+
+        Raises:
+            ValueError: If stage_id is invalid or a job's duration is not provided.
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if not isinstance(spt_on_last_stage, bool):
+            raise ValueError(
+                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
+            )
+
+        # Precompute constants
+        job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
+        stage_idx = self.stage_2_index[stage_id]
+        # logging.info(f"Stage index: {stage_idx}")
+        remaining_stages = self.stages[stage_idx + 1 :]
+        is_first_stage = stage_id == self.stages[0]
+        is_last_stage = stage_id == self.stages[-1]
+        lpt_sign = 1 if spt_on_last_stage else -1
+        mc_list = self.machines_per_stage[stage_id]
+        mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
+
+        # Precompute release times: r_j = max(prev_stage_end, external_release)
+        job_id_2_r: dict[JobIdType, int] = {}
+        for job_id in job_id_seq:
+            prev_end = self.get_prev_stage_end_time(
+                stage_id, job_id, default_if_missing=0
+            )
+            release_t = (
+                job_2_release[job_id]
+                if job_2_release is not None and job_id in job_2_release
+                else None
+            )
+            if release_t is None or release_t < prev_end:
+                release_t = prev_end
+            job_id_2_r[job_id] = release_t
+
+        # Job ID sorted by (1) release time (2) input sequence order
+        _job_id_seq: list[str] = sorted(
+            job_id_seq, key=lambda job_id: (job_id_2_r[job_id], job_id_2_pos[job_id])
+        )
+        # j\in J: job index list
+        J: list[int] = list(range(len(_job_id_seq)))
+        j_2_job_id: dict[int, JobIdType] = {
+            j: job_id for j, job_id in enumerate(_job_id_seq)
+        }
+
+        r_j: dict[int, int] = {
+            j: job_id_2_r[job_id] for j, job_id in enumerate(_job_id_seq)
+        }
+        # Validate and get durations for all jobs
+        p_j: dict[int, int] = {}
+        tr_j: dict[int, int] = {}
+        for j, job_id in enumerate(_job_id_seq):
+            if stage_id not in stage_2_job_2_p:
+                raise ValueError(
+                    f"Duration for job ID {job_id} at stage ID {stage_id} not provided"
+                )
+            p_j[j] = stage_2_job_2_p[stage_id][job_id]
+            tr_j[j] = sum(stage_2_job_2_p[s].get(job_id, 0) for s in remaining_stages)
+
+        # Machine state
+        t_k: dict[McIdType, int] = {mc: r_j[0] for mc in mc_list}
+        tp: int = r_j[0]
+
+        # Job state sets
+        unscheduled_jobs: list[int] = list(J)  # J'' = all jobs initially
+        candid_jobs: list[int] = list()  # J' = empty initially
+        u: int = 0  # Pointer for iterating through jobs by release time
+
+        # Helper to compute sort key for job selection
+        def job_sort_key(j: int) -> tuple:
+            """Sort key for job selection: (p_j + tr_j, p_j, position)."""
+            if is_first_stage:
+                # No precedence constraint, so effective start time = job_2_release for all jobs.
+                # Use _job_id_seq position as tiebreaker.
+                return (0, 0, j)
+
+            p = p_j[j]
+            tr = tr_j[j]
+            # Primary: tr_j (longer sum of current and remaining processing time)
+            # Tiebreaker 1: p_j (shorter first if SPT, longer if LPT)
+            # Tiebreaker 2: position in _job_id_seq
+            stage_tb = lpt_sign * p if is_last_stage else p
+            return (-tr, stage_tb, j)
+
+        dispatched_ops_cnt = 0
+
+        # Main loop: While union of unscheduled jobs & candidate jobs is not empty
+        while unscheduled_jobs or candid_jobs:
+            # --- Invariant 1: unscheduled_jobs is a contiguous suffix [u, ..., n-1] ---
+            if unscheduled_jobs:
+                assert unscheduled_jobs == list(range(u, u + len(unscheduled_jobs))), (
+                    "unscheduled_jobs must be a contiguous suffix starting at u."
+                )
+
+            # --- Invariant 2: no overlap between unscheduled and candidate ---
+            assert set(unscheduled_jobs).isdisjoint(candid_jobs), (
+                "unscheduled_jobs and candid_jobs must be disjoint."
+            )
+
+            # --- Invariant 3: partition consistency ---
+            assert dispatched_ops_cnt + len(unscheduled_jobs) + len(candid_jobs) == len(
+                J
+            ), (
+                "Partition of jobs inconsistent: scheduled + |unscheduled| + |candid| must equal total jobs."
+                f"\n After dispatching {dispatched_ops_cnt} operations, partition sizes are: "
+                f"scheduled={dispatched_ops_cnt}, candid={len(candid_jobs)}"
+                f", unscheduled={len(unscheduled_jobs)}, total={len(J)}."
+            )
+
+            if unscheduled_jobs:
+                # release times must be nondecreasing in unscheduled_jobs
+                assert all(
+                    r_j[unscheduled_jobs[i]] <= r_j[unscheduled_jobs[i + 1]]
+                    for i in range(len(unscheduled_jobs) - 1)
+                ), "Release times in unscheduled_jobs must be nondecreasing."
+
+            # Step 1: Update J' (candidate set)
+            # Move jobs with r_j <= min_t' from unscheduled to dispatched (candidate)
+            # where min_t' = min(t_k) across all machines
+            # If $t' \geq \min_{j\in J''} r_j$:
+            if unscheduled_jobs and tp >= r_j[unscheduled_jobs[0]]:
+                # logging.info(
+                #     f"len(unscheduled_jobs)={len(unscheduled_jobs)}, unscheduled_jobs={unscheduled_jobs[:5]}"
+                # )
+                # if unscheduled_jobs:
+                #     logging.info(
+                #         f"head={unscheduled_jobs[0]}, r_head={r_j[unscheduled_jobs[0]]}, tp={tp}"
+                #     )
+                v = max(j for j in unscheduled_jobs if r_j[j] <= tp)
+                # logging.info(
+                #     f"Moving jobs {u} to {v} from unscheduled to candidate."
+                #     f" t'={tp}, r_j[v]={r_j[v]}, next_r_j={r_j[v + 1] if v + 1 < len(J) else 'N/A'}"
+                # )
+
+                # --- Invariant 4: release prefix is contiguous ---
+                assert all(r_j[j] <= tp for j in range(u, v + 1)), (
+                    "All jobs from u to v must satisfy r_j <= tp."
+                )
+
+                if v + 1 < len(J):
+                    assert r_j[v + 1] > tp, (
+                        "v must be the largest index with r_j <= tp."
+                    )
+
+                # $J' \leftarrow J' \cup \{ u,...,v \}$
+                candid_jobs.extend(j for j in range(u, v + 1))
+                # $J'' \leftarrow J'' \setminus \{ u,...,v \}$
+                unscheduled_jobs = unscheduled_jobs[v - u + 1 :]
+                # logging.info(
+                #     f"Moved jobs {u} to {v} from unscheduled to candidate. Unscheduled jobs left: {len(unscheduled_jobs)}"
+                # )
+                u = v + 1
+            else:
+                if not candid_jobs:
+                    # $t' := \min_{j\in J''} \{ r_j \}$
+                    tp = min(r_j[j] for j in unscheduled_jobs)
+                    # $t_k <- max(t', t_k)$
+                    for mc in mc_list:
+                        t_k[mc] = max(tp, t_k[mc])
+                    continue
+
+            # Step 2: Select target machine
+            # $k' = \argmin_k \{ t_k \}$
+            # Tie-breaking: (1) minimum idle (2) minimum machine index
+            # logging.info(
+            #     f"Selecting machine with smallest t_k. Current t_k: {t_k}, candidate machines: {mc_list}"
+            # )
+            kp: str | None = None
+            min_tk: int | None = None
+            min_idle: int | None = None
+            for mc in mc_list:
+                tk = t_k[mc]
+                idle = max(tp - tk, 0)
+                if kp is None or (tk, idle, mc_2_index[mc]) < (
+                    min_tk,
+                    min_idle,
+                    mc_2_index[kp],
+                ):
+                    kp = mc
+                    min_tk = tk
+                    min_idle = idle
+
+            if kp is None:
+                raise RuntimeError("No target machine found, this should not happen.")
+            # logging.info(f"Selected machine {kp} with t_k={t_k[kp]} and idle={min_idle}.")
+
+            assert tp == min(t_k.values()), (
+                f"tp must equal min(t_k) before selecting a job; tp={tp}, min_tk={min(t_k.values())}."
+            )
+
+            # Step 3: Select job from J'
+            jp = min(candid_jobs, key=job_sort_key)
+
+            # --- Invariant 5: selected job is actually released ---
+            assert r_j[jp] <= tp, (
+                f"Selected job must be available at tp; got r_j[jp]={r_j[jp]}, tp={tp}."
+            )
+
+            # --- Invariant 6: selected machine is earliest ---
+            assert t_k[kp] == min(t_k.values()), (
+                "Selected machine must have minimal time cursor."
+            )
+            assert t_k[kp] == tp, "Selected machine must have minimal time of tp."
+
+            # Step 4: Dispatch
+            start_time = tp
+            end_time = start_time + p_j[jp]
+
+            job_id = j_2_job_id[jp]
+            prev_end = self.get_prev_stage_end_time(
+                stage_id, job_id, default_if_missing=-1
+            )
+            # ext_rel = job_2_release.get(job_id, None) if job_2_release else None
+            # logging.error(
+            #     "[DISPATCH] stage=%s mc=%s job=%s(j=%s) tp=%s tk=%s r=%s prev_end=%s ext_rel=%s "
+            #     "start=%s end=%s p=%s candid_size=%s unsched_head=%s",
+            #     stage_id, kp, job_id, jp, tp, t_k[kp], r_j[jp], prev_end, ext_rel,
+            #     start_time, end_time, p_j[jp], len(candid_jobs),
+            #     (unscheduled_jobs[0] if unscheduled_jobs else None),
+            # )
+
+            self.add_ops_times_2_mc(stage_id, kp, j_2_job_id[jp], start_time, end_time)
+            dispatched_ops_cnt += 1
+
+            # Step 5: Update state
+            candid_jobs.remove(jp)
+            t_k[kp] = end_time
+            tp = min(t_k.values())
+            # logging.error(
+            #     "[STATE UPDATE] stage=%s dispatched_job=%s(j=%s) to mc=%s, updated t_k=%s, next tp=%s",
+            #     stage_id, job_id, jp, kp, t_k, tp
+            # )
+
+            # --- Invariant 7: tp equals minimum machine time ---
+            assert tp == min(t_k.values()), "tp must equal min machine cursor."
+
     # Setters - remove
 
     def remove_operations(
