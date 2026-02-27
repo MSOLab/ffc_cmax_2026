@@ -26,6 +26,9 @@ class HybridFlowshopLiteSchedule:
 
     # Helper parameters
 
+    stage_2_index: Mapping[StageIdType, int]
+    """map(stage ID -> stage index in self.stages)"""
+
     stage_2_prev_stage: Mapping[StageIdType, StageIdType | None]
     """map(stage ID -> previous stage ID or None if first stage)"""
 
@@ -48,6 +51,7 @@ class HybridFlowshopLiteSchedule:
         self.jobs = jobs
         self.stages = stages
         self.machines_per_stage = machines_per_stage
+        self.stage_2_index = {stage: i for i, stage in enumerate(stages)}
         self.stage_2_prev_stage = {
             stage: stages[i - 1] if i > 0 else None for i, stage in enumerate(stages)
         }
@@ -645,7 +649,7 @@ class HybridFlowshopLiteSchedule:
 
         stage_iter = self.stages
         if from_stage is not None:
-            from_idx = self.stages.index(from_stage)
+            from_idx = self.stage_2_index[from_stage]
             stage_iter = self.stages[from_idx:]
 
         for stage_id in stage_iter:
@@ -735,7 +739,7 @@ class HybridFlowshopLiteSchedule:
         else:
             if start_from_stage not in self.stages:
                 raise ValueError(f"Invalid stage ID: {start_from_stage}")
-            first_idx = self.stages.index(start_from_stage)
+            first_idx = self.stage_2_index[start_from_stage]
 
         for stage_idx in range(first_idx, len(self.stages)):
             stage_id = self.stages[stage_idx]
