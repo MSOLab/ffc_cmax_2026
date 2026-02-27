@@ -184,10 +184,10 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_dispatch/subroutine_flow_bn2d_all_stage_am_norm.yaml"
   #   output_dir: "ff2020/bn2d_all_stage_am_norm"
   #   description: "BN2D all stage all stage mixed normalized"
-  - stopping_criteria_rel_path: "configs_dispatch/stopping_criteria.yaml"
-    subroutine_flow_rel_path: "configs_dispatch/subroutine_flow_bn2d_all_stage_mc.yaml"
-    output_dir: "ff2020/bn2d_all_stage_mc"
-    description: "BN2D all stage with machine then job"
+  # - stopping_criteria_rel_path: "configs_dispatch/stopping_criteria.yaml"
+  #   subroutine_flow_rel_path: "configs_dispatch/subroutine_flow_bn2d_all_stage_mc.yaml"
+  #   output_dir: "ff2020/bn2d_all_stage_mc"
+  #   description: "BN2D all stage with machine then job"
 
   # - stopping_criteria_rel_path: "configs_dispatch/stopping_criteria.yaml"
   #   subroutine_flow_rel_path: "configs_dispatch/subroutine_flow_all_dispatches.yaml"
@@ -1001,6 +1001,11 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260226-02.yaml"
   #   output_dir: "pra_half_nc/20260226-02"
   #   description: "Dispatch -> NEH-CP (5, 0.003nc, lexico, 2nd obj 0.002nc) -> improve [nc/2]"
+
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260227-01.yaml"
+    output_dir: "pra_half_nc/20260227-01"
+    description: "Machine-centric dispatch & BN2D -> NEH-CP (10, 0.008nc, lexico, 2nd obj 0.002nc) -> improve [nc/2]"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
