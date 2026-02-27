@@ -174,6 +174,31 @@ class HybridFlowshopLiteSchedule:
 
         return prev_end
 
+    def get_eat_for_machine(
+        self,
+        stage_id: StageIdType,
+        mc: McIdType,
+        duration: int,
+        release_t: int | None = None,
+    ) -> tuple[int, int]:
+        """Compute (EAT, idle) for a single machine.
+
+        Args:
+            stage_id (StageIdType): Target stage ID
+            mc (McIdType): Target machine ID
+            duration (int): Duration of the operation to be scheduled
+            release_t (int | None, optional): Earliest time the operation can start.
+                Defaults to None (uses previous stage end time or 0).
+
+        Returns:
+            tuple[int, int]: (earliest available time, idle time)
+        """
+        eat = self.get_machine_earliest_start_time(
+            stage_id, mc, duration, release_t=release_t
+        )
+        idle = max(eat - self.get_machine_latest_end_time(stage_id, mc), 0)
+        return eat, idle
+
     def select_machine_by_earliest_start_then_idle(
         self, stage_id: StageIdType, duration: int, release_t: int | None = None
     ) -> tuple[McIdType, int]:
@@ -195,7 +220,7 @@ class HybridFlowshopLiteSchedule:
                 or duration is not positive.
 
         Returns:
-            tuple[McIdType, int]: (selected machine ID, earliest available time on that machine)
+            tuple[McIdType, int]: (selected machine ID, earliest available time)
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
@@ -205,27 +230,15 @@ class HybridFlowshopLiteSchedule:
             raise ValueError("Duration must be greater than 0")
 
         # Initialize with first machine's values
-        first_mc = self.machines_per_stage[stage_id][0]
-
-        best_eat = self.get_machine_earliest_start_time(
-            stage_id, first_mc, duration, release_t=release_t
+        best_mc = self.machines_per_stage[stage_id][0]
+        best_eat, best_idle = self.get_eat_for_machine(
+            stage_id, best_mc, duration, release_t
         )
 
-        best_idle = max(
-            best_eat - self.get_machine_latest_end_time(stage_id, first_mc), 0
-        )
-
-        best_mc = first_mc
-
-        # Check remaining machines
         for mc in self.machines_per_stage[stage_id][1:]:
-            eat = self.get_machine_earliest_start_time(
-                stage_id, mc, duration, release_t=release_t
-            )
-            idle = max(eat - self.get_machine_latest_end_time(stage_id, mc), 0)
+            eat, idle = self.get_eat_for_machine(stage_id, mc, duration, release_t)
 
-            # (1) earliest available time (2) smallest idle time
-            if eat < best_eat or (eat == best_eat and idle < best_idle):
+            if (eat, idle) < (best_eat, best_idle):
                 best_mc, best_eat, best_idle = mc, eat, idle
 
         return best_mc, best_eat
@@ -678,6 +691,219 @@ class HybridFlowshopLiteSchedule:
                 raise ValueError(f"Duration for stage ID {stage_id} not provided")
             duration = stage_2_duration[stage_id]
             self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
+
+    def dispatch_stage_by_machines(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        job_2_release: Mapping[JobIdType, int] | None = None,
+        spt_on_last_stage: bool = False,
+    ) -> None:
+        """Dispatch multiple jobs to a stage using machine-centric selection.
+
+        Priority: Stage → Machine → Job
+
+        Algorithm:
+            1. For each unscheduled job, find its best machine and earliest available
+            time (EAT) via select_machine_by_earliest_start_then_idle.
+            2. Select the target machine with the globally smallest EAT.
+            Tiebreaker: smallest idle time → smallest machine index.
+            3. Among candidate jobs assigned to the target machine with matching EAT,
+            select one job by:
+            - Primary: smallest effective_start
+                (max of prev_stage_end, release_time, machine_eat)
+            - Tiebreaker 1: longest remaining processing time
+                (sum of durations in later stages)
+            - Tiebreaker 2 (last stage only): spt or lpt on current stage duration
+            - Tiebreaker 3: input sequence order
+            4. Dispatch the selected job to the target machine and repeat.
+
+        Optimization:
+            Maintains a per-job, per-machine EAT/idle cache. After dispatching a
+            job to a machine, only that machine's column in the cache is
+            recomputed for remaining jobs, avoiding full recomputation.
+
+        Args:
+            stage_id: Target stage identifier.
+            job_id_seq: Sequence of job identifiers to dispatch.
+            stage_2_job_2_p: Stage ID -> job ID -> duration.
+            job_2_release: Optional mapping from job ID to release time.
+            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
+                If False, use LPT (longest processing time first). Defaults to False.
+
+        Raises:
+            ValueError: If stage_id is invalid, spt_on_last_stage is not a boolean, or a job's duration is not provided.
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if not isinstance(spt_on_last_stage, bool):
+            raise ValueError(
+                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
+            )
+
+        # Precompute constants
+        job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
+        stage_idx = self.stage_2_index[stage_id]
+        remaining_stages = self.stages[stage_idx + 1 :]
+        is_first_stage = stage_id == self.stages[0]
+        is_last_stage = stage_id == self.stages[-1]
+        lpt_sign = 1 if spt_on_last_stage else -1
+        mc_list = self.machines_per_stage[stage_id]
+        mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
+
+        # Precompute remaining processing times
+        job_2_remaining_pt: dict[JobIdType, int] = {}
+        for job_id in job_id_seq:
+            if stage_id not in stage_2_job_2_p:
+                raise ValueError(
+                    f"Duration for job ID {job_id} at stage ID {stage_id} not provided"
+                )
+            job_2_remaining_pt[job_id] = sum(
+                stage_2_job_2_p[s].get(job_id, 0) for s in remaining_stages
+            )
+
+        # Precompute per-job release times (clamped to prev_stage_end)
+        job_2_release_t: dict[JobIdType, int] = {}
+        for job_id in job_id_seq:
+            prev_end = self.get_prev_stage_end_time(
+                stage_id, job_id, default_if_missing=0
+            )
+            release_t = (
+                job_2_release[job_id]
+                if job_2_release is not None and job_id in job_2_release
+                else None
+            )
+            if release_t is None or release_t < prev_end:
+                release_t = prev_end
+            job_2_release_t[job_id] = release_t
+
+        # Phase 1: Build full EAT cache
+        # job -> mc -> (eat, idle)
+        job_2_mc_cache: dict[JobIdType, dict[McIdType, tuple[int, int]]] = {}
+        # job -> (best_mc, best_eat, best_idle)
+        job_2_best: dict[JobIdType, tuple[McIdType, int, int]] = {}
+
+        for job_id in job_id_seq:
+            duration = stage_2_job_2_p[stage_id][job_id]
+            release_t = job_2_release_t[job_id]
+            mc_cache: dict[McIdType, tuple[int, int]] = {}
+            best_mc = None
+            best_eat = None
+            best_idle = None
+
+            for mc in mc_list:
+                eat, idle = self.get_eat_for_machine(stage_id, mc, duration, release_t)
+                mc_cache[mc] = (eat, idle)
+
+                if best_mc is None or (eat, idle) < (best_eat, best_idle):
+                    best_mc, best_eat, best_idle = mc, eat, idle
+
+            job_2_mc_cache[job_id] = mc_cache
+            job_2_best[job_id] = (best_mc, best_eat, best_idle)
+
+        # mc_2_best_eat[mc] = min EAT among jobs whose best machine is mc
+        mc_2_best_eat: dict[McIdType, int | None] = {mc: None for mc in mc_list}
+        for job_id, (best_mc, best_eat, _) in job_2_best.items():
+            cur = mc_2_best_eat[best_mc]
+            if cur is None or best_eat < cur:
+                mc_2_best_eat[best_mc] = best_eat
+
+        unscheduled_jobs = set(job_id_seq)
+
+        def job_sort_key(job_id: JobIdType, target_eat: int) -> tuple:
+            if is_first_stage:
+                # No precedence constraint, so effective start time = 0 for all jobs.
+                # Use input order as tiebreaker.
+                return (0, 0, 0, job_id_2_pos[job_id])
+            prev_end = self.get_prev_stage_end_time(
+                stage_id, job_id, default_if_missing=0
+            )
+            release_t_val = (
+                job_2_release[job_id]
+                if job_2_release is not None and job_id in job_2_release
+                else 0
+            )
+            effective_start = max(prev_end, release_t_val, target_eat)
+            remaining_pt = 0 if is_first_stage else -job_2_remaining_pt[job_id]
+            p_ij = stage_2_job_2_p[stage_id][job_id]
+            stage_tb = lpt_sign * p_ij if is_last_stage else p_ij
+            pos = job_id_2_pos[job_id]
+            return (effective_start, remaining_pt, stage_tb, pos)
+
+        # Phase 2: Iterative dispatch with incremental cache update
+        while unscheduled_jobs:
+            # --- Step 2: Select target machine ---
+            # Best machine = smallest (min_eat_among_candidates, idle_at_that_eat, mc_index)
+            target_mc = None
+            target_key = None
+
+            for mc in mc_list:
+                min_eat = mc_2_best_eat[mc]
+                if min_eat is None:
+                    continue
+                idle = max(min_eat - self.get_machine_latest_end_time(stage_id, mc), 0)
+                mc_key = (min_eat, idle, mc_2_index[mc])
+                if target_key is None or mc_key < target_key:
+                    target_mc = mc
+                    target_key = mc_key
+
+            target_eat = target_key[0]
+
+            # --- Step 3: Select job among candidates on target_mc ---
+            candidate_jobs = [
+                job_id
+                for job_id in unscheduled_jobs
+                if job_2_best[job_id][0] == target_mc
+                and job_2_best[job_id][1] == target_eat
+            ]
+
+            selected_job = min(
+                candidate_jobs, key=lambda j: job_sort_key(j, target_eat)
+            )
+
+            # --- Step 4: Dispatch ---
+            duration = stage_2_job_2_p[stage_id][selected_job]
+            end_time = target_eat + duration
+            self.add_ops_times_2_mc(
+                stage_id, target_mc, selected_job, target_eat, end_time
+            )
+
+            # Incremental update: only recompute target_mc column
+            unscheduled_jobs.discard(selected_job)
+            del job_2_mc_cache[selected_job]
+            del job_2_best[selected_job]
+
+            # Recompute target_mc's (eat, idle) for all remaining jobs,
+            # then re-derive each affected job's best machine from cache.
+            # Also rebuild mc_2_best_eat from scratch (cheap: O(remaining_jobs)).
+            mc_2_best_eat = {mc: None for mc in mc_list}
+
+            for job_id in unscheduled_jobs:
+                d = stage_2_job_2_p[stage_id][job_id]
+                r_t = job_2_release_t[job_id]
+
+                # Update only target_mc column in cache
+                new_eat, new_idle = self.get_eat_for_machine(
+                    stage_id, target_mc, d, r_t
+                )
+                job_2_mc_cache[job_id][target_mc] = (new_eat, new_idle)
+
+                # Re-derive best machine from full cache row
+                best_mc = None
+                best_eat = None
+                best_idle = None
+                for mc in mc_list:
+                    eat, idle = job_2_mc_cache[job_id][mc]
+                    if best_mc is None or (eat, idle) < (best_eat, best_idle):
+                        best_mc, best_eat, best_idle = mc, eat, idle
+
+                job_2_best[job_id] = (best_mc, best_eat, best_idle)
+
+                # Update mc_2_best_eat
+                cur = mc_2_best_eat[best_mc]
+                if cur is None or best_eat < cur:
+                    mc_2_best_eat[best_mc] = best_eat
 
     # Setters - remove
 

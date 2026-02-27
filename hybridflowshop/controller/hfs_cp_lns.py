@@ -12,6 +12,7 @@ from hybridflowshop.dispatcher import (
     BN2DDispatcher,
     BN2DOption,
     JobDispatcher,
+    MachineDispatcher,
     MixedDispatcher,
     StageDispatcher,
 )
@@ -1249,6 +1250,180 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if schedule is None:
             raise ValueError("No schedule found after applying DS(Palmer).")
         logging.info(f"Schedule by DS(Palmer): makespan={schedule.makespan}")
+        return schedule
+
+    def initialize_by_dm_cds(
+        self,
+        spt_on_last_stage: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """
+        Uses CDS sequence & dispatches by stage - machine - job priority
+        to initialize a schedule.
+
+        Args:
+            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
+                If False, use LPT (longest processing time first). Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of
+                the solution. Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the
+                solution. Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_schedule_by_dm_cds(spt_on_last_stage=spt_on_last_stage)
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dm_cds(
+        self, spt_on_last_stage: bool = False
+    ) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(
+            self.instance, spt_on_last_stage=spt_on_last_stage
+        )
+        schedule = dispatcher.get_schedule_by_cds()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DM(CDS).")
+        logging.info(f"Schedule by DM(CDS): makespan={schedule.makespan}")
+        return schedule
+
+    def initialize_by_dm_gupta(
+        self,
+        spt_on_last_stage: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """
+        Uses Gupta sequence & dispatches by stage - machine - job priority
+        to initialize a schedule.
+
+        Args:
+            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
+                If False, use LPT (longest processing time first). Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of
+                the solution. Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the
+                solution. Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_schedule_by_dm_gupta(spt_on_last_stage=spt_on_last_stage)
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dm_gupta(
+        self, spt_on_last_stage: bool = False
+    ) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(
+            self.instance, spt_on_last_stage=spt_on_last_stage
+        )
+        schedule = dispatcher.get_schedule_by_gupta()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DM(Gupta).")
+        logging.info(f"Schedule by DM(Gupta): makespan={schedule.makespan}")
+        return schedule
+
+    def initialize_by_dm_palmer(
+        self,
+        spt_on_last_stage: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """
+        Uses Palmer sequence & dispatches by stage - machine - job priority
+        to initialize a schedule.
+
+        Args:
+            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
+                If False, use LPT (longest processing time first). Defaults to False.
+            error_if_infeasible (bool, optional): If True, checks the feasibility of
+                the solution. Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the
+                solution. Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_schedule_by_dm_palmer(spt_on_last_stage=spt_on_last_stage)
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dm_palmer(
+        self, spt_on_last_stage: bool = False
+    ) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(
+            self.instance, spt_on_last_stage=spt_on_last_stage
+        )
+        schedule = dispatcher.get_schedule_by_palmer()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DM(Palmer).")
+        logging.info(f"Schedule by DM(Palmer): makespan={schedule.makespan}")
         return schedule
 
     def initialize_by_best_of_dispatches(

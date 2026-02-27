@@ -43,6 +43,8 @@ def dispatch_stages_by_job_sequence(
     stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
     from_stage: StageIdType | None = None,
     job_2_release_t: Mapping[JobIdType, int] | None = None,
+    machine_then_job: bool = False,
+    spt_on_last_stage: bool = False,
 ) -> None:
     """Dispatch stages, one by one, with the given job sequence.
 
@@ -55,18 +57,32 @@ def dispatch_stages_by_job_sequence(
             If not provided, defaults to the first stage in schedule.
         job_2_release_t (Mapping[JobIdType, int] | None, optional): The release time
             for each job. Defaults to None.
+        machine_then_job (bool, optional): If True, dispatch each stage by machine
+            first then job. If False, dispatch by job first then machine.
+            Defaults to False.
+        spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
+            If False, use LPT (longest processing time first). Defaults to False.
     """
     _stage_id_list = schedule.stages
     if from_stage is not None:
         from_stage_index = _stage_id_list.index(from_stage)
         _stage_id_list = _stage_id_list[from_stage_index:]
     for stage_id in _stage_id_list:
-        schedule.dispatch_stage_by_jobs(
-            stage_id,
-            job_sequence,
-            stage_2_job_2_p[stage_id],
-            job_2_release=job_2_release_t,
-        )
+        if machine_then_job:
+            schedule.dispatch_stage_by_machines(
+                stage_id,
+                job_sequence,
+                stage_2_job_2_p,
+                job_2_release=job_2_release_t,
+                spt_on_last_stage=spt_on_last_stage,
+            )
+        else:
+            schedule.dispatch_stage_by_jobs(
+                stage_id,
+                job_sequence,
+                stage_2_job_2_p[stage_id],
+                job_2_release=job_2_release_t,
+            )
 
 
 def from_job_sequence_get_schedule_mixed(
