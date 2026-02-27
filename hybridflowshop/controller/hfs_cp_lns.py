@@ -1970,6 +1970,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_even: bool = False,
         mixed_schedule_for_former_stages: bool = False,
         mixed_schedule_for_later_stages: bool = False,
+        machine_then_job: bool = False,
         randomize_mid_all: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -1987,6 +1988,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             randomize_mid_all=randomize_mid_all,
             mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
         )
         dispatcher = BN2DDispatcher(self.instance)
 

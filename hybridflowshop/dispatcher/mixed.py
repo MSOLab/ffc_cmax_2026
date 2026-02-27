@@ -50,6 +50,7 @@ class MixedDispatcher(BaseDispatcher):
         schedule: HybridFlowshopLiteSchedule | None = None,
         from_stage: StageIdType | None = None,
         job_2_release_t: dict[JobIdType, int] | None = None,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
@@ -114,6 +115,7 @@ class MixedDispatcher(BaseDispatcher):
                 np_2_stage_2_head[np],
                 from_stage=from_stage,
                 job_2_release=job_2_release_t,
+                machine_then_job=machine_then_job,
                 draw_gantt_per_step=draw_gantt_per_step,
                 get_file_path_for_subroutine=get_file_path_for_subroutine,
             )
