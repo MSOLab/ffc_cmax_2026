@@ -957,7 +957,6 @@ class HybridFlowshopLiteSchedule:
         stage_idx = self.stage_2_index[stage_id]
         # logging.info(f"Stage index: {stage_idx}")
         remaining_stages = self.stages[stage_idx + 1 :]
-        is_first_stage = stage_id == self.stages[0]
         is_last_stage = stage_id == self.stages[-1]
         lpt_sign = 1 if spt_on_last_stage else -1
         mc_list = self.machines_per_stage[stage_id]
@@ -1013,12 +1012,14 @@ class HybridFlowshopLiteSchedule:
 
         # Helper to compute sort key for job selection
         def job_sort_key(j: int) -> tuple:
-            """Sort key for job selection: (p_j + tr_j, p_j, position)."""
-            if is_first_stage:
-                # No precedence constraint, so effective start time = job_2_release for all jobs.
-                # Use _job_id_seq position as tiebreaker.
-                return (0, 0, j)
+            """Get sort key for job selection.
 
+            Args:
+                j (int): Job index in J (not job ID in _job_id_seq)
+
+            Returns:
+                tuple: (-tr_j, p_j, position)
+            """
             p = p_j[j]
             tr = tr_j[j]
             # Primary: tr_j (longer sum of current and remaining processing time)

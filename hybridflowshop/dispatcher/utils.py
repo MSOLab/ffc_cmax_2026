@@ -67,8 +67,16 @@ def dispatch_stages_by_job_sequence(
     if from_stage is not None:
         from_stage_index = _stage_id_list.index(from_stage)
         _stage_id_list = _stage_id_list[from_stage_index:]
-    for stage_id in _stage_id_list:
-        if machine_then_job:
+    if machine_then_job:
+        # First stage: Job-centric dispatch
+        schedule.dispatch_stage_by_jobs(
+            _stage_id_list[0],
+            job_sequence,
+            stage_2_job_2_p[_stage_id_list[0]],
+            job_2_release=job_2_release_t,
+        )
+        # Remaining stages: Machine-centric dispatch
+        for stage_id in _stage_id_list[1:]:
             schedule.dispatch_stage_by_machines_2(
                 stage_id,
                 job_sequence,
@@ -76,7 +84,8 @@ def dispatch_stages_by_job_sequence(
                 job_2_release=job_2_release_t,
                 spt_on_last_stage=spt_on_last_stage,
             )
-        else:
+    else:
+        for stage_id in _stage_id_list:
             schedule.dispatch_stage_by_jobs(
                 stage_id,
                 job_sequence,
