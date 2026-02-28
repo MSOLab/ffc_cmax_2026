@@ -928,25 +928,6 @@ class HybridFlowshopLiteSchedule:
     ) -> None:
         """Dispatch multiple jobs to a stage using machine-centric selection (v2).
 
-        Priority: Stage → Machine → Job
-
-        Algorithm (plan document version):
-            1. For each unscheduled job, compute release time r_j = max(prev_stage_end, external_release)
-            2. Initialize J' (candidate set) as empty, J'' (remaining set) as all jobs
-            3. While J' ∪ J'' is not empty:
-               a. Update J': move jobs with r_j <= t' from J'' to J'
-               b. Select machine with smallest t_k (time cursor)
-               c. Select job with smallest (p_j + tr_j) from J'
-               d. Dispatch job to machine and update state
-
-        Tie-breaking for machine selection:
-            1. smallest idle time at EAT
-            2. smallest machine index
-
-        Tie-breaking for job selection:
-            1. smallest p_j (current stage duration)
-            2. position in input job sequence
-
         Args:
             stage_id: Target stage identifier.
             job_id_seq: Sequence of job identifiers to dispatch.
@@ -1031,17 +1012,16 @@ class HybridFlowshopLiteSchedule:
                 j (int): Job index in J (not job ID in _job_id_seq)
 
             Returns:
-                tuple: (-tr_j, p_j, position)
+                tuple: (primary score, p_j, position)
             """
             tr = tr_j[j]
             p = p_j[j]
             # p multiplier := -(c - i + 1)/10
             c = len(self.stages)
             p_multiplier = -(c - stage_idx - 2) * c / 80
-            # Primary: tr_j (longer sum of current and remaining processing time)
             # Tiebreaker 1: p_j (shorter first if SPT, longer if LPT)
-            # Tiebreaker 2: position in _job_id_seq
             stage_tb = lpt_sign * p if is_last_stage else p
+            # Tiebreaker 2: position in _job_id_seq
             return (-(tr + p_multiplier * p), stage_tb, j)
 
         dispatched_ops_cnt = 0
@@ -1077,22 +1057,8 @@ class HybridFlowshopLiteSchedule:
                 ), "Release times in unscheduled_jobs must be nondecreasing."
 
             # Step 1: Update J' (candidate set)
-            # Move jobs with r_j <= min_t' from unscheduled to dispatched (candidate)
-            # where min_t' = min(t_k) across all machines
-            # If $t' \geq \min_{j\in J''} r_j$:
             if unscheduled_jobs and tp >= r_j[unscheduled_jobs[0]]:
-                # logging.info(
-                #     f"len(unscheduled_jobs)={len(unscheduled_jobs)}, unscheduled_jobs={unscheduled_jobs[:5]}"
-                # )
-                # if unscheduled_jobs:
-                #     logging.info(
-                #         f"head={unscheduled_jobs[0]}, r_head={r_j[unscheduled_jobs[0]]}, tp={tp}"
-                #     )
                 v = max(j for j in unscheduled_jobs if r_j[j] <= tp)
-                # logging.info(
-                #     f"Moving jobs {u} to {v} from unscheduled to candidate."
-                #     f" t'={tp}, r_j[v]={r_j[v]}, next_r_j={r_j[v + 1] if v + 1 < len(J) else 'N/A'}"
-                # )
 
                 # --- Invariant 4: release prefix is contiguous ---
                 assert all(r_j[j] <= tp for j in range(u, v + 1)), (
@@ -1108,9 +1074,6 @@ class HybridFlowshopLiteSchedule:
                 candid_jobs.extend(j for j in range(u, v + 1))
                 # $J'' \leftarrow J'' \setminus \{ u,...,v \}$
                 unscheduled_jobs = unscheduled_jobs[v - u + 1 :]
-                # logging.info(
-                #     f"Moved jobs {u} to {v} from unscheduled to candidate. Unscheduled jobs left: {len(unscheduled_jobs)}"
-                # )
                 u = v + 1
             else:
                 if not candid_jobs:
@@ -1172,14 +1135,6 @@ class HybridFlowshopLiteSchedule:
             prev_end = self.get_prev_stage_end_time(
                 stage_id, job_id, default_if_missing=-1
             )
-            # ext_rel = job_2_release.get(job_id, None) if job_2_release else None
-            # logging.error(
-            #     "[DISPATCH] stage=%s mc=%s job=%s(j=%s) tp=%s tk=%s r=%s prev_end=%s ext_rel=%s "
-            #     "start=%s end=%s p=%s candid_size=%s unsched_head=%s",
-            #     stage_id, kp, job_id, jp, tp, t_k[kp], r_j[jp], prev_end, ext_rel,
-            #     start_time, end_time, p_j[jp], len(candid_jobs),
-            #     (unscheduled_jobs[0] if unscheduled_jobs else None),
-            # )
 
             self.add_ops_times_2_mc(stage_id, kp, j_2_job_id[jp], start_time, end_time)
             dispatched_ops_cnt += 1
@@ -1188,10 +1143,6 @@ class HybridFlowshopLiteSchedule:
             candid_jobs.remove(jp)
             t_k[kp] = end_time
             tp = min(t_k.values())
-            # logging.error(
-            #     "[STATE UPDATE] stage=%s dispatched_job=%s(j=%s) to mc=%s, updated t_k=%s, next tp=%s",
-            #     stage_id, job_id, jp, kp, t_k, tp
-            # )
 
             # --- Invariant 7: tp equals minimum machine time ---
             assert tp == min(t_k.values()), "tp must equal min machine cursor."
