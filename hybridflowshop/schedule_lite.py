@@ -949,14 +949,13 @@ class HybridFlowshopLiteSchedule:
         # Precompute constants
         job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
         stage_idx = self.stage_2_index[stage_id]
-        # logging.info(f"Stage index: {stage_idx}")
         remaining_stages = self.stages[stage_idx + 1 :]
         is_last_stage = stage_id == self.stages[-1]
         lpt_sign = 1 if spt_on_last_stage else -1
         mc_list = self.machines_per_stage[stage_id]
         mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
 
-        # Precompute release times: r_j = max(prev_stage_end, external_release)
+        # Precompute release times
         job_id_2_r: dict[JobIdType, int] = {}
         for job_id in job_id_seq:
             prev_end = self.get_prev_stage_end_time(
@@ -984,7 +983,6 @@ class HybridFlowshopLiteSchedule:
         r_j: dict[int, int] = {
             j: job_id_2_r[job_id] for j, job_id in enumerate(_job_id_seq)
         }
-        # Validate and get durations for all jobs
         p_j: dict[int, int] = {}
         tr_j: dict[int, int] = {}
         for j, job_id in enumerate(_job_id_seq):
@@ -999,7 +997,7 @@ class HybridFlowshopLiteSchedule:
         t_k: dict[McIdType, int] = {mc: r_j[0] for mc in mc_list}
         tp: int = r_j[0]
 
-        # Job state sets
+        # Job state
         unscheduled_jobs: list[int] = list(J)  # J'' = all jobs initially
         candid_jobs: list[int] = list()  # J' = empty initially
         u: int = 0  # Pointer for iterating through jobs by release time
@@ -1028,34 +1026,6 @@ class HybridFlowshopLiteSchedule:
 
         # Main loop: While union of unscheduled jobs & candidate jobs is not empty
         while unscheduled_jobs or candid_jobs:
-            # --- Invariant 1: unscheduled_jobs is a contiguous suffix [u, ..., n-1] ---
-            if unscheduled_jobs:
-                assert unscheduled_jobs == list(range(u, u + len(unscheduled_jobs))), (
-                    "unscheduled_jobs must be a contiguous suffix starting at u."
-                )
-
-            # --- Invariant 2: no overlap between unscheduled and candidate ---
-            assert set(unscheduled_jobs).isdisjoint(candid_jobs), (
-                "unscheduled_jobs and candid_jobs must be disjoint."
-            )
-
-            # --- Invariant 3: partition consistency ---
-            assert dispatched_ops_cnt + len(unscheduled_jobs) + len(candid_jobs) == len(
-                J
-            ), (
-                "Partition of jobs inconsistent: scheduled + |unscheduled| + |candid| must equal total jobs."
-                f"\n After dispatching {dispatched_ops_cnt} operations, partition sizes are: "
-                f"scheduled={dispatched_ops_cnt}, candid={len(candid_jobs)}"
-                f", unscheduled={len(unscheduled_jobs)}, total={len(J)}."
-            )
-
-            if unscheduled_jobs:
-                # release times must be nondecreasing in unscheduled_jobs
-                assert all(
-                    r_j[unscheduled_jobs[i]] <= r_j[unscheduled_jobs[i + 1]]
-                    for i in range(len(unscheduled_jobs) - 1)
-                ), "Release times in unscheduled_jobs must be nondecreasing."
-
             # Step 1: Update J' (candidate set)
             if unscheduled_jobs and tp >= r_j[unscheduled_jobs[0]]:
                 v = max(j for j in unscheduled_jobs if r_j[j] <= tp)
@@ -1096,7 +1066,6 @@ class HybridFlowshopLiteSchedule:
                     kp = mc
                     min_tk = tk
 
-
             assert tp == min(t_k.values()), (
                 f"tp must equal min(t_k) before selecting a job; tp={tp}, min_tk={min(t_k.values())}."
             )
@@ -1118,12 +1087,6 @@ class HybridFlowshopLiteSchedule:
             # Step 4: Dispatch
             start_time = tp
             end_time = start_time + p_j[jp]
-
-            job_id = j_2_job_id[jp]
-            prev_end = self.get_prev_stage_end_time(
-                stage_id, job_id, default_if_missing=-1
-            )
-
             self.add_ops_times_2_mc(stage_id, kp, j_2_job_id[jp], start_time, end_time)
             dispatched_ops_cnt += 1
 
@@ -1132,8 +1095,6 @@ class HybridFlowshopLiteSchedule:
             t_k[kp] = end_time
             tp = min(t_k.values())
 
-            # --- Invariant 7: tp equals minimum machine time ---
-            assert tp == min(t_k.values()), "tp must equal min machine cursor."
 
     # Setters - remove
 
