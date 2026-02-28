@@ -1085,29 +1085,17 @@ class HybridFlowshopLiteSchedule:
                     continue
 
             # Step 2: Select target machine
-            # $k' = \argmin_k \{ t_k \}$
-            # Tie-breaking: (1) minimum idle (2) minimum machine index
-            # logging.info(
-            #     f"Selecting machine with smallest t_k. Current t_k: {t_k}, candidate machines: {mc_list}"
-            # )
-            kp: str | None = None
-            min_tk: int | None = None
-            min_idle: int | None = None
-            for mc in mc_list:
+            kp: str = mc_list[0]
+            min_tk: int = t_k[kp]
+            for mc in mc_list[1:]:
                 tk = t_k[mc]
-                idle = max(tp - tk, 0)
-                if kp is None or (tk, idle, mc_2_index[mc]) < (
+                if kp is None or (tk, mc_2_index[mc]) < (
                     min_tk,
-                    min_idle,
                     mc_2_index[kp],
                 ):
                     kp = mc
                     min_tk = tk
-                    min_idle = idle
 
-            if kp is None:
-                raise RuntimeError("No target machine found, this should not happen.")
-            # logging.info(f"Selected machine {kp} with t_k={t_k[kp]} and idle={min_idle}.")
 
             assert tp == min(t_k.values()), (
                 f"tp must equal min(t_k) before selecting a job; tp={tp}, min_tk={min(t_k.values())}."
