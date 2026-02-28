@@ -134,9 +134,24 @@ class HybridFlowshopLiteSchedule:
     ) -> int:
         """Return the earliest feasible start time on a machine.
 
-        This mirrors the core behavior of `Resource.get_earliest_start_time()` in the
-        full schedule implementation: the operation may be inserted into an idle gap
-        between existing operations as long as no overlap occurs.
+        Args:
+            stage_id (StageIdType): Target stage ID
+            mc_id (McIdType): Target machine ID within the stage
+            duration (int): Duration of the operation to be scheduled
+            release_t (int | None, optional): Earliest time the operation can start.
+                Defaults to None (uses previous stage end time or 0).
+            after_last (bool, optional): If True, return the latest end time of the
+                machine. Defaults to False.
+
+        Raises:
+            ValueError: If stage_id or mc_id is invalid,
+                or if duration is not positive.
+
+        Returns:
+            int: The earliest feasible start time on the machine for the duration
+                given the release time and existing scheduled operations.
+                If after_last is True, returns the time after the last scheduled
+                operation on the machine, ignoring release_t and duration.
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
@@ -145,32 +160,30 @@ class HybridFlowshopLiteSchedule:
         if duration <= 0:
             raise ValueError("Duration must be greater than 0")
 
-        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
         prev_end = release_t if release_t is not None else 0
 
         if after_last:
             makespan = self.get_machine_latest_end_time(stage_id, mc_id)
             return makespan if makespan >= prev_end else prev_end
 
+        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
         if not job_tuple_seq:
             return prev_end
 
-        # Find the first operation with start >= prev_end.
-        starts = [job_tuple[0] for job_tuple in job_tuple_seq]
-        start_idx = bisect.bisect_right(starts, prev_end - 1)
+        starts = [op[0] for op in job_tuple_seq]
+        idx = bisect.bisect_left(starts, prev_end)
 
-        # If the operation just before start_idx overlaps prev_end, push prev_end forward.
-        if start_idx > 0:
-            before_start, before_end, _ = job_tuple_seq[start_idx - 1]
-            if before_end > prev_end:
-                prev_end = before_end
+        # If prev_end falls inside the previous operation, advance past it
+        if idx > 0 and prev_end < job_tuple_seq[idx - 1][1]:
+            prev_end = job_tuple_seq[idx - 1][1]
+            # idx now points to the next operation after the overlap
 
-        # Scan forward to find the first gap that can fit `duration`.
-        for op_start, op_end, _ in job_tuple_seq[start_idx:]:
-            if prev_end + duration <= op_start:
+        # Scan forward for a gap that fits
+        while idx < len(job_tuple_seq):
+            if prev_end + duration <= job_tuple_seq[idx][0]:
                 return prev_end
-            if prev_end < op_end:
-                prev_end = op_end
+            prev_end = job_tuple_seq[idx][1]
+            idx += 1
 
         return prev_end
 
