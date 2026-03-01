@@ -2181,6 +2181,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
@@ -2190,6 +2191,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_sch = self._get_schedule_by_gupta(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
         )
 
@@ -2224,12 +2226,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         dispatcher = MixedDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_gupta(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -2245,6 +2249,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
@@ -2254,6 +2259,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_sch = self._get_schedule_by_palmer(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
         )
 
@@ -2288,12 +2294,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         dispatcher = MixedDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_palmer(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -2364,7 +2372,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_method_name = ""
 
         for method in schedule_gen_methods:
-            logging.info(f"Generating schedule using {method.__name__}...")
+            logging.info(f"Generating schedule using {method.__name__}")
             sch = method(
                 machine_then_job=machine_then_job,
                 head_for_all_stages=head_for_all_stages,
@@ -2470,6 +2478,24 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
                     stage_agg_count=2,
                     head_stages_to_keep=1,
+                    tail_stages_to_keep=1,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_stage_aggregated=False,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "stage_agg_2_2":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=2,
+                    tail_stages_to_keep=2,
                     p_agg_method=p_agg_method,
                     mi_agg_method=mi_agg_method,
                     machine_then_job=machine_then_job,
@@ -2517,6 +2543,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         stage_agg_count: int,
         head_stages_to_keep: int = 0,
+        tail_stages_to_keep: int = 0,
         p_agg_method: str = "sum",
         mi_agg_method: str = "min",
         machine_then_job: bool = False,
@@ -2531,6 +2558,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
             stage_agg_count,
             head_stages_to_keep=head_stages_to_keep,
+            tail_stages_to_keep=tail_stages_to_keep,
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
             machine_then_job=machine_then_job,
@@ -2576,6 +2604,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         stage_agg_count: int,
         head_stages_to_keep: int = 0,
+        tail_stages_to_keep: int = 0,
         p_agg_method: str = "sum",
         mi_agg_method: str = "min",
         machine_then_job: bool = False,
@@ -2590,6 +2619,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         stage_aggregated_schedule = self._get_schedule_from_stage_aggregated_problem(
             stage_agg_count,
             head_stages_to_keep=head_stages_to_keep,
+            tail_stages_to_keep=tail_stages_to_keep,
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
             head_for_all_stages=head_for_all_stages,
@@ -2624,6 +2654,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         stage_agg_count: int,
         head_stages_to_keep: int = 0,
+        tail_stages_to_keep: int = 0,
         p_agg_method: str = "sum",
         mi_agg_method: str = "min",
         head_for_all_stages: bool = False,
@@ -2637,6 +2668,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.instance,
             stage_agg_count,
             head_stages_to_keep=head_stages_to_keep,
+            tail_stages_to_keep=tail_stages_to_keep,
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
         )

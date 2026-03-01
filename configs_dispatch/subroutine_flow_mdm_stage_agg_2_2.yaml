@@ -1,8 +1,8 @@
 - method: initialize_by_job_sequence_from_stage_aggregated_problem
   stage_agg_count: 2
   head_for_all_stages: false
-  head_stages_to_keep: 1
-  tail_stages_to_keep: 1
+  head_stages_to_keep: 2
+  tail_stages_to_keep: 2
   p_agg_method: "sum"
   mi_agg_method: "max"
   machine_then_job: true
