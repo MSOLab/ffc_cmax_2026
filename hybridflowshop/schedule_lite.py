@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import bisect
 from collections import deque
-from typing import Iterator, Mapping, Sequence
+from typing import Iterable, Iterator, Mapping, Sequence
 
 JobIdType = str
 StageIdType = str
@@ -1295,12 +1295,53 @@ class HybridFlowshopLiteSchedule:
             remaining_gap = l_gap - p_j[jp]
             mc_2_gaps[kp][0] = (remaining_gap, P_gap)
 
+    def get_job_2_palmer_index(
+        self,
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        jobs: Iterable[JobIdType] | None = None,
+        from_stage: str | None = None,
+    ) -> dict[JobIdType, int]:
+        """Get Palmer's slope index for each job.
+
+        Returns:
+            dict[JobIdType, int]: Job ID -> Palmer's slope index
+        """
+        # TODO: overlap with hybridflowshop/dispatcher/base.py's get_palmer_sequence
+        if not jobs:
+            _job_id_list = self.jobs
+        else:
+            for job_id in jobs:
+                if job_id not in self.jobs:
+                    raise ValueError(f"Invalid job ID: {job_id}")
+            _job_id_list = list(jobs)
+        if not from_stage:
+            _stage_id_list = self.stages
+        else:
+            if from_stage not in self.stages:
+                raise ValueError(f"Invalid from_stage: {from_stage}")
+            from_idx = self.stage_2_index[from_stage]
+            _stage_id_list = self.stages[from_idx:]
+        m = len(_stage_id_list)
+
+        job_2_index: dict[JobIdType, int] = {}
+        for job_id in _job_id_list:
+            stage_2_p = {
+                stage_id: stage_2_job_2_p.get(stage_id, {}).get(job_id, 0)
+                for stage_id in _stage_id_list
+            }
+            job_2_index[job_id] = sum(
+                (m - 2 * (stage_idx + 1) + 1) * stage_2_p[stage_id]
+                for stage_idx, stage_id in enumerate(_stage_id_list)
+            )
+        return job_2_index
+
     def machine_centric_dispatch_4(
         self,
         stage_id: StageIdType,
         job_id_seq: Sequence[JobIdType],
         stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
         job_2_release: Mapping[JobIdType, int] | None = None,
+        use_palmer_index: bool = False,
         spt_on_last_stage: bool = False,
     ) -> None:
         """Machine-centric dispatching (v4): dispatch jobs on a single stage with idle-gap awareness.
@@ -1415,13 +1456,25 @@ class HybridFlowshopLiteSchedule:
         # Job selection key (as in doc)
         # -------------------------
         c = len(self.stages)
-        p_multiplier = -(c - stage_idx - 2) * c / 80
+
         beta = 1
         if is_last_stage:
             beta = 1 if spt_on_last_stage else -1
 
+        # Precompute job sort keys to avoid repeated calculations
+        func_j: dict[int, float] = {}
+        if use_palmer_index:
+            job_id_2_func = self.get_job_2_palmer_index(
+                stage_2_job_2_p, jobs=job_id_seq, from_stage=stage_id
+            )
+            func_j = {j: job_id_2_func[job_id] for j, job_id in j_2_job_id.items()}
+        else:
+            p_multiplier = -(c - stage_idx - 2) * c / 80
+            for j in J:
+                func_j[j] = -(tr_j[j] + p_multiplier * p_j[j])
+
         def job_sort_key(j: int) -> tuple:
-            return (-(tr_j[j] + p_multiplier * p_j[j]), beta * p_j[j], j)
+            return (func_j[j], beta * p_j[j], j)
 
         # -------------------------
         # Job state

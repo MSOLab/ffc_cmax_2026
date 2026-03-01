@@ -2113,6 +2113,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
@@ -2122,6 +2123,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_sch = self._get_schedule_by_cds(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
         )
 
@@ -2156,12 +2158,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         dispatcher = MixedDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_cds(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -2305,13 +2309,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         sub_timer = ElapsedTimer()
 
         best_sch = self._get_schedule_by_best_of_mixed_dispatches(
-            machine_then_job=machine_then_job, head_for_all_stages=head_for_all_stages
+            machine_then_job=machine_then_job,
+            head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
         )
 
         if best_sch is None:
@@ -2341,7 +2348,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_best_of_mixed_dispatches(
-        self, machine_then_job: bool = False, head_for_all_stages: bool = False
+        self,
+        machine_then_job: bool = False,
+        head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         schedule_gen_methods = [
             self._get_schedule_by_cds,
@@ -2358,6 +2368,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             sch = method(
                 machine_then_job=machine_then_job,
                 head_for_all_stages=head_for_all_stages,
+                use_palmer_index=use_palmer_index,
             )
             if sch is not None:
                 obj = sch.makespan

@@ -52,6 +52,7 @@ class MixedDispatcher(BaseDispatcher):
         job_2_release_t: dict[JobIdType, int] | None = None,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
@@ -119,6 +120,7 @@ class MixedDispatcher(BaseDispatcher):
                 from_stage=from_stage,
                 job_2_release=job_2_release_t,
                 machine_then_job=machine_then_job,
+                use_palmer_index=use_palmer_index,
                 draw_gantt_per_step=draw_gantt_per_step,
                 get_file_path_for_subroutine=get_file_path_for_subroutine,
             )
@@ -137,6 +139,7 @@ class MixedDispatcher(BaseDispatcher):
         job_2_release_t: dict[str, int] | None = None,
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
@@ -182,6 +185,7 @@ class MixedDispatcher(BaseDispatcher):
                 job_2_release_t=job_2_release_t,
                 machine_then_job=machine_then_job,
                 head_for_all_stages=head_for_all_stages,
+                use_palmer_index=use_palmer_index,
                 draw_gantt_per_step=draw_gantt_per_step,
                 get_file_path_for_subroutine=get_file_path_for_subroutine,
             )

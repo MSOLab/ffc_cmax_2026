@@ -112,6 +112,7 @@ def from_job_sequence_get_schedule_mixed(
     from_stage: StageIdType | None = None,
     job_2_release: Mapping[JobIdType, int] | None = None,
     machine_then_job: bool = False,
+    use_palmer_index: bool = False,
     draw_gantt_per_step: bool = False,
     get_file_path_for_subroutine: Callable | None = None,
 ) -> None:
@@ -287,6 +288,7 @@ def from_job_sequence_get_schedule_mixed(
                         unscheduled_jobs,
                         stage_2_job_2_p,
                         job_2_release=_job_2_release,
+                        use_palmer_index=use_palmer_index,
                     )
             else:
                 schedule.dispatch_stage_by_jobs(
