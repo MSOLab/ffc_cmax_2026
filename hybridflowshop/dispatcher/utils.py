@@ -78,7 +78,7 @@ def dispatch_stages_by_job_sequence(
                 job_2_release=job_2_release_t,
             )
         else:
-            schedule.dispatch_stage_by_machines_3(
+            schedule.machine_centric_dispatch_4(
                 _stage_id_list[0],
                 job_sequence,
                 stage_2_job_2_p,
@@ -87,7 +87,7 @@ def dispatch_stages_by_job_sequence(
             )
         # Remaining stages: Machine-centric dispatch
         for stage_id in _stage_id_list[1:]:
-            schedule.dispatch_stage_by_machines_3(
+            schedule.machine_centric_dispatch_4(
                 stage_id,
                 job_sequence,
                 stage_2_job_2_p,
@@ -282,7 +282,7 @@ def from_job_sequence_get_schedule_mixed(
                         job_2_release=_job_2_release,
                     )
                 else:
-                    schedule.dispatch_stage_by_machines_3(
+                    schedule.machine_centric_dispatch_4(
                         stage_id,
                         unscheduled_jobs,
                         stage_2_job_2_p,

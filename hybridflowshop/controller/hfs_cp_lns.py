@@ -1922,9 +1922,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
         normalize_by_stage_cnt: bool = False,
+        randomize_mid_all: bool = False,
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
-        randomize_mid_all: bool = False,
+        machine_then_job: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from single bottleneck stage using BN2D option."""
@@ -1938,6 +1939,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_all=reverse_mid_all,
             reverse_mid_even=reverse_mid_even,
             randomize_mid_all=randomize_mid_all,
+            machine_then_job=machine_then_job,
         )
         dispatcher = BN2DDispatcher(self.instance)
 
@@ -1966,12 +1968,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
         normalize_by_stage_cnt: bool = False,
+        randomize_mid_all: bool = False,
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
         mixed_schedule_for_former_stages: bool = False,
         mixed_schedule_for_later_stages: bool = False,
         machine_then_job: bool = False,
-        randomize_mid_all: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -2339,7 +2341,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_best_of_mixed_dispatches(
-        self, head_for_all_stages: bool = False
+        self, machine_then_job: bool = False, head_for_all_stages: bool = False
     ) -> HybridFlowshopLiteSchedule | None:
         schedule_gen_methods = [
             self._get_schedule_by_cds,
@@ -2353,7 +2355,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         for method in schedule_gen_methods:
             logging.info(f"Generating schedule using {method.__name__}...")
-            sch = method(head_for_all_stages=head_for_all_stages)
+            sch = method(
+                machine_then_job=machine_then_job,
+                head_for_all_stages=head_for_all_stages,
+            )
             if sch is not None:
                 obj = sch.makespan
                 logging.info(f"  -> Schedule makespan: {obj}")
@@ -2380,12 +2385,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_even: bool = False,
         mixed_schedule_for_former_stages: bool = False,
         mixed_schedule_for_later_stages: bool = False,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "max",
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
+        method_list: list[str] | None = None,
     ) -> None:
         sub_timer = ElapsedTimer()
-        best_method_name = ""
 
         option = BN2DOption(
             left_cap_multiplier=left_cap_multiplier,
@@ -2398,27 +2406,71 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_even=reverse_mid_even,
             mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
         )
-        dispatcher = BN2DDispatcher(self.instance)
-        sch_1 = dispatcher.get_schedule_by_bn2d_all_stages(
-            option=option,
-            gantt_draw_func=self.draw_gantt if draw_gantt else None,
-        )
-        best_obj_1 = sch_1.makespan if sch_1 is not None else None
 
-        sch_2 = self._get_schedule_by_best_of_mixed_dispatches(
-            head_for_all_stages=head_for_all_stages
-        )
-        best_obj_2 = sch_2.makespan if sch_2 is not None else None
+        best_method_name = ""
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_obj: int | None = None
 
-        if best_obj_1 is not None and (best_obj_2 is None or best_obj_1 < best_obj_2):
-            best_sch = sch_1
-            best_obj = best_obj_1
-            best_method_name = "BN2D on all stages"
-        elif best_obj_2 is not None:
-            best_sch = sch_2
-            best_obj = best_obj_2
-            best_method_name = "Mixed dispatches"
+        if not method_list:
+            method_list = ["bn2d_all_stages", "best_of_mixed_dispatches"]
+        for method_name in method_list:
+            if method_name == "bn2d_all_stages":
+                dispatcher = BN2DDispatcher(self.instance)
+                sch = dispatcher.get_schedule_by_bn2d_all_stages(
+                    option=option,
+                    gantt_draw_func=self.draw_gantt if draw_gantt else None,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "best_of_mixed_dispatches":
+                sch = self._get_schedule_by_best_of_mixed_dispatches(
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "stage_agg_2":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=0,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_stage_aggregated=False,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "stage_agg_2_1":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=1,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_stage_aggregated=False,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
 
         if best_sch is None:
             # Failed to find a solution

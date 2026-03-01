@@ -1295,6 +1295,251 @@ class HybridFlowshopLiteSchedule:
             remaining_gap = l_gap - p_j[jp]
             mc_2_gaps[kp][0] = (remaining_gap, P_gap)
 
+    def machine_centric_dispatch_4(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        job_2_release: Mapping[JobIdType, int] | None = None,
+        spt_on_last_stage: bool = False,
+    ) -> None:
+        """Machine-centric dispatching (v4): dispatch jobs on a single stage with idle-gap awareness.
+
+        This implements the algorithm described in `dispatch_stage_by_machines_4` doc:
+        - Build per-machine idle gap lists from the *existing* schedule on this stage.
+        - Maintain machine cursors (t_k) that always point inside an idle gap (or at its start).
+        - Iteratively:
+            1) Move released jobs into candidate set J'
+            2) Pick a target machine in ascending (t_k, gap_len, machine_index) order
+               that can fit at least one candidate job in its current leading gap.
+            3) Select a job by sort_key = (-(tr_j + alpha*p_j), beta*p_j, j)
+            4) Dispatch at start=t_k and shrink the current gap start to the job end.
+            5) If no machine can fit any candidate job, do a time jump:
+               - Prefer jump to next release time if it exists
+               - Otherwise jump to next idle gap on every machine
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if not isinstance(spt_on_last_stage, bool):
+            raise ValueError(
+                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
+            )
+        if not job_id_seq:
+            return
+        if stage_id not in stage_2_job_2_p:
+            raise ValueError(f"Missing processing time map for stage_id={stage_id}")
+
+        mc_list = list(self.machines_per_stage[stage_id])
+        if not mc_list:
+            return
+
+        # -------------------------
+        # Precompute job ordering J, r_j, p_j, tr_j
+        # -------------------------
+        job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
+        stage_idx = self.stage_2_index[stage_id]
+        remaining_stages = self.stages[stage_idx + 1 :]
+        is_last_stage = stage_id == self.stages[-1]
+
+        # release time r(job) := max(prev_stage_end, external_release)
+        job_id_2_r: dict[JobIdType, int] = {}
+        for job_id in job_id_seq:
+            prev_end = self.get_prev_stage_end_time(
+                stage_id, job_id, default_if_missing=0
+            )
+            ext_r = job_2_release.get(job_id, 0) if job_2_release is not None else 0
+            job_id_2_r[job_id] = max(prev_end, ext_r)
+
+        # Sort by (r_j asc, input position asc)
+        _job_id_seq = sorted(
+            job_id_seq, key=lambda jid: (job_id_2_r[jid], job_id_2_pos[jid])
+        )
+        n = len(_job_id_seq)
+        J = list(range(n))
+        j_2_job_id = {j: jid for j, jid in enumerate(_job_id_seq)}
+
+        r_j = {j: job_id_2_r[j_2_job_id[j]] for j in J}
+
+        p_j: dict[int, int] = {}
+        tr_j: dict[int, int] = {}
+        for j in J:
+            jid = j_2_job_id[j]
+            if jid not in stage_2_job_2_p[stage_id]:
+                raise ValueError(
+                    f"Duration for job {jid} at stage {stage_id} not provided"
+                )
+            p = stage_2_job_2_p[stage_id][jid]
+            if p <= 0:
+                raise ValueError(
+                    f"Invalid processing time p={p} for job {jid} at stage {stage_id}"
+                )
+            p_j[j] = p
+            tr_j[j] = sum(stage_2_job_2_p[s].get(jid, 0) for s in remaining_stages)
+
+        # -------------------------
+        # Infinity end for idle gaps
+        # -------------------------
+        p_max: int = max(p_j.values()) if p_j else 0
+        r_max: int = max(r_j.values()) if r_j else 0
+        max_existing_end = 0
+        for mc in mc_list:
+            seq = self.get_job_sequence(stage_id, mc)
+            if seq:
+                max_existing_end = max(max_existing_end, max(e for _, e, _ in seq))
+        inf_end = max(r_max, max_existing_end) + n * p_max + 1
+
+        # -------------------------
+        # Machine state: gaps, cursor, gap pointer
+        # -------------------------
+        mc_2_gaps: dict[McIdType, list[list[int]]] = {}
+        mc_2_gidx: dict[McIdType, int] = {}
+        t_k: dict[McIdType, int] = {}
+        e_k: dict[McIdType, int] = {}
+
+        r0 = r_j[0]
+        for mc in mc_list:
+            ops = self.get_job_sequence(stage_id, mc)
+            gaps = _build_idle_gaps_from_ops(ops, inf_end)
+            gidx = _find_gap_index(gaps, r0, start_from=0)
+            # clamp gap start if r0 is inside the gap
+            gaps[gidx][0] = max(gaps[gidx][0], r0)
+            mc_2_gaps[mc] = gaps
+            mc_2_gidx[mc] = gidx
+            t_k[mc] = max(r0, gaps[gidx][0])
+            e_k[mc] = gaps[gidx][1]
+
+        tp = min(t_k.values())
+        mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
+
+        # -------------------------
+        # Job selection key (as in doc)
+        # -------------------------
+        c = len(self.stages)
+        p_multiplier = -(c - stage_idx - 2) * c / 80
+        beta = 1
+        if is_last_stage:
+            beta = 1 if spt_on_last_stage else -1
+
+        def job_sort_key(j: int) -> tuple:
+            return (-(tr_j[j] + p_multiplier * p_j[j]), beta * p_j[j], j)
+
+        # -------------------------
+        # Job state
+        # -------------------------
+        unscheduled_jobs: list[int] = list(J)  # J''
+        candid_jobs: list[int] = []  # J'
+        u = 0
+
+        # Main loop
+        while unscheduled_jobs or candid_jobs:
+            # 3.1 Update J'
+            if unscheduled_jobs:
+                if tp >= r_j[u]:
+                    # v := max j in J'' with r_j <= tp (contiguous prefix due to sorting)
+                    v = u
+                    for j in unscheduled_jobs:
+                        if r_j[j] <= tp:
+                            v = j
+                        else:
+                            break
+                    candid_jobs.extend(range(u, v + 1))
+                    removed = v - u + 1
+                    unscheduled_jobs = unscheduled_jobs[removed:]
+                    u = v + 1
+                else:
+                    if not candid_jobs:
+                        # Jump tp to the next release
+                        tp = r_j[unscheduled_jobs[0]]
+                        # Re-align each machine cursor to the idle gap that covers or follows tp
+                        for mc in mc_list:
+                            gaps = mc_2_gaps[mc]
+                            gidx = _find_gap_index(gaps, tp, start_from=mc_2_gidx[mc])
+                            mc_2_gidx[mc] = gidx
+                            gaps[gidx][0] = max(gaps[gidx][0], tp)
+                            t_k[mc] = max(tp, gaps[gidx][0])
+                            e_k[mc] = gaps[gidx][1]
+                        tp = min(t_k.values())
+                        continue
+
+            # 3.2 Dispatch: find target machine that can fit someone in its leading gap
+            ordered_mcs = sorted(
+                mc_list,
+                key=lambda mc: (t_k[mc], e_k[mc] - t_k[mc], mc_2_index[mc]),
+            )
+
+            target_mc = None
+            candid_gap: list[int] = []
+            for mc in ordered_mcs:
+                gap_len = e_k[mc] - t_k[mc]
+                if gap_len <= 0:
+                    continue
+                feasible = [j for j in candid_jobs if p_j[j] <= gap_len]
+                if feasible:
+                    target_mc = mc
+                    candid_gap = feasible
+                    break
+
+            if target_mc is None:
+                # No machine can fit any candidate job in current leading gaps.
+                # Prefer release jump if there exists a future release.
+                future_releases = [r_j[j] for j in unscheduled_jobs if r_j[j] > tp]
+                if future_releases:
+                    tp = min(future_releases)
+                    for mc in mc_list:
+                        gaps = mc_2_gaps[mc]
+                        gidx = _find_gap_index(gaps, tp, start_from=mc_2_gidx[mc])
+                        mc_2_gidx[mc] = gidx
+                        gaps[gidx][0] = max(gaps[gidx][0], tp)
+                        t_k[mc] = max(tp, gaps[gidx][0])
+                        e_k[mc] = gaps[gidx][1]
+                    tp = min(t_k.values())
+                    continue
+
+                # Otherwise idle jump: move each machine to its next gap
+                for mc in mc_list:
+                    gaps = mc_2_gaps[mc]
+                    gidx = mc_2_gidx[mc] + 1
+                    if gidx >= len(gaps):
+                        # Defensive: keep at last gap
+                        gidx = len(gaps) - 1
+                    mc_2_gidx[mc] = gidx
+                    t_k[mc] = gaps[gidx][0]
+                    e_k[mc] = gaps[gidx][1]
+                tp = min(t_k.values())
+                continue
+
+            # 3.2.2 Select job
+            jp = min(candid_gap, key=job_sort_key)
+
+            # 3.2.3 Dispatch & update
+            start_time = t_k[target_mc]
+            end_time = start_time + p_j[jp]
+            self.add_ops_times_2_mc(
+                stage_id, target_mc, j_2_job_id[jp], start_time, end_time
+            )
+
+            # Update job state
+            candid_jobs.remove(jp)
+
+            # Shrink the current gap start to the job end
+            gaps = mc_2_gaps[target_mc]
+            gidx = mc_2_gidx[target_mc]
+            gaps[gidx][0] = end_time
+
+            # If gap becomes empty, advance to the next one
+            if gaps[gidx][0] >= gaps[gidx][1]:
+                gidx = _find_gap_index(gaps, end_time, start_from=gidx + 1)
+                mc_2_gidx[target_mc] = gidx
+                gaps[gidx][0] = max(gaps[gidx][0], end_time)
+            else:
+                # Still within same gap
+                mc_2_gidx[target_mc] = gidx
+
+            t_k[target_mc] = max(end_time, gaps[mc_2_gidx[target_mc]][0])
+            e_k[target_mc] = gaps[mc_2_gidx[target_mc]][1]
+
+            tp = min(t_k.values())
+
     # Setters - remove
 
     def remove_operations(
@@ -1325,6 +1570,8 @@ class HybridFlowshopLiteSchedule:
                     if idx not in index_to_be_removed
                 ]
                 self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id] = new_job_tuple_seq
+
+    # Setters - retiming
 
     def make_semi_active(
         self,
@@ -2072,3 +2319,51 @@ def get_bottleneck_stage_job_sequence(
 
     seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
     return [info[3] for info in seq_info]
+
+
+# -------------------------
+# Helpers for idle gaps
+# -------------------------
+def _build_idle_gaps_from_ops(
+    ops: list[tuple[int, int, JobIdType]],
+    inf_end: int,
+) -> list[list[int]]:
+    """Return idle gaps as mutable [start, end] list, strictly increasing."""
+    if not ops:
+        return [[0, inf_end]]
+
+    ops_sorted = sorted(ops, key=lambda x: x[0])
+    gaps: list[list[int]] = []
+
+    # gap before first op
+    first_s = ops_sorted[0][0]
+    if first_s > 0:
+        gaps.append([0, first_s])
+
+    # gaps between ops
+    for (_, prev_e, _), (next_s, _, _) in zip(ops_sorted, ops_sorted[1:]):
+        if next_s > prev_e:
+            gaps.append([prev_e, next_s])
+
+    # gap after last op
+    last_e = ops_sorted[-1][1]
+    if inf_end > last_e:
+        gaps.append([last_e, inf_end])
+
+    # Ensure at least one gap exists
+    if not gaps:
+        # machine is fully occupied until inf_end (unlikely with inf_end large)
+        gaps = [[inf_end, inf_end]]
+
+    return gaps
+
+
+def _find_gap_index(gaps: list[list[int]], t: int, start_from: int = 0) -> int:
+    """Smallest idx s.t. gaps[idx][1] > t. Assumes last gap end is 'inf'."""
+    idx = start_from
+    while idx < len(gaps) and gaps[idx][1] <= t:
+        idx += 1
+    if idx >= len(gaps):
+        # Shouldn't happen if last gap end is inf, but be defensive.
+        return len(gaps) - 1
+    return idx

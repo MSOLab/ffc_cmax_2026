@@ -1,0 +1,11 @@
+- method: bn2d_all_stage
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: true
+  randomize_mid_all: false
+  reverse_mid_even: false
+  reverse_mid_all: false
+  mixed_schedule_for_former_stages: true
+  mixed_schedule_for_later_stages: true
+  machine_then_job: true
+  draw_gantt: false
