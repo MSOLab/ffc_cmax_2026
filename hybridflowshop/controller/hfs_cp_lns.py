@@ -2107,67 +2107,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_np_candidates(self) -> list[int]:
-        """Generate candidate values for the number of priority jobs (np) for mixed dispatch.
-
-        Generates a sequence of decreasing np values by halving (ceiling) starting from
-        the total job count, ending with 0 (where all jobs are in the tail).
-        Example: job_count=8 returns [8, 4, 2, 1, 0].
-
-        Returns:
-            list[int]: List of np candidates in descending order.
-        """
-        np = self.instance.job_count
-        np_list = [np]
-        while np > 1:
-            np = math.ceil(np / 2)
-            np_list.append(np)
-        np_list.append(0)  # Add the case where all jobs are in the tail
-        return np_list
-
-    def _from_job_sequence_and_np_list_get_best_mixed_schedule(
-        self,
-        job_sequence: Sequence[str],
-        prob_instance: HybridFlowshopParameters | None = None,
-        job_2_release: dict[str, int] | None = None,
-        head_for_all_stages: bool = False,
-        draw_gantt_per_step: bool = False,
-    ) -> HybridFlowshopLiteSchedule | None:
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-
-        np_list = self._get_np_candidates()
-        np_2_stage_2_head: dict[int, dict[str, int]] = {}
-        for np in np_list:
-            if head_for_all_stages:
-                np_2_stage_2_head[np] = {
-                    stage_id: np for stage_id in self.instance.stage_id_list
-                }
-            else:
-                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
-
-        for np in np_list:
-            logging.debug(f"  Dispatching with np={np}")
-            dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
-                job_sequence,
-                np_2_stage_2_head[np],
-                prob_instance=prob_instance,
-                job_2_release=job_2_release,
-                draw_gantt_per_step=draw_gantt_per_step,
-            )
-            if dispatched_schedule is None:
-                continue
-            if best_obj is None or dispatched_schedule.makespan < best_obj:
-                best_obj = dispatched_schedule.makespan
-                best_sch = dispatched_schedule
-            if self.is_stopping_condition():
-                logging.info(
-                    "  Stopping condition met, breaking out of mixed schedule loop."
-                )
-                break
-
-        return best_sch
-
     def initialize_schedule_by_cds(
         self,
         machine_then_job: bool = False,

@@ -2,15 +2,11 @@ from __future__ import annotations
 
 import bisect
 from collections import deque
-from typing import Iterator, Mapping, Sequence, TypeAlias
+from typing import Iterator, Mapping, Sequence
 
 JobIdType = str
 StageIdType = str
 McIdType = str
-
-# Wave batch scheduling type aliases
-ReadyHeapEntry: TypeAlias = tuple[int, int, JobIdType, int]
-"""(end_time, tie_breaker, job_id, stage_idx) for heap entries"""
 
 
 class HybridFlowshopLiteSchedule:
