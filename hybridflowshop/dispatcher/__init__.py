@@ -5,10 +5,10 @@ This package provides dispatching heuristics to generate initial schedules
 using various rules like CDS, Gupta, Palmer, BN2D, and Machine-first dispatch.
 
 Usage:
-    from hybridflowshop.dispatcher import Dispatcher
+    from hybridflowshop.dispatcher.machine import MachineDispatcher
 
-    dispatcher = Dispatcher(instance)
-    schedule = dispatcher.get_schedule_by_best_of_selected_dispatches()
+    dispatcher = MachineDispatcher(instance)
+    schedule = dispatcher.get_schedule_by_cds()
 """
 
 from hybridflowshop.dispatcher.base import BaseDispatcher

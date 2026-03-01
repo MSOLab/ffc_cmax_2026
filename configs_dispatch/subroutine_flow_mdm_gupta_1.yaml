@@ -1,0 +1,6 @@
+- method: initialize_schedule_by_gupta
+  machine_then_job: true
+  head_for_all_stages: false
+  error_if_infeasible: true
+  draw_gantt_per_step: false
+  draw_gantt: false

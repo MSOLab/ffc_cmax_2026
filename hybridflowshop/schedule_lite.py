@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import bisect
+from collections import deque
 from typing import Iterator, Mapping, Sequence, TypeAlias
 
 JobIdType = str
@@ -1095,6 +1096,208 @@ class HybridFlowshopLiteSchedule:
             t_k[kp] = end_time
             tp = min(t_k.values())
 
+    def dispatch_stage_by_machines_3(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        job_2_release: Mapping[JobIdType, int] | None = None,
+        spt_on_last_stage: bool = False,
+    ) -> None:
+        """Dispatch multiple jobs to a stage using machine-centric selection (v3).
+
+        Supports inserting into idle gaps of already-scheduled operations.
+        New operations dispatched by this call are append-only (no insertion
+        between them).
+
+        Args:
+            stage_id: Target stage identifier.
+            job_id_seq: Sequence of job identifiers to dispatch.
+            stage_2_job_2_p: Stage ID -> job ID -> duration.
+            job_2_release: Optional mapping from job ID to release time.
+            spt_on_last_stage: If True, use SPT for the last stage.
+                If False, use LPT. Defaults to False.
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if not isinstance(spt_on_last_stage, bool):
+            raise ValueError(
+                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
+            )
+        if not job_id_seq:
+            return
+
+        # Precompute constants
+        job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
+        stage_idx = self.stage_2_index[stage_id]
+        remaining_stages = self.stages[stage_idx + 1 :]
+        is_last_stage = stage_id == self.stages[-1]
+        lpt_sign = 1 if spt_on_last_stage else -1
+        mc_list = self.machines_per_stage[stage_id]
+        mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
+
+        # Precompute release times
+        job_id_2_r: dict[JobIdType, int] = {}
+        for job_id in job_id_seq:
+            prev_end = self.get_prev_stage_end_time(
+                stage_id, job_id, default_if_missing=0
+            )
+            release_t = (
+                job_2_release[job_id]
+                if job_2_release is not None and job_id in job_2_release
+                else None
+            )
+            if release_t is None or release_t < prev_end:
+                release_t = prev_end
+            job_id_2_r[job_id] = release_t
+
+        # Job ID sorted by (1) release time (2) input sequence order
+        _job_id_seq: list[str] = sorted(
+            job_id_seq, key=lambda job_id: (job_id_2_r[job_id], job_id_2_pos[job_id])
+        )
+        # j\in J: job index list
+        J: list[int] = list(range(len(_job_id_seq)))
+        j_2_job_id: dict[int, JobIdType] = {
+            j: job_id for j, job_id in enumerate(_job_id_seq)
+        }
+        n = len(J)
+
+        r_j: dict[int, int] = {
+            j: job_id_2_r[job_id] for j, job_id in enumerate(_job_id_seq)
+        }
+        p_j: dict[int, int] = {}
+        tr_j: dict[int, int] = {}
+        for j, job_id in enumerate(_job_id_seq):
+            if stage_id not in stage_2_job_2_p:
+                raise ValueError(
+                    f"Duration for job ID {job_id} at stage ID {stage_id} not provided"
+                )
+            p_j[j] = stage_2_job_2_p[stage_id][job_id]
+            tr_j[j] = sum(stage_2_job_2_p[s].get(job_id, 0) for s in remaining_stages)
+
+        # effectively infinite gap
+        p_max = max(p_j.values()) if p_j else 0
+        r_max = max(r_j.values()) if r_j else 0
+        max_existing_end = 0
+        for mc in mc_list:
+            ops = self.get_job_sequence(stage_id, mc)
+            if ops:
+                max_existing_end = max(max_existing_end, ops[-1][1])
+
+        inf_gap = n * p_max + max(r_max, max_existing_end) + 1
+
+        # Sort key
+        c = len(self.stages)
+        p_multiplier = -(c - stage_idx - 2) * c / 80
+
+        def job_sort_key(j: int) -> tuple:
+            tr = tr_j[j]
+            p = p_j[j]
+            stage_tb = lpt_sign * p if is_last_stage else p
+            return (-(tr + p_multiplier * p), stage_tb, j)
+
+        # Build gap deques & initialize machine state
+        mc_2_gaps: dict[McIdType, deque[tuple[int, int]]] = {}
+        t_k: dict[McIdType, int] = {}
+
+        for mc in mc_list:
+            ops = self.get_job_sequence(stage_id, mc)
+            initial_t, gap_deque = _build_initial_t_and_gap_deque(ops, r_j[0], inf_gap)
+            mc_2_gaps[mc] = gap_deque
+            t_k[mc] = initial_t
+
+        tp: int = r_j[0]
+
+        # Job state
+        unscheduled_jobs: list[int] = list(J)  # J''
+        candid_jobs: list[int] = []  # J'
+        u: int = 0
+        dispatched_ops_cnt = 0
+
+        # Main loop
+        while unscheduled_jobs or candid_jobs:
+            # 1. Update J'
+            if unscheduled_jobs:
+                if tp >= r_j[u]:
+                    # Find v: max j in J'' with r_j <= tp
+                    v = u
+                    for j in unscheduled_jobs:
+                        if r_j[j] <= tp:
+                            v = j
+                        else:
+                            break
+                    # J' <- J' ∪ {u, ..., v}
+                    candid_jobs.extend(range(u, v + 1))
+                    # J'' <- J'' \ {u, ..., v}
+                    removed_count = v - u + 1
+                    unscheduled_jobs = unscheduled_jobs[removed_count:]
+                    u = v + 1
+                else:
+                    if not candid_jobs:
+                        new_tp = r_j[unscheduled_jobs[0]]
+                        # Update mc_2_gaps
+                        for mc in mc_list:
+                            if t_k[mc] >= new_tp:
+                                continue
+                            gap_remaining = new_tp - t_k[mc]
+                            while gap_remaining > 0:
+                                l_gap, P_gap = mc_2_gaps[mc][0]
+                                if l_gap >= gap_remaining:
+                                    t_k[mc] = new_tp
+                                    mc_2_gaps[mc][0] = (l_gap - gap_remaining, P_gap)
+                                    gap_remaining = 0
+                                else:
+                                    t_k[mc] += l_gap + P_gap  # leap (gap + processing)
+                                    mc_2_gaps[mc].popleft()
+                                    gap_remaining = new_tp - t_k[mc]
+                                    if gap_remaining <= 0:
+                                        # t_k가 new_tp를 넘어섬 (processing 블록 안)
+                                        break
+                        tp = min(t_k.values())
+                        continue
+
+            # 2. Dispatch
+
+            # 2.1: Select target machine k' = argmin (t_k, l_k, mc_index)
+            kp: McIdType = mc_list[0]
+            kp_tk: int = t_k[kp]
+            kp_idle: int = mc_2_gaps[kp][0][0]
+            for mc in mc_list[1:]:
+                tk = t_k[mc]
+                l_k = mc_2_gaps[mc][0][0]
+                mc_idx = mc_2_index[mc]
+                if kp is None or (tk, l_k, mc_idx) < (kp_tk, kp_idle, mc_2_index[kp]):
+                    kp = mc
+                    kp_tk = tk
+                    kp_idle = l_k
+
+            # 2.2: Filter candidates by gap constraint
+            l_gap, P_gap = mc_2_gaps[kp][0]
+            candid_gap = [j for j in candid_jobs if p_j[j] <= l_gap]
+
+            if not candid_gap:
+                # Gap exhausted: jump to next gap
+                t_k[kp] = kp_tk + l_gap + P_gap
+                mc_2_gaps[kp].popleft()
+                tp = min(t_k.values())
+                continue
+
+            # 2.3: Select best job
+            jp = min(candid_gap, key=job_sort_key)
+
+            # 2.4: Dispatch
+            start_time = t_k[kp]
+            end_time = start_time + p_j[jp]
+            self.add_ops_times_2_mc(stage_id, kp, j_2_job_id[jp], start_time, end_time)
+            dispatched_ops_cnt += 1
+
+            # Step 5: State update
+            candid_jobs.remove(jp)
+            t_k[kp] = end_time
+            tp = min(t_k.values())
+            # Shrink current gap
+            remaining_gap = l_gap - p_j[jp]
+            mc_2_gaps[kp][0] = (remaining_gap, P_gap)
 
     # Setters - remove
 
@@ -1669,6 +1872,126 @@ def validate_no_overlap(
                     raise ValueError(
                         f"Overlap on {stage}.{mc}: {ops[i]} vs {ops[i + 1]}"
                     )
+
+
+# Machine-centric dispatch helper
+
+
+def _build_initial_t_and_gap_deque(
+    ops: list[tuple[int, int, JobIdType]],
+    t_start: int,
+    inf_gap: int,
+) -> tuple[int, deque[tuple[int, int]]]:
+    """Determine initial t_k and build gap deque for a machine.
+
+    Given existing operations on a machine and a start time, constructs
+    a deque of (gap_length, trailing_processing_sum) pairs.
+
+    The algorithm:
+    1. Convert ops into a list of intervals starting from t_start,
+       merging/skipping as needed.
+    2. Identify gap boundaries (points where consecutive ops are not touching).
+    3. For each gap, compute (gap_length, P) where P is the sum of
+       consecutive processing times immediately after the gap.
+
+    Args:
+        ops: Sorted list of (start, end, job_id) for existing operations.
+        t_start: Desired start time (r_j[0]).
+        inf_gap: Large value to use as infinite gap at the end.
+
+    Returns:
+        (initial_t_k, gap_deque)
+    """
+    if not ops:
+        return t_start, deque([(inf_gap, 0)])
+
+    # Step 1: Find effective start — skip/clip ops before t_start
+    t = t_start
+    first_relevant = len(ops)  # index of first op that starts at or after t
+
+    for idx, (s, e, _) in enumerate(ops):
+        if e <= t:
+            continue
+        if s < t:
+            # t is inside this op: advance t to its end
+            t = e
+            continue
+        # t <= s: this is the first relevant op
+        first_relevant = idx
+        break
+
+    remaining = ops[first_relevant:]
+
+    if not remaining:
+        return t, deque([(inf_gap, 0)])
+
+    # Step 2: Build list of (gap_start, gap_end) boundaries
+    # A gap exists wherever the previous endpoint < next start
+    boundaries: list[tuple[int, int]] = []  # (gap_start, gap_end)
+
+    # Potential gap before first remaining op
+    if remaining[0][0] > t:
+        boundaries.append((t, remaining[0][0]))
+
+    # Gaps between consecutive ops
+    for idx in range(len(remaining) - 1):
+        end_curr = remaining[idx][1]
+        start_next = remaining[idx + 1][0]
+        if start_next > end_curr:
+            boundaries.append((end_curr, start_next))
+
+    # Step 3: For each gap, compute P (consecutive processing after the gap)
+    # We need a mapping: gap_start -> P
+    # P = sum of op durations from the op right after the gap until the next gap
+
+    # Precompute: for each op index, the sum of consecutive processing
+    # starting from that op until the next gap (or end of ops)
+    # Work backwards to compute this efficiently
+    op_durations = [e - s for s, e, _ in remaining]
+    n_ops = len(remaining)
+
+    # cumulative_p[i] = sum of durations from i to the end of the contiguous block
+    # A contiguous block breaks when remaining[k+1][0] > remaining[k][1]
+    cumulative_p = [0] * n_ops
+    cumulative_p[n_ops - 1] = op_durations[n_ops - 1]
+    for idx in range(n_ops - 2, -1, -1):
+        if remaining[idx + 1][0] == remaining[idx][1]:
+            # contiguous
+            cumulative_p[idx] = op_durations[idx] + cumulative_p[idx + 1]
+        else:
+            # gap after this op
+            cumulative_p[idx] = op_durations[idx]
+
+    # Step 4: Build gap deque
+    gaps: list[tuple[int, int]] = []
+
+    # Map each gap boundary to the P value
+    # The op right after a gap boundary (gap_end == op_start) gives us P
+    op_start_to_idx = {}
+    for idx, (s, _, _) in enumerate(remaining):
+        if s not in op_start_to_idx:
+            op_start_to_idx[s] = idx
+
+    for gap_start, gap_end in boundaries:
+        gap_len = gap_end - gap_start
+        op_idx = op_start_to_idx.get(gap_end)
+        p_after = cumulative_p[op_idx] if op_idx is not None else 0
+        gaps.append((gap_len, p_after))
+
+    # If no gap before first op, t must advance past the initial contiguous block
+    if not boundaries or boundaries[0][0] != t:
+        # t is at the start of (or before) a contiguous block — advance past it
+        op_idx = op_start_to_idx.get(remaining[0][0])
+        if op_idx is not None:
+            t = remaining[0][0] + cumulative_p[op_idx]
+
+    # Final infinite gap
+    gaps.append((inf_gap, 0))
+
+    return t, deque(gaps)
+
+
+# Sequence extraction functions
 
 
 def get_midpoint_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:

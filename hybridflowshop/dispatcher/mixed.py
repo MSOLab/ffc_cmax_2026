@@ -67,6 +67,9 @@ class MixedDispatcher(BaseDispatcher):
                 jobs. If not provided, defaults to the first stage in schedule.
             job_2_release_t (dict[JobIdType, int] | None, optional): The release time
                 for each job. Defaults to None.
+            machine_then_job (bool, optional): If True, dispatch each stage by machine
+                first then job if the stage is not the first stage of the schedule.
+                If False, dispatch by job first then machine. Defaults to False.
             head_for_all_stages (bool, optional): If True, apply head to all stages.
                 If False, apply head only to the first stage. Defaults to False.
             draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
@@ -132,6 +135,7 @@ class MixedDispatcher(BaseDispatcher):
         schedule: HybridFlowshopLiteSchedule | None = None,
         from_stage: str | None = None,
         job_2_release_t: dict[str, int] | None = None,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
@@ -145,6 +149,9 @@ class MixedDispatcher(BaseDispatcher):
                 jobs. If not provided, defaults to the first stage in schedule.
             job_2_release_t (dict[JobIdType, int] | None, optional): The release time
                 for each job. Defaults to None.
+            machine_then_job (bool, optional): If True, dispatch each stage by machine
+                first then job if the stage is not the first stage of the schedule.
+                If False, dispatch by job first then machine. Defaults to False.
             head_for_all_stages (bool, optional): If True, apply head to all stages.
                 If False, apply head only to the first stage. Defaults to False.
             draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
@@ -173,6 +180,7 @@ class MixedDispatcher(BaseDispatcher):
                 schedule=_schedule,
                 from_stage=from_stage,
                 job_2_release_t=job_2_release_t,
+                machine_then_job=machine_then_job,
                 head_for_all_stages=head_for_all_stages,
                 draw_gantt_per_step=draw_gantt_per_step,
                 get_file_path_for_subroutine=get_file_path_for_subroutine,
@@ -194,6 +202,7 @@ class MixedDispatcher(BaseDispatcher):
         schedule: HybridFlowshopLiteSchedule | None = None,
         from_stage: str | None = None,
         job_2_release_t: dict[str, int] | None = None,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
@@ -208,6 +217,9 @@ class MixedDispatcher(BaseDispatcher):
                 jobs. If not provided, defaults to the first stage in schedule.
             job_2_release_t (dict[JobIdType, int] | None, optional): The release time
                 for each job. Defaults to None.
+            machine_then_job (bool, optional): If True, dispatch each stage by machine
+                first then job if the stage is not the first stage of the schedule.
+                If False, dispatch by job first then machine. Defaults to False.
             head_for_all_stages (bool, optional): If True, apply head to all stages.
                 If False, apply head only to the first stage. Defaults to False.
             draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
@@ -228,6 +240,7 @@ class MixedDispatcher(BaseDispatcher):
             head_for_all_stages=head_for_all_stages,
             from_stage=from_stage,
             job_2_release_t=job_2_release_t,
+            machine_then_job=machine_then_job,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=get_file_path_for_subroutine,
         )
@@ -238,6 +251,7 @@ class MixedDispatcher(BaseDispatcher):
         head_for_all_stages: bool = False,
         from_stage: str | None = None,
         job_2_release_t: dict[str, int] | None = None,
+        machine_then_job: bool = False,
         draw_gantt_per_step: bool = False,
         get_file_path_for_subroutine: Callable | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
@@ -250,6 +264,9 @@ class MixedDispatcher(BaseDispatcher):
                 jobs. If not provided, defaults to the first stage in schedule.
             job_2_release_t (dict[JobIdType, int] | None, optional): The release time
                 for each job. Defaults to None.
+            machine_then_job (bool, optional): If True, dispatch each stage by machine
+                first then job if the stage is not the first stage of the schedule.
+                If False, dispatch by job first then machine. Defaults to False.
             head_for_all_stages (bool, optional): If True, apply head to all stages.
                 If False, apply head only to the first stage. Defaults to False.
             draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each
@@ -270,6 +287,7 @@ class MixedDispatcher(BaseDispatcher):
             head_for_all_stages=head_for_all_stages,
             from_stage=from_stage,
             job_2_release_t=job_2_release_t,
+            machine_then_job=machine_then_job,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=get_file_path_for_subroutine,
         )
