@@ -66,12 +66,17 @@
 - `t'`: Time cursor for dispatching
   - Initialize: $r_0$
 - `t_k`: Time cursor of machine k on stage `i`
-  - Initialize: $t_k := r_0 \forall k\in M_i$
+  - Initialize:
+    - For each machine k:
+      - Build gap deque from existing schedule
+      - Let t_k be the earliest feasible time derived from:
+        - the machine’s last scheduled operation (if any)
+        - the earliest release time $r_0$
 - `[(l_k0, P_k0), (l_k1, P_k1), ...]`: machine gap queue
   - $l_{kg}$: g번째 idle gap의 길이
   - $P_{kg}$: g번째 idle gap 직후 연속 processing time 합
   - 마지막 element는 (∞, 0)
-    - `n*p_max`를 ∞ 대신 사용
+    - `n * p_max + max(r_max, max_existing_end) + 1`을 ∞ 대신 사용
   - Initialize: from given stage schedule
 
 #### Job state
@@ -105,8 +110,10 @@ While $J' \cup J'' \neq \emptyset$ :
 
 ### 3.2 Dispatch
 
-- $k' = \argmin_k \{ t_k \}$
-  - Tie-breaking: (1) idle 최소 (2) machine index 최소
+- $k' = \argmin_k \{ (t_k, l_k, machine_index) \}$
+  - t_k : current machine time cursor
+  - l_k : length of the current leading idle gap
+  - machine_index : deterministic tie-breaker
 - $J'_{k'} := \{ j\in J' | p_j \leq l_{k'g} \}$
 - If $J'_{k'}$ is empty: State update & continue
   - $t_{k'} \leftarrow t_{k'} + l_{k'0} + P_{k'0}$
