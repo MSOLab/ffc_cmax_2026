@@ -1538,6 +1538,15 @@ class HybridFlowshopLiteSchedule:
         # )
         # func_j = {j: job_id_2_func[job_id] for j, job_id in j_2_job_id.items()}
 
+        # Debug: temporary override with max index
+        # if remaining_stages:
+        #     func_j = {
+        #         j: -max(stage_2_job_2_p[s][j_2_job_id[j]] for s in remaining_stages)
+        #         for j in J
+        #     }
+        # else:
+        #     func_j = {j: 0 for j in J}
+
         def job_sort_key(j: int) -> tuple:
             return (func_j[j], beta * p_j[j], j)
 
