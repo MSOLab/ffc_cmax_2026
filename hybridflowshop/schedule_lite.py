@@ -13,7 +13,7 @@ class HybridFlowshopLiteSchedule:
     # Parameters
 
     jobs: Sequence[JobIdType]
-    """ID of jobs"""
+    """ID of all jobs(scheduled or not)"""
 
     stages: Sequence[StageIdType]
     """ID of stages"""
@@ -1685,17 +1685,56 @@ class HybridFlowshopLiteSchedule:
                 job_tuple_seq: list[tuple[int, int, str]] = self.get_job_sequence(
                     stage_id, mc_id
                 )
-                job_seq = [job_tuple[2] for job_tuple in job_tuple_seq]
-                index_to_be_removed = set()
-                for job_id in job_id_set:
-                    del self.__stage_2_job_2_end_time[stage_id][job_id]
-                    index = job_seq.index(job_id)
-                    index_to_be_removed.add(index)
+                # Remove from end time cache and filter in a single pass
                 new_job_tuple_seq = [
                     job_tuple
-                    for idx, job_tuple in enumerate(job_tuple_seq)
-                    if idx not in index_to_be_removed
+                    for job_tuple in job_tuple_seq
+                    if job_tuple[2] not in job_id_set
                 ]
+                for job_tuple in job_tuple_seq:
+                    if job_tuple[2] in job_id_set:
+                        del self.__stage_2_job_2_end_time[stage_id][job_tuple[2]]
+                self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id] = new_job_tuple_seq
+
+    def remove_jobs(self, job_ids: set[JobIdType]) -> None:
+        """Remove all operations for the given set of job IDs.
+
+        This method removes all operations (across all stages and machines)
+        for each job ID in the provided set. It updates both the job sequence
+        data structure and the job end time cache.
+
+        Args:
+            job_ids: A set of job IDs to remove from the schedule.
+                If a job ID is not found in the schedule, it is silently ignored.
+                If an empty set is provided, the schedule remains unchanged.
+
+        Example:
+            >>> sched = HybridFlowshopLiteSchedule(
+            ...     jobs=["j1", "j2", "j3"],
+            ...     stages=["s1", "s2"],
+            ...     machines_per_stage={"s1": ["m1"], "s2": ["m1"]}
+            ... )
+            >>> # ... schedule operations ...
+            >>> sched.remove_jobs({"j1", "j3"})  # Remove j1 and j3 completely
+        """
+        if not job_ids:
+            return
+
+        for stage_id in self.stages:
+            for mc_id in self.machines_per_stage[stage_id]:
+                job_tuple_seq: list[tuple[int, int, JobIdType]] = self.get_job_sequence(
+                    stage_id, mc_id
+                )
+                # Filter out jobs that are in the removal set
+                new_job_tuple_seq = [
+                    job_tuple
+                    for job_tuple in job_tuple_seq
+                    if job_tuple[2] not in job_ids
+                ]
+                # Remove from end time cache
+                for job_tuple in job_tuple_seq:
+                    if job_tuple[2] in job_ids:
+                        self.__stage_2_job_2_end_time[stage_id].pop(job_tuple[2], None)
                 self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id] = new_job_tuple_seq
 
     # Setters - retiming
