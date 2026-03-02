@@ -8,7 +8,7 @@ import pandas as pd
 from mbls.cpsat import ObjValueBoundStore
 from routix import DynamicDataObject, StoppingCriteria
 from routix.constants import SubroutineReportStatisticsKeys
-from routix.io import object_to_yaml, tuple_to_pyyaml_key
+from routix.io.yaml import dump_yaml
 from routix.runner import SingleInstanceRunner
 from routix.type_defs import RunMode
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -302,14 +302,10 @@ class HfsSingleInstanceRunner(
         incumbent_solution = self.ctrlr.solution_manager.get_incumbent()
         if incumbent_solution:
             solution_dict = {
-                START_TIME_MAP_KEY: tuple_to_pyyaml_key(
-                    incumbent_solution.get_jik_2_start_time_map()
-                ),
-                END_TIME_MAP_KEY: tuple_to_pyyaml_key(
-                    incumbent_solution.get_jik_2_end_time_map()
-                ),
+                START_TIME_MAP_KEY: incumbent_solution.get_jik_2_start_time_map(),
+                END_TIME_MAP_KEY: incumbent_solution.get_jik_2_end_time_map(),
             }
-            object_to_yaml(solution_dict, self.solution_path, encoding=encoding)
+            dump_yaml(solution_dict, self.solution_path, encoding=encoding)
 
     def save_obj_value_bound_store(self, encoding: str = "utf-8") -> None:
         self.ctrlr.obj_store.save_yaml(self.obj_log_path, encoding=encoding)

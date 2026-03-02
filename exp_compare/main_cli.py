@@ -40,23 +40,36 @@ def setup_logging(quiet: bool) -> None:
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    # Console handler
-    if not quiet:
+    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    log_path = Path("exp_compare.log").resolve()
+
+    has_file = False
+    has_console = False
+
+    for h in logger.handlers:
+        if isinstance(h, logging.FileHandler):
+            try:
+                if Path(h.baseFilename).resolve() == log_path:
+                    has_file = True
+            except Exception:
+                pass
+        if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) in {
+            sys.stderr,
+            sys.stdout,
+        }:
+            has_console = True
+
+    if not quiet and not has_console:
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        )
+        console_handler.setFormatter(fmt)
         logger.addHandler(console_handler)
 
-    # File handler (always present)
-    log_path = Path("exp_compare.log")
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    )
-    logger.addHandler(file_handler)
+    if not has_file:
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(fmt)
+        logger.addHandler(file_handler)
 
 
 def load_config(config_path: str) -> CompareConfig:
@@ -77,7 +90,7 @@ def load_config(config_path: str) -> CompareConfig:
         raise FileNotFoundError(f"Config file not found: {path}")
 
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         return CompareConfig(**raw)
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse YAML config: {e}")

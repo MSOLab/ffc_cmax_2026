@@ -5,5 +5,5 @@
   p_agg_method: "sum"
   mi_agg_method: "max"
   error_if_infeasible: True
-  draw_gantt_stage_aggregated: False
+  draw_gantt_per_step: False
   draw_gantt: False

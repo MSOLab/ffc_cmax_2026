@@ -167,11 +167,11 @@ class MainMetadata(BaseModel):
             return list(range(self.first, self.last + 1))
         raise ValueError("Invalid benchmark index configuration.")
 
-    def get_benchmark_filename_list(self, reversed: bool = False) -> list[str]:
+    def get_benchmark_filename_list(self, reverse: bool = False) -> list[str]:
         """Generates a list of benchmark filenames based on the indices and filename format.
 
         Args:
-            reversed (bool, optional): Whether to reverse the list of filenames.
+            reverse (bool, optional): Whether to reverse the list of filenames.
                 Defaults to False.
 
         Returns:
@@ -181,7 +181,7 @@ class MainMetadata(BaseModel):
             self.benchmark_filename_format.format(i)
             for i in self.get_benchmark_idx_list()
         ]
-        if reversed:
+        if reverse:
             filenames.reverse()
         return filenames
 

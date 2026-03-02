@@ -170,7 +170,7 @@ class MixedDispatcher(BaseDispatcher):
         """
         best_obj_val: int | None = None
         best_schedule: HybridFlowshopLiteSchedule | None = None
-        best_k = -1
+        # best_k = -1
 
         for k in range(1, self.stage_count):
             if schedule is not None:
@@ -196,9 +196,9 @@ class MixedDispatcher(BaseDispatcher):
             if best_obj_val is None or best_obj_val > makespan:
                 best_obj_val = makespan
                 best_schedule = dispatched_schedule
-                best_k = k
+                # best_k = k
 
-        print(f"Best CDS schedule found with k={best_k}, makespan={best_obj_val}")
+        # print(f"Best CDS schedule found with k={best_k}, makespan={best_obj_val}")
         return best_schedule
 
     def get_schedule_by_gupta(

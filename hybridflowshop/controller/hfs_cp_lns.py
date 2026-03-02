@@ -2549,7 +2549,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         error_if_infeasible: bool = False,
-        draw_gantt_stage_aggregated: bool = False,
+        draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
     ) -> None:
 
@@ -2658,6 +2658,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         p_agg_method: str = "sum",
         mi_agg_method: str = "min",
         head_for_all_stages: bool = False,
+        draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -2674,7 +2675,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         dispatcher = MixedDispatcher(stage_aggregated_instance)
         schedule = dispatcher.get_schedule_by_cds(
-            head_for_all_stages=head_for_all_stages, draw_gantt_per_step=False
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
         )
         if draw_gantt and schedule is not None:
             output_path = self.get_file_path_for_subroutine("_gantt_stage_agg.png")
