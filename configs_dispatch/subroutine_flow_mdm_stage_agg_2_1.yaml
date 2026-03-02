@@ -7,5 +7,5 @@
   mi_agg_method: "max"
   machine_then_job: true
   error_if_infeasible: true
-  draw_gantt_stage_aggregated: false
+  draw_gantt_per_step: false
   draw_gantt: false

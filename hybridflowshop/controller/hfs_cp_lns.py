@@ -2466,7 +2466,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     mi_agg_method=mi_agg_method,
                     machine_then_job=machine_then_job,
                     head_for_all_stages=head_for_all_stages,
-                    draw_gantt_stage_aggregated=False,
+                    draw_gantt_per_step=False,
                 )
                 obj = sch.makespan if sch is not None else None
                 logging.info(f"{method_name}: makespan={obj}")
@@ -2483,7 +2483,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     mi_agg_method=mi_agg_method,
                     machine_then_job=machine_then_job,
                     head_for_all_stages=head_for_all_stages,
-                    draw_gantt_stage_aggregated=False,
+                    draw_gantt_per_step=False,
                 )
                 obj = sch.makespan if sch is not None else None
                 logging.info(f"{method_name}: makespan={obj}")
@@ -2500,7 +2500,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     mi_agg_method=mi_agg_method,
                     machine_then_job=machine_then_job,
                     head_for_all_stages=head_for_all_stages,
-                    draw_gantt_stage_aggregated=False,
+                    draw_gantt_per_step=False,
                 )
                 obj = sch.makespan if sch is not None else None
                 logging.info(f"{method_name}: makespan={obj}")
@@ -2563,7 +2563,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             mi_agg_method=mi_agg_method,
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
-            draw_gantt_stage_aggregated=draw_gantt_stage_aggregated,
+            draw_gantt_per_step=draw_gantt_per_step,
         )
 
         if best_sch is None:
@@ -2609,7 +2609,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         mi_agg_method: str = "min",
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
-        draw_gantt_stage_aggregated: bool = False,
+        draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         from hybridflowshop.schedule_lite import (
             get_bottleneck_stage_job_sequence,
@@ -2623,7 +2623,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
             head_for_all_stages=head_for_all_stages,
-            draw_gantt=draw_gantt_stage_aggregated,
+            draw_gantt_per_step=draw_gantt_per_step,
         )
         if stage_aggregated_schedule is None:
             return None
@@ -2691,7 +2691,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         error_if_infeasible: bool = False,
-        draw_gantt_stage_aggregated: bool = False,
+        draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         sub_timer = ElapsedTimer()
@@ -2707,7 +2707,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     mi_agg_method=mi_agg_method,
                     machine_then_job=machine_then_job,
                     head_for_all_stages=head_for_all_stages,
-                    draw_gantt_stage_aggregated=draw_gantt_stage_aggregated,
+                    draw_gantt_per_step=draw_gantt_per_step,
                 )
             )
 
