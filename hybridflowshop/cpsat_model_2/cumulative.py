@@ -471,3 +471,22 @@ class BaseModelBuilder:
                 assert j in params.j_list, f"Job {j} not in job list."
                 assert i in params.i_list, f"Stage {i} not in stage list."
             mdl.add_hint(variables.op_start[j, i], s_time)
+
+    @staticmethod
+    def apply_end_hints_from_end_time_map(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        end_time_map: dict[tuple[str, str, str], int],
+        ignore_integrity_check: bool = True,
+    ) -> None:
+        """Applies end time hints to the model from a given end time map.
+
+        Args:
+            end_time_map (dict[tuple[str, str, str], int]): A mapping from (job_id, stage_id, machine_id) to end time.
+        """
+        for (j, i, _), e_time in end_time_map.items():
+            if not ignore_integrity_check:
+                assert j in params.j_list, f"Job {j} not in job list."
+                assert i in params.i_list, f"Stage {i} not in stage list."
+            mdl.add_hint(variables.op_end[j, i], e_time)

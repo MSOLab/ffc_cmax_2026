@@ -2487,6 +2487,36 @@ def get_bottleneck_stage_job_sequence(
     return [info[3] for info in seq_info]
 
 
+def get_first_stage_start_sequence(
+    schedule: HybridFlowshopLiteSchedule,
+) -> list[str]:
+    """Get job sequence based on first stage start time.
+
+    Args:
+        schedule (HybridFlowshopLiteSchedule): The hybrid flowshop schedule.
+
+    Returns:
+        list[str]: A list of job IDs ordered by first stage start time,
+        with ties broken by original job order index.
+    """
+    start_map = schedule.get_jik_2_start_time_map()
+    jobs = schedule.jobs
+    idx_map = {j: idx for idx, j in enumerate(jobs)}
+    first_stage = schedule.stages[0]
+
+    seq_info: list[tuple[int, int, str]] = []
+    for j in jobs:
+        s_first = next(
+            t
+            for (job, stage, _), t in start_map.items()
+            if job == j and stage == first_stage
+        )
+        seq_info.append((s_first, idx_map[j], j))
+
+    seq_info.sort(key=lambda x: (x[0], x[1]))
+    return [info[2] for info in seq_info]
+
+
 # -------------------------
 # Helpers for idle gaps
 # -------------------------

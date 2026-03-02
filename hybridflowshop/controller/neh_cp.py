@@ -13,9 +13,11 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
 from hybridflowshop.cpsat_model_2.params import Params
+from hybridflowshop.dispatcher.mixed import MixedDispatcher
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
     get_bottleneck_stage_job_sequence,
+    get_first_stage_start_sequence,
     get_midpoint_sequence,
 )
 
@@ -114,8 +116,10 @@ class NehCpConstructor:
         job_2_stage_2_p_dict: dict[str, dict[str, int]],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         added_batch_size: int | None = None,
-        max_time_per_add: float | None = None,
+        job_seq_by_1st_stage: bool = False,
         job_seq_by_bottleneck_stage: bool = False,
+        preserved_head_job_portion: float = 0.0,
+        max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
@@ -177,6 +181,32 @@ class NehCpConstructor:
                     f"1st obj: {max_time_per_add_2nd_obj:.2f} seconds."
                 )
 
+        # Handle out-of-range values with warnings
+        if preserved_head_job_portion < 0.0:
+            logging.warning(
+                f"preserved_head_job_portion ({preserved_head_job_portion}) is negative; "
+                "treating as 0.0 (full reconstruction mode)."
+            )
+            preserved_head_job_portion = 0.0
+        elif preserved_head_job_portion >= 1.0:
+            if preserved_head_job_portion > 1.0:
+                logging.warning(
+                    f"preserved_head_job_portion ({preserved_head_job_portion}) exceeds 1.0; "
+                    "returning reference schedule unchanged."
+                )
+            # Early return for >= 1.0
+            logging.info(
+                "preserved_head_job_portion >= 1.0, returning reference schedule unchanged."
+            )
+            sub_obj_store = ObjValueBoundStore[int]()
+            sub_obj_store.obj_value_series.name = "ObjVal after dispatch"
+            sub_obj_store.obj_bound_series.name = "ObjVal before dispatch"
+            return NehCpResult(
+                schedule=ref_schedule,
+                sub_obj_store=sub_obj_store,
+                last_obj_value=ref_schedule.makespan,
+            )
+
         sub_obj_store = ObjValueBoundStore[int]()
         """Subroutine-specific objective store"""
         sub_obj_store.obj_value_series.name = "ObjVal after dispatch"
@@ -188,51 +218,73 @@ class NehCpConstructor:
             current_job_id_list=[],
             full_sol=ref_schedule,
         )
+
+        # Determine job sequence
+        # Priority: job_seq_by_1st_stage > job_seq_by_bottleneck_stage > midpoint (default)
         job_sequence: list[str]
-        if job_seq_by_bottleneck_stage:
+        if job_seq_by_1st_stage:
+            job_sequence = get_first_stage_start_sequence(ref_schedule)
+        elif job_seq_by_bottleneck_stage:
             job_sequence = get_bottleneck_stage_job_sequence(ref_schedule)
         else:
             job_sequence = get_midpoint_sequence(ref_schedule)
         job_cnt = len(job_sequence)
+
+        # Split into head (preserved) and tail (to reconstruct) jobs
+        if preserved_head_job_portion > 0.0:
+            preserved_cnt = int(job_cnt * preserved_head_job_portion)
+            head_jobs = set(job_sequence[:preserved_cnt])
+            tail_jobs = job_sequence[preserved_cnt:]
+            logging.info(
+                f"Partial reconstruction: preserving {preserved_cnt} head jobs ({preserved_head_job_portion * 100:.1f}%), "
+                f"reconstructing {len(tail_jobs)} tail jobs."
+            )
+        else:
+            head_jobs = set()
+            tail_jobs = job_sequence
+
         sequence_of_job_sublist = [
-            job_sequence[i : i + _added_batch_size]
-            for i in range(0, len(job_sequence), _added_batch_size)
+            tail_jobs[i : i + _added_batch_size]
+            for i in range(0, len(tail_jobs), _added_batch_size)
         ]
 
         st = self._require_state()
+
+        # Initialize partial solution from head jobs if in partial reconstruction mode
+        if head_jobs:
+            st.current_job_id_list = [j for j in job_sequence if j in head_jobs]
+            st.partial_sol = ref_schedule.deepcopy(job_subsequence=head_jobs)
+            st.partial_sol.make_semi_active(stage_2_job_2_p_dict)
+            logging.info(
+                f"Initialized partial solution from {len(head_jobs)} head jobs, "
+                f"makespan = {st.partial_sol.makespan}"
+            )
+
         for job_sublist in sequence_of_job_sublist:
             st.current_job_id_list.extend(job_sublist)
 
-            # Solution of dispatching job_sublist by jobs to the schedule of last_solution
-            partial_sol_dj: HybridFlowshopLiteSchedule = (
+            # Use MixedDispatcher for simplified dispatch with multiple strategy exploration
+            dispatcher = MixedDispatcher(instance)
+            base_schedule = (
                 self.ctx.create_empty_schedule_from_ins()
                 if self._st.partial_sol is None
                 else self._st.partial_sol.deepcopy()
             )
-
-            for j in job_sublist:
-                partial_sol_dj.dispatch_job_by_stages(j, job_2_stage_2_p_dict[j])
-
-            # Solution of dispatching job_sublist by stages to the schedule of last_solution
-            partial_sol_ds: HybridFlowshopLiteSchedule = (
-                self.ctx.create_empty_schedule_from_ins()
-                if self._st.partial_sol is None
-                else self._st.partial_sol.deepcopy()
+            partial_sol_best = dispatcher.get_best_mixed_schedule_by_sequence(
+                job_sublist,
+                schedule=base_schedule,
+                from_stage=instance.stage_id_list[0],
+                head_for_all_stages=True,
             )
-            for i in instance.stage_id_list:
-                partial_sol_ds.dispatch_stage_by_jobs(
-                    i, job_sublist, stage_2_job_2_p_dict[i]
+            if partial_sol_best is None:
+                logging.warning(
+                    "MixedDispatcher returned None; falling back to dispatch_job_by_stages."
                 )
-
-            # Select the best partial solution
-            partial_sol_best = (
-                partial_sol_dj
-                if partial_sol_dj.makespan <= partial_sol_ds.makespan
-                else partial_sol_ds
-            )
+                partial_sol_best = base_schedule
+                for j in job_sublist:
+                    partial_sol_best.dispatch_job_by_stages(j, job_2_stage_2_p_dict[j])
             logging.info(
                 f"After dispatching job sublist, partial solution makespan is {partial_sol_best.makespan}"
-                f" (by {'job' if partial_sol_best == partial_sol_dj else 'stage'}-based dispatch)."
             )
             _, new_sol = self._solve_cp_model(
                 partial_sol_best,
@@ -256,30 +308,26 @@ class NehCpConstructor:
 
             # Update full solution
             if not st.all_jobs_are_included(job_cnt):
-                # Dispatch remaining jobs to create a schedule feasible to the original problem
-                all_dispatched_sol_dj = st.partial_sol.deepcopy()
+                # Dispatch remaining tail jobs to create a schedule feasible to the original problem
                 remaining_jobs = [
-                    j for j in job_sequence if j not in st.current_job_id_list
+                    j for j in tail_jobs if j not in st.current_job_id_list
                 ]
-                for j in remaining_jobs:
-                    all_dispatched_sol_dj.dispatch_job_by_stages(
-                        j, job_2_stage_2_p_dict[j]
-                    )
-
-                all_dispatched_sol_ds = st.partial_sol.deepcopy()
-                remaining_jobs = [
-                    j for j in job_sequence if j not in st.current_job_id_list
-                ]
-                for i in instance.stage_id_list:
-                    all_dispatched_sol_ds.dispatch_stage_by_jobs(
-                        i, remaining_jobs, stage_2_job_2_p_dict[i]
-                    )
-
-                st.full_sol = (
-                    all_dispatched_sol_dj
-                    if all_dispatched_sol_dj.makespan <= all_dispatched_sol_ds.makespan
-                    else all_dispatched_sol_ds
+                dispatcher = MixedDispatcher(instance)
+                _temp_sol = dispatcher.get_best_mixed_schedule_by_sequence(
+                    remaining_jobs,
+                    schedule=st.partial_sol.deepcopy(),
+                    from_stage=instance.stage_id_list[0],
+                    head_for_all_stages=True,
                 )
+                if _temp_sol is None:
+                    logging.warning(
+                        "MixedDispatcher returned None for remaining jobs; falling back to dispatch_job_by_stages."
+                    )
+                    st.full_sol = st.partial_sol.deepcopy()
+                    for j in remaining_jobs:
+                        st.full_sol.dispatch_job_by_stages(j, job_2_stage_2_p_dict[j])
+                else:
+                    st.full_sol = _temp_sol
             else:
                 st.full_sol = st.partial_sol
 
@@ -353,7 +401,18 @@ class NehCpConstructor:
         st = self._require_state()
         # Apply hint from partial solution
         BaseModelBuilder.apply_start_hints_from_start_time_map(
-            mdl, params, variables, partial_sol.get_jik_2_start_time_map()
+            mdl,
+            params,
+            variables,
+            partial_sol.get_jik_2_start_time_map(),
+            ignore_integrity_check=False,
+        )
+        BaseModelBuilder.apply_end_hints_from_end_time_map(
+            mdl,
+            params,
+            variables,
+            partial_sol.get_jik_2_end_time_map(),
+            ignore_integrity_check=False,
         )
         # Fix profile of operations in previous solution
         if st.partial_sol is not None:

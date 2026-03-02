@@ -1688,8 +1688,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
-        max_time_per_add: float | None = None,
+        job_seq_by_1st_stage: bool = False,
         job_seq_by_bottleneck_stage: bool = False,
+        preserved_head_job_portion: float = 0.0,
+        max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
@@ -1709,14 +1711,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 use during search.
             added_batch_size (int, optional): The number of jobs to add in each
                 iteration. Defaults to 1.
-            max_time_per_add (float | None, optional): Time limit (in seconds) for
-                solving each incremental subproblem. If None, uses the remaining time
-                limit. Defaults to None.
+            job_seq_by_1st_stage (bool, optional): If True, defines the job
+                sequence according to incumbent schedule's first stage schedule.
             job_seq_by_bottleneck_stage (bool, optional): If True, defines the job
                 sequence according to incumbent schedule's bottleck stage schedule.
                 Otherwise, uses the job sequence by increasing order of
                 (first stage start time + last stage end time) / 2.
                 Defaults to False.
+            preserved_head_job_portion (float, optional): The portion of jobs to preserve
+                from the head of the incumbent schedule. Defaults to 0.0.
+            max_time_per_add (float | None, optional): Time limit (in seconds) for
+                solving each incremental subproblem. If None, uses the remaining time
+                limit. Defaults to None.
             cp_tl_nc_multiplier (float | None, optional): Multiplier for the time
                 limit of each CP subproblem. If None, uses the default value.
                 Defaults to None.
@@ -1758,8 +1764,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.job_2_stage_2_p_dict,
             self.stage_2_job_2_p_dict,
             added_batch_size=added_batch_size,
-            max_time_per_add=max_time_per_add,
+            job_seq_by_1st_stage=job_seq_by_1st_stage,
             job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
+            preserved_head_job_portion=preserved_head_job_portion,
+            max_time_per_add=max_time_per_add,
             cp_tl_nc_multiplier=cp_tl_nc_multiplier,
             cp_tl_c_multiplier=cp_tl_c_multiplier,
             profile_fix_by_machine=profile_fix_by_machine,
