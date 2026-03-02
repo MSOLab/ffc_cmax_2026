@@ -1335,6 +1335,66 @@ class HybridFlowshopLiteSchedule:
             )
         return job_2_index
 
+    def get_job_2_gupta_index(
+        self,
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        jobs: Iterable[JobIdType] | None = None,
+        from_stage: str | None = None,
+    ) -> dict[JobIdType, float]:
+        """Get Gupta's index for each job.
+
+        The index is calculated as:
+        sign(p_{1j} - p_{mj}) / min_{k=1,...,m-1}(p_{kj} + p_{k+1,j})
+
+        Where 1 is the from_stage and m is the last stage.
+
+        Returns:
+            dict[JobIdType, float]: Job ID -> Gupta's index
+        """
+        # TODO: overlap with hybridflowshop/dispatcher/base.py's get_gupta_sequence
+        if not jobs:
+            _job_id_list = self.jobs
+        else:
+            for job_id in jobs:
+                if job_id not in self.jobs:
+                    raise ValueError(f"Invalid job ID: {job_id}")
+            _job_id_list = list(jobs)
+        if not from_stage:
+            _stage_id_list = self.stages
+        else:
+            if from_stage not in self.stages:
+                raise ValueError(f"Invalid from_stage: {from_stage}")
+            from_idx = self.stage_2_index[from_stage]
+            _stage_id_list = self.stages[from_idx:]
+        if len(_stage_id_list) == 1:
+            # Gupta's index originally requires more than two stages;
+            # If single stage, return processing time of the stage
+            return {
+                job_id: stage_2_job_2_p.get(_stage_id_list[0], {}).get(job_id, 0)
+                for job_id in _job_id_list
+            }
+
+        job_2_index: dict[JobIdType, float] = {}
+        for job_id in _job_id_list:
+            stage_2_p = {
+                stage_id: stage_2_job_2_p.get(stage_id, {}).get(job_id, 0)
+                for stage_id in _stage_id_list
+            }
+            p_first = stage_2_p[_stage_id_list[0]]
+            p_last = stage_2_p[_stage_id_list[-1]]
+            # sign: +1 if p_last <= p_first, else -1
+            sign = 1 if p_last <= p_first else -1
+
+            min_sum = min(
+                stage_2_p[_stage_id_list[k]] + stage_2_p[_stage_id_list[k + 1]]
+                for k in range(len(_stage_id_list) - 1)
+            )
+            if min_sum == 0:
+                job_2_index[job_id] = float("inf")
+            else:
+                job_2_index[job_id] = sign / min_sum
+        return job_2_index
+
     def machine_centric_dispatch_4(
         self,
         stage_id: StageIdType,
@@ -1472,6 +1532,11 @@ class HybridFlowshopLiteSchedule:
             p_multiplier = -(c - stage_idx - 2) * c / 80
             for j in J:
                 func_j[j] = -(tr_j[j] + p_multiplier * p_j[j])
+        # Debug: temporary override with Gupta index
+        # job_id_2_func = self.get_job_2_gupta_index(
+        #     stage_2_job_2_p, jobs=job_id_seq, from_stage=stage_id
+        # )
+        # func_j = {j: job_id_2_func[job_id] for j, job_id in j_2_job_id.items()}
 
         def job_sort_key(j: int) -> tuple:
             return (func_j[j], beta * p_j[j], j)
