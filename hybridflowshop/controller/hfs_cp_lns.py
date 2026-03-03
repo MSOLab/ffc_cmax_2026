@@ -1253,18 +1253,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         return schedule
 
     def initialize_by_dm_cds(
-        self,
-        spt_on_last_stage: bool = False,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
         Uses CDS sequence & dispatches by stage - machine - job priority
         to initialize a schedule.
 
         Args:
-            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
-                If False, use LPT (longest processing time first). Defaults to False.
             error_if_infeasible (bool, optional): If True, checks the feasibility of
                 the solution. Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the
@@ -1272,7 +1267,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
-        schedule = self._get_schedule_by_dm_cds(spt_on_last_stage=spt_on_last_stage)
+        schedule = self._get_schedule_by_dm_cds()
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
@@ -1298,12 +1293,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_dm_cds(
-        self, spt_on_last_stage: bool = False
-    ) -> HybridFlowshopLiteSchedule:
-        dispatcher = MachineDispatcher(
-            self.instance, spt_on_last_stage=spt_on_last_stage
-        )
+    def _get_schedule_by_dm_cds(self) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_cds()
         if schedule is None:
             raise ValueError("No schedule found after applying DM(CDS).")
@@ -1311,18 +1302,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         return schedule
 
     def initialize_by_dm_gupta(
-        self,
-        spt_on_last_stage: bool = False,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
         Uses Gupta sequence & dispatches by stage - machine - job priority
         to initialize a schedule.
 
         Args:
-            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
-                If False, use LPT (longest processing time first). Defaults to False.
             error_if_infeasible (bool, optional): If True, checks the feasibility of
                 the solution. Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the
@@ -1330,7 +1316,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
-        schedule = self._get_schedule_by_dm_gupta(spt_on_last_stage=spt_on_last_stage)
+        schedule = self._get_schedule_by_dm_gupta()
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
@@ -1356,12 +1342,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_dm_gupta(
-        self, spt_on_last_stage: bool = False
-    ) -> HybridFlowshopLiteSchedule:
-        dispatcher = MachineDispatcher(
-            self.instance, spt_on_last_stage=spt_on_last_stage
-        )
+    def _get_schedule_by_dm_gupta(self) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_gupta()
         if schedule is None:
             raise ValueError("No schedule found after applying DM(Gupta).")
@@ -1369,18 +1351,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         return schedule
 
     def initialize_by_dm_palmer(
-        self,
-        spt_on_last_stage: bool = False,
-        error_if_infeasible: bool = False,
-        draw_gantt: bool = False,
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
         """
         Uses Palmer sequence & dispatches by stage - machine - job priority
         to initialize a schedule.
 
         Args:
-            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
-                If False, use LPT (longest processing time first). Defaults to False.
             error_if_infeasible (bool, optional): If True, checks the feasibility of
                 the solution. Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the
@@ -1388,7 +1365,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """
         sub_timer = ElapsedTimer()
 
-        schedule = self._get_schedule_by_dm_palmer(spt_on_last_stage=spt_on_last_stage)
+        schedule = self._get_schedule_by_dm_palmer()
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
@@ -1414,12 +1391,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_schedule_by_dm_palmer(
-        self, spt_on_last_stage: bool = False
-    ) -> HybridFlowshopLiteSchedule:
-        dispatcher = MachineDispatcher(
-            self.instance, spt_on_last_stage=spt_on_last_stage
-        )
+    def _get_schedule_by_dm_palmer(self) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_palmer()
         if schedule is None:
             raise ValueError("No schedule found after applying DM(Palmer).")

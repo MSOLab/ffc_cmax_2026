@@ -709,7 +709,6 @@ class HybridFlowshopLiteSchedule:
         job_id_seq: Sequence[JobIdType],
         stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
         job_2_release: Mapping[JobIdType, int] | None = None,
-        spt_on_last_stage: bool = False,
     ) -> None:
         """Dispatch multiple jobs to a stage using machine-centric selection.
 
@@ -726,7 +725,8 @@ class HybridFlowshopLiteSchedule:
                 (max of prev_stage_end, release_time, machine_eat)
             - Tiebreaker 1: longest remaining processing time
                 (sum of durations in later stages)
-            - Tiebreaker 2 (last stage only): spt or lpt on current stage duration
+            - Tiebreaker 2 (last stage only): LPT (longest processing time first),
+                other stages: SPT (shortest processing time first)
             - Tiebreaker 3: input sequence order
             4. Dispatch the selected job to the target machine and repeat.
 
@@ -740,20 +740,14 @@ class HybridFlowshopLiteSchedule:
             job_id_seq: Sequence of job identifiers to dispatch.
             stage_2_job_2_p: Stage ID -> job ID -> duration.
             job_2_release: Optional mapping from job ID to release time.
-            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
-                If False, use LPT (longest processing time first). Defaults to False.
 
         Raises:
-            ValueError: If stage_id is invalid, spt_on_last_stage is not a boolean, or a job's duration is not provided.
+            ValueError: If stage_id is invalid or a job's duration is not provided.
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
         if stage_id not in stage_2_job_2_p:
             raise ValueError(f"Duration for stage ID {stage_id} not provided")
-        if not isinstance(spt_on_last_stage, bool):
-            raise ValueError(
-                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
-            )
 
         # Precompute constants
         job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
@@ -761,7 +755,7 @@ class HybridFlowshopLiteSchedule:
         remaining_stages = self.stages[stage_idx + 1 :]
         is_first_stage = stage_id == self.stages[0]
         is_last_stage = stage_id == self.stages[-1]
-        lpt_sign = 1 if spt_on_last_stage else -1
+        tiebreaker_sign = -1 if is_last_stage else 1  # -1 for LPT, +1 for SPT
         mc_list = self.machines_per_stage[stage_id]
         mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
 
@@ -840,7 +834,7 @@ class HybridFlowshopLiteSchedule:
             effective_start = max(prev_end, release_t_val, target_eat)
             remaining_pt = 0 if is_first_stage else -job_2_remaining_pt[job_id]
             p_ij = stage_2_job_2_p[stage_id][job_id]
-            stage_tb = lpt_sign * p_ij if is_last_stage else p_ij
+            stage_tb = tiebreaker_sign * p_ij if is_last_stage else p_ij
             pos = job_id_2_pos[job_id]
             return (effective_start, remaining_pt, stage_tb, pos)
 
@@ -924,7 +918,6 @@ class HybridFlowshopLiteSchedule:
         job_id_seq: Sequence[JobIdType],
         stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
         job_2_release: Mapping[JobIdType, int] | None = None,
-        spt_on_last_stage: bool = False,
     ) -> None:
         """Dispatch multiple jobs to a stage using machine-centric selection (v2).
 
@@ -933,25 +926,19 @@ class HybridFlowshopLiteSchedule:
             job_id_seq: Sequence of job identifiers to dispatch.
             stage_2_job_2_p: Stage ID -> job ID -> duration.
             job_2_release: Optional mapping from job ID to release time.
-            spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
-                If False, use LPT (longest processing time first). Defaults to False.
 
         Raises:
             ValueError: If stage_id is invalid or a job's duration is not provided.
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
-        if not isinstance(spt_on_last_stage, bool):
-            raise ValueError(
-                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
-            )
 
         # Precompute constants
         job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
         stage_idx = self.stage_2_index[stage_id]
         remaining_stages = self.stages[stage_idx + 1 :]
         is_last_stage = stage_id == self.stages[-1]
-        lpt_sign = 1 if spt_on_last_stage else -1
+        tiebreaker_sign = -1 if is_last_stage else 1  # -1 for LPT, +1 for SPT
         mc_list = self.machines_per_stage[stage_id]
         mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
 
@@ -1018,7 +1005,7 @@ class HybridFlowshopLiteSchedule:
             c = len(self.stages)
             p_multiplier = -(c - stage_idx - 2) * c / 80
             # Tiebreaker 1: p_j (shorter first if SPT, longer if LPT)
-            stage_tb = lpt_sign * p if is_last_stage else p
+            stage_tb = tiebreaker_sign * p if is_last_stage else p
             # Tiebreaker 2: position in _job_id_seq
             return (-(tr + p_multiplier * p), stage_tb, j)
 
@@ -1101,7 +1088,6 @@ class HybridFlowshopLiteSchedule:
         job_id_seq: Sequence[JobIdType],
         stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
         job_2_release: Mapping[JobIdType, int] | None = None,
-        spt_on_last_stage: bool = False,
     ) -> None:
         """Dispatch multiple jobs to a stage using machine-centric selection (v3).
 
@@ -1114,15 +1100,9 @@ class HybridFlowshopLiteSchedule:
             job_id_seq: Sequence of job identifiers to dispatch.
             stage_2_job_2_p: Stage ID -> job ID -> duration.
             job_2_release: Optional mapping from job ID to release time.
-            spt_on_last_stage: If True, use SPT for the last stage.
-                If False, use LPT. Defaults to False.
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
-        if not isinstance(spt_on_last_stage, bool):
-            raise ValueError(
-                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
-            )
         if not job_id_seq:
             return
 
@@ -1131,7 +1111,7 @@ class HybridFlowshopLiteSchedule:
         stage_idx = self.stage_2_index[stage_id]
         remaining_stages = self.stages[stage_idx + 1 :]
         is_last_stage = stage_id == self.stages[-1]
-        lpt_sign = 1 if spt_on_last_stage else -1
+        tiebreaker_sign = -1 if is_last_stage else 1  # -1 for LPT, +1 for SPT
         mc_list = self.machines_per_stage[stage_id]
         mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
 
@@ -1192,7 +1172,7 @@ class HybridFlowshopLiteSchedule:
         def job_sort_key(j: int) -> tuple:
             tr = tr_j[j]
             p = p_j[j]
-            stage_tb = lpt_sign * p if is_last_stage else p
+            stage_tb = tiebreaker_sign * p if is_last_stage else p
             return (-(tr + p_multiplier * p), stage_tb, j)
 
         # Build gap deques & initialize machine state
@@ -1405,7 +1385,6 @@ class HybridFlowshopLiteSchedule:
         stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
         job_2_release: Mapping[JobIdType, int] | None = None,
         use_palmer_index: bool = False,
-        spt_on_last_stage: bool = False,
     ) -> None:
         """Machine-centric dispatching (v4): dispatch jobs on a single stage with idle-gap awareness.
 
@@ -1416,7 +1395,7 @@ class HybridFlowshopLiteSchedule:
             1) Move released jobs into candidate set J'
             2) Pick a target machine in ascending (t_k, gap_len, machine_index) order
                that can fit at least one candidate job in its current leading gap.
-            3) Select a job by sort_key = (-(tr_j + alpha*p_j), beta*p_j, j)
+            3) Select a job by sort_key = (-(tr_j + alpha*p_j), tiebreaker_sign*p_j, j)
             4) Dispatch at start=t_k and shrink the current gap start to the job end.
             5) If no machine can fit any candidate job, do a time jump:
                - Prefer jump to next release time if it exists
@@ -1424,10 +1403,6 @@ class HybridFlowshopLiteSchedule:
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
-        if not isinstance(spt_on_last_stage, bool):
-            raise ValueError(
-                f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
-            )
         if not job_id_seq:
             return
         if stage_id not in stage_2_job_2_p:
@@ -1520,9 +1495,7 @@ class HybridFlowshopLiteSchedule:
         # -------------------------
         c = len(self.stages)
 
-        beta = 1
-        if is_last_stage:
-            beta = 1 if spt_on_last_stage else -1
+        tiebreaker_sign = -1 if is_last_stage else 1  # -1 for LPT, +1 for SPT
 
         # Precompute job sort keys to avoid repeated calculations
         func_j: dict[int, float] = {}
@@ -1551,7 +1524,7 @@ class HybridFlowshopLiteSchedule:
         #     func_j = {j: 0 for j in J}
 
         def job_sort_key(j: int) -> tuple:
-            return (func_j[j], beta * p_j[j], j)
+            return (func_j[j], tiebreaker_sign * p_j[j], j)
 
         # -------------------------
         # Job state

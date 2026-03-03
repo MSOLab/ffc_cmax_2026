@@ -44,7 +44,6 @@ def dispatch_stages_by_job_sequence(
     from_stage: StageIdType | None = None,
     job_2_release_t: Mapping[JobIdType, int] | None = None,
     machine_then_job: bool = False,
-    spt_on_last_stage: bool = False,
 ) -> None:
     """Dispatch stages, one by one, with the given job sequence.
 
@@ -60,8 +59,6 @@ def dispatch_stages_by_job_sequence(
         machine_then_job (bool, optional): If True, dispatch each stage by machine
             first then job if the stage is not the first stage of the schedule.
             If False, dispatch by job first then machine. Defaults to False.
-        spt_on_last_stage: If True, use SPT (shortest processing time first) for the last stage.
-            If False, use LPT (longest processing time first). Defaults to False.
     """
     _stage_id_list = schedule.stages
     if from_stage is not None:
@@ -83,7 +80,6 @@ def dispatch_stages_by_job_sequence(
                 job_sequence,
                 stage_2_job_2_p,
                 job_2_release=job_2_release_t,
-                spt_on_last_stage=spt_on_last_stage,
             )
         # Remaining stages: Machine-centric dispatch
         for stage_id in _stage_id_list[1:]:
@@ -92,7 +88,6 @@ def dispatch_stages_by_job_sequence(
                 job_sequence,
                 stage_2_job_2_p,
                 job_2_release=job_2_release_t,
-                spt_on_last_stage=spt_on_last_stage,
             )
     else:
         for stage_id in _stage_id_list:

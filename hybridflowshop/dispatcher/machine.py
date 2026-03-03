@@ -17,14 +17,8 @@ from .utils import dispatch_stages_by_job_sequence
 class MachineDispatcher(BaseDispatcher):
     """Machine-centric dispatch methods (DM)."""
 
-    def __init__(
-        self,
-        instance: HybridFlowshopParameters,
-        last_stage_dispatch_rule: str = "spt",
-        spt_on_last_stage: bool = False,
-    ):
+    def __init__(self, instance: HybridFlowshopParameters):
         super().__init__(instance)
-        self.spt_on_last_stage = spt_on_last_stage
 
     def get_schedule_by_cds(
         self,
@@ -59,7 +53,6 @@ class MachineDispatcher(BaseDispatcher):
                 from_stage=from_stage,
                 job_2_release_t=job_2_release_t,
                 machine_then_job=True,
-                spt_on_last_stage=self.spt_on_last_stage,
             )
 
             makespan = _schedule.makespan
@@ -101,7 +94,6 @@ class MachineDispatcher(BaseDispatcher):
             from_stage=from_stage,
             job_2_release_t=job_2_release_t,
             machine_then_job=True,
-            spt_on_last_stage=self.spt_on_last_stage,
         )
         return _schedule
 
@@ -140,6 +132,5 @@ class MachineDispatcher(BaseDispatcher):
             from_stage=from_stage,
             job_2_release_t=job_2_release_t,
             machine_then_job=True,
-            spt_on_last_stage=self.spt_on_last_stage,
         )
         return _schedule
