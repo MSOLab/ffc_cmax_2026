@@ -791,6 +791,12 @@ class HybridFlowShopCpLnsControllerCore(
                 self.vars,
                 incumbent_solution.get_jik_2_start_time_map(),
             )
+            BaseModelBuilder.apply_end_hints_from_end_time_map(
+                self.cp_model,
+                self.params,
+                self.vars,
+                incumbent_solution.get_jik_2_end_time_map(),
+            )
 
         return self.solve_current_cp_remaining_time_limit(
             computational_time,
