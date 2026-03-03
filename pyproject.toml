@@ -11,7 +11,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "pyyaml>=6.0.2",
     "routix",
-    "schore==0.0.5",
+    "schore",
     "xlsxwriter>=3.2.5",
 ]
 

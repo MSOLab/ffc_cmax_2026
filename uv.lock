@@ -600,7 +600,7 @@ wheels = [
 
 [[package]]
 name = "schore"
-version = "0.0.5"
+version = "0.0.6"
 source = { editable = "../schore" }
 dependencies = [
     { name = "matplotlib" },

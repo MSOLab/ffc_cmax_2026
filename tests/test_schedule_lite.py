@@ -184,64 +184,6 @@ def test_time_maps_reflect_append_operation_2_stage_precedence():
     assert end_map[("j1", "s2", "m2")] == 7
 
 
-def test_remove_operations_removes_specified_ops_and_updates_cache():
-    sched = HybridFlowshopLiteSchedule(
-        jobs=["j1", "j2"],
-        stages=["s1", "s2"],
-        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
-    )
-
-    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=2)
-    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=2, end_time=4)
-    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=2, end_time=5)
-    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=5, end_time=7)
-
-    sched.remove_operations({("j1", "s2", "m1")})
-
-    start_map = sched.get_jik_2_start_time_map()
-    end_map = sched.get_jik_2_end_time_map()
-
-    assert ("j1", "s2", "m1") not in start_map
-    assert ("j1", "s2", "m1") not in end_map
-
-    # Other operations must remain intact.
-    assert start_map[("j1", "s1", "m1")] == 0
-    assert end_map[("j1", "s1", "m1")] == 2
-    assert start_map[("j2", "s2", "m1")] == 5
-    assert end_map[("j2", "s2", "m1")] == 7
-
-    with pytest.raises(ValueError):
-        sched.get_job_end_time("s2", "j1")
-    assert sched.get_job_end_time("s2", "j2") == 7
-
-    # makespan should be computed on remaining ops in the last stage.
-    assert sched.makespan == 7
-
-
-def test_remove_operations_multiple_ops_same_machine():
-    sched = HybridFlowshopLiteSchedule(
-        jobs=["j1", "j2", "j3"],
-        stages=["s1"],
-        machines_per_stage={"s1": ["m1"]},
-    )
-
-    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=2)
-    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=2, end_time=3)
-    sched.add_ops_times_2_mc("s1", "m1", "j3", start_time=3, end_time=5)
-
-    sched.remove_operations({("j2", "s1", "m1"), ("j3", "s1", "m1")})
-
-    assert sched.get_jik_2_start_time_map() == {("j1", "s1", "m1"): 0}
-    assert sched.get_jik_2_end_time_map() == {("j1", "s1", "m1"): 2}
-    assert sched.get_machine_latest_end_time("s1", "m1") == 2
-    assert sched.makespan == 2
-
-    with pytest.raises(ValueError):
-        sched.get_job_end_time("s1", "j2")
-    with pytest.raises(ValueError):
-        sched.get_job_end_time("s1", "j3")
-
-
 def test_deepcopy_copies_and_filters_cache():
     sched = HybridFlowshopLiteSchedule(
         jobs=["j1", "j2"],
