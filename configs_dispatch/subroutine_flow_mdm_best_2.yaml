@@ -1,0 +1,5 @@
+- method: initialize_by_best_of_mixed_dispatches
+  machine_then_job: true
+  head_for_all_stages: true
+  error_if_infeasible: false
+  draw_gantt: false

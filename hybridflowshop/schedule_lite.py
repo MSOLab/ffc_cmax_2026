@@ -1,33 +1,12 @@
 from __future__ import annotations
 
 import bisect
-import heapq
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Iterator, Mapping, Sequence, TypeAlias
-
-from hybridflowshop.painter.gantt import GanttPlotter
+from collections import deque
+from typing import Iterable, Iterator, Mapping, Sequence
 
 JobIdType = str
 StageIdType = str
 McIdType = str
-
-# Wave batch scheduling type aliases
-ReadyHeapEntry: TypeAlias = tuple[int, int, JobIdType, int]
-"""(end_time, tie_breaker, job_id, stage_idx) for heap entries"""
-
-
-@dataclass
-class WaveBatchState:
-    """State for wave batch scheduling algorithm."""
-
-    ready_heaps: list[list[ReadyHeapEntry]]
-    job_2_duration: dict[int, Mapping[JobIdType, int]]
-    job_2_pos: dict[JobIdType, int]
-    iteration_no: int
-    total_jobs: int
-    stage_ids: Sequence[StageIdType]
-    _prev_scheduled_last_stage: int = 0
 
 
 class HybridFlowshopLiteSchedule:
@@ -44,6 +23,9 @@ class HybridFlowshopLiteSchedule:
 
     # Helper parameters
 
+    stage_2_index: Mapping[StageIdType, int]
+    """map(stage ID -> stage index in self.stages)"""
+
     stage_2_prev_stage: Mapping[StageIdType, StageIdType | None]
     """map(stage ID -> previous stage ID or None if first stage)"""
 
@@ -57,9 +39,6 @@ class HybridFlowshopLiteSchedule:
     __stage_2_job_2_end_time: dict[StageIdType, dict[JobIdType, int]]
     """map(stage ID -> map(job ID -> end time))"""
 
-    __wave_batch_state: WaveBatchState | None
-    """Wave batch dispatching internal state (WaveBatchState or None)"""
-
     def __init__(
         self,
         jobs: Sequence[JobIdType],
@@ -69,6 +48,7 @@ class HybridFlowshopLiteSchedule:
         self.jobs = jobs
         self.stages = stages
         self.machines_per_stage = machines_per_stage
+        self.stage_2_index = {stage: i for i, stage in enumerate(stages)}
         self.stage_2_prev_stage = {
             stage: stages[i - 1] if i > 0 else None for i, stage in enumerate(stages)
         }
@@ -80,8 +60,6 @@ class HybridFlowshopLiteSchedule:
             for stage in self.stages
         }
         self.__stage_2_job_2_end_time = {stage: {} for stage in self.stages}
-        # Wave batch dispatching internal state
-        self.__wave_batch_state = None
 
     def deepcopy(
         self, job_subsequence: set[JobIdType] | None = None
@@ -153,9 +131,25 @@ class HybridFlowshopLiteSchedule:
     ) -> int:
         """Return the earliest feasible start time on a machine.
 
-        This mirrors the core behavior of `Resource.get_earliest_start_time()` in the
-        full schedule implementation: the operation may be inserted into an idle gap
-        between existing operations as long as no overlap occurs.
+        Args:
+            stage_id (StageIdType): Target stage ID
+            mc_id (McIdType): Target machine ID within the stage
+            duration (int): Duration of the operation to be scheduled
+            release_t (int | None, optional): Earliest time the operation can start.
+                Defaults to None (uses previous stage end time or 0).
+            after_last (bool, optional): If True, return the latest end time of the
+                machine. Defaults to False.
+
+        Raises:
+            ValueError: If stage_id or mc_id is invalid,
+                or if duration is not positive.
+
+        Returns:
+            int: The earliest feasible start time on the machine for the duration
+                given the release time and existing scheduled operations.
+                If after_last is True, ignores any gaps between scheduled operations
+                and returns the later of the machine's latest end time and the
+                release time.
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
@@ -164,38 +158,81 @@ class HybridFlowshopLiteSchedule:
         if duration <= 0:
             raise ValueError("Duration must be greater than 0")
 
-        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
         prev_end = release_t if release_t is not None else 0
 
         if after_last:
             makespan = self.get_machine_latest_end_time(stage_id, mc_id)
             return makespan if makespan >= prev_end else prev_end
 
+        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
         if not job_tuple_seq:
             return prev_end
 
-        # Find the first operation with start >= prev_end.
-        starts = [job_tuple[0] for job_tuple in job_tuple_seq]
-        start_idx = bisect.bisect_right(starts, prev_end - 1)
+        starts = [op[0] for op in job_tuple_seq]
+        idx = bisect.bisect_left(starts, prev_end)
 
-        # If the operation just before start_idx overlaps prev_end, push prev_end forward.
-        if start_idx > 0:
-            before_start, before_end, _ = job_tuple_seq[start_idx - 1]
-            if before_end > prev_end:
-                prev_end = before_end
+        # If prev_end falls inside the previous operation, advance past it
+        if idx > 0 and prev_end < job_tuple_seq[idx - 1][1]:
+            prev_end = job_tuple_seq[idx - 1][1]
+            # idx now points to the next operation after the overlap
 
-        # Scan forward to find the first gap that can fit `duration`.
-        for op_start, op_end, _ in job_tuple_seq[start_idx:]:
-            if prev_end + duration <= op_start:
+        # Scan forward for a gap that fits
+        while idx < len(job_tuple_seq):
+            if prev_end + duration <= job_tuple_seq[idx][0]:
                 return prev_end
-            if prev_end < op_end:
-                prev_end = op_end
+            prev_end = job_tuple_seq[idx][1]
+            idx += 1
 
         return prev_end
 
-    def get_machine_and_earliest_available_time_by_start_idle_idx(
+    def get_eat_for_machine(
+        self,
+        stage_id: StageIdType,
+        mc: McIdType,
+        duration: int,
+        release_t: int | None = None,
+    ) -> tuple[int, int]:
+        """Compute (EAT, idle) for a single machine.
+
+        Args:
+            stage_id (StageIdType): Target stage ID
+            mc (McIdType): Target machine ID
+            duration (int): Duration of the operation to be scheduled
+            release_t (int | None, optional): Earliest time the operation can start.
+                Defaults to None (uses previous stage end time or 0).
+
+        Returns:
+            tuple[int, int]: (earliest available time, idle time)
+        """
+        eat = self.get_machine_earliest_start_time(
+            stage_id, mc, duration, release_t=release_t
+        )
+        idle = max(eat - self.get_machine_latest_end_time(stage_id, mc), 0)
+        return eat, idle
+
+    def select_machine_by_earliest_start_then_idle(
         self, stage_id: StageIdType, duration: int, release_t: int | None = None
     ) -> tuple[McIdType, int]:
+        """Select the best machine in a stage and return its earliest available time.
+
+        Machines are compared lexicographically by:
+            1. Earliest available time (EAT): smaller is better.
+            2. Idle time (EAT - machine's latest end time, clamped to 0): smaller
+               is better, preferring machines that have been busy more recently.
+
+        Args:
+            stage_id (StageIdType): Target stage.
+            duration (int): Processing time of the operation.
+            release_t (int | None, optional): Earliest time the operation can start.
+                Defaults to None (uses previous stage end time or 0).
+
+        Raises:
+            ValueError: If stage_id is invalid, the stage has no machines,
+                or duration is not positive.
+
+        Returns:
+            tuple[McIdType, int]: (selected machine ID, earliest available time)
+        """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
         if not self.machines_per_stage[stage_id]:
@@ -204,24 +241,15 @@ class HybridFlowshopLiteSchedule:
             raise ValueError("Duration must be greater than 0")
 
         # Initialize with first machine's values
-        first_mc = self.machines_per_stage[stage_id][0]
-
-        best_eat = self.get_machine_earliest_start_time(
-            stage_id, first_mc, duration, release_t=release_t
+        best_mc = self.machines_per_stage[stage_id][0]
+        best_eat, best_idle = self.get_eat_for_machine(
+            stage_id, best_mc, duration, release_t
         )
-        best_idle = best_eat - self.get_machine_latest_end_time(stage_id, first_mc)
 
-        best_mc = first_mc
-
-        # Check remaining machines
         for mc in self.machines_per_stage[stage_id][1:]:
-            eat = self.get_machine_earliest_start_time(
-                stage_id, mc, duration, release_t=release_t
-            )
-            idle = eat - self.get_machine_latest_end_time(stage_id, mc)
+            eat, idle = self.get_eat_for_machine(stage_id, mc, duration, release_t)
 
-            # (1) earliest available time (2) smallest idle time
-            if eat < best_eat or (eat == best_eat and idle < best_idle):
+            if (eat, idle) < (best_eat, best_idle):
                 best_mc, best_eat, best_idle = mc, eat, idle
 
         return best_mc, best_eat
@@ -546,10 +574,8 @@ class HybridFlowshopLiteSchedule:
         if release_t is None or release_t < prev_ops_end_time:
             release_t = prev_ops_end_time
         # Find machine and earliest available time
-        mc_id, start_time = (
-            self.get_machine_and_earliest_available_time_by_start_idle_idx(
-                stage_id, duration, release_t=release_t
-            )
+        mc_id, start_time = self.select_machine_by_earliest_start_then_idle(
+            stage_id, duration, release_t=release_t
         )
         # Compute end time
         end_time = start_time + duration
@@ -668,7 +694,7 @@ class HybridFlowshopLiteSchedule:
 
         stage_iter = self.stages
         if from_stage is not None:
-            from_idx = self.stages.index(from_stage)
+            from_idx = self.stage_2_index[from_stage]
             stage_iter = self.stages[from_idx:]
 
         for stage_id in stage_iter:
@@ -677,270 +703,370 @@ class HybridFlowshopLiteSchedule:
             duration = stage_2_duration[stage_id]
             self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
 
-    # ============================================================================
-    # Helper methods for wave batch dispatching
-    # ============================================================================
-
-    def _get_scheduled_count(self, stage_idx: int) -> int:
-        """Count jobs scheduled at a specific stage index.
-
-        Args:
-            stage_idx (int): Index of the stage to count scheduled jobs.
-
-        Returns:
-            int: Number of jobs scheduled at the specified stage.
-        """
-        if self.__wave_batch_state is None:
-            return 0
-        stage_id = self.__wave_batch_state.stage_ids[stage_idx]
-        return len(self.__stage_2_job_2_end_time[stage_id])
-
-    def _push_ready(
+    def get_job_2_palmer_index(
         self,
-        stage_idx: int,
-        job_id: JobIdType,
-        tie_breaker: int,
-    ) -> None:
-        """Push a job to the ready heap for a stage.
-
-        Args:
-            stage_idx (int): Index of the stage.
-            job_id (JobIdType): Job ID to push.
-            tie_breaker (int): Tie-breaking value (e.g., job position in original sequence).
-        """
-        if self.__wave_batch_state is None:
-            return
-        stage_id: str = self.__wave_batch_state.stage_ids[stage_idx]
-        end_time: int = self.__stage_2_job_2_end_time[stage_id][job_id]
-        ready_heap: list[ReadyHeapEntry] = self.__wave_batch_state.ready_heaps[
-            stage_idx
-        ]
-        # Heap entries: (end_time, tie_breaker, job_id, stage_idx)
-        heapq.heappush(ready_heap, (end_time, tie_breaker, job_id, stage_idx))
-
-    def _promote(self, stage_idx: int, batch_size: int) -> int:
-        """Promote jobs from stage i to stage i+1.
-
-        This moves completed jobs from the current stage to the next stage
-        by scheduling their operations on the next stage's machines.
-
-        Args:
-            stage_idx (int): Index of the stage to promote from.
-            batch_size (int): Maximum number of jobs to promote.
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        jobs: Iterable[JobIdType] | None = None,
+        from_stage: str | None = None,
+    ) -> dict[JobIdType, int]:
+        """Get Palmer's slope index for each job.
 
         Returns:
-            int: Number of jobs promoted.
+            dict[JobIdType, int]: Job ID -> Palmer's slope index
         """
-        if self.__wave_batch_state is None:
-            return 0
+        # TODO: overlap with hybridflowshop/dispatcher/base.py's get_palmer_sequence
+        if not jobs:
+            _job_id_list = self.jobs
+        else:
+            for job_id in jobs:
+                if job_id not in self.jobs:
+                    raise ValueError(f"Invalid job ID: {job_id}")
+            _job_id_list = list(jobs)
+        if not from_stage:
+            _stage_id_list = self.stages
+        else:
+            if from_stage not in self.stages:
+                raise ValueError(f"Invalid from_stage: {from_stage}")
+            from_idx = self.stage_2_index[from_stage]
+            _stage_id_list = self.stages[from_idx:]
+        m = len(_stage_id_list)
 
-        num_stages: int = len(self.__wave_batch_state.stage_ids)
+        job_2_index: dict[JobIdType, int] = {}
+        for job_id in _job_id_list:
+            stage_2_p = {
+                stage_id: stage_2_job_2_p.get(stage_id, {}).get(job_id, 0)
+                for stage_id in _stage_id_list
+            }
+            job_2_index[job_id] = sum(
+                (m - 2 * (stage_idx + 1) + 1) * stage_2_p[stage_id]
+                for stage_idx, stage_id in enumerate(_stage_id_list)
+            )
+        return job_2_index
 
-        # Don't promote from the last stage
-        if stage_idx >= num_stages - 1:
-            return 0
+    def get_job_2_gupta_index(
+        self,
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        jobs: Iterable[JobIdType] | None = None,
+        from_stage: str | None = None,
+    ) -> dict[JobIdType, float]:
+        """Get Gupta's index for each job.
 
-        next_stage_idx = stage_idx + 1
-        ready_heap: list[ReadyHeapEntry] = self.__wave_batch_state.ready_heaps[
-            stage_idx
-        ]
-        promoted_count = 0
+        The index is calculated as:
+        sign(p_{1j} - p_{mj}) / min_{k=1,...,m-1}(p_{kj} + p_{k+1,j})
 
-        while ready_heap and promoted_count < batch_size:
-            entry: ReadyHeapEntry = heapq.heappop(ready_heap)
-            end_time, tie_breaker, job_id, _ = entry
+        Where 1 is the from_stage and m is the last stage.
 
-            # Check if this job can be promoted (has duration for next stage)
-            if job_id not in self.__wave_batch_state.job_2_duration[next_stage_idx]:
+        Returns:
+            dict[JobIdType, float]: Job ID -> Gupta's index
+        """
+        # TODO: overlap with hybridflowshop/dispatcher/base.py's get_gupta_sequence
+        if not jobs:
+            _job_id_list = self.jobs
+        else:
+            for job_id in jobs:
+                if job_id not in self.jobs:
+                    raise ValueError(f"Invalid job ID: {job_id}")
+            _job_id_list = list(jobs)
+        if not from_stage:
+            _stage_id_list = self.stages
+        else:
+            if from_stage not in self.stages:
+                raise ValueError(f"Invalid from_stage: {from_stage}")
+            from_idx = self.stage_2_index[from_stage]
+            _stage_id_list = self.stages[from_idx:]
+        if len(_stage_id_list) == 1:
+            # Gupta's index originally requires more than two stages;
+            # If single stage, return processing time of the stage
+            return {
+                job_id: stage_2_job_2_p.get(_stage_id_list[0], {}).get(job_id, 0)
+                for job_id in _job_id_list
+            }
+
+        job_2_index: dict[JobIdType, float] = {}
+        for job_id in _job_id_list:
+            stage_2_p = {
+                stage_id: stage_2_job_2_p.get(stage_id, {}).get(job_id, 0)
+                for stage_id in _stage_id_list
+            }
+            p_first = stage_2_p[_stage_id_list[0]]
+            p_last = stage_2_p[_stage_id_list[-1]]
+            # sign: +1 if p_last <= p_first, else -1
+            sign = 1 if p_last <= p_first else -1
+
+            min_sum = min(
+                stage_2_p[_stage_id_list[k]] + stage_2_p[_stage_id_list[k + 1]]
+                for k in range(len(_stage_id_list) - 1)
+            )
+            if min_sum == 0:
+                job_2_index[job_id] = float("inf")
+            else:
+                job_2_index[job_id] = sign / min_sum
+        return job_2_index
+
+    def machine_centric_dispatch_4(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+        job_2_release: Mapping[JobIdType, int] | None = None,
+        use_palmer_index: bool = False,
+    ) -> None:
+        """Machine-centric dispatching (v4): dispatch jobs on a single stage with idle-gap awareness.
+
+        This implements the algorithm described in `dispatch_stage_by_machines_4` doc:
+        - Build per-machine idle gap lists from the *existing* schedule on this stage.
+        - Maintain machine cursors (t_k) that always point inside an idle gap (or at its start).
+        - Iteratively:
+            1) Move released jobs into candidate set J'
+            2) Pick a target machine in ascending (t_k, gap_len, machine_index) order
+               that can fit at least one candidate job in its current leading gap.
+            3) Select a job by sort_key = (-(tr_j + alpha*p_j), tiebreaker_sign*p_j, j)
+            4) Dispatch at start=t_k and shrink the current gap start to the job end.
+            5) If no machine can fit any candidate job, do a time jump:
+               - Prefer jump to next release time if it exists
+               - Otherwise jump to next idle gap on every machine
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if not job_id_seq:
+            return
+        if stage_id not in stage_2_job_2_p:
+            raise ValueError(f"Missing processing time map for stage_id={stage_id}")
+
+        mc_list = list(self.machines_per_stage[stage_id])
+        if not mc_list:
+            return
+
+        # -------------------------
+        # Precompute job ordering J, r_j, p_j, tr_j
+        # -------------------------
+        job_id_2_pos = {job_id: pos for pos, job_id in enumerate(job_id_seq)}
+        stage_idx = self.stage_2_index[stage_id]
+        remaining_stages = self.stages[stage_idx + 1 :]
+        is_last_stage = stage_id == self.stages[-1]
+
+        # release time r(job) := max(prev_stage_end, external_release)
+        job_id_2_r: dict[JobIdType, int] = {}
+        for job_id in job_id_seq:
+            prev_end = self.get_prev_stage_end_time(
+                stage_id, job_id, default_if_missing=0
+            )
+            ext_r = job_2_release.get(job_id, 0) if job_2_release is not None else 0
+            job_id_2_r[job_id] = max(prev_end, ext_r)
+
+        # Sort by (r_j asc, input position asc)
+        _job_id_seq = sorted(
+            job_id_seq, key=lambda jid: (job_id_2_r[jid], job_id_2_pos[jid])
+        )
+        n = len(_job_id_seq)
+        J = list(range(n))
+        j_2_job_id = {j: jid for j, jid in enumerate(_job_id_seq)}
+
+        r_j = {j: job_id_2_r[j_2_job_id[j]] for j in J}
+
+        p_j: dict[int, int] = {}
+        tr_j: dict[int, int] = {}
+        for j in J:
+            jid = j_2_job_id[j]
+            if jid not in stage_2_job_2_p[stage_id]:
+                raise ValueError(
+                    f"Duration for job {jid} at stage {stage_id} not provided"
+                )
+            p = stage_2_job_2_p[stage_id][jid]
+            if p <= 0:
+                raise ValueError(
+                    f"Invalid processing time p={p} for job {jid} at stage {stage_id}"
+                )
+            p_j[j] = p
+            tr_j[j] = sum(stage_2_job_2_p[s].get(jid, 0) for s in remaining_stages)
+
+        # -------------------------
+        # Infinity end for idle gaps
+        # -------------------------
+        p_max: int = max(p_j.values()) if p_j else 0
+        r_max: int = max(r_j.values()) if r_j else 0
+        max_existing_end = 0
+        for mc in mc_list:
+            seq = self.get_job_sequence(stage_id, mc)
+            if seq:
+                max_existing_end = max(max_existing_end, max(e for _, e, _ in seq))
+        inf_end = max(r_max, max_existing_end) + n * p_max + 1
+
+        # -------------------------
+        # Machine state: gaps, cursor, gap pointer
+        # -------------------------
+        mc_2_gaps: dict[McIdType, list[list[int]]] = {}
+        mc_2_gidx: dict[McIdType, int] = {}
+        t_k: dict[McIdType, int] = {}
+        e_k: dict[McIdType, int] = {}
+
+        r0 = r_j[0]
+        for mc in mc_list:
+            ops = self.get_job_sequence(stage_id, mc)
+            gaps = _build_idle_gaps_from_ops(ops, inf_end)
+            gidx = _find_gap_index(gaps, r0, start_from=0)
+            # clamp gap start if r0 is inside the gap
+            gaps[gidx][0] = max(gaps[gidx][0], r0)
+            mc_2_gaps[mc] = gaps
+            mc_2_gidx[mc] = gidx
+            t_k[mc] = max(r0, gaps[gidx][0])
+            e_k[mc] = gaps[gidx][1]
+
+        tp = min(t_k.values())
+        mc_2_index = {mc: i for i, mc in enumerate(mc_list)}
+
+        # -------------------------
+        # Job selection key (as in doc)
+        # -------------------------
+        c = len(self.stages)
+
+        tiebreaker_sign = -1 if is_last_stage else 1  # -1 for LPT, +1 for SPT
+
+        # Precompute job sort keys to avoid repeated calculations
+        func_j: dict[int, float] = {}
+        if use_palmer_index:
+            job_id_2_func = self.get_job_2_palmer_index(
+                stage_2_job_2_p, jobs=job_id_seq, from_stage=stage_id
+            )
+            func_j = {j: job_id_2_func[job_id] for j, job_id in j_2_job_id.items()}
+        else:
+            p_multiplier = -(c - stage_idx - 2) * c / 80
+            for j in J:
+                func_j[j] = -(tr_j[j] + p_multiplier * p_j[j])
+        # Debug: temporary override with Gupta index
+        # job_id_2_func = self.get_job_2_gupta_index(
+        #     stage_2_job_2_p, jobs=job_id_seq, from_stage=stage_id
+        # )
+        # func_j = {j: job_id_2_func[job_id] for j, job_id in j_2_job_id.items()}
+
+        # Debug: temporary override with max index
+        # if remaining_stages:
+        #     func_j = {
+        #         j: -max(stage_2_job_2_p[s][j_2_job_id[j]] for s in remaining_stages)
+        #         for j in J
+        #     }
+        # else:
+        #     func_j = {j: 0 for j in J}
+
+        def job_sort_key(j: int) -> tuple:
+            return (func_j[j], tiebreaker_sign * p_j[j], j)
+
+        # -------------------------
+        # Job state
+        # -------------------------
+        unscheduled_jobs: list[int] = list(J)  # J''
+        candid_jobs: list[int] = []  # J'
+        u = 0
+
+        # Main loop
+        while unscheduled_jobs or candid_jobs:
+            # 3.1 Update J'
+            if unscheduled_jobs:
+                if tp >= r_j[u]:
+                    # v := max j in J'' with r_j <= tp (contiguous prefix due to sorting)
+                    v = u
+                    for j in unscheduled_jobs:
+                        if r_j[j] <= tp:
+                            v = j
+                        else:
+                            break
+                    candid_jobs.extend(range(u, v + 1))
+                    removed = v - u + 1
+                    unscheduled_jobs = unscheduled_jobs[removed:]
+                    u = v + 1
+                else:
+                    if not candid_jobs:
+                        # Jump tp to the next release
+                        tp = r_j[unscheduled_jobs[0]]
+                        # Re-align each machine cursor to the idle gap that covers or follows tp
+                        for mc in mc_list:
+                            gaps = mc_2_gaps[mc]
+                            gidx = _find_gap_index(gaps, tp, start_from=mc_2_gidx[mc])
+                            mc_2_gidx[mc] = gidx
+                            gaps[gidx][0] = max(gaps[gidx][0], tp)
+                            t_k[mc] = max(tp, gaps[gidx][0])
+                            e_k[mc] = gaps[gidx][1]
+                        tp = min(t_k.values())
+                        continue
+
+            # 3.2 Dispatch: find target machine that can fit someone in its leading gap
+            ordered_mcs = sorted(
+                mc_list,
+                key=lambda mc: (t_k[mc], e_k[mc] - t_k[mc], mc_2_index[mc]),
+            )
+
+            target_mc = None
+            candid_gap: list[int] = []
+            for mc in ordered_mcs:
+                gap_len = e_k[mc] - t_k[mc]
+                if gap_len <= 0:
+                    continue
+                feasible = [j for j in candid_jobs if p_j[j] <= gap_len]
+                if feasible:
+                    target_mc = mc
+                    candid_gap = feasible
+                    break
+
+            if target_mc is None:
+                # No machine can fit any candidate job in current leading gaps.
+                # Prefer release jump if there exists a future release.
+                future_releases = [r_j[j] for j in unscheduled_jobs if r_j[j] > tp]
+                if future_releases:
+                    tp = min(future_releases)
+                    for mc in mc_list:
+                        gaps = mc_2_gaps[mc]
+                        gidx = _find_gap_index(gaps, tp, start_from=mc_2_gidx[mc])
+                        mc_2_gidx[mc] = gidx
+                        gaps[gidx][0] = max(gaps[gidx][0], tp)
+                        t_k[mc] = max(tp, gaps[gidx][0])
+                        e_k[mc] = gaps[gidx][1]
+                    tp = min(t_k.values())
+                    continue
+
+                # Otherwise idle jump: move each machine to its next gap
+                for mc in mc_list:
+                    gaps = mc_2_gaps[mc]
+                    gidx = mc_2_gidx[mc] + 1
+                    if gidx >= len(gaps):
+                        # Defensive: keep at last gap
+                        gidx = len(gaps) - 1
+                    mc_2_gidx[mc] = gidx
+                    t_k[mc] = gaps[gidx][0]
+                    e_k[mc] = gaps[gidx][1]
+                tp = min(t_k.values())
                 continue
 
-            # Schedule the job on the next stage
-            next_stage_id: str = self.__wave_batch_state.stage_ids[next_stage_idx]
-            duration: int = self.__wave_batch_state.job_2_duration[next_stage_idx][
-                job_id
-            ]
-            self.add_operation_2_stage(next_stage_id, job_id, duration)
+            # 3.2.2 Select job
+            jp = min(candid_gap, key=job_sort_key)
 
-            # Push to ready heap for next stage
-            self._push_ready(
-                next_stage_idx,
-                job_id,
-                self.__wave_batch_state.job_2_pos.get(job_id, 0),
-            )
-            promoted_count += 1
-
-        return promoted_count
-
-    def _feed_stage1(
-        self,
-        batch_jobs: list[JobIdType],
-        job_2_release: Mapping[JobIdType, int] | None,
-    ) -> None:
-        """Inject a batch of jobs to stage 1.
-
-        Args:
-            batch_jobs: List of job IDs to inject to stage 1.
-            job_2_release: Mapping from job ID to release time.
-        """
-        if self.__wave_batch_state is None:
-            return
-        stage_id: str = self.__wave_batch_state.stage_ids[0]
-
-        for job_id in batch_jobs:
-            duration: int = self.__wave_batch_state.job_2_duration[0][job_id]
-            release_t: int | None = (
-                job_2_release.get(job_id) if job_2_release is not None else None
-            )
-            self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
-            # Push to ready heap for stage 0
-            self._push_ready(
-                0, job_id, self.__wave_batch_state.job_2_pos.get(job_id, 0)
+            # 3.2.3 Dispatch & update
+            start_time = t_k[target_mc]
+            end_time = start_time + p_j[jp]
+            self.add_ops_times_2_mc(
+                stage_id, target_mc, j_2_job_id[jp], start_time, end_time
             )
 
-    # ============================================================================
-    # Main dispatching method for wave batch scheduling
-    # ============================================================================
+            # Update job state
+            candid_jobs.remove(jp)
 
-    def dispatch_wave_batches(
-        self,
-        batch_size: int,
-        job_ids: Sequence[JobIdType],
-        stage_ids: Sequence[StageIdType],
-        stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
-        job_2_release_time: Mapping[JobIdType, int] | None = None,
-        get_file_path_for_subroutine: Callable | None = None,
-    ) -> None:
-        """Dispatch jobs using wave batch scheduling.
+            # Shrink the current gap start to the job end
+            gaps = mc_2_gaps[target_mc]
+            gidx = mc_2_gidx[target_mc]
+            gaps[gidx][0] = end_time
 
-        This method implements a wave batch scheduling algorithm that injects jobs
-        to stage 1 in batches and allows them to propagate forward through stages
-        based on completion times.
+            # If gap becomes empty, advance to the next one
+            if gaps[gidx][0] >= gaps[gidx][1]:
+                gidx = _find_gap_index(gaps, end_time, start_from=gidx + 1)
+                mc_2_gidx[target_mc] = gidx
+                gaps[gidx][0] = max(gaps[gidx][0], end_time)
+            else:
+                # Still within same gap
+                mc_2_gidx[target_mc] = gidx
 
-        Algorithm:
-        - Iteration-based: each iteration injects B jobs to stage 1, then promotes jobs forward
-        - Uses min-heap per stage to track completed jobs not yet promoted
-        - Promotion depth = min(iter_no - 1, num_stages - 1)
+            t_k[target_mc] = max(end_time, gaps[mc_2_gidx[target_mc]][0])
+            e_k[target_mc] = gaps[mc_2_gidx[target_mc]][1]
 
-        Args:
-            job_ids: Sequence of job IDs to schedule.
-            stage_ids: Sequence of stage IDs to use.
-            stage_2_job_2_duration: stage -> job -> duration mapping.
-            batch_size: Number of jobs to inject per iteration to stage 1.
-            job_2_release_time: Optional mapping from job ID to release time.
-                Defaults to None.
-
-        Raises:
-            ValueError: If batch_size <= 0.
-            ValueError: If any job's duration is missing.
-        """
-        if batch_size <= 0:
-            raise ValueError(f"batch_size must be positive, got {batch_size}")
-        if not job_ids:
-            return
-        if not stage_ids:
-            return
-
-        # Validation: Check if stage_ids is a subsequence of self.stages
-        # Check elements
-        stage_id_set = set(self.stages)
-        for stage_id in stage_ids:
-            if stage_id not in stage_id_set:
-                raise ValueError(
-                    f"Stage ID {stage_id} in stage_ids is not in self.stages"
-                )
-
-        # Check contiguity
-        start_idx = self.stages.index(stage_ids[0])
-        expected_slice = list(self.stages[start_idx : start_idx + len(stage_ids)])
-        if list(stage_ids) != expected_slice:
-            raise ValueError(
-                "stage_ids must be a contiguous subsequence of self.stages. "
-                f"Expected {expected_slice}, got {list(stage_ids)}"
-            )
-
-        # Validation: check all required durations are provided
-        for stage_id in stage_ids:
-            for job_id in job_ids:
-                if job_id not in stage_2_job_2_duration.get(stage_id, {}):
-                    raise ValueError(
-                        f"Duration for job ID {job_id} at stage {stage_id} not provided"
-                    )
-
-        # Initialize wave batch state
-        num_stages = len(stage_ids)
-        stage_2_idx = {stage_id: i for i, stage_id in enumerate(stage_ids)}
-
-        # Convert job_2_duration to stage_idx -> job -> duration format
-        job_2_duration_by_stage_idx: dict[int, Mapping[JobIdType, int]] = {}
-        for stage_id, job_2_duration in stage_2_job_2_duration.items():
-            if stage_id in stage_2_idx:
-                stage_idx = stage_2_idx[stage_id]
-                job_2_duration_by_stage_idx[stage_idx] = job_2_duration
-
-        self.__wave_batch_state = WaveBatchState(
-            ready_heaps=[[] for _ in range(num_stages)],  # One min-heap per stage
-            job_2_duration=job_2_duration_by_stage_idx,
-            job_2_pos={job_id: pos for pos, job_id in enumerate(job_ids)},
-            iteration_no=0,
-            total_jobs=len(job_ids),
-            stage_ids=stage_ids,
-        )
-
-        if get_file_path_for_subroutine is not None:
-            plotter = GanttPlotter()
-
-        # Main loop: while not all jobs in last stage
-        num_jobs = len(job_ids)
-        while self._get_scheduled_count(num_stages - 1) < num_jobs:
-            self.__wave_batch_state.iteration_no += 1
-            iter_no = self.__wave_batch_state.iteration_no
-
-            # Feed stage 1: inject batch_size jobs
-            start_idx = (iter_no - 1) * batch_size
-            end_idx = min(start_idx + batch_size, len(job_ids))
-            batch_jobs = list(job_ids[start_idx:end_idx])
-
-            # Inject batch to stage 1 (may be empty on final iterations)
-            if batch_jobs:
-                self._feed_stage1(batch_jobs, job_2_release_time)
-
-            # Promote jobs forward through stages based on iteration number.
-            # In iteration iter_no, jobs can propagate up to (iter_no - 1) stages forward.
-            # For example:
-            #   Iteration 1: jobs injected to stage 1 only (no promotion yet)
-            #   Iteration 2: jobs from iter 1 can move to stage 2
-            #   Iteration 3: jobs from iter 1 can move to stage 3, jobs from iter 2 can move to stage 2
-            promote_depth = min(iter_no - 1, num_stages - 1)
-
-            # Promote from stage 0 to 1, then 1 to 2, etc. up to promote_depth stages
-            for stage_idx in range(promote_depth):
-                self._promote(stage_idx, batch_size)
-
-            # For debug: draw gantt chart after each iteration
-            if get_file_path_for_subroutine is not None:
-                output_path: Path = get_file_path_for_subroutine(f"{iter_no}_gantt.png")
-                plotter.export_hybrid_flowshop_plot(
-                    output_path,
-                    self.get_jik_2_start_time_map(),
-                    self.get_jik_2_end_time_map(),
-                    job_ids,
-                    stage_ids,
-                )
-
-            # Check if we made progress - if no jobs were added to last stage this iteration
-            # and there are no more jobs to promote, we're done
-            curr_count = self._get_scheduled_count(num_stages - 1)
-            self.__wave_batch_state._prev_scheduled_last_stage = curr_count
-
-            no_more_injection = end_idx >= num_jobs
-            all_empty = all(
-                len(h) == 0 for h in self.__wave_batch_state.ready_heaps[:-1]
-            )
-            if no_more_injection and all_empty:
-                break
-
-        # Clean up state
-        self.__wave_batch_state = None
+            tp = min(t_k.values())
 
     # Setters - remove
 
@@ -972,6 +1098,8 @@ class HybridFlowshopLiteSchedule:
                     if idx not in index_to_be_removed
                 ]
                 self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id] = new_job_tuple_seq
+
+    # Setters - retiming
 
     def make_semi_active(
         self,
@@ -1023,7 +1151,7 @@ class HybridFlowshopLiteSchedule:
         else:
             if start_from_stage not in self.stages:
                 raise ValueError(f"Invalid stage ID: {start_from_stage}")
-            first_idx = self.stages.index(start_from_stage)
+            first_idx = self.stage_2_index[start_from_stage]
 
         for stage_idx in range(first_idx, len(self.stages)):
             stage_id = self.stages[stage_idx]
@@ -1515,6 +1643,55 @@ def validate_no_overlap(
                     raise ValueError(
                         f"Overlap on {stage}.{mc}: {ops[i]} vs {ops[i + 1]}"
                     )
+
+
+# Machine-centric dispatch helper
+def _build_idle_gaps_from_ops(
+    ops: list[tuple[int, int, JobIdType]],
+    inf_end: int,
+) -> list[list[int]]:
+    """Return idle gaps as mutable [start, end] list, strictly increasing."""
+    if not ops:
+        return [[0, inf_end]]
+
+    ops_sorted = sorted(ops, key=lambda x: x[0])
+    gaps: list[list[int]] = []
+
+    # gap before first op
+    first_s = ops_sorted[0][0]
+    if first_s > 0:
+        gaps.append([0, first_s])
+
+    # gaps between ops
+    for (_, prev_e, _), (next_s, _, _) in zip(ops_sorted, ops_sorted[1:]):
+        if next_s > prev_e:
+            gaps.append([prev_e, next_s])
+
+    # gap after last op
+    last_e = ops_sorted[-1][1]
+    if inf_end > last_e:
+        gaps.append([last_e, inf_end])
+
+    # Ensure at least one gap exists
+    if not gaps:
+        # machine is fully occupied until inf_end (unlikely with inf_end large)
+        gaps = [[inf_end, inf_end]]
+
+    return gaps
+
+
+def _find_gap_index(gaps: list[list[int]], t: int, start_from: int = 0) -> int:
+    """Smallest idx s.t. gaps[idx][1] > t. Assumes last gap end is 'inf'."""
+    idx = start_from
+    while idx < len(gaps) and gaps[idx][1] <= t:
+        idx += 1
+    if idx >= len(gaps):
+        # Shouldn't happen if last gap end is inf, but be defensive.
+        return len(gaps) - 1
+    return idx
+
+
+# Sequence extraction functions
 
 
 def get_midpoint_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:

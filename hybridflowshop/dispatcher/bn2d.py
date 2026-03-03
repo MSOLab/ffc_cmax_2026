@@ -234,6 +234,7 @@ class BN2DDispatcher(BaseDispatcher):
         instance_for_former_stages: HybridFlowshopParameters,
         job_2_release_t: dict[JobIdType, int],
         get_mixed_schedule: bool = False,
+        machine_then_job: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         sorted_j_list = sorted(
             instance_for_former_stages.job_id_list,
@@ -247,6 +248,7 @@ class BN2DDispatcher(BaseDispatcher):
             schedule = dispatcher.get_best_mixed_schedule_by_sequence(
                 sorted_j_list,
                 job_2_release_t=job_2_release_t,
+                machine_then_job=machine_then_job,
                 draw_gantt_per_step=False,
             )
             if schedule is None:
@@ -355,6 +357,7 @@ class BN2DDispatcher(BaseDispatcher):
                     schedule=bottleneck_schedule.deepcopy(),
                     from_stage=later_stage_list[0],
                     job_2_release_t=job_2_bottleneck_end_time,
+                    machine_then_job=option.machine_then_job,
                     draw_gantt_per_step=False,
                 )
                 if schedule is None:
@@ -400,6 +403,7 @@ class BN2DDispatcher(BaseDispatcher):
                 instance_for_former_stages,
                 job_2_release_t,
                 get_mixed_schedule=option.mixed_schedule_for_former_stages,
+                machine_then_job=option.machine_then_job,
             )
 
             former_schedule_makespan = former_schedule.makespan

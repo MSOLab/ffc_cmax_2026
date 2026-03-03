@@ -36,3 +36,9 @@ class BN2DOption:
     """
     If True, use mixed schedule for stages after bottleneck stage.
     """
+
+    machine_then_job: bool = False
+    """
+    If True, dispatch by stage - machine - job priority.
+    If False, dispatch by stage - job - machine priority.
+    """

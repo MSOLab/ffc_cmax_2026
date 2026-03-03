@@ -43,6 +43,7 @@ def dispatch_stages_by_job_sequence(
     stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
     from_stage: StageIdType | None = None,
     job_2_release_t: Mapping[JobIdType, int] | None = None,
+    machine_then_job: bool = False,
 ) -> None:
     """Dispatch stages, one by one, with the given job sequence.
 
@@ -55,18 +56,47 @@ def dispatch_stages_by_job_sequence(
             If not provided, defaults to the first stage in schedule.
         job_2_release_t (Mapping[JobIdType, int] | None, optional): The release time
             for each job. Defaults to None.
+        machine_then_job (bool, optional): If True, dispatch each stage by machine
+            first then job if the stage is not the first stage of the schedule.
+            If False, dispatch by job first then machine. Defaults to False.
     """
     _stage_id_list = schedule.stages
     if from_stage is not None:
         from_stage_index = _stage_id_list.index(from_stage)
         _stage_id_list = _stage_id_list[from_stage_index:]
-    for stage_id in _stage_id_list:
-        schedule.dispatch_stage_by_jobs(
-            stage_id,
-            job_sequence,
-            stage_2_job_2_p[stage_id],
-            job_2_release=job_2_release_t,
-        )
+    if machine_then_job:
+        # If first target stage is the first stage of the schedule, dispatch it by job
+        # first then machine. Otherwise, dispatch it by machine first then job.
+        if _stage_id_list[0] == schedule.stages[0]:
+            schedule.dispatch_stage_by_jobs(
+                _stage_id_list[0],
+                job_sequence,
+                stage_2_job_2_p[_stage_id_list[0]],
+                job_2_release=job_2_release_t,
+            )
+        else:
+            schedule.machine_centric_dispatch_4(
+                _stage_id_list[0],
+                job_sequence,
+                stage_2_job_2_p,
+                job_2_release=job_2_release_t,
+            )
+        # Remaining stages: Machine-centric dispatch
+        for stage_id in _stage_id_list[1:]:
+            schedule.machine_centric_dispatch_4(
+                stage_id,
+                job_sequence,
+                stage_2_job_2_p,
+                job_2_release=job_2_release_t,
+            )
+    else:
+        for stage_id in _stage_id_list:
+            schedule.dispatch_stage_by_jobs(
+                stage_id,
+                job_sequence,
+                stage_2_job_2_p[stage_id],
+                job_2_release=job_2_release_t,
+            )
 
 
 def from_job_sequence_get_schedule_mixed(
@@ -76,6 +106,8 @@ def from_job_sequence_get_schedule_mixed(
     stage_2_head: Mapping[StageIdType, int],
     from_stage: StageIdType | None = None,
     job_2_release: Mapping[JobIdType, int] | None = None,
+    machine_then_job: bool = False,
+    use_palmer_index: bool = False,
     draw_gantt_per_step: bool = False,
     get_file_path_for_subroutine: Callable | None = None,
 ) -> None:
@@ -125,6 +157,9 @@ def from_job_sequence_get_schedule_mixed(
             If provided, the priority is max(prev_stage_end, release_time).
             Ignored for later stages since their priority is determined by previous
             stage completion. Defaults to None.
+        machine_then_job (bool, optional): If True, dispatch each stage by machine
+            first then job if the stage is not the first stage of the schedule.
+            If False, dispatch by job first then machine. Defaults to False.
         draw_gantt_per_step (bool, optional): If True, draw a Gantt chart for each step
             being scheduled. Defaults to False.
         get_file_path_for_subroutine (Callable | None, optional): Callable that returns
@@ -144,13 +179,13 @@ def from_job_sequence_get_schedule_mixed(
 
     # Determine target stage list
     if from_stage is None:
-        target_stage_list = schedule.stages
+        _stage_id_list = schedule.stages
     else:
-        target_stage_list = schedule.stages[schedule.stages.index(from_stage) :]
+        _stage_id_list = schedule.stages[schedule.stages.index(from_stage) :]
 
     # Validation: stage_2_head keys must be valid stages, and values must be non-negative
     for stage_id, k in stage_2_head.items():
-        if stage_id not in target_stage_list:
+        if stage_id not in _stage_id_list:
             raise ValueError(f"Unknown stage_id in stage_2_head: {stage_id}")
         if k < 0:
             raise ValueError(
@@ -158,7 +193,7 @@ def from_job_sequence_get_schedule_mixed(
             )
 
     # Validation: check all required durations are provided for target stages
-    for stage_id in target_stage_list:
+    for stage_id in _stage_id_list:
         for job_id in job_sequence:
             if job_id not in stage_2_job_2_p.get(stage_id, {}):
                 raise ValueError(
@@ -175,7 +210,7 @@ def from_job_sequence_get_schedule_mixed(
     # adjust to {"s1": 3, "s2": 2} because only 2 jobs remain after s1 dispatches 3
     _stage_2_head: dict[StageIdType, int] = {}
     remaining_jobs_for_stage = len(job_sequence)
-    for stage_id in target_stage_list:
+    for stage_id in _stage_id_list:
         if stage_id in stage_2_head:
             _stage_2_head[stage_id] = min(
                 stage_2_head[stage_id], remaining_jobs_for_stage
@@ -187,7 +222,7 @@ def from_job_sequence_get_schedule_mixed(
     completed_job_set: set[JobIdType] = set()
     # For each stage, dispatch k jobs via dispatch_job_by_stages,
     # then fill remaining slots via dispatch_stage_by_jobs
-    for stage_idx, stage_id in enumerate(target_stage_list):
+    for stage_idx, stage_id in enumerate(_stage_id_list):
         if stage_idx == 0:
             _job_2_release = job_2_release
         else:
@@ -204,7 +239,7 @@ def from_job_sequence_get_schedule_mixed(
         # Phase 1: dispatch k jobs through all remaining stages (skip if stage_k is 0)
         stage_k = _stage_2_head.get(stage_id, 0)
         if stage_k > 0:
-            stages_from_here = target_stage_list[stage_idx:]
+            stages_from_here = _stage_id_list[stage_idx:]
             first_k_jobs = list(job_priority_queue)[:stage_k]
 
             for job_id in first_k_jobs:
@@ -234,12 +269,29 @@ def from_job_sequence_get_schedule_mixed(
             job_id for job_id in job_priority_queue if job_id not in completed_job_set
         ]
         if unscheduled_jobs:
-            schedule.dispatch_stage_by_jobs(
-                stage_id,
-                unscheduled_jobs,
-                stage_2_job_2_p[stage_id],
-                job_2_release=_job_2_release,
-            )
+            if machine_then_job:
+                if stage_id == schedule.stages[0]:
+                    schedule.dispatch_stage_by_jobs(
+                        stage_id,
+                        unscheduled_jobs,
+                        stage_2_job_2_p[stage_id],
+                        job_2_release=_job_2_release,
+                    )
+                else:
+                    schedule.machine_centric_dispatch_4(
+                        stage_id,
+                        unscheduled_jobs,
+                        stage_2_job_2_p,
+                        job_2_release=_job_2_release,
+                        use_palmer_index=use_palmer_index,
+                    )
+            else:
+                schedule.dispatch_stage_by_jobs(
+                    stage_id,
+                    unscheduled_jobs,
+                    stage_2_job_2_p[stage_id],
+                    job_2_release=_job_2_release,
+                )
             if draw_gantt_per_step:
                 output_path = get_file_path_for_subroutine(
                     f"{stage_id}_after_stage_by_jobs.png"

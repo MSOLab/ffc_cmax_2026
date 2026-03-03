@@ -170,6 +170,7 @@ class BaseDispatcher:
         Returns:
             list[JobIdType]: Job ID list in Palmer slope order (descending s_i).
         """
+        # TODO: overlap with hybridflowshop/schedule_lite.py's get_job_2_palmer_index
         jobs = self.job_id_list
         stages = self.stage_id_list
         m = len(stages)

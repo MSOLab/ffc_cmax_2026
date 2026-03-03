@@ -12,6 +12,7 @@ from hybridflowshop.dispatcher import (
     BN2DDispatcher,
     BN2DOption,
     JobDispatcher,
+    MachineDispatcher,
     MixedDispatcher,
     StageDispatcher,
 )
@@ -20,7 +21,6 @@ from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
 )
-from identical_parallel_machine.cumulative import ParallelMcParams, ParallelMcVars
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
@@ -1252,6 +1252,153 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         logging.info(f"Schedule by DS(Palmer): makespan={schedule.makespan}")
         return schedule
 
+    def initialize_by_dm_cds(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses CDS sequence & dispatches by stage - machine - job priority
+        to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of
+                the solution. Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the
+                solution. Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_schedule_by_dm_cds()
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dm_cds(self) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_cds()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DM(CDS).")
+        logging.info(f"Schedule by DM(CDS): makespan={schedule.makespan}")
+        return schedule
+
+    def initialize_by_dm_gupta(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses Gupta sequence & dispatches by stage - machine - job priority
+        to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of
+                the solution. Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the
+                solution. Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_schedule_by_dm_gupta()
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dm_gupta(self) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_gupta()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DM(Gupta).")
+        logging.info(f"Schedule by DM(Gupta): makespan={schedule.makespan}")
+        return schedule
+
+    def initialize_by_dm_palmer(
+        self, error_if_infeasible: bool = False, draw_gantt: bool = False
+    ) -> None:
+        """
+        Uses Palmer sequence & dispatches by stage - machine - job priority
+        to initialize a schedule.
+
+        Args:
+            error_if_infeasible (bool, optional): If True, checks the feasibility of
+                the solution. Defaults to False.
+            draw_gantt (bool, optional): If True, draws the Gantt chart of the
+                solution. Defaults to False.
+        """
+        sub_timer = ElapsedTimer()
+
+        schedule = self._get_schedule_by_dm_palmer()
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        # Create report and register the new solution
+        obj_value = float(schedule.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_schedule_by_dm_palmer(self) -> HybridFlowshopLiteSchedule:
+        dispatcher = MachineDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_palmer()
+        if schedule is None:
+            raise ValueError("No schedule found after applying DM(Palmer).")
+        logging.info(f"Schedule by DM(Palmer): makespan={schedule.makespan}")
+        return schedule
+
     def initialize_by_best_of_dispatches(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
@@ -1520,6 +1667,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
         minimize_sum_ci_lex: bool = False,
+        cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
@@ -1554,6 +1702,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             minimize_sum_ci_lex (bool, optional): If True, minimizes the sum of
                 completion times in each CP subproblem after minimizing the makespan.
                 Defaults to False.
+            cp_tl_nc_multiplier_2nd_obj (float | None, optional): Multiplier for the time
+                limit of each CP subproblem for the second objective. If None, uses the default value.
+                Defaults to None.
+            cp_tl_c_multiplier_2nd_obj (float | None, optional): Multiplier for the time limit
+                of each CP subproblem for the second objective. If None, uses the default value.
+                Defaults to None.
             minimize_sum_ci_lin (bool, optional): If True, minimizes the sum of
                 completion times in each CP subproblem by a linear combination with the
                 makespan. Defaults to False.
@@ -1583,6 +1737,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             cp_tl_c_multiplier=cp_tl_c_multiplier,
             profile_fix_by_machine=profile_fix_by_machine,
             minimize_sum_ci_lex=minimize_sum_ci_lex,
+            cp_tl_nc_multiplier_2nd_obj=cp_tl_nc_multiplier_2nd_obj,
             cp_tl_c_multiplier_2nd_obj=cp_tl_c_multiplier_2nd_obj,
             minimize_sum_ci_lin=minimize_sum_ci_lin,
             make_semi_active_every_cp=make_semi_active_every_cp,
@@ -1731,17 +1886,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound_is_valid=obj_bound_is_valid,
         )
 
-    # Subroutine: Stage-aware dispatching
-
-    def extract_job_2_start_time_map(
-        self, params: ParallelMcParams, variables: ParallelMcVars
-    ) -> dict[str, int]:
-        start_time_map: dict[str, int] = {}
-        """job ID -> start time"""
-        for j in params.j_list:
-            start_value = self.solver.Value(variables.op_start[j])
-            start_time_map[j] = start_value
-        return start_time_map
+    # Subroutine: bottleneck stage centric initialization
 
     def bn2d_single_stage(
         self,
@@ -1750,9 +1895,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
         normalize_by_stage_cnt: bool = False,
+        randomize_mid_all: bool = False,
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
-        randomize_mid_all: bool = False,
+        machine_then_job: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         """Schedule from single bottleneck stage using BN2D option."""
@@ -1766,6 +1912,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_all=reverse_mid_all,
             reverse_mid_even=reverse_mid_even,
             randomize_mid_all=randomize_mid_all,
+            machine_then_job=machine_then_job,
         )
         dispatcher = BN2DDispatcher(self.instance)
 
@@ -1794,11 +1941,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         left_cap_portion: float | None = None,
         right_cap_portion: float | None = None,
         normalize_by_stage_cnt: bool = False,
+        randomize_mid_all: bool = False,
         reverse_mid_all: bool = False,
         reverse_mid_even: bool = False,
         mixed_schedule_for_former_stages: bool = False,
         mixed_schedule_for_later_stages: bool = False,
-        randomize_mid_all: bool = False,
+        machine_then_job: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -1815,6 +1963,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             randomize_mid_all=randomize_mid_all,
             mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
         )
         dispatcher = BN2DDispatcher(self.instance)
 
@@ -1858,6 +2007,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         stage_2_head: Mapping[str, int],
         prob_instance: HybridFlowshopParameters | None = None,
         job_2_release: dict[str, int] | None = None,
+        machine_then_job: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule:
         schedule = self.create_empty_schedule_from_ins(instance=prob_instance)
@@ -1867,6 +2017,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.stage_2_job_2_p_dict,
             stage_2_head,
             job_2_release=job_2_release,
+            machine_then_job=machine_then_job,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -1878,6 +2029,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         np: int,
         k: int,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
@@ -1893,7 +2045,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         stage_id = self.instance.stage_id_list[k]
         job_sequence = self.get_cds_sequence(k)
         dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
-            job_sequence, stage_2_head, draw_gantt_per_step=draw_gantt_per_step
+            job_sequence,
+            stage_2_head,
+            machine_then_job=machine_then_job,
+            draw_gantt_per_step=draw_gantt_per_step,
         )
         best_obj = dispatched_schedule.makespan
 
@@ -1927,70 +2082,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-    def _get_np_candidates(self) -> list[int]:
-        """Generate candidate values for the number of priority jobs (np) for mixed dispatch.
-
-        Generates a sequence of decreasing np values by halving (ceiling) starting from
-        the total job count, ending with 0 (where all jobs are in the tail).
-        Example: job_count=8 returns [8, 4, 2, 1, 0].
-
-        Returns:
-            list[int]: List of np candidates in descending order.
-        """
-        np = self.instance.job_count
-        np_list = [np]
-        while np > 1:
-            np = math.ceil(np / 2)
-            np_list.append(np)
-        np_list.append(0)  # Add the case where all jobs are in the tail
-        return np_list
-
-    def _from_job_sequence_and_np_list_get_best_mixed_schedule(
-        self,
-        job_sequence: Sequence[str],
-        prob_instance: HybridFlowshopParameters | None = None,
-        job_2_release: dict[str, int] | None = None,
-        head_for_all_stages: bool = False,
-        draw_gantt_per_step: bool = False,
-    ) -> HybridFlowshopLiteSchedule | None:
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-
-        np_list = self._get_np_candidates()
-        np_2_stage_2_head: dict[int, dict[str, int]] = {}
-        for np in np_list:
-            if head_for_all_stages:
-                np_2_stage_2_head[np] = {
-                    stage_id: np for stage_id in self.instance.stage_id_list
-                }
-            else:
-                np_2_stage_2_head[np] = {self.instance.stage_id_list[0]: np}
-
-        for np in np_list:
-            logging.debug(f"  Dispatching with np={np}")
-            dispatched_schedule = self._from_job_sequence_get_schedule_mixed(
-                job_sequence,
-                np_2_stage_2_head[np],
-                prob_instance=prob_instance,
-                job_2_release=job_2_release,
-                draw_gantt_per_step=draw_gantt_per_step,
-            )
-            if dispatched_schedule is None:
-                continue
-            if best_obj is None or dispatched_schedule.makespan < best_obj:
-                best_obj = dispatched_schedule.makespan
-                best_sch = dispatched_schedule
-            if self.is_stopping_condition():
-                logging.info(
-                    "  Stopping condition met, breaking out of mixed schedule loop."
-                )
-                break
-
-        return best_sch
-
     def initialize_schedule_by_cds(
         self,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
@@ -1998,7 +2094,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         sub_timer = ElapsedTimer()
 
         best_sch = self._get_schedule_by_cds(
+            machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
         )
 
@@ -2031,12 +2129,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def _get_schedule_by_cds(
         self,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         dispatcher = MixedDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_cds(
+            machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -2050,7 +2152,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def initialize_schedule_by_gupta(
         self,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
@@ -2058,7 +2162,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         sub_timer = ElapsedTimer()
 
         best_sch = self._get_schedule_by_gupta(
+            machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
         )
 
@@ -2091,12 +2197,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def _get_schedule_by_gupta(
         self,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         dispatcher = MixedDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_gupta(
+            machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -2110,7 +2220,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def initialize_schedule_by_palmer(
         self,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
@@ -2118,7 +2230,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         sub_timer = ElapsedTimer()
 
         best_sch = self._get_schedule_by_palmer(
+            machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
         )
 
@@ -2151,12 +2265,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def _get_schedule_by_palmer(
         self,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         dispatcher = MixedDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_palmer(
+            machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
             get_file_path_for_subroutine=self.get_file_path_for_subroutine
             if draw_gantt_per_step
@@ -2170,14 +2288,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def initialize_by_best_of_mixed_dispatches(
         self,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
         sub_timer = ElapsedTimer()
 
         best_sch = self._get_schedule_by_best_of_mixed_dispatches(
-            head_for_all_stages=head_for_all_stages
+            machine_then_job=machine_then_job,
+            head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
         )
 
         if best_sch is None:
@@ -2207,7 +2329,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
     def _get_schedule_by_best_of_mixed_dispatches(
-        self, head_for_all_stages: bool = False
+        self,
+        machine_then_job: bool = False,
+        head_for_all_stages: bool = False,
+        use_palmer_index: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
         schedule_gen_methods = [
             self._get_schedule_by_cds,
@@ -2220,8 +2345,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_method_name = ""
 
         for method in schedule_gen_methods:
-            logging.info(f"Generating schedule using {method.__name__}...")
-            sch = method(head_for_all_stages=head_for_all_stages)
+            logging.info(f"Generating schedule using {method.__name__}")
+            sch = method(
+                machine_then_job=machine_then_job,
+                head_for_all_stages=head_for_all_stages,
+                use_palmer_index=use_palmer_index,
+            )
             if sch is not None:
                 obj = sch.makespan
                 logging.info(f"  -> Schedule makespan: {obj}")
@@ -2248,12 +2377,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         reverse_mid_even: bool = False,
         mixed_schedule_for_former_stages: bool = False,
         mixed_schedule_for_later_stages: bool = False,
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "max",
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
+        method_list: list[str] | None = None,
     ) -> None:
         sub_timer = ElapsedTimer()
-        best_method_name = ""
 
         option = BN2DOption(
             left_cap_multiplier=left_cap_multiplier,
@@ -2266,27 +2398,89 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_even=reverse_mid_even,
             mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
         )
-        dispatcher = BN2DDispatcher(self.instance)
-        sch_1 = dispatcher.get_schedule_by_bn2d_all_stages(
-            option=option,
-            gantt_draw_func=self.draw_gantt if draw_gantt else None,
-        )
-        best_obj_1 = sch_1.makespan if sch_1 is not None else None
 
-        sch_2 = self._get_schedule_by_best_of_mixed_dispatches(
-            head_for_all_stages=head_for_all_stages
-        )
-        best_obj_2 = sch_2.makespan if sch_2 is not None else None
+        best_method_name = ""
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_obj: int | None = None
 
-        if best_obj_1 is not None and (best_obj_2 is None or best_obj_1 < best_obj_2):
-            best_sch = sch_1
-            best_obj = best_obj_1
-            best_method_name = "BN2D on all stages"
-        elif best_obj_2 is not None:
-            best_sch = sch_2
-            best_obj = best_obj_2
-            best_method_name = "Mixed dispatches"
+        if not method_list:
+            method_list = ["bn2d_all_stages", "best_of_mixed_dispatches"]
+        for method_name in method_list:
+            if method_name == "bn2d_all_stages":
+                dispatcher = BN2DDispatcher(self.instance)
+                sch = dispatcher.get_schedule_by_bn2d_all_stages(
+                    option=option,
+                    gantt_draw_func=self.draw_gantt if draw_gantt else None,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "best_of_mixed_dispatches":
+                sch = self._get_schedule_by_best_of_mixed_dispatches(
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "stage_agg_2":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=0,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_per_step=False,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "stage_agg_2_1":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=1,
+                    tail_stages_to_keep=1,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_per_step=False,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
+            elif method_name == "stage_agg_2_2":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=2,
+                    tail_stages_to_keep=2,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_per_step=False,
+                )
+                obj = sch.makespan if sch is not None else None
+                logging.info(f"{method_name}: makespan={obj}")
+                if obj is not None and (best_obj is None or obj < best_obj):
+                    best_sch = sch
+                    best_obj = obj
+                    best_method_name = method_name
 
         if best_sch is None:
             # Failed to find a solution
@@ -2322,48 +2516,28 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         stage_agg_count: int,
         head_stages_to_keep: int = 0,
+        tail_stages_to_keep: int = 0,
         p_agg_method: str = "sum",
         mi_agg_method: str = "min",
+        machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        from hybridflowshop.schedule_lite import (
-            get_bottleneck_stage_job_sequence,
-            get_midpoint_sequence,
-        )
 
         sub_timer = ElapsedTimer()
-        stage_aggregated_schedule = self._get_schedule_from_stage_aggregated_problem(
+
+        best_sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
             stage_agg_count,
             head_stages_to_keep=head_stages_to_keep,
+            tail_stages_to_keep=tail_stages_to_keep,
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
+            machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
-            draw_gantt=draw_gantt,
         )
-        if stage_aggregated_schedule is None:
-            return None
-
-        job_sequences = [
-            get_bottleneck_stage_job_sequence(stage_aggregated_schedule),
-            get_midpoint_sequence(stage_aggregated_schedule),
-        ]
-
-        best_obj: int | None = None
-        best_sch: HybridFlowshopLiteSchedule | None = None
-
-        dispatcher = MixedDispatcher(self.instance)
-        for job_sequence in job_sequences:
-            dispatched_schedule = dispatcher.get_best_mixed_schedule_by_sequence(
-                job_sequence, head_for_all_stages=head_for_all_stages
-            )
-            if dispatched_schedule is not None:
-                if best_obj is None or dispatched_schedule.makespan < best_obj:
-                    best_obj = dispatched_schedule.makespan
-                    best_sch = dispatched_schedule
 
         if best_sch is None:
             # Failed to find a solution
@@ -2399,10 +2573,61 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
+    def _get_schedule_by_job_sequence_from_stage_aggregated_problem(
+        self,
+        stage_agg_count: int,
+        head_stages_to_keep: int = 0,
+        tail_stages_to_keep: int = 0,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "min",
+        machine_then_job: bool = False,
+        head_for_all_stages: bool = False,
+        draw_gantt_per_step: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
+        from hybridflowshop.schedule_lite import (
+            get_bottleneck_stage_job_sequence,
+            get_midpoint_sequence,
+        )
+
+        stage_aggregated_schedule = self._get_schedule_from_stage_aggregated_problem(
+            stage_agg_count,
+            head_stages_to_keep=head_stages_to_keep,
+            tail_stages_to_keep=tail_stages_to_keep,
+            p_agg_method=p_agg_method,
+            mi_agg_method=mi_agg_method,
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+        )
+        if stage_aggregated_schedule is None:
+            return None
+
+        job_sequences = [
+            get_bottleneck_stage_job_sequence(stage_aggregated_schedule),
+            get_midpoint_sequence(stage_aggregated_schedule),
+        ]
+
+        best_obj: int | None = None
+        best_sch: HybridFlowshopLiteSchedule | None = None
+
+        dispatcher = MixedDispatcher(self.instance)
+        for job_sequence in job_sequences:
+            dispatched_schedule = dispatcher.get_best_mixed_schedule_by_sequence(
+                job_sequence,
+                machine_then_job=machine_then_job,
+                head_for_all_stages=head_for_all_stages,
+            )
+            if dispatched_schedule is not None:
+                if best_obj is None or dispatched_schedule.makespan < best_obj:
+                    best_obj = dispatched_schedule.makespan
+                    best_sch = dispatched_schedule
+
+        return best_sch
+
     def _get_schedule_from_stage_aggregated_problem(
         self,
         stage_agg_count: int,
         head_stages_to_keep: int = 0,
+        tail_stages_to_keep: int = 0,
         p_agg_method: str = "sum",
         mi_agg_method: str = "min",
         head_for_all_stages: bool = False,
@@ -2417,6 +2642,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.instance,
             stage_agg_count,
             head_stages_to_keep=head_stages_to_keep,
+            tail_stages_to_keep=tail_stages_to_keep,
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
         )
@@ -2429,5 +2655,71 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             output_path = self.get_file_path_for_subroutine("_gantt_stage_agg.png")
             self.draw_gantt(schedule, output_path=output_path)
         return schedule
+
+    def init_by_best_of_job_seq_from_stage_agg_problem(
+        self,
+        stage_agg_count: int,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "min",
+        machine_then_job: bool = False,
+        head_for_all_stages: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt_per_step: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        sub_timer = ElapsedTimer()
+
+        best_sch: HybridFlowshopLiteSchedule | None = None
+
+        for head_stages_to_keep in range(stage_agg_count):
+            dispatched_sch = (
+                self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count,
+                    head_stages_to_keep=head_stages_to_keep,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_per_step=draw_gantt_per_step,
+                )
+            )
+
+            if dispatched_sch is not None:
+                if best_sch is None or dispatched_sch.makespan < best_sch.makespan:
+                    best_sch = dispatched_sch
+
+        if best_sch is None:
+            # Failed to find a solution
+            return
+        if error_if_infeasible:
+            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+
+        best_obj = best_sch.makespan
+        logging.info(
+            f"Schedule from stage-aggregated problem: makespan={best_obj}"
+            f" with stage_agg_count={stage_agg_count}"
+        )
+
+        # Create report and register the new solution
+        obj_value = float(best_sch.makespan)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=True,
+        )
+        was_updated = self.solution_manager.register(report, best_sch)
+
+        # Log
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
 
     # End subroutine definition

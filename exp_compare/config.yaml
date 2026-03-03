@@ -6,6 +6,10 @@ runs:
     summary_csv: "all_scenarios_summary.csv"
   - path: "Outputs_scenarios/20260218T012813_090868/"
     summary_csv: "all_scenarios_summary.csv"
+  - path: "Outputs_scenarios/20260218T012813_090868/"
+    summary_csv: "all_scenarios_summary.csv"
+  - path: "Outputs_scenarios/20260218T012813_090868/"
+    summary_csv: "all_scenarios_summary.csv"
 
 reference:
   mode: "fixed_dataset" # "best_among_compared"

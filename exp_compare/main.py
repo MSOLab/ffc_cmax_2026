@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 from exp_compare.constants import (
     ALL_RESULT_COLUMNS,
@@ -415,6 +417,14 @@ def run_comparison(
         out_dir.mkdir(parents=True, exist_ok=True)
 
         basename = output_config.basename
+
+        # 0. Config
+        config_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_config.yaml"
+        config_path = out_dir / config_filename
+        config_dict = config.model_dump()
+        with open(config_path, "w") as f:
+            yaml.safe_dump(config_dict, f, default_flow_style=False)
+        logging.info(f"Config saved to: {config_path}")
 
         # 1. Long format
         long_df = build_long_format(combined_metrics)

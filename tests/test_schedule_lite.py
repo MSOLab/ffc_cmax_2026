@@ -27,9 +27,7 @@ def test_selects_machine_with_min_latest_end_time():
     # Make m1 busy until 7, m2 remains idle.
     sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=7)
 
-    mc_id, t = sched.get_machine_and_earliest_available_time_by_start_idle_idx(
-        "s1", duration=5
-    )
+    mc_id, t = sched.select_machine_by_earliest_start_then_idle("s1", duration=5)
     assert mc_id == "m2"
     assert t == 0
 
@@ -962,206 +960,285 @@ def test_find_critical_blocks_not_empty_when_single_critical_op_in_last_stage():
     assert blocks != []
 
 
-# ============================================================================
-# Tests for dispatch_wave_batches()
-# ============================================================================
+# ============= Tests for get_machine_earliest_start_time =============
 
 
-def test_wave_batch_basic():
-    """Test basic wave batch dispatching: 3 jobs, 2 stages, batch_size=2."""
-    sched = HybridFlowshopLiteSchedule(
-        jobs=["j1", "j2", "j3"],
-        stages=["s1", "s2"],
-        machines_per_stage={"s1": ["m1"], "s2": ["m2"]},
-    )
-    stage_2_job_2_duration = {
-        "s1": {"j1": 2, "j2": 3, "j3": 1},
-        "s2": {"j1": 3, "j2": 2, "j3": 4},
-    }
-    sched.dispatch_wave_batches(
-        batch_size=2,
-        job_ids=["j1", "j2", "j3"],
-        stage_ids=["s1", "s2"],
-        stage_2_job_2_duration=stage_2_job_2_duration,
-    )
-
-    # Verify all jobs are scheduled in both stages
-    assert sched.get_job_end_time("s1", "j1") == 2
-    assert sched.get_job_end_time("s1", "j2") == 5
-    assert sched.get_job_end_time("s1", "j3") == 6
-    assert sched.get_job_end_time("s2", "j1") == 5
-    assert sched.get_job_end_time("s2", "j2") == 7
-    assert sched.get_job_end_time("s2", "j3") == 11
-
-    # Validate the schedule
-    validate_schedule(sched, stage_2_job_2_duration)
-
-
-def test_wave_batch_with_release_times():
-    """Test wave batch dispatching with release times."""
-    sched = HybridFlowshopLiteSchedule(
-        jobs=["j1", "j2", "j3"],
-        stages=["s1", "s2"],
-        machines_per_stage={"s1": ["m1"], "s2": ["m2"]},
-    )
-    stage_2_job_2_duration = {
-        "s1": {"j1": 2, "j2": 3, "j3": 1},
-        "s2": {"j1": 3, "j2": 2, "j3": 4},
-    }
-    job_2_release_time = {"j1": 1, "j2": 0, "j3": 5}
-    sched.dispatch_wave_batches(
-        batch_size=2,
-        job_ids=["j1", "j2", "j3"],
-        stage_ids=["s1", "s2"],
-        stage_2_job_2_duration=stage_2_job_2_duration,
-        job_2_release_time=job_2_release_time,
-    )
-
-    # j1 has release time 1, so it starts at 1, ends at 3
-    assert sched.get_job_end_time("s1", "j1") == 3
-    # j2 has release time 0, starts at 3 (after j1), ends at 6
-    assert sched.get_job_end_time("s1", "j2") == 6
-    # j3 has release time 5, starts at 6, ends at 7
-    assert sched.get_job_end_time("s1", "j3") == 7
-
-    # Validate the schedule
-    validate_schedule(sched, stage_2_job_2_duration)
-
-
-def test_wave_batch_batch_size_one():
-    """Test wave batch dispatching with batch_size=1 (degenerate case)."""
-    sched = HybridFlowshopLiteSchedule(
-        jobs=["j1", "j2", "j3"],
-        stages=["s1", "s2"],
-        machines_per_stage={"s1": ["m1"], "s2": ["m2"]},
-    )
-    stage_2_job_2_duration = {
-        "s1": {"j1": 2, "j2": 3, "j3": 1},
-        "s2": {"j1": 3, "j2": 2, "j3": 4},
-    }
-    sched.dispatch_wave_batches(
-        batch_size=1,
-        job_ids=["j1", "j2", "j3"],
-        stage_ids=["s1", "s2"],
-        stage_2_job_2_duration=stage_2_job_2_duration,
-    )
-
-    # Jobs should still be scheduled correctly
-    assert sched.get_job_end_time("s1", "j1") == 2
-    assert sched.get_job_end_time("s1", "j2") == 5
-    assert sched.get_job_end_time("s1", "j3") == 6
-    assert sched.get_job_end_time("s2", "j1") == 5
-    assert sched.get_job_end_time("s2", "j2") == 7
-    assert sched.get_job_end_time("s2", "j3") == 11
-
-    validate_schedule(sched, stage_2_job_2_duration)
-
-
-def test_wave_batch_batch_size_larger_than_jobs():
-    """Test wave batch dispatching with batch_size >= num_jobs (all at once)."""
-    sched = HybridFlowshopLiteSchedule(
-        jobs=["j1", "j2", "j3"],
-        stages=["s1", "s2"],
-        machines_per_stage={"s1": ["m1"], "s2": ["m2"]},
-    )
-    stage_2_job_2_duration = {
-        "s1": {"j1": 2, "j2": 3, "j3": 1},
-        "s2": {"j1": 3, "j2": 2, "j3": 4},
-    }
-    sched.dispatch_wave_batches(
-        batch_size=10,  # All at once
-        job_ids=["j1", "j2", "j3"],
-        stage_ids=["s1", "s2"],
-        stage_2_job_2_duration=stage_2_job_2_duration,
-    )
-
-    # All jobs should be scheduled
-    assert sched.get_job_end_time("s1", "j1") == 2
-    assert sched.get_job_end_time("s1", "j2") == 5
-    assert sched.get_job_end_time("s1", "j3") == 6
-    assert sched.get_job_end_time("s2", "j1") == 5
-    assert sched.get_job_end_time("s2", "j2") == 7
-    assert sched.get_job_end_time("s2", "j3") == 11
-
-    validate_schedule(sched, stage_2_job_2_duration)
-
-
-def test_wave_batch_3_stage():
-    """Test wave batch dispatching with 3 stages (diagonal propagation)."""
-    sched = HybridFlowshopLiteSchedule(
-        jobs=["j1", "j2", "j3", "j4"],
-        stages=["s1", "s2", "s3"],
-        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
-    )
-    stage_2_job_2_duration = {
-        "s1": {"j1": 2, "j2": 3, "j3": 1, "j4": 2},
-        "s2": {"j1": 2, "j2": 2, "j3": 2, "j4": 2},
-        "s3": {"j1": 2, "j2": 2, "j3": 2, "j4": 2},
-    }
-    sched.dispatch_wave_batches(
-        batch_size=2,
-        job_ids=["j1", "j2", "j3", "j4"],
-        stage_ids=["s1", "s2", "s3"],
-        stage_2_job_2_duration=stage_2_job_2_duration,
-    )
-
-    # All jobs should be scheduled in all stages
-    for stage in ["s1", "s2", "s3"]:
-        for job in ["j1", "j2", "j3", "j4"]:
-            assert sched.get_job_end_time(stage, job) > 0
-
-    # Validate the schedule
-    validate_schedule(sched, stage_2_job_2_duration)
-
-    # Makespan should be 13
-    assert sched.makespan == 13
-
-
-def test_wave_batch_invalid_batch_size():
-    """Test that invalid batch_size raises ValueError."""
+def test_get_machine_earliest_start_time_empty_machine():
+    """Empty machine returns release_t or 0."""
     sched = HybridFlowshopLiteSchedule(
         jobs=["j1"],
         stages=["s1"],
         machines_per_stage={"s1": ["m1"]},
     )
-    stage_2_job_2_duration = {"s1": {"j1": 5}}
 
-    with pytest.raises(ValueError, match="batch_size must be positive"):
-        sched.dispatch_wave_batches(
-            batch_size=0,
-            job_ids=["j1"],
-            stage_ids=["s1"],
-            stage_2_job_2_duration=stage_2_job_2_duration,
+    # No operations, defaults to 0
+    assert sched.get_machine_earliest_start_time("s1", "m1", duration=5) == 0
+
+    # With release_t
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=5, release_t=10)
+        == 10
+    )
+
+
+def test_get_machine_earliest_start_time_after_last_flag():
+    """after_last=True returns latest end time or release_t, whichever is larger."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [0, 10)
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=10)
+
+    # after_last=True: returns max(makespan=10, release_t=0) = 10
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=5, after_last=True)
+        == 10
+    )
+
+    # after_last=True with release_t > makespan
+    assert (
+        sched.get_machine_earliest_start_time(
+            "s1", "m1", duration=5, release_t=15, after_last=True
         )
-
-    with pytest.raises(ValueError, match="batch_size must be positive"):
-        sched.dispatch_wave_batches(
-            batch_size=-1,
-            job_ids=["j1"],
-            stage_ids=["s1"],
-            stage_2_job_2_duration=stage_2_job_2_duration,
-        )
+        == 15
+    )
 
 
-def test_wave_batch_missing_duration():
-    """Test that missing duration raises ValueError."""
+def test_get_machine_earliest_start_time_insert_in_gap():
+    """Operation can be inserted into an existing idle gap."""
     sched = HybridFlowshopLiteSchedule(
         jobs=["j1", "j2"],
-        stages=["s1", "s2"],
-        machines_per_stage={"s1": ["m1"], "s2": ["m2"]},
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
     )
-    # Missing duration for j2 at s2
-    stage_2_job_2_duration = {
-        "s1": {"j1": 2, "j2": 3},
-        "s2": {"j1": 3},  # j2 missing
-    }
 
-    with pytest.raises(
-        ValueError, match="Duration for job ID j2 at stage s2 not provided"
-    ):
-        sched.dispatch_wave_batches(
-            batch_size=2,
-            job_ids=["j1", "j2"],
-            stage_ids=["s1", "s2"],
-            stage_2_job_2_duration=stage_2_job_2_duration,
-        )
+    # J1 [0, 5), J2 [10, 15) - gap from 5 to 10
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+
+    # duration=3 fits in gap [5, 10)
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=5) == 5
+    )
+
+    # duration=6 does NOT fit in gap [5, 10), must start after J2
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=6, release_t=5) == 15
+    )
+
+
+def test_get_machine_earliest_start_time_release_t_within_operation():
+    """release_t falls within an operation - must wait for it to complete."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [0, 10)
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=10)
+
+    # release_t=5 is within J1, must wait until 10
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=5) == 10
+    )
+
+
+def test_get_machine_earliest_start_time_release_t_before_first_op():
+    """release_t is before all operations - can start immediately if gap fits."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [10, 20)
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=10, end_time=20)
+
+    # release_t=0, duration=5 fits before J1 at 10
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=5, release_t=0) == 0
+    )
+
+    # release_t=0, duration=11 does NOT fit before J1 at 10
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=11, release_t=0)
+        == 20
+    )
+
+
+def test_get_machine_earliest_start_time_multiple_gaps():
+    """Selects the first gap that can fit the duration."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [0, 5), J2 [10, 15), J3 [20, 25)
+    # Gaps: [5, 10) size=5, [15, 20) size=5
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+    sched.add_ops_times_2_mc("s1", "m1", "j3", start_time=20, end_time=25)
+
+    # release_t=5, duration=3 fits in first gap [5, 10)
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=5) == 5
+    )
+
+    # release_t=5, duration=4 fits in first gap [5, 10) since 5+4=9 <= 10
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=4, release_t=5) == 5
+    )
+
+    # release_t=5, duration=6 does NOT fit in first gap [5, 10),
+    # after J2 ends at 15, 15+6=21 > 20 (J3 start), so must wait for J3 to end at 25
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=6, release_t=5) == 25
+    )
+
+
+def test_get_machine_earliest_start_time_consecutive_operations():
+    """No gaps - operation must be scheduled after the last one."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [0, 5), J2 [5, 10) - no gaps
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=5, end_time=10)
+
+    # Must start after J2
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=0) == 10
+    )
+
+
+def test_get_machine_earliest_start_time_invalid_stage():
+    """Invalid stage_id raises ValueError."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    with pytest.raises(ValueError, match="Invalid stage ID"):
+        sched.get_machine_earliest_start_time("invalid", "m1", duration=5)
+
+
+def test_get_machine_earliest_start_time_invalid_machine():
+    """Invalid machine_id raises ValueError."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    with pytest.raises(ValueError, match="Invalid machine ID"):
+        sched.get_machine_earliest_start_time("s1", "invalid", duration=5)
+
+
+def test_get_machine_earliest_start_time_invalid_duration():
+    """Duration <= 0 raises ValueError."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    with pytest.raises(ValueError, match="Duration must be greater than 0"):
+        sched.get_machine_earliest_start_time("s1", "m1", duration=0)
+
+    with pytest.raises(ValueError, match="Duration must be greater than 0"):
+        sched.get_machine_earliest_start_time("s1", "m1", duration=-5)
+
+
+def test_get_machine_earliest_start_time_multi_machine_scenario():
+    """Test with multiple machines having different schedules."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+
+    # m1: J1 [0, 5), J2 [10, 15)
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+
+    # m2: J3 [2, 8)
+    sched.add_ops_times_2_mc("s1", "m2", "j3", start_time=2, end_time=8)
+
+    # m1 at release_t=7: fits in gap [7, 10)
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=7) == 7
+    )
+
+    # m2 at release_t=0: gap [0, 2) fits duration=2
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m2", duration=2, release_t=0) == 0
+    )
+
+    # m2 at release_t=5: within J3 [2, 8), must wait until 8
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m2", duration=3, release_t=5) == 8
+    )
+
+
+def test_get_machine_earliest_start_time_chained_operations_expand():
+    """Consecutive operations where release_t causes expansion."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [0, 5), J2 [5, 10), J3 [10, 15)
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s1", "m1", "j3", start_time=10, end_time=15)
+
+    # release_t=7: within J2, must expand past J2 and J3
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=7) == 15
+    )
+
+
+def test_get_machine_earliest_start_time_exact_gap_fit():
+    """Duration exactly fits a gap."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [0, 5), J2 [10, 15) - gap [5, 10) size=5
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+
+    # duration=5 exactly fits gap [5, 10)
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=5, release_t=5) == 5
+    )
+
+
+def test_get_machine_earliest_start_time_release_t_equals_operation_start():
+    """release_t exactly equals an operation start time."""
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    # J1 [10, 20)
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=10, end_time=20)
+
+    # release_t=10: exactly at J1 start, must wait until 20
+    assert (
+        sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=10)
+        == 20
+    )
