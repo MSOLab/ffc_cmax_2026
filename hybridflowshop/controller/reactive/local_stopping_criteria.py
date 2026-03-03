@@ -5,6 +5,35 @@ from routix import StoppingCriteria
 
 
 class LocalStoppingCriteria(StoppingCriteria):
+    def get_subroutine_timelimit(
+        self,
+        global_remaining_sec: float,
+        global_timelimit: float | None = None,
+    ) -> float:
+        """Calculate subroutine timelimit by reserving time from global remaining.
+
+        Args:
+            global_remaining_sec: Remaining time from global timelimit.
+            global_timelimit: Original global timelimit (needed for percent calculation).
+
+        Returns:
+            Calculated timelimit for subroutine after applying reserve.
+        """
+        # Calculate reserve from absolute offset (if set)
+        reserve = 0.0
+        if self.stop_at_global_timelimit_minus is not None:
+            reserve = max(reserve, self.stop_at_global_timelimit_minus)
+        # Calculate reserve from percent-based offset (if set) and take the larger one
+        if (
+            self.stop_at_global_timelimit_minus_percent is not None
+            and global_timelimit is not None
+        ):
+            percent_reserve = (
+                global_timelimit * self.stop_at_global_timelimit_minus_percent
+            )
+            reserve = max(reserve, percent_reserve)
+        return global_remaining_sec - reserve
+
     def __init__(self, param_dict: dict[str, Any]):
         # Loop stopping criteria
         self.max_loop_count: int | None = None
@@ -63,7 +92,8 @@ class LocalStoppingCriteria(StoppingCriteria):
         if (
             self.stop_at_global_timelimit_minus_percent is not None
             and global_timelimit is not None
-            and global_remaining_sec <= self.stop_at_global_timelimit_minus_percent * global_timelimit
+            and global_remaining_sec
+            <= self.stop_at_global_timelimit_minus_percent * global_timelimit
         ):
             if log_reason_if_true:
                 logging.info(

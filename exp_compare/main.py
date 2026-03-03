@@ -421,9 +421,9 @@ def run_comparison(
         # 0. Config
         config_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_config.yaml"
         config_path = out_dir / config_filename
-        config_dict = config.model_dump(mode="yaml")
+        config_dict = config.model_dump()
         with open(config_path, "w") as f:
-            yaml.dump(config_dict, f, default_flow_style=False)
+            yaml.safe_dump(config_dict, f, default_flow_style=False)
         logging.info(f"Config saved to: {config_path}")
 
         # 1. Long format

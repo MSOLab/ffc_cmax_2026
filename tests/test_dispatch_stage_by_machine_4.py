@@ -36,7 +36,6 @@ def test_machine_centric_dispatch_4_inserts_into_existing_idle_gap_and_then_uses
         job_id_seq=["J1", "J2"],
         stage_2_job_2_p=stage_2_job_2_p,
         job_2_release=None,
-        spt_on_last_stage=False,
     )
 
     # Expect J1 to be inserted into M2's idle gap [3,8) => [3,8)
@@ -67,7 +66,6 @@ def test_machine_centric_dispatch_4_respects_release_time_via_time_jump():
         job_id_seq=["J1", "J2"],
         stage_2_job_2_p=stage_2_job_2_p,
         job_2_release=job_2_release,
-        spt_on_last_stage=False,
     )
 
     # J2 can run in the early idle window; J1 cannot be scheduled before release=6.
@@ -84,7 +82,6 @@ def test_machine_centric_dispatch_4_respects_release_time_via_time_jump():
         job_id_seq=["J1", "J2"],
         stage_2_job_2_p=stage_2_job_2_p,
         job_2_release=job_2_release,
-        spt_on_last_stage=False,
     )
 
     assert sch.get_job_sequence("S2", "M1") == [
