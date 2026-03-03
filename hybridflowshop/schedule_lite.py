@@ -13,7 +13,7 @@ class HybridFlowshopLiteSchedule:
     # Parameters
 
     jobs: Sequence[JobIdType]
-    """ID of all jobs(scheduled or not)"""
+    """ID of all jobs (scheduled or not)"""
 
     stages: Sequence[StageIdType]
     """ID of stages"""
@@ -1086,7 +1086,7 @@ class HybridFlowshopLiteSchedule:
                 job_tuple_seq: list[tuple[int, int, str]] = self.get_job_sequence(
                     stage_id, mc_id
                 )
-                # Remove from end time cache and filter in a single pass
+                # Remove from end time cache
                 new_job_tuple_seq = [
                     job_tuple
                     for job_tuple in job_tuple_seq
@@ -1819,9 +1819,7 @@ def get_bottleneck_stage_job_sequence(
     return [info[3] for info in seq_info]
 
 
-def get_first_stage_start_sequence(
-    schedule: HybridFlowshopLiteSchedule,
-) -> list[str]:
+def get_first_stage_start_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:
     """Get job sequence based on first stage start time.
 
     Args:

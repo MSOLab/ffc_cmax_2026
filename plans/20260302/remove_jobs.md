@@ -45,8 +45,8 @@ This can reuse the logic from `remove_operations` but simplifies the API for the
 ## Critical Files
 
 - **New**: `tests/test_schedule_lite_setters_remove.py` - New test file
-- **Modify**: `/home/hjt/code/hybridflowshop/hybridflowshop/schedule_lite.py` - Add the new method near `remove_operations` (around line 1700)
-- **Reference**: `/home/hjt/code/hybridflowshop/tests/test_schedule_lite.py` - Existing tests to copy (lines 187-263)
+- **Modify**: `hybridflowshop/schedule_lite.py` - Add the new method near `remove_operations` (around line 1700)
+- **Reference**: `tests/test_schedule_lite.py` - Existing tests to move (lines 187-263)
 
 ## Verification
 

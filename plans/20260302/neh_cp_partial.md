@@ -164,8 +164,8 @@ else:
 
 ## Critical Files to Modify
 
-1. `/home/hjt/code/hybridflowshop/hybridflowshop/controller/neh_cp.py` - Main implementation
-2. `/home/hjt/code/hybridflowshop/hybridflowshop/schedule_lite.py` - Add `get_first_stage_start_sequence` helper
+1. `hybridflowshop/controller/neh_cp.py` - Main implementation
+2. `hybridflowshop/schedule_lite.py` - Add `get_first_stage_start_sequence` helper
 
 ## Key Functions/Patterns to Reuse
 

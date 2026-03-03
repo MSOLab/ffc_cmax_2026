@@ -5,11 +5,6 @@ import pytest
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 
-def _get_priv(obj, attr: str):
-    # Access name-mangled private attributes for test assertions.
-    return getattr(obj, f"_HybridFlowshopLiteSchedule{attr}")
-
-
 # =============================================================================
 # Tests for remove_operations (copied from test_schedule_lite.py)
 # =============================================================================

@@ -1686,8 +1686,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 iteration. Defaults to 1.
             job_seq_by_1st_stage (bool, optional): If True, defines the job
                 sequence according to incumbent schedule's first stage schedule.
+                Defaults to False.
             job_seq_by_bottleneck_stage (bool, optional): If True, defines the job
-                sequence according to incumbent schedule's bottleck stage schedule.
+                sequence according to incumbent schedule's bottleneck stage schedule.
                 Otherwise, uses the job sequence by increasing order of
                 (first stage start time + last stage end time) / 2.
                 Defaults to False.
