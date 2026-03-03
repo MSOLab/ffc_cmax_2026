@@ -147,8 +147,9 @@ class HybridFlowshopLiteSchedule:
         Returns:
             int: The earliest feasible start time on the machine for the duration
                 given the release time and existing scheduled operations.
-                If after_last is True, returns the time after the last scheduled
-                operation on the machine, ignoring release_t and duration.
+                If after_last is True, ignores any gaps between scheduled operations
+                and returns the later of the machine's latest end time and the
+                release time.
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
@@ -747,6 +748,8 @@ class HybridFlowshopLiteSchedule:
         """
         if stage_id not in self.stages:
             raise ValueError(f"Invalid stage ID: {stage_id}")
+        if stage_id not in stage_2_job_2_p:
+            raise ValueError(f"Duration for stage ID {stage_id} not provided")
         if not isinstance(spt_on_last_stage, bool):
             raise ValueError(
                 f"Invalid spt_on_last_stage: {spt_on_last_stage}. Must be a boolean."
@@ -765,7 +768,7 @@ class HybridFlowshopLiteSchedule:
         # Precompute remaining processing times
         job_2_remaining_pt: dict[JobIdType, int] = {}
         for job_id in job_id_seq:
-            if stage_id not in stage_2_job_2_p:
+            if job_id not in stage_2_job_2_p[stage_id]:
                 raise ValueError(
                     f"Duration for job ID {job_id} at stage ID {stage_id} not provided"
                 )
@@ -798,15 +801,15 @@ class HybridFlowshopLiteSchedule:
             duration = stage_2_job_2_p[stage_id][job_id]
             release_t = job_2_release_t[job_id]
             mc_cache: dict[McIdType, tuple[int, int]] = {}
-            best_mc = None
-            best_eat = None
-            best_idle = None
 
-            for mc in mc_list:
+            best_mc = mc_list[0]
+            best_eat, best_idle = self.get_eat_for_machine(
+                stage_id, best_mc, duration, release_t
+            )
+            for mc in mc_list[1:]:
                 eat, idle = self.get_eat_for_machine(stage_id, mc, duration, release_t)
                 mc_cache[mc] = (eat, idle)
-
-                if best_mc is None or (eat, idle) < (best_eat, best_idle):
+                if (eat, idle) < (best_eat, best_idle):
                     best_mc, best_eat, best_idle = mc, eat, idle
 
             job_2_mc_cache[job_id] = mc_cache

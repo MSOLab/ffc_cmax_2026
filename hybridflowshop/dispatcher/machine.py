@@ -1,7 +1,7 @@
 """MachineDispatcher class for machine-centric dispatch methods (DM)."""
 
 from typing import Mapping
-
+import logging
 from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.schedule_lite import (
@@ -68,7 +68,9 @@ class MachineDispatcher(BaseDispatcher):
                 best_sch = _schedule
                 best_k = k
 
-        print(f"Best DM(CDS) schedule found with k={best_k}, makespan={best_obj}")
+        logging.debug(
+            f"Best DM(CDS) schedule found with k={best_k}, makespan={best_obj}"
+        )
         return best_sch
 
     def get_schedule_by_gupta(

@@ -113,9 +113,7 @@ class ReactiveLooper:
     #         stopping_criteria=param_dict[stopping_criteria_key],
     #     )
 
-    def _is_loop_stopping_condition(
-        self, log_reason_if_true: bool = True
-    ) -> bool:
+    def _is_loop_stopping_condition(self, log_reason_if_true: bool = True) -> bool:
         global_timelimit = self.ctrlr.stopping_criteria.timelimit
         return self.stopping_criteria.is_loop_stopping_condition(
             self.loop_count,
@@ -137,22 +135,12 @@ class ReactiveLooper:
         time_start = self.ctrlr.timer.get_elapsed_sec()
 
         # timelimit by global - offset
-        timelimit_by_global = self.ctrlr.timer.get_remaining_sec(
+        global_remaining = self.ctrlr.timer.get_remaining_sec(
             self.ctrlr.stopping_criteria.timelimit
         )
-        if self.stopping_criteria.stop_at_global_timelimit_minus is not None:
-            timelimit_by_global -= self.stopping_criteria.stop_at_global_timelimit_minus
-        # Apply percent-based threshold (more strict if set)
-        if (
-            self.stopping_criteria.stop_at_global_timelimit_minus_percent is not None
-            and self.ctrlr.stopping_criteria.timelimit is not None
-        ):
-            threshold = (
-                self.ctrlr.stopping_criteria.timelimit
-                * self.stopping_criteria.stop_at_global_timelimit_minus_percent
-            )
-            if timelimit_by_global > threshold:
-                timelimit_by_global = threshold
+        timelimit_by_global = self.stopping_criteria.get_subroutine_timelimit(
+            global_remaining, global_timelimit=self.ctrlr.stopping_criteria.timelimit
+        )
         if timelimit_by_global <= kwargs_snapshot.get(
             "computational_time", float("inf")
         ):
