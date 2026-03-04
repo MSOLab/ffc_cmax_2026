@@ -37,7 +37,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def solve_base_cp_model(
         self,
-        computational_time: float,
+        computational_time: float | None,
         solver_thread_cnt: int,
         make_semi_active_after_cp: bool = False,
         is_initial_solution: bool = False,
@@ -53,24 +53,28 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         - If `draw_gantt` is True, a Gantt chart of the solution is generated after solving.
 
         Args:
-            computational_time (float): The maximum computational time in seconds for solving the CP model.
+            computational_time (float | None): The maximum computational time in seconds for solving the CP model.
+                If None, uses the remaining time limit.
             solver_thread_cnt (int): The number of parallel workers (threads) to use during search.
             is_initial_solution (bool, optional): If True, marks this run as producing the initial solution (affects summary/logging). Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution after solving. Defaults to False.
         """
+        sub_timer = ElapsedTimer()
         if self.base_cp_model_is_set:
             self.cp_model.delete_added_constraints()
         else:
-            raise RuntimeError(
-                "Base CP model is not set. Call set_cp_model_as_base_cp_model() first."
-            )
+            self.set_cp_model_as_base_cp_model()
 
         _should_be_init: bool = self.solution_manager.get_incumbent() is None
         _is_init: bool = _should_be_init or is_initial_solution
+        _computational_time = computational_time
+        if computational_time is not None:
+            # Subtract model handling time from subroutine time limit
+            _computational_time = max(0.0, computational_time - sub_timer.elapsed_sec)
 
         if _is_init:
             report, solution = self.solve_current_cp_remaining_time_limit(
-                computational_time,
+                _computational_time,
                 solver_thread_cnt,
                 make_semi_active_after_cp=make_semi_active_after_cp,
                 obj_value_is_valid=True,
@@ -82,7 +86,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         else:
             # If it is not an initial solution, apply the incumbent solution as a hint
             report, solution = self.solve_with_initial_solution(
-                computational_time,
+                _computational_time,
                 solver_thread_cnt,
                 make_semi_active_after_cp=make_semi_active_after_cp,
                 obj_value_is_valid=True,

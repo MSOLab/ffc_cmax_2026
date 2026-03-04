@@ -640,7 +640,7 @@ class HybridFlowShopCpLnsControllerCore(
 
     def solve_current_cp_remaining_time_limit(
         self,
-        computational_time: float,
+        computational_time: float | None,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         make_semi_active_after_cp: bool = False,
@@ -653,7 +653,8 @@ class HybridFlowShopCpLnsControllerCore(
         """Solves the current CP model, creates a schedule, and registers the result.
 
         Args:
-            computational_time (float): The maximum computational time in seconds.
+            computational_time (float | None): The maximum computational time in seconds.
+                If None, uses the remaining time limit.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             no_improvement_timelimit (float | None, optional): If there is no improvement in this
                 amount of time, the search will be stopped. If None, no timeout is set.
@@ -747,7 +748,7 @@ class HybridFlowShopCpLnsControllerCore(
 
     def solve_with_initial_solution(
         self,
-        computational_time: float,
+        computational_time: float | None,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         make_semi_active_after_cp: bool = False,
@@ -759,7 +760,8 @@ class HybridFlowShopCpLnsControllerCore(
         """Solves the current CP model using the incumbent solution as a hint.
 
         Args:
-            computational_time (float): The maximum computational time in seconds.
+            computational_time (float | None): The maximum computational time in seconds.
+                If None, uses the remaining time limit.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             no_improvement_timelimit (float | None, optional): If there is no improvement in this
                 amount of time, the search will be stopped. If None, no timeout is set.
