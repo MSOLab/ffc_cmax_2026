@@ -25,5 +25,6 @@
   expand_reservoir_constraints: true
   expand_reservoir_using_circuit: false
   interleave_search: false
+  use_lns_only: false
   cp_model_probing_level: 2
   log_search_progress: true

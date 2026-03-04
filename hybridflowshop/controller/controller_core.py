@@ -382,6 +382,7 @@ class HybridFlowShopCpLnsControllerCore(
         expand_reservoir_constraints: bool | None = None,
         expand_reservoir_using_circuit: bool | None = None,
         interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
         e_timer: ElapsedTimer | None = None,
         log_search_progress: bool = False,
@@ -406,6 +407,7 @@ class HybridFlowShopCpLnsControllerCore(
             expand_reservoir_constraints=expand_reservoir_constraints,
             expand_reservoir_using_circuit=expand_reservoir_using_circuit,
             interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
         )
         self.solver = configure_solver(solve_cfg)
@@ -678,6 +680,7 @@ class HybridFlowShopCpLnsControllerCore(
         expand_reservoir_constraints: bool | None = None,
         expand_reservoir_using_circuit: bool | None = None,
         interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
         log_search_progress: bool = False,
         error_if_infeasible: bool = False,
@@ -709,8 +712,12 @@ class HybridFlowShopCpLnsControllerCore(
                 Defaults to None.
             interleave_search (bool | None, optional): Whether to interleave the search.
                 Defaults to None.
+            use_lns_only (bool | None, optional): Whether to use LNS-only mode.
+                Defaults to None.
             cp_model_probing_level (int | None, optional): The level of probing for the CP model.
                 Defaults to None.
+            log_search_progress (bool, optional): If True, logs the search progress during solving.
+                Defaults to False.
 
         Returns:
             tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -741,6 +748,7 @@ class HybridFlowShopCpLnsControllerCore(
             expand_reservoir_constraints=expand_reservoir_constraints,
             expand_reservoir_using_circuit=expand_reservoir_using_circuit,
             interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
             log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
             log_search_progress=log_search_progress,
@@ -811,6 +819,7 @@ class HybridFlowShopCpLnsControllerCore(
         expand_reservoir_constraints: bool | None = None,
         expand_reservoir_using_circuit: bool | None = None,
         interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
         log_search_progress: bool = False,
         error_if_infeasible: bool = False,
@@ -841,8 +850,12 @@ class HybridFlowShopCpLnsControllerCore(
                 Defaults to None.
             interleave_search (bool | None, optional): Whether to interleave the search.
                 Defaults to None.
+            use_lns_only (bool | None, optional): Whether to use LNS-only mode.
+                Defaults to None.
             cp_model_probing_level (int | None, optional): The level of probing for the CP model.
                 Defaults to None.
+            log_search_progress (bool, optional): If True, logs the search progress during solving.
+                Defaults to False.
 
         Returns:
             tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -884,6 +897,7 @@ class HybridFlowShopCpLnsControllerCore(
             expand_reservoir_constraints=expand_reservoir_constraints,
             expand_reservoir_using_circuit=expand_reservoir_using_circuit,
             interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
             log_search_progress=log_search_progress,
             error_if_infeasible=error_if_infeasible,

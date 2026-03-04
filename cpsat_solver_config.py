@@ -17,6 +17,7 @@ class SolveConfig:
     expand_reservoir_constraints: bool | None = None
     expand_reservoir_using_circuit: bool | None = None
     interleave_search: bool | None = None
+    use_lns_only: bool | None = None
     cp_model_probing_level: int | None = None
 
     def get_dict(self) -> dict[str, Any]:
