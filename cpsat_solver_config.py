@@ -7,6 +7,8 @@ from ortools.sat.python.cp_model import CpSolver
 @dataclass(frozen=True)
 class SolveConfig:
     log_search_progress: bool | None = None
+    log_to_stdout: bool | None = None
+    log_to_response: bool | None = None
     max_time_in_seconds: float | None = None
     num_workers: int | None = None
     keep_all_feasible_solutions_in_presolve: bool | None = None

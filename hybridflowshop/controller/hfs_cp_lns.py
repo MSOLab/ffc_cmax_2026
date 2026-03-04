@@ -41,6 +41,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         make_semi_active_after_cp: bool = False,
         is_initial_solution: bool = False,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -80,6 +81,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
                 is_initial_solution=True,
+                log_search_progress=log_search_progress,
                 error_if_infeasible=error_if_infeasible,
                 draw_gantt=draw_gantt,
             )
@@ -91,6 +93,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 make_semi_active_after_cp=make_semi_active_after_cp,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
+                log_search_progress=log_search_progress,
                 error_if_infeasible=error_if_infeasible,
                 draw_gantt=draw_gantt,
             )

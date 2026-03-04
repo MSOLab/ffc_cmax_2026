@@ -379,7 +379,7 @@ class HybridFlowShopCpLnsControllerCore(
         obj_bound_is_valid: bool = False,
         keep_all_feasible_solutions_in_presolve: bool | None = None,
         e_timer: ElapsedTimer | None = None,
-        print_search_progress: bool = False,
+        log_search_progress: bool = False,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
         log_level_obj_value: int = logging.INFO,
@@ -390,7 +390,9 @@ class HybridFlowShopCpLnsControllerCore(
             e_timer = self.timer
 
         solve_cfg = SolveConfig(
-            log_search_progress=print_search_progress,
+            log_search_progress=log_search_progress,
+            log_to_stdout=False if log_search_progress else None,
+            log_to_response=True if log_search_progress else None,
             max_time_in_seconds=computational_time,
             num_workers=solver_thread_cnt,
             keep_all_feasible_solutions_in_presolve=keep_all_feasible_solutions_in_presolve,
@@ -411,6 +413,21 @@ class HybridFlowShopCpLnsControllerCore(
         self.solver.best_bound_callback = obj_bound_recorder
 
         cp_solver_status = self.solver.solve(mdl, solution_callback=obj_value_recorder)
+        if log_search_progress:
+            solve_log = self.solver.response_proto.solve_log
+            if solve_log:
+                try:
+                    solve_log_path = self.get_file_path_for_subroutine("_cp_sat_search.log")
+                    with solve_log_path.open("a", encoding="utf-8") as fp:
+                        fp.write(
+                            f"\n=== {self._get_call_context_of_current_method()} "
+                            f"at {datetime.datetime.now().isoformat()} ===\n"
+                        )
+                        fp.write(solve_log)
+                        if not solve_log.endswith("\n"):
+                            fp.write("\n")
+                except Exception as err:
+                    logging.warning("Failed to write CP-SAT search log: %s", err)
         cpsat_status = CpsatStatus.from_cp_solver_status(cp_solver_status)
         elapsed_time = self.solver.wall_time
         if cpsat_status.is_feasible:
@@ -647,6 +664,7 @@ class HybridFlowShopCpLnsControllerCore(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         is_initial_solution: bool = False,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -691,6 +709,7 @@ class HybridFlowShopCpLnsControllerCore(
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
+            log_search_progress=log_search_progress,
         )
 
         hfs_solver_report = HfsCpsatSolverReport.from_other(
@@ -754,6 +773,7 @@ class HybridFlowShopCpLnsControllerCore(
         make_semi_active_after_cp: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -808,6 +828,7 @@ class HybridFlowShopCpLnsControllerCore(
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             is_initial_solution=is_initial_run,
+            log_search_progress=log_search_progress,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )

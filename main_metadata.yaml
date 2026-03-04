@@ -1086,10 +1086,14 @@ dicts_of_i_o_data_path:
   #   output_dir: "ff2020/20260302-04"
   #   description: "init -> NEH-CP(MDM, 1st stage sequence, reconstruct 25% tail)"
 
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-01.yaml"
+  #   output_dir: "ff2020/20260304-01"
+  #   description: "init -> base CP 2nc"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-01.yaml"
-    output_dir: "ff2020/20260304-01"
-    description: "init -> base CP 2nc"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-02.yaml"
+    output_dir: "ff2020/20260304-02"
+    description: "init -> base CP(option1) 2nc"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
