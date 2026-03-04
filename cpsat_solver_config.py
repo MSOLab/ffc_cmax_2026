@@ -13,6 +13,11 @@ class SolveConfig:
     num_workers: int | None = None
     keep_all_feasible_solutions_in_presolve: bool | None = None
     random_seed: int | None = None
+    encode_cumulative_as_reservoir: bool | None = None
+    expand_reservoir_constraints: bool | None = None
+    expand_reservoir_using_circuit: bool | None = None
+    interleave_search: bool | None = None
+    cp_model_probing_level: int | None = None
 
     def get_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
