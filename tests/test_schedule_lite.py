@@ -1184,3 +1184,123 @@ def test_get_machine_earliest_start_time_release_t_equals_operation_start():
         sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=10)
         == 20
     )
+
+
+def test_as_reversed_reverses_stage_order():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=3)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=1, end_time=4)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=3, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m2", "j2", start_time=4, end_time=7)
+
+    reversed_sched = sched.as_reversed()
+
+    assert list(reversed_sched.stages) == ["s2", "s1"]
+
+
+def test_as_reversed_time_transform_formula_exact():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=3)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=1, end_time=4)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=3, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m2", "j2", start_time=4, end_time=7)
+
+    reversed_sched = sched.as_reversed()
+    rev_start = reversed_sched.get_jik_2_start_time_map()
+    rev_end = reversed_sched.get_jik_2_end_time_map()
+    anchor = sched.makespan
+
+    # as_reversed keeps original stage and machine IDs, only reverses time
+    expected = {}
+    for (job_id, stage_orig, mc_id), start_orig in sched.get_jik_2_start_time_map().items():
+        end_orig = sched.get_jik_2_end_time_map()[(job_id, stage_orig, mc_id)]
+        # Stage and machine IDs remain the same; only time is transformed
+        expected[(job_id, stage_orig, mc_id)] = (
+            anchor - end_orig,
+            anchor - start_orig,
+        )
+
+    for op, (exp_start, exp_end) in expected.items():
+        assert rev_start[op] == exp_start
+        assert rev_end[op] == exp_end
+
+
+def test_as_reversed_preserves_machine_and_job():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=3)
+    sched.add_ops_times_2_mc("s2", "m2", "j1", start_time=3, end_time=6)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=1, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=6, end_time=8)
+
+    reversed_sched = sched.as_reversed()
+
+    # as_reversed keeps original stage and machine IDs, only reverses time
+    orig_ops = sched.get_operation_set()
+    rev_ops = reversed_sched.get_operation_set()
+    # Stage and machine IDs remain unchanged
+    assert rev_ops == orig_ops
+
+
+def test_as_reversed_non_inplace():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=2)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=2, end_time=5)
+    original_start = dict(sched.get_jik_2_start_time_map())
+    original_end = dict(sched.get_jik_2_end_time_map())
+
+    reversed_sched = sched.as_reversed()
+
+    assert reversed_sched is not sched
+    assert sched.get_jik_2_start_time_map() == original_start
+    assert sched.get_jik_2_end_time_map() == original_end
+
+
+def test_as_reversed_empty_schedule():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
+    )
+
+    reversed_sched = sched.as_reversed()
+
+    assert list(reversed_sched.stages) == ["s3", "s2", "s1"]
+    assert reversed_sched.get_jik_2_start_time_map() == {}
+    assert reversed_sched.get_jik_2_end_time_map() == {}
+    assert reversed_sched.makespan == 0
+
+
+def test_as_reversed_remaps_machine_by_stage_position():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["i0", "i1"],
+        machines_per_stage={
+            "i0": ["i0_0", "i0_1"],
+            "i1": ["i1_0", "i1_1"],
+        },
+    )
+    sched.add_ops_times_2_mc("i0", "i0_1", "j1", start_time=0, end_time=2)
+    sched.add_ops_times_2_mc("i1", "i1_0", "j1", start_time=2, end_time=5)
+
+    reversed_sched = sched.as_reversed()
+    ops = reversed_sched.get_operation_set()
+
+    # as_reversed keeps original stage and machine IDs
+    assert ("j1", "i0", "i0_1") in ops
+    assert ("j1", "i1", "i1_0") in ops

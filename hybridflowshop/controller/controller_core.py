@@ -235,7 +235,7 @@ class HybridFlowShopCpLnsControllerCore(
         self,
         schedule: HybridFlowshopLiteSchedule,
         output_path: Path | None = None,
-        stage_list: list[str] | None = None,
+        stage_list: Sequence[str] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):

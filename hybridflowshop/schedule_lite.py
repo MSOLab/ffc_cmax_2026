@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import bisect
-from collections import deque
 from typing import Iterable, Iterator, Mapping, Sequence
 
 JobIdType = str
@@ -96,6 +95,39 @@ class HybridFlowshopLiteSchedule:
                     ]
 
         return new_instance
+
+    def as_reversed(self) -> HybridFlowshopLiteSchedule:
+        """Return a reversed-time schedule with reversed stage order.
+
+        This converts the current (forward) schedule into a reversed schedule:
+        - The ``stages`` list order is reversed (e.g., ``["s1", "s2"]`` → ``["s2", "s1"]``).
+        - For each operation with ``(start_orig, end_orig)``, times are transformed by:
+          ``start_rev = makespan - end_orig``, ``end_rev = makespan - start_orig``.
+        - Stage IDs and machine IDs are preserved as-is; operations are added using
+          their original ``(stage_id, mc_id)`` keys.
+
+        The current instance is not modified.
+        """
+        makespan = self.makespan
+
+        new_sched = HybridFlowshopLiteSchedule(
+            jobs=self.jobs,
+            stages=list(reversed(self.stages)),
+            machines_per_stage={
+                stage: list(mcs) for stage, mcs in self.machines_per_stage.items()
+            },
+        )
+
+        for stage, mc, start, end, job in self._iter_operations():
+            new_sched.add_ops_times_2_mc(
+                stage_id=stage,
+                mc_id=mc,
+                job_id=job,
+                start_time=makespan - end,
+                end_time=makespan - start,
+            )
+
+        return new_sched
 
     # Getters
 

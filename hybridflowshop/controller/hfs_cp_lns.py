@@ -4,7 +4,10 @@ import random
 from typing import Callable, Mapping, Sequence
 
 from routix import ElapsedTimer
-from schore.parameters_examples import HybridFlowshopParameters
+from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
+    HybridFlowshopParameters,
+    reverse_stages,
+)
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
@@ -1300,9 +1303,25 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _get_schedule_by_dm_cds(self) -> HybridFlowshopLiteSchedule:
         dispatcher = MachineDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_cds()
+        if schedule is not None:
+            logging.info(f"Schedule by DM(CDS): makespan={schedule.makespan}")
+
+        reversed_dispatcher = MachineDispatcher(reverse_stages(self.instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_cds()
+        if reversed_schedule is not None:
+            logging.info(
+                "Schedule by DM(CDS) on reversed instance"
+                f": makespan={reversed_schedule.makespan}"
+            )
+
+        if reversed_schedule is not None and (
+            schedule is None or schedule.makespan > reversed_schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(self.stage_2_job_2_p_dict)
+            return converted
         if schedule is None:
             raise ValueError("No schedule found after applying DM(CDS).")
-        logging.info(f"Schedule by DM(CDS): makespan={schedule.makespan}")
         return schedule
 
     def initialize_by_dm_gupta(
@@ -1349,9 +1368,25 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _get_schedule_by_dm_gupta(self) -> HybridFlowshopLiteSchedule:
         dispatcher = MachineDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_gupta()
+        if schedule is not None:
+            logging.info(f"Schedule by DM(Gupta): makespan={schedule.makespan}")
+
+        reversed_dispatcher = MachineDispatcher(reverse_stages(self.instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_gupta()
+        if reversed_schedule is not None:
+            logging.info(
+                "Schedule by DM(Gupta) on reversed instance"
+                f": makespan={reversed_schedule.makespan}"
+            )
+
+        if reversed_schedule is not None and (
+            schedule is None or schedule.makespan > reversed_schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(self.stage_2_job_2_p_dict)
+            return converted
         if schedule is None:
             raise ValueError("No schedule found after applying DM(Gupta).")
-        logging.info(f"Schedule by DM(Gupta): makespan={schedule.makespan}")
         return schedule
 
     def initialize_by_dm_palmer(
@@ -1398,9 +1433,43 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _get_schedule_by_dm_palmer(self) -> HybridFlowshopLiteSchedule:
         dispatcher = MachineDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_palmer()
+        if schedule is not None:
+            logging.info(f"Schedule by DM(Palmer): makespan={schedule.makespan}")
+            try:
+                out_path = self.get_file_path_for_subroutine("_gantt_dm_palmer.png")
+                self.draw_gantt(schedule, output_path=out_path)
+            except Exception:
+                logging.exception("Failed to draw Gantt for DM(Palmer) schedule")
+
+        reversed_dispatcher = MachineDispatcher(reverse_stages(self.instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_palmer()
+        if reversed_schedule is not None:
+            logging.info(
+                "Schedule by DM(Palmer) on reversed instance"
+                f": makespan={reversed_schedule.makespan}"
+            )
+            try:
+                out_path = self.get_file_path_for_subroutine(
+                    "_gantt_dm_palmer_reversed.png"
+                )
+                self.draw_gantt(
+                    reversed_schedule,
+                    output_path=out_path,
+                    stage_list=reversed_schedule.stages,
+                )
+            except Exception:
+                logging.exception(
+                    "Failed to draw Gantt for DM(Palmer) reversed schedule"
+                )
+
+        if reversed_schedule is not None and (
+            schedule is None or schedule.makespan > reversed_schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(self.stage_2_job_2_p_dict)
+            return converted
         if schedule is None:
             raise ValueError("No schedule found after applying DM(Palmer).")
-        logging.info(f"Schedule by DM(Palmer): makespan={schedule.makespan}")
         return schedule
 
     def initialize_by_best_of_dispatches(
@@ -2147,6 +2216,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
     ) -> HybridFlowshopLiteSchedule | None:
+        # Dispatch on the original problem
         dispatcher = MixedDispatcher(self.instance)
         schedule = dispatcher.get_schedule_by_cds(
             machine_then_job=machine_then_job,
@@ -2159,8 +2229,30 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         if schedule is not None:
             logging.info(
-                f"Best of mixed schedule by CDS sequence: makespan={schedule.makespan}"
+                f"Best of mixed schedule by CDS sequence: objValue={schedule.makespan}"
             )
+        # Dispatch on the reversed problem
+        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_cds(
+            machine_then_job=machine_then_job,
+            head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
+            draw_gantt_per_step=draw_gantt_per_step,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine
+            if draw_gantt_per_step
+            else None,
+        )
+        if reversed_schedule is not None:
+            logging.info(
+                "Best of mixed schedule by CDS sequence on reversed instance"
+                f": objValue={reversed_schedule.makespan}"
+            )
+        if reversed_schedule is not None and (
+            schedule is None or schedule.makespan > reversed_schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(self.stage_2_job_2_p_dict)
+            return converted
         return schedule
 
     def initialize_schedule_by_gupta(
@@ -2229,6 +2321,29 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             logging.info(
                 f"Best of mixed schedule by Gupta sequence: makespan={schedule.makespan}"
             )
+
+        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_gupta(
+            machine_then_job=machine_then_job,
+            head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
+            draw_gantt_per_step=draw_gantt_per_step,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine
+            if draw_gantt_per_step
+            else None,
+        )
+        if reversed_schedule is not None:
+            logging.info(
+                "Best of mixed schedule by Gupta sequence on reversed instance"
+                f": makespan={reversed_schedule.makespan}"
+            )
+
+        if reversed_schedule is not None and (
+            schedule is None or schedule.makespan > reversed_schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(self.stage_2_job_2_p_dict)
+            return converted
         return schedule
 
     def initialize_schedule_by_palmer(
@@ -2297,6 +2412,29 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             logging.info(
                 f"Best of mixed schedule by Palmer sequence: makespan={schedule.makespan}"
             )
+
+        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_palmer(
+            machine_then_job=machine_then_job,
+            head_for_all_stages=head_for_all_stages,
+            use_palmer_index=use_palmer_index,
+            draw_gantt_per_step=draw_gantt_per_step,
+            get_file_path_for_subroutine=self.get_file_path_for_subroutine
+            if draw_gantt_per_step
+            else None,
+        )
+        if reversed_schedule is not None:
+            logging.info(
+                "Best of mixed schedule by Palmer sequence on reversed instance"
+                f": makespan={reversed_schedule.makespan}"
+            )
+
+        if reversed_schedule is not None and (
+            schedule is None or schedule.makespan > reversed_schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(self.stage_2_job_2_p_dict)
+            return converted
         return schedule
 
     def initialize_by_best_of_mixed_dispatches(
