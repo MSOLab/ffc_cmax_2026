@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import yaml
 from mbls.cpsat import ObjValueBoundStore
 from routix.constants import SubroutineReportStatisticsKeys
 from routix.runner import MultiInstanceConcurrentRunner
@@ -13,6 +14,7 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 from exp_compare.metrics import compute_rpdf
 from hfs_config import BaselineColumnMapping
 from hfs_single_instance_runner import HfsSingleInstanceRunner
+from hybridflowshop.constants import INPUT_TIMELIMIT_COLUMN
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
 from scripts.process_logs import create_method_end_time_and_obj_value_summary
 
@@ -158,8 +160,242 @@ class HfsMultiInstanceRunner(
         # Re-write the CSV with the final combined data
         combined_df.to_csv(summary_path, index=False)
         logging.info(f"Multi-instance summary saved to {summary_path}")
+        self._create_timepoint_summaries(combined_df)
 
         return combined_df
+
+    def _create_timepoint_summaries(self, base_df: pd.DataFrame) -> None:
+        obj_value_points_map, obj_bound_points_map = (
+            self._load_obj_store_maps_for_instances()
+        )
+
+        for cfg in self._resolve_timepoint_summaries():
+            summary_df = self._build_timepoint_summary(
+                base_df=base_df,
+                label=str(cfg["label"]),
+                mode=str(cfg["mode"]),
+                value=float(cfg["value"]),
+                exclude_if_timelimit_lt=cfg.get("exclude_if_timelimit_lt"),
+                obj_value_points_map=obj_value_points_map,
+                obj_bound_points_map=obj_bound_points_map,
+            )
+            output_path = (
+                self.working_dir / f"multi_instance_summary_{cfg['label']}.csv"
+            )
+            summary_df.to_csv(output_path, index=False)
+            logging.info(f"Timepoint summary saved to {output_path}")
+
+    def _resolve_timepoint_summaries(self) -> list[dict[str, Any]]:
+        configured = self.output_metadata.get("timepoint_summaries")
+        if not configured:
+            return []
+
+        valid_modes = {"timelimit_ratio", "absolute_sec"}
+        summaries: list[dict[str, Any]] = []
+        for cfg in configured:
+            if not isinstance(cfg, dict):
+                continue
+            label = cfg.get("label")
+            mode = cfg.get("mode")
+            value = cfg.get("value")
+            if not label or mode not in valid_modes or value is None:
+                continue
+            summaries.append(
+                {
+                    "label": str(label),
+                    "mode": str(mode),
+                    "value": float(value),
+                    "exclude_if_timelimit_lt": (
+                        float(cfg["exclude_if_timelimit_lt"])
+                        if cfg.get("exclude_if_timelimit_lt") is not None
+                        else None
+                    ),
+                }
+            )
+
+        if not summaries:
+            logging.warning(
+                "No valid timepoint_summaries found in output_metadata. Timepoint summaries will be skipped."
+            )
+            return []
+        return summaries
+
+    def _load_obj_store_maps_for_instances(
+        self,
+    ) -> tuple[
+        dict[str, list[tuple[float, float]]], dict[str, list[tuple[float, float]]]
+    ]:
+        obj_value_points_map: dict[str, list[tuple[float, float]]] = {}
+        obj_bound_points_map: dict[str, list[tuple[float, float]]] = {}
+
+        for runner in self.runners:
+            ins_name = str(getattr(runner, "name", ""))
+            if not ins_name:
+                continue
+
+            obj_log_path: Path | None = getattr(runner, "obj_log_path", None)
+            if obj_log_path is None:
+                obj_log_path = (
+                    Path(getattr(runner, "working_dir"))
+                    / "results"
+                    / f"{ins_name}_obj_log.yaml"
+                )
+
+            if not obj_log_path.exists():
+                logging.warning(
+                    f"Obj log file not found for {ins_name}: {obj_log_path}"
+                )
+                obj_value_points_map[ins_name] = []
+                obj_bound_points_map[ins_name] = []
+                continue
+
+            try:
+                with open(obj_log_path, "r", encoding="utf-8") as f:
+                    content = yaml.safe_load(f) or {}
+            except Exception as e:
+                logging.warning(f"Failed to load obj log {obj_log_path}: {e}")
+                obj_value_points_map[ins_name] = []
+                obj_bound_points_map[ins_name] = []
+                continue
+
+            obj_value_data = (
+                content.get("obj_value", {}).get("data", {})
+                if isinstance(content, dict)
+                else {}
+            )
+            obj_bound_data = (
+                content.get("obj_bound", {}).get("data", {})
+                if isinstance(content, dict)
+                else {}
+            )
+
+            obj_value_points_map[ins_name] = self._to_sorted_time_points(obj_value_data)
+            obj_bound_points_map[ins_name] = self._to_sorted_time_points(obj_bound_data)
+
+        return obj_value_points_map, obj_bound_points_map
+
+    @staticmethod
+    def _to_sorted_time_points(data: dict[Any, Any]) -> list[tuple[float, float]]:
+        points: list[tuple[float, float]] = []
+        for time_key, value in data.items():
+            try:
+                sec = float(time_key)
+                val = float(value)
+            except (TypeError, ValueError):
+                continue
+            points.append((sec, val))
+        points.sort(key=lambda x: x[0])
+        return points
+
+    @staticmethod
+    def _sample_last_known_value(
+        sorted_points: list[tuple[float, float]],
+        target_sec: float,
+    ) -> float | None:
+        last_val: float | None = None
+        for sec, val in sorted_points:
+            if sec <= target_sec:
+                last_val = val
+            else:
+                break
+        return last_val
+
+    @staticmethod
+    def _get_instance_points(
+        points_map: dict[str, list[tuple[float, float]]], instance_name: Any
+    ) -> list[tuple[float, float]]:
+        candidate_keys: list[str] = []
+
+        if isinstance(instance_name, str):
+            stripped = instance_name.strip()
+            candidate_keys.extend([instance_name, stripped])
+            try:
+                num_val = float(stripped)
+                if num_val.is_integer():
+                    candidate_keys.append(str(int(num_val)))
+            except ValueError:
+                pass
+        else:
+            key = str(instance_name)
+            candidate_keys.append(key)
+            if isinstance(instance_name, (int, float)):
+                num_val = float(instance_name)
+                if num_val.is_integer():
+                    candidate_keys.append(str(int(num_val)))
+
+        for key in candidate_keys:
+            if key in points_map:
+                return points_map[key]
+        return []
+
+    @staticmethod
+    def _build_timepoint_summary(
+        base_df: pd.DataFrame,
+        label: str,
+        mode: str,
+        value: float,
+        exclude_if_timelimit_lt: float | None,
+        obj_value_points_map: dict[str, list[tuple[float, float]]],
+        obj_bound_points_map: dict[str, list[tuple[float, float]]],
+    ) -> pd.DataFrame:
+        if base_df.empty:
+            empty_df = base_df.copy()
+            empty_df["targetSec"] = pd.Series(dtype=float)
+            empty_df["timepointLabel"] = pd.Series(dtype=str)
+            return empty_df
+
+        summary_df = base_df.copy()
+        if exclude_if_timelimit_lt is not None:
+            summary_df = summary_df[
+                summary_df[INPUT_TIMELIMIT_COLUMN].astype(float)
+                >= float(exclude_if_timelimit_lt)
+            ].copy()
+
+        for idx, row in summary_df.iterrows():
+            ins_name = row.get(SubroutineReportStatisticsKeys.INSTANCE_NAME)
+            timelimit = row.get(INPUT_TIMELIMIT_COLUMN)
+            if pd.isna(timelimit):
+                continue
+
+            if mode == "timelimit_ratio":
+                target_sec = float(timelimit) * value
+            else:
+                target_sec = value
+
+            obj_points = HfsMultiInstanceRunner._get_instance_points(
+                obj_value_points_map, ins_name
+            )
+            bound_points = HfsMultiInstanceRunner._get_instance_points(
+                obj_bound_points_map, ins_name
+            )
+            sampled_obj = HfsMultiInstanceRunner._sample_last_known_value(
+                obj_points, target_sec
+            )
+            sampled_bound = HfsMultiInstanceRunner._sample_last_known_value(
+                bound_points, target_sec
+            )
+
+            if sampled_obj is not None:
+                summary_df.at[idx, SubroutineReportStatisticsKeys.BEST_OBJ] = (
+                    sampled_obj
+                )
+            if sampled_bound is not None:
+                summary_df.at[idx, SubroutineReportStatisticsKeys.BEST_BOUND] = (
+                    sampled_bound
+                )
+
+            original_elapsed = row.get(
+                SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME
+            )
+            if pd.notna(original_elapsed):
+                summary_df.at[
+                    idx, SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME
+                ] = min(float(original_elapsed), target_sec)
+
+            summary_df.at[idx, "targetSec"] = target_sec
+            summary_df.at[idx, "timepointLabel"] = label
+
+        return summary_df
 
     def _get_summary_csv_path(self) -> Path:
         """Get the path to multi_instance_summary.csv."""
