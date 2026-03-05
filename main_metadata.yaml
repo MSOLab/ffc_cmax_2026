@@ -1124,7 +1124,7 @@ draw_progress_plot: true
 progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
-# analysis_dir_path: "$HFS_RESULT_DIR/Calop1/20250912T001404_281753"
+# analysis_dir_path: "$HFS_RESULT_DIR/calop4/20260304/20260304T135956_984566"
 # analysis_timestamp: "20260305T132432_386185"
 # resume_dir_path: resources/pra_prev_calc/20250906T212736_116407
 
@@ -1134,7 +1134,7 @@ timepoint_summaries:
   - label: "25p"
     mode: "timelimit_ratio"
     value: 0.25
-  - label: "100s"
-    mode: "absolute_sec"
-    value: 100
-    exclude_if_timelimit_lt: 100
+  # - label: "100s"
+  #   mode: "absolute_sec"
+  #   value: 100
+  #   exclude_if_timelimit_lt: 100
