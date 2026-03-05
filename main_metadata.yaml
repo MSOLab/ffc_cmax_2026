@@ -1094,10 +1094,15 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-02.yaml"
   #   output_dir: "ff2020/20260304-02"
   #   description: "init -> base CP(default) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-03.yaml"
+  #   output_dir: "ff2020/20260304-03"
+  #   description: "init -> base CP(interleave) 2nc"
+
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-03.yaml"
-    output_dir: "ff2020/20260304-03"
-    description: "init -> base CP(interleave) 2nc"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260305-01.yaml"
+    output_dir: "ff2020/20260305-01"
+    description: "base CP 2nc"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
