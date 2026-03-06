@@ -2798,6 +2798,31 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     best_obj = dispatched_schedule.makespan
                     best_sch = dispatched_schedule
 
+        best_reversed_obj: int | None = None
+        best_reversed_sch: HybridFlowshopLiteSchedule | None = None
+
+        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        for job_sequence in job_sequences:
+            dispatched_schedule = (
+                reversed_dispatcher.get_best_mixed_schedule_by_sequence(
+                    job_sequence,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                )
+            )
+            if dispatched_schedule is not None:
+                if (
+                    best_reversed_obj is None
+                    or dispatched_schedule.makespan < best_reversed_obj
+                ):
+                    best_reversed_obj = dispatched_schedule.makespan
+                    best_reversed_sch = dispatched_schedule
+
+        if best_reversed_sch is not None:
+            if best_sch is None or best_reversed_obj < best_obj:
+                converted = best_reversed_sch.as_reversed()
+                converted.make_semi_active(self.stage_2_job_2_p_dict)
+                return converted
         return best_sch
 
     def _get_schedule_from_stage_aggregated_problem(
@@ -2828,6 +2853,20 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
         )
+
+        reversed_dispatcher = MixedDispatcher(reverse_stages(stage_aggregated_instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_cds(
+            head_for_all_stages=head_for_all_stages,
+            draw_gantt_per_step=draw_gantt_per_step,
+        )
+
+        if reversed_schedule is not None and (
+            schedule is None or reversed_schedule.makespan < schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(stage_aggregated_instance.stage_2_job_2_p_map)
+            schedule = converted
+
         if draw_gantt and schedule is not None:
             output_path = self.get_file_path_for_subroutine("_gantt_stage_agg.png")
             self.draw_gantt(schedule, output_path=output_path)

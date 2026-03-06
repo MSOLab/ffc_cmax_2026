@@ -2,6 +2,7 @@
   stage_agg_count: 2
   head_for_all_stages: false
   head_stages_to_keep: 0
+  tail_stages_to_keep: 0
   p_agg_method: "sum"
   mi_agg_method: "max"
   machine_then_job: true
