@@ -2047,11 +2047,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
             machine_then_job=machine_then_job,
         )
-        dispatcher = BN2DDispatcher(self.instance)
-
-        schedule = dispatcher.get_schedule_by_bn2d_all_stages(
-            option=option,
-            gantt_draw_func=self.draw_gantt if draw_gantt else None,
+        schedule = self._get_schedule_by_bn2d_all_stages(
+            option=option, draw_gantt=draw_gantt
         )
 
         if schedule is None:
@@ -2080,6 +2077,37 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Draw Gantt chart if the solution is an improvement
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
+
+    def _get_schedule_by_bn2d_all_stages(
+        self,
+        option: BN2DOption,
+        draw_gantt: bool = False,
+    ) -> HybridFlowshopLiteSchedule | None:
+        gantt_draw_func = self.draw_gantt if draw_gantt else None
+        dispatcher = BN2DDispatcher(self.instance)
+        schedule = dispatcher.get_schedule_by_bn2d_all_stages(
+            option=option, gantt_draw_func=gantt_draw_func
+        )
+        if schedule is not None:
+            logging.info(f"BN2D all stages: makespan={schedule.makespan}")
+
+        reversed_dispatcher = BN2DDispatcher(reverse_stages(self.instance))
+        reversed_schedule = reversed_dispatcher.get_schedule_by_bn2d_all_stages(
+            option=option, gantt_draw_func=gantt_draw_func
+        )
+        if reversed_schedule is not None:
+            logging.info(
+                "BN2D all stages on reversed instance"
+                f": makespan={reversed_schedule.makespan}"
+            )
+
+        if reversed_schedule is not None and (
+            schedule is None or schedule.makespan > reversed_schedule.makespan
+        ):
+            converted = reversed_schedule.as_reversed()
+            converted.make_semi_active(self.stage_2_job_2_p_dict)
+            return converted
+        return schedule
 
     # Dispatch
 
@@ -2560,10 +2588,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             method_list = ["bn2d_all_stages", "best_of_mixed_dispatches"]
         for method_name in method_list:
             if method_name == "bn2d_all_stages":
-                dispatcher = BN2DDispatcher(self.instance)
-                sch = dispatcher.get_schedule_by_bn2d_all_stages(
-                    option=option,
-                    gantt_draw_func=self.draw_gantt if draw_gantt else None,
+                sch = self._get_schedule_by_bn2d_all_stages(
+                    option=option, draw_gantt=draw_gantt
                 )
                 obj = sch.makespan if sch is not None else None
                 logging.info(f"{method_name}: makespan={obj}")

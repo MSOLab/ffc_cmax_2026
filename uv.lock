@@ -244,7 +244,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.3" },
-    { name = "routix", specifier = "==0.0.13" },
+    { name = "routix", specifier = ">=0.0.13" },
 ]
 
 [package.metadata.requires-dev]
@@ -561,7 +561,7 @@ wheels = [
 
 [[package]]
 name = "routix"
-version = "0.0.13"
+version = "0.0.14"
 source = { editable = "../routix" }
 
 [package.metadata]
