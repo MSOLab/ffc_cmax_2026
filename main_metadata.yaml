@@ -1115,10 +1115,14 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260306-01.yaml"
   #   output_dir: "ff2020/20260306-01"
   #   description: "init -> base CP(cp_model_probing_level=1) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260306-02.yaml"
+  #   output_dir: "ff2020/20260306-02"
+  #   description: "init -> base CP(cp_model_probing_level=0) 2nc"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260306-02.yaml"
-    output_dir: "ff2020/20260306-02"
-    description: "init -> base CP(cp_model_probing_level=0) 2nc"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260307-01.yaml"
+    output_dir: "ff2020/20260307-01"
+    description: "init -> base CP(use_lns_only) 2nc"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
