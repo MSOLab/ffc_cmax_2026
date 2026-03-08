@@ -50,6 +50,8 @@ class BaseModelBuilder:
         params: Params = self._make_params(instance)
         variables: CumulativeVars = self._make_vars(mdl, params, horizon)
         self._add_structural_constraints(mdl, params, variables)
+        self._add_job_completion_link_constraints(mdl, params, variables)
+        # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(
             mdl,
             params,
@@ -73,6 +75,8 @@ class BaseModelBuilder:
             mdl, params, stage_2_mc_2_horizon
         )
         self._add_structural_constraints(mdl, params, variables, stage_2_mc_2_horizon)
+        self._add_job_completion_link_constraints(mdl, params, variables)
+        # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(mdl, params, variables)
         mdl.set_num_base_constraints()
 
@@ -93,15 +97,49 @@ class BaseModelBuilder:
         )
 
     @staticmethod
+    def _compute_head(params: Params) -> dict[tuple[str, str], int]:
+        j_i_2_head: dict[tuple[str, str], int] = {}
+        for j in params.j_list:
+            acc = 0
+            for i in params.i_list:
+                j_i_2_head[j, i] = acc
+                acc += params.p[j, i]
+
+        return j_i_2_head
+
+    @staticmethod
+    def _compute_tail(params: Params) -> dict[tuple[str, str], int]:
+        j_i_2_tail: dict[tuple[str, str], int] = {}
+        for j in params.j_list:
+            acc = 0
+            for i in reversed(params.i_list):
+                j_i_2_tail[j, i] = acc
+                acc += params.p[j, i]
+
+        return j_i_2_tail
+
+    @staticmethod
     def _make_vars(mdl: CustomCpModel, params: Params, horizon: int) -> CumulativeVars:
         op_start: dict[tuple[str, str], IntVar] = {}
         op_end: dict[tuple[str, str], IntVar] = {}
         op_intvl: dict[tuple[str, str], IntervalVar] = {}
 
+        j_i_2_head = BaseModelBuilder._compute_head(params)
+        j_i_2_tail = BaseModelBuilder._compute_tail(params)
+
         for j in params.j_list:
             for i in params.i_list:
-                start_var = mdl.new_int_var(0, horizon, f"start_{j}_{i}")
-                end_var = mdl.new_int_var(0, horizon, f"end_{j}_{i}")
+                p = params.p[j, i]
+
+                assert j_i_2_head[j, i] <= horizon - j_i_2_tail[j, i] - p
+                assert j_i_2_head[j, i] + p <= horizon - j_i_2_tail[j, i]
+
+                start_var = mdl.new_int_var(
+                    j_i_2_head[j, i], horizon - j_i_2_tail[j, i] - p, f"start_{j}_{i}"
+                )
+                end_var = mdl.new_int_var(
+                    j_i_2_head[j, i] + p, horizon - j_i_2_tail[j, i], f"end_{j}_{i}"
+                )
                 interval_var = mdl.new_interval_var(
                     start_var,
                     params.p[j, i],
@@ -113,7 +151,13 @@ class BaseModelBuilder:
                 op_end[(j, i)] = end_var
                 op_intvl[(j, i)] = interval_var
 
-        makespan = mdl.new_int_var(0, horizon, "makespan")
+        job_lb = max(sum(params.p[j, i] for i in params.i_list) for j in params.j_list)
+        stage_load_lb = max(
+            math.ceil(sum(params.p[j, i] for j in params.j_list) / len(params.M_of[i]))
+            for i in params.i_list
+        )
+        makespan_lb = max(job_lb, stage_load_lb)
+        makespan = mdl.new_int_var(makespan_lb, horizon, "makespan")
 
         return CumulativeVars(
             op_start=op_start,
@@ -207,6 +251,38 @@ class BaseModelBuilder:
             mdl.add_cumulative(intervals, demands, capacity)
 
     @staticmethod
+    def _add_job_completion_link_constraints(
+        mdl: CustomCpModel, params: Params, variables: CumulativeVars
+    ) -> None:
+        j_i_2_tail = BaseModelBuilder._compute_tail(params)
+        j_list = params.j_list
+        i_list = params.i_list
+        last_i = i_list[-1]
+
+        for j in j_list:
+            for i in i_list:
+                mdl.add(
+                    variables.op_end[j, i] + j_i_2_tail[j, i]
+                    <= variables.op_end[j, last_i]
+                )
+
+    # @staticmethod
+    # def _add_inter_stage_structural_constraints(
+    #     mdl: CustomCpModel, params: Params, variables: CumulativeVars
+    # ) -> None:
+    #     for j in params.j_list:
+    #         for a_idx, i in enumerate(params.i_list):
+    #             transfer = 0
+    #             for b_idx in range(a_idx + 1, len(params.i_list)):
+    #                 k = params.i_list[b_idx]
+    #                 if b_idx > a_idx + 1:
+    #                     prev_stage = params.i_list[b_idx - 1]
+    #                     transfer += params.p[j, prev_stage]
+    #                 mdl.add(
+    #                     variables.op_end[j, i] + transfer <= variables.op_start[j, k]
+    #                 )
+
+    @staticmethod
     def _define_objective(
         mdl: CustomCpModel,
         params: Params,
@@ -256,9 +332,8 @@ class BaseModelBuilder:
 
         if not minimize_sum_ci and not minimize_makespan_plus_sum_other_stages:
             # Makespan definition
-            mdl.add_max_equality(
-                variables.makespan, [variables.op_end[j, last_i] for j in j_list]
-            )
+            job_completion = [variables.op_end[j, last_i] for j in j_list]
+            mdl.add_max_equality(variables.makespan, job_completion)
             # Set objective to minimize makespan
             mdl.minimize(variables.makespan)
         else:
