@@ -44,6 +44,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         make_semi_active_after_cp: bool = False,
         is_initial_solution: bool = False,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -60,6 +67,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 If None, uses the remaining time limit.
             solver_thread_cnt (int): The number of parallel workers (threads) to use during search.
             is_initial_solution (bool, optional): If True, marks this run as producing the initial solution (affects summary/logging). Defaults to False.
+            encode_cumulative_as_reservoir (bool | None, optional): Whether to encode cumulative constraints as reservoir constraints. Defaults to None.
+            expand_reservoir_constraints (bool | None, optional): Whether to expand reservoir constraints. Defaults to None.
+            expand_reservoir_using_circuit (bool | None, optional): Whether to expand reservoir constraints using a circuit. Defaults to None.
+            interleave_search (bool | None, optional): Whether to interleave the search. Defaults to None.
+            use_lns_only (bool | None, optional): Whether to use LNS-only mode. Defaults to None.
+            cp_model_probing_level (int | None, optional): The level of probing for the CP model. Defaults to None.
+            log_search_progress (bool, optional): If True, logs the search progress during solving. Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution after solving. Defaults to False.
         """
         sub_timer = ElapsedTimer()
@@ -82,7 +96,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 make_semi_active_after_cp=make_semi_active_after_cp,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
+                encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+                expand_reservoir_constraints=expand_reservoir_constraints,
+                expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+                interleave_search=interleave_search,
+                use_lns_only=use_lns_only,
+                cp_model_probing_level=cp_model_probing_level,
                 is_initial_solution=True,
+                log_search_progress=log_search_progress,
                 error_if_infeasible=error_if_infeasible,
                 draw_gantt=draw_gantt,
             )
@@ -94,6 +115,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 make_semi_active_after_cp=make_semi_active_after_cp,
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
+                encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+                expand_reservoir_constraints=expand_reservoir_constraints,
+                expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+                interleave_search=interleave_search,
+                use_lns_only=use_lns_only,
+                cp_model_probing_level=cp_model_probing_level,
+                log_search_progress=log_search_progress,
                 error_if_infeasible=error_if_infeasible,
                 draw_gantt=draw_gantt,
             )

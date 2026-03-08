@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -43,8 +43,51 @@ class BaselineColumnMapping(BaseModel):
     )
     job_cnt: str = Field("n", description="Column name for the job count.")
     stage_cnt: str = Field("s", description="Column name for the stage count.")
-    obj_val: str = Field("UB", description="Column name for the objective value (upper bound).")
-    obj_bound: str = Field("LB", description="Column name for the objective bound (lower bound).")
+    obj_val: str = Field(
+        "UB", description="Column name for the objective value (upper bound)."
+    )
+    obj_bound: str = Field(
+        "LB", description="Column name for the objective bound (lower bound)."
+    )
+
+
+class TimepointSummaryConfig(BaseModel):
+    """Configuration for one timepoint summary output."""
+
+    label: str = Field(..., description="Output label used in file name.")
+    mode: Literal["timelimit_ratio", "absolute_sec"] = Field(
+        ..., description="Target time calculation mode."
+    )
+    value: float = Field(..., description="Ratio or absolute seconds for target time.")
+    exclude_if_timelimit_lt: float | None = Field(
+        default=None,
+        description="Exclude instance if timelimit is lower than this threshold.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_values(self):
+        if not self.label or not self.label.strip():
+            raise ValueError("timepoint_summaries[].label must be non-empty.")
+
+        if self.mode == "timelimit_ratio":
+            if not (0 < self.value <= 1):
+                raise ValueError(
+                    "timepoint_summaries[].value must satisfy 0 < value <= 1 when mode='timelimit_ratio'."
+                )
+        elif self.mode == "absolute_sec":
+            if self.value <= 0:
+                raise ValueError(
+                    "timepoint_summaries[].value must be > 0 when mode='absolute_sec'."
+                )
+
+        if (
+            self.exclude_if_timelimit_lt is not None
+            and self.exclude_if_timelimit_lt <= 0
+        ):
+            raise ValueError(
+                "timepoint_summaries[].exclude_if_timelimit_lt must be > 0 when provided."
+            )
+        return self
 
 
 class MainMetadata(BaseModel):
@@ -138,6 +181,13 @@ class MainMetadata(BaseModel):
         default=None,
         description="If a valid timestamp string is provided, the runner will operate in POST_PROCESS_ONLY mode for that specific run.",
     )
+    timepoint_summaries: list[TimepointSummaryConfig] | None = Field(
+        default=None,
+        description=(
+            "Optional timepoint summary definitions for post-process outputs. "
+            "If omitted, defaults to 10p/25p/50p/100s."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_index_inputs(self):
@@ -153,6 +203,11 @@ class MainMetadata(BaseModel):
                 )
             if self.first > self.last:
                 raise ValueError("'first' must be <= 'last'.")
+
+        if self.timepoint_summaries:
+            labels = [cfg.label for cfg in self.timepoint_summaries]
+            if len(labels) != len(set(labels)):
+                raise ValueError("timepoint_summaries labels must be unique.")
         return self
 
     def to_dict(self) -> dict[str, Any]:

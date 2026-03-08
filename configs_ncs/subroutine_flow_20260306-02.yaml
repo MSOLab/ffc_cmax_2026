@@ -1,0 +1,25 @@
+- method: initialize_by_best_of_selected_dispatches
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  normalize_by_stage_cnt: false
+  randomize_mid_all: false
+  reverse_mid_even: false
+  reverse_mid_all: false
+  mixed_schedule_for_former_stages: true
+  mixed_schedule_for_later_stages: true
+  machine_then_job: true
+  head_for_all_stages: false
+  p_agg_method: "sum"
+  mi_agg_method: "max"
+  error_if_infeasible: false
+  draw_gantt: false
+  method_list:
+    - bn2d_all_stages
+    - best_of_mixed_dispatches
+    - stage_agg_2_1
+    - stage_agg_2_2
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8
+  cp_model_probing_level: 0
+  log_search_progress: true

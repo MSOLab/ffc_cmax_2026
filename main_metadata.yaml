@@ -1090,6 +1090,47 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-01.yaml"
   #   output_dir: "ff2020/20260304-01"
   #   description: "init -> base CP 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-02.yaml"
+  #   output_dir: "ff2020/20260304-02"
+  #   description: "init -> base CP(default) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260304-03.yaml"
+  #   output_dir: "ff2020/20260304-03"
+  #   description: "init -> base CP(interleave) 2nc"
+
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260305-01.yaml"
+  #   output_dir: "ff2020/20260305-00"
+  #   description: "base CP 0.5nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260305-01.yaml"
+  #   output_dir: "ff2020/20260305-01"
+  #   description: "base CP 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260305-02.yaml"
+  #   output_dir: "ff2020/20260305-02"
+  #   description: "base CP(cp_model_probing_level=3) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260306-01.yaml"
+  #   output_dir: "ff2020/20260306-01"
+  #   description: "init -> base CP(cp_model_probing_level=1) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260306-02.yaml"
+  #   output_dir: "ff2020/20260306-02"
+  #   description: "init -> base CP(cp_model_probing_level=0) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260307-01.yaml"
+  #   output_dir: "ff2020/20260307-01"
+  #   description: "init -> base CP(use_lns_only) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260307-02.yaml"
+  #   output_dir: "ff2020/20260307-02"
+  #   description: "init -> base CP(encode_cumulative_as_reservoir) 2nc"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_2nc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-01.yaml"
+  #   output_dir: "ff2020/20260308-01"
+  #   description: "init -> base CP(cp_model_probing_level=3) 2nc"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -1107,6 +1148,17 @@ draw_progress_plot: true
 progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
-# analysis_dir_path: "$HFS_RESULT_DIR/Calop1/20250912T001404_281753"
-# analysis_timestamp: "20260202T010807_317440"
+# analysis_dir_path: "$HFS_RESULT_DIR/calop4/20260304/20260304T135956_984566"
+# analysis_timestamp: "20260305T095348_555170"
 # resume_dir_path: resources/pra_prev_calc/20250906T212736_116407
+
+# Optional timepoint summary definitions for post-process outputs.
+# If omitted, defaults are used: 10p, 25p, 50p, 100s(with exclude_if_timelimit_lt=100).
+timepoint_summaries:
+  - label: "25p"
+    mode: "timelimit_ratio"
+    value: 0.25
+  # - label: "100s"
+  #   mode: "absolute_sec"
+  #   value: 100
+  #   exclude_if_timelimit_lt: 100

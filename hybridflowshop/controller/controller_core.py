@@ -378,8 +378,14 @@ class HybridFlowShopCpLnsControllerCore(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         keep_all_feasible_solutions_in_presolve: bool | None = None,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
         e_timer: ElapsedTimer | None = None,
-        print_search_progress: bool = False,
+        log_search_progress: bool = False,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
         log_level_obj_value: int = logging.INFO,
@@ -390,11 +396,19 @@ class HybridFlowShopCpLnsControllerCore(
             e_timer = self.timer
 
         solve_cfg = SolveConfig(
-            log_search_progress=print_search_progress,
+            log_search_progress=log_search_progress,
+            log_to_stdout=False if log_search_progress else None,
+            log_to_response=True if log_search_progress else None,
             max_time_in_seconds=computational_time,
             num_workers=solver_thread_cnt,
             keep_all_feasible_solutions_in_presolve=keep_all_feasible_solutions_in_presolve,
             random_seed=self.random_seed,
+            encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+            expand_reservoir_constraints=expand_reservoir_constraints,
+            expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+            interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
         )
         self.solver = configure_solver(solve_cfg)
         obj_value_recorder = ObjectiveValueRecorder(
@@ -411,6 +425,21 @@ class HybridFlowShopCpLnsControllerCore(
         self.solver.best_bound_callback = obj_bound_recorder
 
         cp_solver_status = self.solver.solve(mdl, solution_callback=obj_value_recorder)
+        if log_search_progress:
+            solve_log = self.solver.response_proto.solve_log
+            if solve_log:
+                try:
+                    solve_log_path = self.get_file_path_for_subroutine("_cp_sat_search.log")
+                    with solve_log_path.open("a", encoding="utf-8") as fp:
+                        fp.write(
+                            f"\n=== {self._get_call_context_of_current_method()} "
+                            f"at {datetime.datetime.now().isoformat()} ===\n"
+                        )
+                        fp.write(solve_log)
+                        if not solve_log.endswith("\n"):
+                            fp.write("\n")
+                except Exception as err:
+                    logging.warning("Failed to write CP-SAT search log: %s", err)
         cpsat_status = CpsatStatus.from_cp_solver_status(cp_solver_status)
         elapsed_time = self.solver.wall_time
         if cpsat_status.is_feasible:
@@ -647,6 +676,13 @@ class HybridFlowShopCpLnsControllerCore(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         is_initial_solution: bool = False,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -668,6 +704,24 @@ class HybridFlowShopCpLnsControllerCore(
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
+            encode_cumulative_as_reservoir (bool | None, optional): Whether to encode cumulative constraints as reservoir constraints.
+                Defaults to None.
+            expand_reservoir_constraints (bool | None, optional): Whether to expand reservoir constraints.
+                Defaults to None.
+            expand_reservoir_using_circuit (bool | None, optional): Whether to expand reservoir constraints using a circuit.
+                Defaults to None.
+            interleave_search (bool | None, optional): Whether to interleave the search.
+                Defaults to None.
+            use_lns_only (bool | None, optional): Whether to use LNS-only mode.
+                Defaults to None.
+            cp_model_probing_level (int | None, optional): The level of probing for the CP model.
+                Defaults to None.
+            log_search_progress (bool, optional): If True, logs the search progress during solving.
+                Defaults to False.
+
+        Returns:
+            tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
+                A tuple containing the solver report and the created schedule (if a feasible solution is found).
         """
         sub_timer = ElapsedTimer()
         # Utilize the objective bound if available
@@ -690,7 +744,14 @@ class HybridFlowShopCpLnsControllerCore(
             solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
+            encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+            expand_reservoir_constraints=expand_reservoir_constraints,
+            expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+            interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
             log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
+            log_search_progress=log_search_progress,
         )
 
         hfs_solver_report = HfsCpsatSolverReport.from_other(
@@ -754,6 +815,13 @@ class HybridFlowShopCpLnsControllerCore(
         make_semi_active_after_cp: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -774,9 +842,24 @@ class HybridFlowShopCpLnsControllerCore(
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
+            encode_cumulative_as_reservoir (bool | None, optional): Whether to encode cumulative constraints as reservoir constraints.
+                Defaults to None.
+            expand_reservoir_constraints (bool | None, optional): Whether to expand reservoir constraints.
+                Defaults to None.
+            expand_reservoir_using_circuit (bool | None, optional): Whether to expand reservoir constraints using a circuit.
+                Defaults to None.
+            interleave_search (bool | None, optional): Whether to interleave the search.
+                Defaults to None.
+            use_lns_only (bool | None, optional): Whether to use LNS-only mode.
+                Defaults to None.
+            cp_model_probing_level (int | None, optional): The level of probing for the CP model.
+                Defaults to None.
+            log_search_progress (bool, optional): If True, logs the search progress during solving.
+                Defaults to False.
 
-        Raises:
-            TypeError: If the incumbent solution is not compatible with the CP model.
+        Returns:
+            tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
+                A tuple containing the solver report and the created schedule (if a feasible solution is found).
         """
         incumbent_solution = self.solution_manager.get_incumbent()
         is_initial_run = incumbent_solution is None
@@ -799,6 +882,8 @@ class HybridFlowShopCpLnsControllerCore(
                 self.vars,
                 incumbent_solution.get_jik_2_end_time_map(),
             )
+            self.cp_model.add_hint(self.vars.makespan, incumbent_solution.makespan)
+
 
         return self.solve_current_cp_remaining_time_limit(
             computational_time,
@@ -808,6 +893,13 @@ class HybridFlowShopCpLnsControllerCore(
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             is_initial_solution=is_initial_run,
+            encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+            expand_reservoir_constraints=expand_reservoir_constraints,
+            expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+            interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
+            log_search_progress=log_search_progress,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
