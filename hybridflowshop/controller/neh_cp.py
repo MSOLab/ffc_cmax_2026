@@ -123,6 +123,7 @@ class NehCpConstructor:
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         minimize_sum_ci_lex: bool = False,
         cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
@@ -291,6 +292,7 @@ class NehCpConstructor:
                 instance,
                 stage_2_job_2_p_dict,
                 profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
                 max_time_per_add=max_time_per_add,
                 minimize_sum_ci_lex=minimize_sum_ci_lex,
                 max_time_per_add_2nd_obj=max_time_per_add_2nd_obj,
@@ -361,6 +363,7 @@ class NehCpConstructor:
         partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         minimize_sum_ci_lex: bool = False,
         minimize_sum_ci_lin: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
@@ -386,6 +389,7 @@ class NehCpConstructor:
             variables,
             partial_sol,
             profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
         )
 
         return mdl, params, variables
@@ -397,6 +401,7 @@ class NehCpConstructor:
         variables: CumulativeVars,
         partial_sol: HybridFlowshopLiteSchedule,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ) -> None:
         st = self._require_state()
         # Apply hint from partial solution
@@ -422,6 +427,7 @@ class NehCpConstructor:
                 variables,
                 st.partial_sol,
                 profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
             )
 
     def _solve_cp_model(
@@ -430,6 +436,7 @@ class NehCpConstructor:
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         max_time_per_add: float | None = None,
         minimize_sum_ci_lex: bool = False,
         max_time_per_add_2nd_obj: float | None = None,
@@ -447,6 +454,7 @@ class NehCpConstructor:
             partial_sol,
             instance,
             profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
             minimize_sum_ci_lin=minimize_sum_ci_lin,
         )
 

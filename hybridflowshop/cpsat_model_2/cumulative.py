@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from bisect import bisect_left
 from dataclasses import dataclass
-from itertools import pairwise
 from typing import Mapping
 
 from mbls.cpsat import CustomCpModel
@@ -423,6 +422,7 @@ class BaseModelBuilder:
         variables: CumulativeVars,
         current_schedule: HybridFlowshopLiteSchedule,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ) -> None:
         """
         Add precedence constraints from a reference dispatch schedule.
@@ -431,10 +431,10 @@ class BaseModelBuilder:
         preserve ordering information observed in ``current_schedule``.
 
         Modes:
-            - ``profile_fix_by_machine=True``: preserve adjacent order per
-              machine sequence at each stage.
+            - ``profile_fix_by_machine=True``: preserve machine-sequence order
+            with a configurable stride per machine at each stage.
             - ``profile_fix_by_machine=False``: use stage-level start/end times
-              to select successor candidates and add a bounded number of arcs.
+            to select successor candidates and add a bounded number of arcs.
 
         Args:
             mdl (CustomCpModel): Target CP-SAT model.
@@ -443,18 +443,30 @@ class BaseModelBuilder:
             current_schedule (HybridFlowshopLiteSchedule): Reference schedule
                 providing start/end times and machine-level sequences.
             profile_fix_by_machine (bool, optional): If True, fix precedence by machine
-                adjacency; otherwise apply stage-level time-based selection.
+                sequence; otherwise apply stage-level time-based selection.
                 Defaults to False.
+            machine_precedence_stride (int, optional): Gap between predecessor and
+                successor positions when ``profile_fix_by_machine=True``.
+                - 1: adjacent precedence (default), e.g. 1->2->3->4->5
+                - 2: every-other precedence, e.g. 1->3->5 and 2->4
+                Ignored when ``profile_fix_by_machine=False``.
+                Defaults to 1.
         """
+        if machine_precedence_stride < 1:
+            raise ValueError("machine_precedence_stride must be >= 1")
+
         start_time_map = current_schedule.get_jik_2_start_time_map()
         end_time_map = current_schedule.get_jik_2_end_time_map()
+
         for i in params.i_list:
             if profile_fix_by_machine:
                 for m in params.M_of[i]:
                     job_tuple_seq = current_schedule.get_job_sequence(i, m)
-                    for job_tuple in pairwise(job_tuple_seq):
-                        j1 = job_tuple[0][2]
-                        j2 = job_tuple[1][2]
+                    seq_len = len(job_tuple_seq)
+
+                    for idx in range(seq_len - machine_precedence_stride):
+                        j1 = job_tuple_seq[idx][2]
+                        j2 = job_tuple_seq[idx + machine_precedence_stride][2]
                         BaseModelBuilder.add_fixed_operation_precedence_constraint(
                             mdl, params, variables, j1, j2, i
                         )
