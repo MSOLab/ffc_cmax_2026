@@ -167,6 +167,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
         make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
@@ -334,6 +335,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
             make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             error_if_infeasible=error_if_infeasible,
@@ -417,6 +419,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         seed_op_from_critical_block: bool = False,
         profile_fix_by_machine: bool = False,
         make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -431,6 +434,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
             make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -543,6 +547,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         seed_stage_from_non_singleton_cb: bool = False,
         profile_fix_by_machine: bool = False,
         make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -557,6 +562,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
             make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -670,6 +676,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         seed_op_from_critical_block: bool = False,
         profile_fix_by_machine: bool = False,
         make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -684,6 +691,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
             make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
             obj_value_is_valid=True,
             obj_bound_is_valid=False,
             error_if_infeasible=error_if_infeasible,
@@ -1775,6 +1783,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
+        use_lns_only: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1854,6 +1863,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             minimize_sum_ci_lin=minimize_sum_ci_lin,
             make_semi_active_every_cp=make_semi_active_every_cp,
             solver_thread_cnt=solver_thread_cnt,
+            use_lns_only=use_lns_only,
             error_if_infeasible=error_if_infeasible,
         )
         obj_value = float(result.schedule.makespan)

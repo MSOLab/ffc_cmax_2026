@@ -41,6 +41,7 @@ class NehCpContext(Protocol):
         e_timer: ElapsedTimer | None = None,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
+        use_lns_only: bool | None = None,
         log_level_obj_value: int = logging.INFO,
         log_level_obj_bound: int = logging.INFO,
     ) -> CpsatSolverReport: ...
@@ -130,6 +131,7 @@ class NehCpConstructor:
         minimize_sum_ci_lin: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
+        use_lns_only: bool = False,
         error_if_infeasible: bool = False,
     ) -> NehCpResult:
         timer = ElapsedTimer()
@@ -299,6 +301,7 @@ class NehCpConstructor:
                 minimize_sum_ci_lin=minimize_sum_ci_lin,
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
+                use_lns_only=use_lns_only,
             )
             last_timestamp = st.timer.elapsed_sec
             logging.info(
@@ -443,6 +446,7 @@ class NehCpConstructor:
         minimize_sum_ci_lin: bool = False,
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
+        use_lns_only: bool = False,
     ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
         if solver_thread_cnt is None:
             solver_thread_cnt = 1
@@ -463,6 +467,7 @@ class NehCpConstructor:
             sub_cp_mdl,
             _timelimit,
             solver_thread_cnt,
+            use_lns_only=use_lns_only,
             e_timer=st.timer,
             obj_value_is_valid=False,
             obj_bound_is_valid=False,
@@ -507,6 +512,7 @@ class NehCpConstructor:
             sub_cp_mdl,
             _timelimit,
             solver_thread_cnt,
+            use_lns_only=use_lns_only,
             e_timer=st.timer,
             obj_value_is_valid=False,
             obj_bound_is_valid=False,

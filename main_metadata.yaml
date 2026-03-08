@@ -58,16 +58,16 @@ benchmark_idx_list:
   # - 192
   # - 216
   # - 240
-  - 15
-  - 39
-  - 63
-  - 87
-  - 111
-  - 135
-  - 159
-  - 183
-  - 207
-  - 231
+  # - 15
+  # - 39
+  # - 63
+  # - 87
+  # - 111
+  # - 135
+  # - 159
+  # - 183
+  # - 207
+  # - 231
 first: 1
 last: 240
 benchmark_filename_format: "{}.txt"
@@ -1145,18 +1145,26 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-02.yaml"
   #   output_dir: "ff2020/20260308-02"
   #   description: "initialize by selected 2 dispatches"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-03.yaml"
-    output_dir: "ff2020/20260308-03"
-    description: "Dispatch2 -> NEH-CP (0.008nc, lexico, 2nd obj 0.002nc, pf0)"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-04.yaml"
-    output_dir: "ff2020/20260308-04"
-    description: "Dispatch2 -> NEH-CP (0.008nc, lexico, 2nd obj 0.002nc, pf1)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-03.yaml"
+  #   output_dir: "ff2020/20260308-03"
+  #   description: "Dispatch2 -> NEH-CP (0.008nc, lexico, 2nd obj 0.002nc, pf0)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-04.yaml"
+  #   output_dir: "ff2020/20260308-04"
+  #   description: "Dispatch2 -> NEH-CP (0.008nc, lexico, 2nd obj 0.002nc, pf1)"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
     subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-05.yaml"
     output_dir: "ff2020/20260308-05"
     description: "Dispatch2 -> NEH-CP (0.008nc, lexico, 2nd obj 0.002nc, pf2)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-06.yaml"
+    output_dir: "ff2020/20260308-06"
+    description: "Dispatch2 -> NEH-CP (0.008nc, lexico, 2nd obj 0.002nc, pf2) use_lns_only"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260308-07.yaml"
+    output_dir: "ff2020/20260308-07"
+    description: "Dispatch2 -> NEH-CP (0.008nc, lexico, 2nd obj 0.002nc, pf2) -> improve [nc/2] use_lns_only"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -1164,7 +1172,7 @@ scenario_log_filename: "hfs_multi_scenario_runner.log"
 result_dir_name: "results"
 
 # Execution configuration
-instance_worker_cnt: 8
+instance_worker_cnt: 12
 
 # Analysis and plotting options
 draw_gantt: false
