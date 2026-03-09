@@ -47,9 +47,9 @@ class BaseModelBuilder:
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
         params: Params = self._make_params(instance)
-        variables: CumulativeVars = self._make_vars(mdl, params, horizon)
+        variables: CumulativeVars = self._make_vars(mdl, params, horizon, tighten_ranges=True)
         self._add_structural_constraints(mdl, params, variables)
-        self._add_job_completion_link_constraints(mdl, params, variables)
+        # self._add_job_completion_link_constraints(mdl, params, variables)
         # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(
             mdl,
@@ -74,7 +74,7 @@ class BaseModelBuilder:
             mdl, params, stage_2_mc_2_horizon
         )
         self._add_structural_constraints(mdl, params, variables, stage_2_mc_2_horizon)
-        self._add_job_completion_link_constraints(mdl, params, variables)
+        # self._add_job_completion_link_constraints(mdl, params, variables)
         # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(mdl, params, variables)
         mdl.set_num_base_constraints()
@@ -118,13 +118,19 @@ class BaseModelBuilder:
         return j_i_2_tail
 
     @staticmethod
-    def _make_vars(mdl: CustomCpModel, params: Params, horizon: int) -> CumulativeVars:
+    def _make_vars(
+        mdl: CustomCpModel, params: Params, horizon: int, tighten_ranges: bool = False
+    ) -> CumulativeVars:
         op_start: dict[tuple[str, str], IntVar] = {}
         op_end: dict[tuple[str, str], IntVar] = {}
         op_intvl: dict[tuple[str, str], IntervalVar] = {}
 
-        j_i_2_head = BaseModelBuilder._compute_head(params)
-        j_i_2_tail = BaseModelBuilder._compute_tail(params)
+        if tighten_ranges:
+            j_i_2_head = BaseModelBuilder._compute_head(params)
+            j_i_2_tail = BaseModelBuilder._compute_tail(params)
+        else:
+            j_i_2_head = {(j, i): 0 for j in params.j_list for i in params.i_list}
+            j_i_2_tail = {(j, i): 0 for j in params.j_list for i in params.i_list}
 
         for j in params.j_list:
             for i in params.i_list:
