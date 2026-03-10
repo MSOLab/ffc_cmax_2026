@@ -47,9 +47,7 @@ class BaseModelBuilder:
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
         params: Params = self._make_params(instance)
-        variables: CumulativeVars = self._make_vars(
-            mdl, params, horizon, tighten_ranges=True
-        )
+        variables: CumulativeVars = self._make_vars(mdl, params, horizon)
         self._add_structural_constraints(mdl, params, variables)
         # self._add_job_completion_link_constraints(mdl, params, variables)
         # self._add_inter_stage_structural_constraints(mdl, params, variables)
