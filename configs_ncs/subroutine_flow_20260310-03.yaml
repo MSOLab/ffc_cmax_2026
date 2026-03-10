@@ -19,7 +19,7 @@
 - method: neh_cp
   added_batch_size: 10
   job_seq_by_1st_stage: false
-  preserved_head_job_portion: 0.75
+  preserved_head_job_portion: 0.5
   cp_tl_nc_multiplier: 0.008
   profile_fix_by_machine: false
   minimize_sum_ci_lex: true
