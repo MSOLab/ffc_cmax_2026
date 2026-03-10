@@ -1266,10 +1266,18 @@ dicts_of_i_o_data_path:
   #   output_dir: "ff2020/20260310-08"
   #   description: "mcProfileFix+stride=2 + head=0.75: compare with 06"
 
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260310-09.yaml"
+  #   output_dir: "ff2020/20260310-09"
+  #   description: "Baseline -> improve [nc/2]"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260310-09.yaml"
-    output_dir: "ff2020/20260310-09"
-    description: "Baseline -> improve [nc/2]"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260310-10.yaml"
+    output_dir: "ff2020/20260310-10"
+    description: "mcProfileFix+stride=1 + head=0"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260310-11.yaml"
+    output_dir: "ff2020/20260310-11"
+    description: "mcProfileFix+stride=2 + head=0"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
