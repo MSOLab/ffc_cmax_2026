@@ -51,7 +51,7 @@ class BaseModelBuilder:
             mdl, params, horizon, tighten_ranges=True
         )
         self._add_structural_constraints(mdl, params, variables)
-        # self._add_job_completion_link_constraints(mdl, params, variables)
+        self._add_job_completion_link_constraints(mdl, params, variables)
         # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(
             mdl,
@@ -76,7 +76,7 @@ class BaseModelBuilder:
             mdl, params, stage_2_mc_2_horizon
         )
         self._add_structural_constraints(mdl, params, variables, stage_2_mc_2_horizon)
-        # self._add_job_completion_link_constraints(mdl, params, variables)
+        self._add_job_completion_link_constraints(mdl, params, variables)
         # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(mdl, params, variables)
         mdl.set_num_base_constraints()
