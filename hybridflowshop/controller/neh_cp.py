@@ -129,6 +129,8 @@ class NehCpConstructor:
         cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
         use_lns_only: bool = False,
@@ -299,6 +301,8 @@ class NehCpConstructor:
                 minimize_sum_ci_lex=minimize_sum_ci_lex,
                 max_time_per_add_2nd_obj=max_time_per_add_2nd_obj,
                 minimize_sum_ci_lin=minimize_sum_ci_lin,
+                tighten_ranges=tighten_ranges,
+                link_job_completion=link_job_completion,
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
                 use_lns_only=use_lns_only,
@@ -369,6 +373,8 @@ class NehCpConstructor:
         machine_precedence_stride: int = 1,
         minimize_sum_ci_lex: bool = False,
         minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
         horizon: int = partial_sol.makespan
@@ -382,6 +388,8 @@ class NehCpConstructor:
             horizon,
             minimize_sum_ci=minimize_sum_ci_lex,
             minimize_makespan_plus_sum_other_stages=minimize_sum_ci_lin,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
         )
         # mdl, params, variables = builder.build_horizon_per_stage(
         #     sub_instance, stage_2_mc_horizon
@@ -444,6 +452,8 @@ class NehCpConstructor:
         minimize_sum_ci_lex: bool = False,
         max_time_per_add_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
         use_lns_only: bool = False,
@@ -460,6 +470,8 @@ class NehCpConstructor:
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
             minimize_sum_ci_lin=minimize_sum_ci_lin,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
@@ -504,7 +516,11 @@ class NehCpConstructor:
 
         # Build secondary CP model to minimize \sum(C_i)
         sub_cp_mdl, params, variables = self._create_sub_cp_model(
-            new_sol, instance, minimize_sum_ci_lex=True
+            new_sol,
+            instance,
+            minimize_sum_ci_lex=True,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add_2nd_obj)

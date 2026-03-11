@@ -34,6 +34,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
     """
 
+    # Override
+
+    def set_cp_model_as_base_cp_model(
+        self, tighten_ranges: bool = False, link_job_completion: bool = False
+    ) -> None:
+        self.cp_model = self.create_base_cp_model(
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
+        )
+        self.cp_model.set_num_base_constraints()
+        self.base_cp_model_is_set = True
+
     # Start subroutine definition
 
     # Subroutine: solve base CP model
@@ -1782,6 +1794,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
         make_semi_active_every_cp: bool = False,
         use_lns_only: bool = False,
         error_if_infeasible: bool = False,
@@ -1861,6 +1875,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             cp_tl_nc_multiplier_2nd_obj=cp_tl_nc_multiplier_2nd_obj,
             cp_tl_c_multiplier_2nd_obj=cp_tl_c_multiplier_2nd_obj,
             minimize_sum_ci_lin=minimize_sum_ci_lin,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
             make_semi_active_every_cp=make_semi_active_every_cp,
             solver_thread_cnt=solver_thread_cnt,
             use_lns_only=use_lns_only,

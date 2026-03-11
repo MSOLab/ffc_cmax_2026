@@ -91,7 +91,15 @@ class HybridFlowShopCpLnsControllerCore(
     def create_base_cp_model(self, **kwargs) -> CustomCpModel:
         builder = BaseModelBuilder()
         horizon = self.get_horizon()
-        mdl, params, variables = builder.build(self.instance, horizon)
+        tighten_ranges = kwargs.get("tighten_ranges", False)
+        link_job_completion = kwargs.get("link_job_completion", False)
+        mdl, params, variables = builder.build(
+            self.instance,
+            horizon,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
+        )
+
         self.params: Params = params
         self.vars: CumulativeVars = variables
         mdl.minimize(variables.makespan)
@@ -429,7 +437,9 @@ class HybridFlowShopCpLnsControllerCore(
             solve_log = self.solver.response_proto.solve_log
             if solve_log:
                 try:
-                    solve_log_path = self.get_file_path_for_subroutine("_cp_sat_search.log")
+                    solve_log_path = self.get_file_path_for_subroutine(
+                        "_cp_sat_search.log"
+                    )
                     with solve_log_path.open("a", encoding="utf-8") as fp:
                         fp.write(
                             f"\n=== {self._get_call_context_of_current_method()} "
@@ -883,7 +893,6 @@ class HybridFlowShopCpLnsControllerCore(
                 incumbent_solution.get_jik_2_end_time_map(),
             )
             self.cp_model.add_hint(self.vars.makespan, incumbent_solution.makespan)
-
 
         return self.solve_current_cp_remaining_time_limit(
             computational_time,

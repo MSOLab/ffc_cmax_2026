@@ -20,11 +20,12 @@
   added_batch_size: 10
   job_seq_by_1st_stage: false
   cp_tl_nc_multiplier: 0.008
-  profile_fix_by_machine: false
+  profile_fix_by_machine: true
+  machine_precedence_stride: 1
   minimize_sum_ci_lex: true
   cp_tl_nc_multiplier_2nd_obj: 0.002
   minimize_sum_ci_lin: false
-  tighten_ranges: false
+  tighten_ranges: true
   link_job_completion: false
   make_semi_active_every_cp: true
   solver_thread_cnt: 8

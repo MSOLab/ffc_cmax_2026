@@ -44,14 +44,17 @@ class BaseModelBuilder:
         horizon: int,
         minimize_sum_ci: bool = False,
         minimize_makespan_plus_sum_other_stages: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
         params: Params = self._make_params(instance)
         variables: CumulativeVars = self._make_vars(
-            mdl, params, horizon, tighten_ranges=True
+            mdl, params, horizon, tighten_ranges=tighten_ranges
         )
         self._add_structural_constraints(mdl, params, variables)
-        self._add_job_completion_link_constraints(mdl, params, variables)
+        if link_job_completion:
+            self._add_job_completion_link_constraints(mdl, params, variables)
         # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(
             mdl,
@@ -69,14 +72,17 @@ class BaseModelBuilder:
         self,
         instance: HybridFlowshopParameters,
         stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
         params: Params = self._make_params(instance)
         variables: CumulativeVars = self._make_vars_horizon_per_stage(
-            mdl, params, stage_2_mc_2_horizon
+            mdl, params, stage_2_mc_2_horizon, tighten_ranges=tighten_ranges
         )
         self._add_structural_constraints(mdl, params, variables, stage_2_mc_2_horizon)
-        self._add_job_completion_link_constraints(mdl, params, variables)
+        if link_job_completion:
+            self._add_job_completion_link_constraints(mdl, params, variables)
         # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(mdl, params, variables)
         mdl.set_num_base_constraints()
@@ -178,6 +184,7 @@ class BaseModelBuilder:
         mdl: CustomCpModel,
         params: Params,
         stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+        tighten_ranges: bool = False,
     ) -> CumulativeVars:
         op_start: dict[tuple[str, str], IntVar] = {}
         op_end: dict[tuple[str, str], IntVar] = {}
@@ -188,12 +195,40 @@ class BaseModelBuilder:
             for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
         }
 
+        # Compute total horizon for tightening calculation
+        total_horizon = sum(params.p[j, i] for j in params.j_list for i in params.i_list)
+
+        if tighten_ranges:
+            j_i_2_head = BaseModelBuilder._compute_head(params)
+            j_i_2_tail = BaseModelBuilder._compute_tail(params)
+        else:
+            j_i_2_head = {(j, i): 0 for j in params.j_list for i in params.i_list}
+            j_i_2_tail = {(j, i): 0 for j in params.j_list for i in params.i_list}
+
         for j in params.j_list:
             for i in params.i_list:
                 stage_horizon = stage_2_horizon[i]
                 p = params.p[j, i]
-                start_var = mdl.new_int_var(0, stage_horizon - p, f"start_{j}_{i}")
-                end_var = mdl.new_int_var(p, stage_horizon, f"end_{j}_{i}")
+
+                # Apply tightening with min() rule for upper bounds
+                if tighten_ranges:
+                    # start upper: min(total_horizon - tail - p, stage_horizon - p)
+                    start_upper = min(
+                        total_horizon - j_i_2_tail[j, i] - p,
+                        stage_horizon - p,
+                    )
+                    # end upper: min(total_horizon - tail, stage_horizon)
+                    end_upper = min(total_horizon - j_i_2_tail[j, i], stage_horizon)
+                else:
+                    start_upper = stage_horizon - p
+                    end_upper = stage_horizon
+
+                start_var = mdl.new_int_var(
+                    j_i_2_head[j, i], start_upper, f"start_{j}_{i}"
+                )
+                end_var = mdl.new_int_var(
+                    j_i_2_head[j, i] + p, end_upper, f"end_{j}_{i}"
+                )
                 interval_var = mdl.new_interval_var(
                     start_var, p, end_var, f"interval_{j}_{i}"
                 )
