@@ -1337,11 +1337,11 @@ dicts_of_i_o_data_path:
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
     subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260312-01.yaml"
     output_dir: "ff2020/20260312-01"
-    description: "NEH-CP fixed, stride=1, profileFix=true"
+    description: "LNS: profileFix=true, stride=1"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
     subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260312-02.yaml"
     output_dir: "ff2020/20260312-02"
-    description: "NEH-CP fixed, stride=2, profileFix=true"
+    description: "LNS: profileFix=true, stride=2"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
