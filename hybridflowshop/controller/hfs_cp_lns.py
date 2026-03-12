@@ -387,6 +387,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         rescheduled_ops: set[tuple[str, str, str]],
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ) -> None:
         """
         Helper to deep-copy incumbent solution and remove operations to be rescheduled,
@@ -417,6 +418,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.vars,
             out_of_block_ops_sch,
             profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
         )
 
     # Subroutine: Operation-block neighbor search (Block operator in 2025 EJOR paper)
@@ -430,6 +432,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         swap_before_cp: bool = False,
         seed_op_from_critical_block: bool = False,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         make_semi_active_after_cp: bool = False,
         use_lns_only: bool = False,
         error_if_infeasible: bool = False,
@@ -440,6 +443,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 rho,
                 seed_op_from_critical_block=seed_op_from_critical_block,
                 profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
             ),
             computational_time,
             solver_thread_cnt,
@@ -458,6 +462,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         rho: float,
         seed_op_from_critical_block: bool = False,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ) -> None:
         """Apply the operation-block operator to the current CP model.
 
@@ -468,6 +473,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             profile_fix_by_machine (bool, optional): If True, fix precedence by machine
                 adjacency; otherwise apply stage-level time-based selection.
                 Defaults to False.
+            machine_precedence_stride (int, optional): The stride for selecting machine precedences.
+                Defaults to 1.
 
         Raises:
             ValueError: If rho is not strictly positive.
@@ -534,7 +541,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Fix out-of-block operations' profile
         self._fix_operations_profile_except_selected(
-            selected_ops, profile_fix_by_machine=profile_fix_by_machine
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
         )
 
     @staticmethod
@@ -558,6 +567,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         swap_before_cp: bool = False,
         seed_stage_from_non_singleton_cb: bool = False,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         make_semi_active_after_cp: bool = False,
         use_lns_only: bool = False,
         error_if_infeasible: bool = False,
@@ -568,6 +578,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 rho,
                 seed_stage_from_non_singleton_cb=seed_stage_from_non_singleton_cb,
                 profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
             ),
             computational_time,
             solver_thread_cnt,
@@ -586,6 +597,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         rho: float,
         seed_stage_from_non_singleton_cb: bool = False,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ):
         """
         Apply the "stage" LNS operator: free a consecutive subset of stages (i.e. allow
@@ -599,6 +611,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             profile_fix_by_machine (bool, optional): If True, fix precedence by machine
                 adjacency; otherwise apply stage-level time-based selection.
                 Defaults to False.
+            machine_precedence_stride (int, optional): The stride for selecting machine precedences.
+                Defaults to 1.
 
         Raises:
             ValueError: If rho is not strictly positive.
@@ -673,7 +687,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Fix out-of-block operations' profile
         self._fix_operations_profile_except_selected(
-            selected_ops, profile_fix_by_machine=profile_fix_by_machine
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
         )
 
     # Subroutine: Job-block neighbor search
@@ -687,6 +703,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         swap_before_cp: bool = False,
         seed_op_from_critical_block: bool = False,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         make_semi_active_after_cp: bool = False,
         use_lns_only: bool = False,
         error_if_infeasible: bool = False,
@@ -697,6 +714,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 rho,
                 seed_op_from_critical_block=seed_op_from_critical_block,
                 profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
             ),
             computational_time,
             solver_thread_cnt,
@@ -715,6 +733,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         rho: float,
         seed_op_from_critical_block: bool = False,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ) -> None:
         """Apply the job-block operator to the current CP model.
 
@@ -725,6 +744,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             profile_fix_by_machine (bool, optional): If True, fix precedence by machine
                 adjacency; otherwise apply stage-level time-based selection.
                 Defaults to False.
+            machine_precedence_stride (int, optional): The stride for selecting machine precedences.
+                Defaults to 1.
 
         Raises:
             ValueError: If rho is not strictly positive.
@@ -794,7 +815,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Fix out-of-block operations' profile
         self._fix_operations_profile_except_selected(
-            selected_ops, profile_fix_by_machine=profile_fix_by_machine
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
         )
 
     # Subroutine: Johnson-based Heuristic for initialization
