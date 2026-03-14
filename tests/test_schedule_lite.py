@@ -509,6 +509,163 @@ def test_make_semi_active_empty_schedule():
     assert sched.makespan == 0
 
 
+def _build_subset_retiming_fixture() -> tuple[
+    HybridFlowshopLiteSchedule, dict[str, dict[str, int]]
+]:
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    # Semi-active baseline:
+    # s1.m1: j1[0,5]
+    # s1.m2: j2[0,5]
+    # s2.m1: j1[5,10], j2[10,15]
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=10, end_time=15)
+
+    return sched, duration
+
+
+def test_make_semi_active_empty_operation_set_matches_full():
+    sched_full = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    sched_empty = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    for sched in (sched_full, sched_empty):
+        sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=5, end_time=10)
+        sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+        sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=10, end_time=15)
+        sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=15, end_time=20)
+
+    sched_full.make_semi_active(duration)
+    sched_empty.make_semi_active(duration, operation_set=set())
+
+    assert (
+        sched_empty.get_jik_2_start_time_map() == sched_full.get_jik_2_start_time_map()
+    )
+    assert sched_empty.get_jik_2_end_time_map() == sched_full.get_jik_2_end_time_map()
+
+
+def test_make_semi_active_subset_keeps_unselected_operations_fixed():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=15, end_time=20)
+
+    sched.make_semi_active(duration, operation_set={("j2", "s1", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 15
+    assert start_map[("j1", "s2", "m1")] == 5
+
+
+def test_make_semi_active_subset_propagates_across_stages():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=15, end_time=20)
+
+    sched.make_semi_active(
+        duration,
+        operation_set={("j2", "s1", "m1"), ("j2", "s2", "m1")},
+    )
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 10
+
+
+def test_make_semi_active_subset_respects_fixed_machine_anchor():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    duration = {"s1": {"j1": 5, "j2": 5, "j3": 5}}
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=8, end_time=13)
+    sched.add_ops_times_2_mc("s1", "m1", "j3", start_time=15, end_time=20)
+
+    sched.make_semi_active(duration, operation_set={("j2", "s1", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m1")] == 5
+    assert start_map[("j3", "s1", "m1")] == 15
+
+
+def test_make_semi_active_subset_with_start_from_stage_leaves_earlier_stage_untouched():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=2, end_time=7)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=12, end_time=17)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=7, end_time=12)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=20, end_time=25)
+
+    sched.make_semi_active(
+        duration,
+        start_from_stage="s2",
+        operation_set={("j2", "s2", "m1")},
+    )
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j1", "s1", "m1")] == 2
+    assert start_map[("j2", "s1", "m1")] == 12
+    assert start_map[("j2", "s2", "m1")] == 17
+
+
 # ============================================================================
 # Tests for make_semi_active() with dummy initial times
 # ============================================================================
@@ -1220,7 +1377,11 @@ def test_as_reversed_time_transform_formula_exact():
 
     # as_reversed keeps original stage and machine IDs, only reverses time
     expected = {}
-    for (job_id, stage_orig, mc_id), start_orig in sched.get_jik_2_start_time_map().items():
+    for (
+        job_id,
+        stage_orig,
+        mc_id,
+    ), start_orig in sched.get_jik_2_start_time_map().items():
         end_orig = sched.get_jik_2_end_time_map()[(job_id, stage_orig, mc_id)]
         # Stage and machine IDs remain the same; only time is transformed
         expected[(job_id, stage_orig, mc_id)] = (
@@ -1304,3 +1465,106 @@ def test_as_reversed_remaps_machine_by_stage_position():
     # as_reversed keeps original stage and machine IDs
     assert ("j1", "i0", "i0_1") in ops
     assert ("j1", "i1", "i1_0") in ops
+
+
+# ============================================================================
+# Tests for make_right_justified()
+# ============================================================================
+
+
+def test_make_right_justified_preserves_makespan_and_feasibility():
+    sched, duration = _build_subset_retiming_fixture()
+    original_makespan = sched.makespan
+
+    sched.make_right_justified(duration)
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert sched.makespan == original_makespan
+    assert start_map[("j2", "s1", "m2")] == 5
+
+
+def test_make_right_justified_already_right_justified_is_unchanged():
+    sched, duration = _build_subset_retiming_fixture()
+    sched.make_right_justified(duration)
+    start_map_before = sched.get_jik_2_start_time_map()
+    end_map_before = sched.get_jik_2_end_time_map()
+
+    sched.make_right_justified(duration)
+
+    assert sched.get_jik_2_start_time_map() == start_map_before
+    assert sched.get_jik_2_end_time_map() == end_map_before
+
+
+def test_make_right_justified_multi_machine_expected_positions():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration)
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert start_map[("j1", "s1", "m1")] == 0
+    assert end_map[("j1", "s1", "m1")] == 5
+    assert start_map[("j2", "s1", "m2")] == 5
+    assert end_map[("j2", "s1", "m2")] == 10
+    assert start_map[("j1", "s2", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 10
+
+
+def test_make_right_justified_last_stage_respects_original_makespan():
+    sched, duration = _build_subset_retiming_fixture()
+    original_makespan = sched.makespan
+
+    sched.make_right_justified(duration)
+
+    last_stage = sched.stages[-1]
+    for _mc, _start, end, _job in sched.iter_operations_on_stage(last_stage):
+        assert end <= original_makespan
+    assert sched.makespan == original_makespan
+
+
+def test_make_right_justified_subset_keeps_unselected_operations_fixed():
+    sched, duration = _build_subset_retiming_fixture()
+    start_map_before = sched.get_jik_2_start_time_map()
+
+    sched.make_right_justified(duration, operation_set={("j2", "s1", "m2")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m2")] == 5
+    assert start_map[("j1", "s1", "m1")] == start_map_before[("j1", "s1", "m1")]
+    assert start_map[("j1", "s2", "m1")] == start_map_before[("j1", "s2", "m1")]
+    assert start_map[("j2", "s2", "m1")] == start_map_before[("j2", "s2", "m1")]
+
+
+def test_make_right_justified_subset_zero_slack_operation_stays_put():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration, operation_set={("j1", "s1", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j1", "s1", "m1")] == 0
+
+
+def test_make_right_justified_subset_respects_fixed_machine_successor():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration, operation_set={("j1", "s2", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j1", "s2", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 10
+
+
+def test_make_right_justified_subset_respects_next_stage_precedence():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration, operation_set={("j2", "s1", "m2")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert end_map[("j2", "s1", "m2")] == start_map[("j2", "s2", "m1")]

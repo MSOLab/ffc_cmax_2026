@@ -1172,10 +1172,41 @@ class HybridFlowshopLiteSchedule:
 
     # Setters - retiming
 
+    def _is_selected_operation(
+        self,
+        operation_set: set[tuple[JobIdType, StageIdType, McIdType]]
+        | frozenset[tuple[JobIdType, StageIdType, McIdType]],
+        stage_id: StageIdType,
+        mc_id: McIdType,
+        job_id: JobIdType,
+    ) -> bool:
+        return not operation_set or (job_id, stage_id, mc_id) in operation_set
+
+    def _rebuild_stage_end_time_cache(self, stage_id: StageIdType) -> None:
+        job_2_end_time: dict[JobIdType, int] = {}
+        for mc_id in self.machines_per_stage[stage_id]:
+            for _, end_time, job_id in self.__stage_2_mc_2_job_tuple_seq[stage_id][
+                mc_id
+            ]:
+                job_2_end_time[job_id] = end_time
+        self.__stage_2_job_2_end_time[stage_id] = job_2_end_time
+
+    def _get_stage_job_2_start_time(self, stage_id: StageIdType) -> dict[JobIdType, int]:
+        job_2_start_time: dict[JobIdType, int] = {}
+        for mc_id in self.machines_per_stage[stage_id]:
+            for start_time, _, job_id in self.__stage_2_mc_2_job_tuple_seq[stage_id][
+                mc_id
+            ]:
+                job_2_start_time[job_id] = start_time
+        return job_2_start_time
+
     def make_semi_active(
         self,
         stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
         start_from_stage: StageIdType | None = None,
+        *,
+        operation_set: set[tuple[JobIdType, StageIdType, McIdType]]
+        | frozenset[tuple[JobIdType, StageIdType, McIdType]] = frozenset(),
     ) -> None:
         """Convert to semi-active schedule by retiming operations in-place.
 
@@ -1203,6 +1234,10 @@ class HybridFlowshopLiteSchedule:
                 from that stage onward are retimed; earlier stages are left
                 untouched.  Precedence constraints from earlier stages are
                 still respected via get_prev_stage_end_time.
+            operation_set: Optional subset of operations to retime, identified
+                by ``(job_id, stage_id, mc_id)``.  If empty (default), all
+                operations on the eligible stages are retimed.  Operations not
+                in the set are kept fixed as anchors at their current times.
 
         Raises:
             ValueError: If *start_from_stage* is not None and is not a
@@ -1243,17 +1278,93 @@ class HybridFlowshopLiteSchedule:
                 machine_available = 0
                 new_tuple_seq: list[tuple[int, int, JobIdType]] = []
 
-                for _, _, job_id in job_tuple_seq:
+                for old_start, old_end, job_id in job_tuple_seq:
                     duration = job_2_duration[job_id]
-                    release = job_2_prev_stage_end_time.get(job_id, 0)
-                    start = max(release, machine_available)
-                    end = start + duration
+                    if self._is_selected_operation(
+                        operation_set, stage_id, mc_id, job_id
+                    ):
+                        release = job_2_prev_stage_end_time.get(job_id, 0)
+                        start = max(release, machine_available)
+                        end = start + duration
+                    else:
+                        start = old_start
+                        end = old_end
+                        release = job_2_prev_stage_end_time.get(job_id, 0)
+                        if start < max(release, machine_available):
+                            raise ValueError(
+                                f"Fixed operation {job_id}@{stage_id}.{mc_id} "
+                                "violates precedence during make_semi_active"
+                            )
 
                     new_tuple_seq.append((start, end, job_id))
-                    self.__stage_2_job_2_end_time[stage_id][job_id] = end
                     machine_available = end
 
                 mc_2_job_tuple_seq[mc_id] = new_tuple_seq
+            self._rebuild_stage_end_time_cache(stage_id)
+
+    def make_right_justified(
+        self,
+        stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+        *,
+        operation_set: set[tuple[JobIdType, StageIdType, McIdType]]
+        | frozenset[tuple[JobIdType, StageIdType, McIdType]] = frozenset(),
+    ) -> None:
+        """Right-shift operations in-place while preserving the current makespan.
+
+        This method preserves machine assignments and machine order, and pushes
+        each selected operation as far right as possible without violating:
+
+        * inter-stage precedence for the same job,
+        * machine precedence on the same machine, and
+        * the current schedule makespan.
+
+        Operations not included in ``operation_set`` are treated as fixed
+        anchors and keep their current times unchanged.  If ``operation_set``
+        is empty, all scheduled operations are right-shifted.
+        """
+        original_makespan = self.makespan
+        next_stage_job_2_start_time: dict[JobIdType, int] = {}
+
+        for stage_idx in range(len(self.stages) - 1, -1, -1):
+            stage_id = self.stages[stage_idx]
+            job_2_duration = stage_2_job_2_duration[stage_id]
+            mc_2_job_tuple_seq = self.__stage_2_mc_2_job_tuple_seq[stage_id]
+
+            for mc_id in self.machines_per_stage[stage_id]:
+                job_tuple_seq = mc_2_job_tuple_seq[mc_id]
+                if not job_tuple_seq:
+                    continue
+
+                machine_next_start = original_makespan
+                new_tuple_seq_rev: list[tuple[int, int, JobIdType]] = []
+
+                for old_start, old_end, job_id in reversed(job_tuple_seq):
+                    duration = job_2_duration[job_id]
+                    next_stage_start = next_stage_job_2_start_time.get(
+                        job_id, original_makespan
+                    )
+
+                    if self._is_selected_operation(
+                        operation_set, stage_id, mc_id, job_id
+                    ):
+                        end = min(next_stage_start, machine_next_start)
+                        start = end - duration
+                    else:
+                        start = old_start
+                        end = old_end
+                        if end > min(next_stage_start, machine_next_start):
+                            raise ValueError(
+                                f"Fixed operation {job_id}@{stage_id}.{mc_id} "
+                                "violates precedence during make_right_justified"
+                            )
+
+                    new_tuple_seq_rev.append((start, end, job_id))
+                    machine_next_start = start
+
+                mc_2_job_tuple_seq[mc_id] = list(reversed(new_tuple_seq_rev))
+
+            self._rebuild_stage_end_time_cache(stage_id)
+            next_stage_job_2_start_time = self._get_stage_job_2_start_time(stage_id)
 
     def swap_two_operations_within_stage(
         self,
