@@ -437,9 +437,10 @@ class HybridFlowShopCpLnsControllerCore(
             solve_log = self.solver.response_proto.solve_log
             if solve_log:
                 try:
-                    solve_log_path = self.get_file_path_for_subroutine(
-                        "_cp_sat_search.log"
-                    )
+                    filename_suffix = "_cp_sat_search.log"
+                    if last_timestamp_note and isinstance(last_timestamp_note, str):
+                        filename_suffix = f"_cp_sat_search_{last_timestamp_note}.log"
+                    solve_log_path = self.get_file_path_for_subroutine(filename_suffix)
                     with solve_log_path.open("a", encoding="utf-8") as fp:
                         fp.write(
                             f"\n=== {self._get_call_context_of_current_method()} "
@@ -481,11 +482,10 @@ class HybridFlowShopCpLnsControllerCore(
                 return_list.append((entry[0], entry[1].value))
             return return_list
 
-        obj_value_records: list[tuple[float, float]] = []
+        obj_value_records = get_obj_value_records()
+        if cpsat_status.is_feasible:
+            obj_value_records.append((last_timestamp, obj_value))
         if obj_value_is_valid:
-            obj_value_records = get_obj_value_records()
-            if cpsat_status.is_feasible:
-                obj_value_records.append((last_timestamp, obj_value))
             self.extend_obj_value_log(
                 obj_value_records, is_maximize=self.cp_model.is_maximize()
             )
@@ -533,11 +533,10 @@ class HybridFlowShopCpLnsControllerCore(
                 for timestamp in timestamp_list
             ]
 
-        obj_bound_records: list[tuple[float, float]] = []
+        obj_bound_records = get_obj_bound_records()
+        if cpsat_status.is_feasible:
+            obj_bound_records.append((last_timestamp, obj_bound))
         if obj_bound_is_valid:
-            obj_bound_records = get_obj_bound_records()
-            if cpsat_status.is_feasible:
-                obj_bound_records.append((last_timestamp, obj_bound))
             self.extend_obj_bound_log(obj_bound_records, is_maximize=False)
             # Record bound for the last timestamp if it is the same as the last bound
             # and is not recorded for the last timestamp

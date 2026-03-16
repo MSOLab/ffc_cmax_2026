@@ -15,6 +15,10 @@ from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from .params import Params
 
+# Type aliases for PW-CP boundary deviation objective
+OperationRef = tuple[str, str, str]
+StageBoundaryProfile = dict[str, list[int]]
+
 
 @dataclass
 class CumulativeVars:
@@ -196,7 +200,9 @@ class BaseModelBuilder:
         }
 
         # Compute total horizon for tightening calculation
-        total_horizon = sum(params.p[j, i] for j in params.j_list for i in params.i_list)
+        total_horizon = sum(
+            params.p[j, i] for j in params.j_list for i in params.i_list
+        )
 
         if tighten_ranges:
             j_i_2_head = BaseModelBuilder._compute_head(params)
@@ -620,3 +626,142 @@ class BaseModelBuilder:
                 assert j in params.j_list, f"Job {j} not in job list."
                 assert i in params.i_list, f"Stage {i} not in stage list."
             mdl.add_hint(variables.op_end[j, i], e_time)
+
+    @staticmethod
+    def add_kth_largest_constraint(
+        model: CustomCpModel,
+        x: list[IntVar],
+        z: IntVar,
+        k: int,
+        name_prefix: str,
+    ) -> None:
+        """
+        Enforce z to be the k-th largest value in x (1-based, descending order).
+
+        This handles ties correctly:
+        - at least k values are >= z
+        - at most k-1 values are > z
+
+        Args:
+            model: The CP-SAT model.
+            x: List of integer variables.
+            z: Output variable representing the k-th largest value.
+            k: The rank (1-based, descending order). Must be 1 <= k <= len(x).
+            name_prefix: Prefix for variable names.
+        """
+        assert 1 <= k <= len(x)
+
+        ge = []
+        gt = []
+
+        for idx, xi in enumerate(x):
+            b_ge = model.new_bool_var(f"{name_prefix}_ge_{idx}")
+            b_gt = model.new_bool_var(f"{name_prefix}_gt_{idx}")
+
+            model.add(xi >= z).OnlyEnforceIf(b_ge)
+            model.add(xi < z).OnlyEnforceIf(b_ge.Not())
+
+            model.add(xi > z).OnlyEnforceIf(b_gt)
+            model.add(xi <= z).OnlyEnforceIf(b_gt.Not())
+
+            ge.append(b_ge)
+            gt.append(b_gt)
+
+        model.add(sum(ge) >= k)
+        model.add(sum(gt) <= k - 1)
+
+    @staticmethod
+    def add_boundary_deviation_objective(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        optimization_ops: tuple[OperationRef, ...],
+        right_boundary_profile: StageBoundaryProfile,
+        horizon: int,
+    ) -> IntVar:
+        """
+        Adds a boundary deviation objective for non-final batches.
+
+        For each aligned pair (C_ik, D_ik):
+            deviation_ik = C_ik - D_ik
+
+        - positive (C_ik > D_ik): violation (optimized block intrudes past boundary)
+        - negative (C_ik < D_ik): improvement (optimized block finishes earlier)
+
+        Objective: minimize max(deviation_ik) across all stage/rank pairs.
+
+        Args:
+            mdl: The CP-SAT model.
+            params: Problem parameters.
+            variables: Decision variables.
+            optimization_ops: Operations to be optimized.
+            right_boundary_profile: Right boundary profile mapping stage_id to list of start times.
+            horizon: Maximum time horizon.
+
+        Returns:
+            global_max_deviation: The global maximum deviation variable.
+        """
+        optimization_stage_ids = tuple(
+            sorted({stage_id for _job_id, stage_id, _mc_id in optimization_ops})
+        )
+        stage_2_optimization_ops: dict[str, list[OperationRef]] = {
+            stage_id: [] for stage_id in optimization_stage_ids
+        }
+        for op in optimization_ops:
+            stage_2_optimization_ops[op[1]].append(op)
+
+        stage_max_deviation_vars = []
+        for stage_id in optimization_stage_ids:
+            completion_vars = [
+                variables.op_end[job_id, stage_id]
+                for job_id, _stage_id, _mc_id in stage_2_optimization_ops[stage_id]
+            ]
+            mc_cnt = len(params.M_of[stage_id])
+            while len(completion_vars) < mc_cnt:
+                completion_vars.append(
+                    mdl.new_int_var(
+                        0, 0, f"fixed_zero_{stage_id}_{len(completion_vars)}"
+                    )
+                )
+
+            c_vars = [
+                mdl.new_int_var(0, horizon, f"C_{stage_id}_{k + 1}")
+                for k in range(mc_cnt)
+            ]
+            for k, c_var in enumerate(c_vars, start=1):
+                BaseModelBuilder.add_kth_largest_constraint(
+                    mdl,
+                    completion_vars,
+                    c_var,
+                    k,
+                    f"kth_completion_{stage_id}_{k}",
+                )
+            for idx in range(mc_cnt - 1):
+                mdl.add(c_vars[idx] >= c_vars[idx + 1])
+
+            aligned_boundary = list(reversed(right_boundary_profile[stage_id]))
+            deviation_vars = []
+            for idx, (c_var, boundary_start) in enumerate(
+                zip(c_vars, aligned_boundary, strict=False)
+            ):
+                # deviation_ik = C_ik - D_ik (위반시 양수, 개선시 음수)
+                deviation = mdl.new_int_var(
+                    -horizon,
+                    horizon,
+                    f"boundary_deviation_{stage_id}_{idx + 1}",
+                )
+                mdl.add(deviation == c_var - boundary_start)
+                deviation_vars.append(deviation)
+
+            max_deviation = mdl.new_int_var(
+                -horizon, horizon, f"max_deviation_{stage_id}"
+            )
+            mdl.add_max_equality(max_deviation, deviation_vars)
+            stage_max_deviation_vars.append(max_deviation)
+
+        global_max_deviation = mdl.new_int_var(
+            -horizon, horizon, "global_max_deviation"
+        )
+        mdl.add_max_equality(global_max_deviation, stage_max_deviation_vars)
+        mdl.minimize(global_max_deviation)
+        return global_max_deviation

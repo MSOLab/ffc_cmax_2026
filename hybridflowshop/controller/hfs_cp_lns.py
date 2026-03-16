@@ -10,6 +10,7 @@ from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop imp
 )
 
 from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
+from hybridflowshop.controller.pw_cp import PwCpConstructor, PwCpResult
 from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
 from hybridflowshop.dispatcher import (
     BN2DDispatcher,
@@ -1935,6 +1936,65 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         if was_updated:
             # Re-define base CP model with the new makespan
+            self.set_cp_model_as_base_cp_model()
+            if draw_gantt:
+                self.draw_incumbent_gantt()
+
+    def pw_cp(
+        self,
+        solver_thread_cnt: int,
+        batch_size: int = 1,
+        max_time_per_batch: float | None = None,
+        use_lns_only: bool = False,
+        debug_export: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ):
+        sub_timer = ElapsedTimer()
+
+        ref_schedule = self.solution_manager.get_incumbent()
+        if ref_schedule is None:
+            raise ValueError("No incumbent solution available for PW-CP.")
+
+        constructor = PwCpConstructor(self)
+        result: PwCpResult = constructor.run(
+            ref_schedule,
+            self.instance,
+            self.stage_2_job_2_p_dict,
+            batch_size=batch_size,
+            max_time_per_batch=max_time_per_batch,
+            solver_thread_cnt=solver_thread_cnt,
+            use_lns_only=use_lns_only,
+            debug_export=debug_export,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
+            error_if_infeasible=error_if_infeasible,
+        )
+        obj_value = float(result.schedule.makespan)
+        logging.info("PW-CP done with makespan %s", obj_value)
+        if result.sub_obj_store:
+            result.save_yaml(self.get_file_path_for_subroutine("_obj_log.yaml"))
+
+        final_report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=False,
+        )
+        was_updated: bool = self.solution_manager.register(
+            final_report, result.schedule
+        )
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        if was_updated:
             self.set_cp_model_as_base_cp_model()
             if draw_gantt:
                 self.draw_incumbent_gantt()
