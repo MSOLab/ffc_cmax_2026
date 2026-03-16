@@ -14,9 +14,10 @@ from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from .params import Params
 
-# Type aliases for PW-CP boundary deviation objective
+# Type aliases for PW-CP right guard objective
 OperationRef = tuple[str, str, str]
 StageBoundaryProfile = dict[str, list[int]]
+StageFixedIntervals = dict[str, list[tuple[int, int, int]]]
 
 
 @dataclass
@@ -670,42 +671,35 @@ class BaseModelBuilder:
         model.add(sum(gt) <= k - 1)
 
     @staticmethod
-    def add_boundary_deviation_objective(
+    def add_right_guard_objective(
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
         optimization_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
+        right_fixed_intervals: StageFixedIntervals,
         horizon: int,
     ) -> IntVar:
         """
-        Adds a boundary deviation objective for non-final batches.
+        Adds a right-guard slack objective for non-final batches.
 
-        For each stage, compute the current-batch cumulative usage frontier T_ir:
-            T_ir = latest time where current-batch usage is at least r
-
-        The right boundary profile stores cumulative usage frontiers of the
-        right-justified right-side operations:
-            S_ir = earliest time where right-side usage is at least r
-
-        Deviation is defined rank-wise on the same usage level:
-            deviation_ir = T_ir - S_ir
-
-        - positive: current frontier intrudes into right frontier
-        - negative: current frontier stays safely to the left
-
-        Objective: minimize max(deviation_ir) across all stage/rank pairs.
+        For each stage, create one guard interval per machine. Each guard ends at
+        the earliest right-justified start time on its machine (or makespan if the
+        machine has no right-side operation). The objective maximizes the minimum
+        guard size across all stages and machine-indexed guards.
 
         Args:
             mdl: The CP-SAT model.
             params: Problem parameters.
             variables: Decision variables.
             optimization_ops: Operations to be optimized.
-            right_boundary_profile: Right boundary frontier mapping stage_id to cumulative usage frontiers.
+            right_boundary_profile: Stage-to-machine guard end times.
+            right_fixed_intervals: Stage-wise fixed right-side intervals in the
+                same right-justified schedule used for guard ends.
             horizon: Maximum time horizon.
 
         Returns:
-            global_max_deviation: The global maximum deviation variable.
+            global_guard_min: The global minimum guard slack variable.
         """
         optimization_stage_ids = tuple(
             sorted({stage_id for _job_id, stage_id, _mc_id in optimization_ops})
@@ -716,96 +710,67 @@ class BaseModelBuilder:
         for op in optimization_ops:
             stage_2_optimization_ops[op[1]].append(op)
 
-        stage_max_deviation_vars = []
+        stage_guard_min_vars = []
         for stage_id in optimization_stage_ids:
             mc_cnt = len(params.M_of[stage_id])
             stage_ops = stage_2_optimization_ops[stage_id]
-            usage_vars: list[IntVar] = []
-            for time in range(horizon):
-                active_bools = []
-                for op_idx, (job_id, _stage_id, _mc_id) in enumerate(stage_ops):
-                    is_active = mdl.new_bool_var(
-                        f"is_active_{stage_id}_{op_idx}_t{time}"
-                    )
-                    start_by_time = mdl.new_bool_var(
-                        f"start_by_{stage_id}_{op_idx}_t{time}"
-                    )
-                    end_after_time = mdl.new_bool_var(
-                        f"end_after_{stage_id}_{op_idx}_t{time}"
-                    )
+            guard_end_times = right_boundary_profile[stage_id]
 
-                    mdl.add(variables.op_start[job_id, stage_id] <= time).OnlyEnforceIf(
-                        start_by_time
-                    )
-                    mdl.add(variables.op_start[job_id, stage_id] > time).OnlyEnforceIf(
-                        start_by_time.Not()
-                    )
-                    mdl.add(variables.op_end[job_id, stage_id] >= time + 1).OnlyEnforceIf(
-                        end_after_time
-                    )
-                    mdl.add(variables.op_end[job_id, stage_id] < time + 1).OnlyEnforceIf(
-                        end_after_time.Not()
-                    )
+            optimization_intervals = [
+                variables.op_intvl[job_id, stage_id]
+                for job_id, _stage_id, _mc_id in stage_ops
+            ]
+            fixed_intervals = [
+                mdl.new_interval_var(
+                    start,
+                    duration,
+                    end,
+                    f"right_fixed_interval_{stage_id}_{interval_idx}",
+                )
+                for interval_idx, (start, end, duration) in enumerate(
+                    right_fixed_intervals.get(stage_id, [])
+                )
+            ]
 
-                    mdl.add(is_active <= start_by_time)
-                    mdl.add(is_active <= end_after_time)
-                    mdl.add(is_active >= start_by_time + end_after_time - 1)
-                    active_bools.append(is_active)
-
-                usage_at_time = mdl.new_int_var(
+            guard_intervals: list[IntervalVar] = []
+            stage_extras: list[IntVar] = []
+            for machine_idx, guard_end in enumerate(guard_end_times, start=1):
+                extra = mdl.new_int_var(
                     0,
-                    len(stage_ops),
-                    f"usage_{stage_id}_t{time}",
+                    guard_end,
+                    f"guard_extra_{stage_id}_{machine_idx}",
                 )
-                mdl.add(usage_at_time == sum(active_bools))
-                usage_vars.append(usage_at_time)
-
-            frontier_vars = []
-            deviation_vars = []
-            for idx, boundary_start in enumerate(
-                right_boundary_profile[stage_id], start=1
-            ):
-                candidates = []
-                for time, usage_at_time in enumerate(usage_vars):
-                    reaches_level = mdl.new_bool_var(
-                        f"usage_ge_{stage_id}_{idx}_t{time}"
-                    )
-                    mdl.add(usage_at_time >= idx).OnlyEnforceIf(reaches_level)
-                    mdl.add(usage_at_time < idx).OnlyEnforceIf(reaches_level.Not())
-
-                    candidate = mdl.new_int_var(
-                        0,
-                        time + 1,
-                        f"T_candidate_{stage_id}_{idx}_t{time}",
-                    )
-                    mdl.add(candidate == time + 1).OnlyEnforceIf(reaches_level)
-                    mdl.add(candidate == 0).OnlyEnforceIf(reaches_level.Not())
-                    candidates.append(candidate)
-
-                frontier = mdl.new_int_var(0, horizon, f"T_{stage_id}_{idx}")
-                mdl.add_max_equality(frontier, candidates)
-                frontier_vars.append(frontier)
-
-                deviation = mdl.new_int_var(
-                    -horizon,
-                    horizon,
-                    f"boundary_deviation_{stage_id}_{idx}",
+                guard_start = mdl.new_int_var(
+                    0,
+                    guard_end,
+                    f"guard_start_{stage_id}_{machine_idx}",
                 )
-                mdl.add(deviation == frontier - boundary_start)
-                deviation_vars.append(deviation)
+                mdl.add(guard_start + extra == guard_end)
+                guard_intervals.append(
+                    mdl.new_interval_var(
+                        guard_start,
+                        extra,
+                        guard_end,
+                        f"guard_interval_{stage_id}_{machine_idx}",
+                    )
+                )
+                stage_extras.append(extra)
 
-            for idx in range(mc_cnt - 1):
-                mdl.add(frontier_vars[idx] >= frontier_vars[idx + 1])
+            intervals = optimization_intervals + fixed_intervals + guard_intervals
+            demands = [1] * len(intervals)
+            mdl.add_cumulative(intervals, demands, mc_cnt)
 
-            max_deviation = mdl.new_int_var(
-                -horizon, horizon, f"max_deviation_{stage_id}"
+            stage_guard_min = mdl.new_int_var(
+                0,
+                horizon,
+                f"stage_guard_min_{stage_id}",
             )
-            mdl.add_max_equality(max_deviation, deviation_vars)
-            stage_max_deviation_vars.append(max_deviation)
+            for extra in stage_extras:
+                mdl.add(stage_guard_min <= extra)
+            stage_guard_min_vars.append(stage_guard_min)
 
-        global_max_deviation = mdl.new_int_var(
-            -horizon, horizon, "global_max_deviation"
-        )
-        mdl.add_max_equality(global_max_deviation, stage_max_deviation_vars)
-        mdl.minimize(global_max_deviation)
-        return global_max_deviation
+        global_guard_min = mdl.new_int_var(0, horizon, "global_guard_min")
+        for stage_guard_min in stage_guard_min_vars:
+            mdl.add(global_guard_min <= stage_guard_min)
+        mdl.maximize(global_guard_min)
+        return global_guard_min

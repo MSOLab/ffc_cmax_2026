@@ -1,13 +1,13 @@
 # Input data configuration
-pra_common_params_rel_path: "resources/pra_common_params.yaml"
-baseline_csv_path: "resources/pra_ref/soaData.csv"
-input_dir: "resources/pra"
-# pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+# pra_common_params_rel_path: "resources/pra_common_params.yaml"
+# baseline_csv_path: "resources/pra_ref/soaData.csv"
+# input_dir: "resources/pra"
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
 # baseline_csv_path: "resources/ff2020small_ref/20260129_CPO_2mn_8t.csv"
 # input_dir: "resources/ff2020small"
 # baseline_csv_path: "resources/ff2020big_ref/20260129_CPO_2mn_8t.csv"
-# baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
-# input_dir: "resources/ff2020big"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
 benchmark_idx_list:
   # - 0
   # - 1
@@ -45,7 +45,7 @@ benchmark_idx_list:
   # - 193
   # - 194
   # - 195
-  - 196
+  # - 196
   # - 13
   # - 81
   # - 217
@@ -1357,10 +1357,26 @@ dicts_of_i_o_data_path:
   #   output_dir: "ff2020/20260313-03"
   #   description: "LB -> Dispatch -> NEH-CP -> base CP [use_lns_only] [0.5nc]"
 
-  - stopping_criteria_rel_path: "configs_pw_cp/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260315-01.yaml"
-    output_dir: "ff2020/20260315-01"
-    description: "LB -> Dispatch -> PW-CP"
+  # - stopping_criteria_rel_path: "configs_pw_cp/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260316-01.yaml"
+  #   output_dir: "ff2020/20260316-01"
+  #   description: "LB -> Dispatch -> PW-CP"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260316-02.yaml"
+    output_dir: "ff2020/20260316-02"
+    description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,0.5c)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260316-03.yaml"
+    output_dir: "ff2020/20260316-03"
+    description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,0.5c) -> base CP"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260316-04.yaml"
+    output_dir: "ff2020/20260316-04"
+    description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,0.2c)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/subroutine_flow_20260316-05.yaml"
+    output_dir: "ff2020/20260316-05"
+    description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,0.2c) -> base CP"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -1371,7 +1387,7 @@ result_dir_name: "results"
 instance_worker_cnt: 12
 
 # Analysis and plotting options
-draw_gantt: true
+draw_gantt: false
 painter_thread_cnt: 8
 result_gantt_filename_format: "{}_result_gantt.png"
 draw_progress_plot: true

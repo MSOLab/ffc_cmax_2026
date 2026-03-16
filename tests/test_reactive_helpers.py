@@ -1,6 +1,9 @@
 import csv
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import cast
+
+from routix import DynamicDataObject
 
 from hybridflowshop.controller.controller_core import HybridFlowShopCpLnsControllerCore
 from hybridflowshop.controller.reactive.reactive_loop_report import (
@@ -165,3 +168,66 @@ def test_reactive_looper_writes_reports(tmp_path):
         reader = csv.DictReader(fh)
         rows = list(reader)
     assert len(rows) >= 1
+
+
+def test_repeat_while_improvement_repeats_until_first_non_improvement():
+    ctrl = HybridFlowShopCpLnsControllerCore.__new__(HybridFlowShopCpLnsControllerCore)
+    incumbent = SimpleNamespace(makespan=10)
+    recorded_contexts = []
+    seen_routines = []
+
+    @contextmanager
+    def fake_context(name):
+        recorded_contexts.append(name)
+        yield
+
+    def fake_run_flow(routine_data):
+        seen_routines.append(routine_data.to_obj())
+        if len(seen_routines) == 1:
+            incumbent.makespan = 9
+        else:
+            incumbent.makespan = 9
+
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: incumbent)
+    ctrl.is_stopping_condition = lambda: False
+    ctrl.temporarily_extended_context = fake_context
+    ctrl._run_flow = fake_run_flow
+
+    ctrl.repeat_while_improvement(
+        routine_data=DynamicDataObject.from_obj({"method": "pw_cp", "batch_size": 3}),
+        n_repeats=None,
+        max_no_improve=0,
+    )
+
+    assert recorded_contexts == ["reps_001", "reps_002"]
+    assert seen_routines == [
+        {"method": "pw_cp", "batch_size": 3},
+        {"method": "pw_cp", "batch_size": 3},
+    ]
+
+
+def test_repeat_while_improvement_stops_at_repeat_limit():
+    ctrl = HybridFlowShopCpLnsControllerCore.__new__(HybridFlowShopCpLnsControllerCore)
+    incumbent = SimpleNamespace(makespan=10)
+    recorded_contexts = []
+
+    @contextmanager
+    def fake_context(name):
+        recorded_contexts.append(name)
+        yield
+
+    def fake_run_flow(routine_data):
+        incumbent.makespan -= 1
+
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: incumbent)
+    ctrl.is_stopping_condition = lambda: False
+    ctrl.temporarily_extended_context = fake_context
+    ctrl._run_flow = fake_run_flow
+
+    ctrl.repeat_while_improvement(
+        routine_data=DynamicDataObject.from_obj({"method": "pw_cp", "batch_size": 2}),
+        n_repeats=2,
+        max_no_improve=0,
+    )
+
+    assert recorded_contexts == ["reps_001", "reps_002"]

@@ -1943,7 +1943,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def pw_cp(
         self,
         solver_thread_cnt: int,
-        batch_size: int = 1,
+        batch_size: int | None = None,
+        batch_size_ratio: float | None = None,
+        cp_tl_c_multiplier: float | None = None,
         max_time_per_batch: float | None = None,
         use_lns_only: bool = False,
         debug_export: bool = False,
@@ -1958,13 +1960,32 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if ref_schedule is None:
             raise ValueError("No incumbent solution available for PW-CP.")
 
+        resolved_batch_size = 1
+        if batch_size is not None:
+            resolved_batch_size = max(1, batch_size)
+            if batch_size_ratio is not None:
+                logging.info(
+                    "Ignoring batch_size_ratio=%s because explicit batch_size=%s was provided.",
+                    batch_size_ratio,
+                    batch_size,
+                )
+        elif batch_size_ratio is not None:
+            resolved_batch_size = max(
+                1, int(round(self.instance.job_count * batch_size_ratio))
+            )
+
+        if cp_tl_c_multiplier is not None:
+            _max_time_per_batch = cp_tl_c_multiplier * self.instance.stage_count
+        else:
+            _max_time_per_batch = max_time_per_batch
+
         constructor = PwCpConstructor(self)
         result: PwCpResult = constructor.run(
             ref_schedule,
             self.instance,
             self.stage_2_job_2_p_dict,
-            batch_size=batch_size,
-            max_time_per_batch=max_time_per_batch,
+            batch_size=resolved_batch_size,
+            max_time_per_batch=_max_time_per_batch,
             solver_thread_cnt=solver_thread_cnt,
             use_lns_only=use_lns_only,
             debug_export=debug_export,
@@ -1974,7 +1995,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         obj_value = float(result.schedule.makespan)
         logging.info("PW-CP done with makespan %s", obj_value)
-        if result.sub_obj_store:
+        if debug_export and result.sub_obj_store:
             result.save_yaml(self.get_file_path_for_subroutine("_obj_log.yaml"))
 
         final_report = HfsSubroutineReport(

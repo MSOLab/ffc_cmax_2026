@@ -11,7 +11,11 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
+from hybridflowshop.cpsat_model_2.cumulative import (
+    BaseModelBuilder,
+    CumulativeVars,
+    StageFixedIntervals,
+)
 from hybridflowshop.cpsat_model_2.params import Params
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
@@ -78,6 +82,7 @@ class OperationPartition:
     # Boundary profiles (computed during partition creation)
     left_boundary_profile: MachineAvailabilityProfile | None = None
     right_boundary_profile: StageBoundaryProfile | None = None
+    right_fixed_intervals: StageFixedIntervals | None = None
 
     @property
     def all_operations(self) -> tuple[OperationRef, ...]:
@@ -106,6 +111,7 @@ class PwCpSubproblemSpec:
     partition: OperationPartition
     left_boundary_profile: MachineAvailabilityProfile
     right_boundary_profile: StageBoundaryProfile
+    right_fixed_intervals: StageFixedIntervals
     is_last_batch: bool
 
 
@@ -157,6 +163,11 @@ class PwCpResult:
     max_time_per_batch: float | None
 
     def save_yaml(self, output_path: Path) -> None:
+        """Saves the PW-CP result to a YAML file.
+
+        Note: This method should only be called when debug_export=True
+        to avoid unnecessary I/O operations.
+        """
         solution_dict = self.sub_obj_store.to_dict()
 
         accepted_count = sum(1 for log in self.subproblem_logs if log.accepted)
@@ -406,12 +417,14 @@ class PwCpConstructor:
         # Profiles are now computed during partition creation
         assert partition.left_boundary_profile is not None, "Left profile must be set"
         assert partition.right_boundary_profile is not None, "Right profile must be set"
+        assert partition.right_fixed_intervals is not None, "Right intervals must be set"
         return PwCpSubproblemSpec(
             batch_idx=batch_idx,
             subproblem_idx=st.subproblem_idx,
             partition=partition,
             left_boundary_profile=partition.left_boundary_profile,
             right_boundary_profile=partition.right_boundary_profile,
+            right_fixed_intervals=partition.right_fixed_intervals,
             is_last_batch=(batch_idx == max_batch_cnt - 1),
         )
 
@@ -433,12 +446,12 @@ class PwCpConstructor:
                 profile[stage_id][mc_id] = int(latest_end)
         return profile
 
-    def _compute_right_boundary_profile(
+    def _build_right_guard_profile(
         self,
         incumbent: HybridFlowshopLiteSchedule,
         right_time_fixed_ops: tuple[OperationRef, ...],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
-    ) -> StageBoundaryProfile:
+    ) -> tuple[StageBoundaryProfile, StageFixedIntervals]:
         shifted = incumbent.deepcopy()
         shifted.make_right_justified(
             stage_2_job_2_p_dict,
@@ -446,61 +459,34 @@ class PwCpConstructor:
         )
         start_map = shifted.get_jik_2_start_time_map()
         right_boundary_profile: StageBoundaryProfile = {}
+        right_fixed_intervals: StageFixedIntervals = {}
         for stage_id in shifted.stages:
-            mc_cnt = len(shifted.machines_per_stage[stage_id])
-            stage_intervals = [
-                (
-                    int(start_map[job_id, stage_id, mc_id]),
-                    int(start_map[job_id, stage_id, mc_id])
-                    + int(stage_2_job_2_p_dict[stage_id][job_id]),
-                )
+            stage_right_ops = [
+                (job_id, mc_id)
                 for job_id, op_stage_id, mc_id in right_time_fixed_ops
                 if op_stage_id == stage_id
             ]
-            right_boundary_profile[stage_id] = self._compute_usage_frontier_from_intervals(
-                stage_intervals,
-                mc_cnt=mc_cnt,
-                fallback=int(incumbent.makespan),
-                use_earliest=True,
-            )
-        return right_boundary_profile
+            stage_boundaries: list[int] = []
+            stage_intervals: list[tuple[int, int, int]] = []
 
-    @staticmethod
-    def _compute_usage_frontier_from_intervals(
-        intervals: list[tuple[int, int]],
-        *,
-        mc_cnt: int,
-        fallback: int,
-        use_earliest: bool,
-    ) -> list[int]:
-        frontiers = [fallback] * mc_cnt
-        if not intervals:
-            return frontiers
+            for mc_id in shifted.machines_per_stage[stage_id]:
+                machine_starts = [
+                    int(start_map[job_id, stage_id, op_mc_id])
+                    for job_id, op_mc_id in stage_right_ops
+                    if op_mc_id == mc_id
+                ]
+                stage_boundaries.append(
+                    min(machine_starts) if machine_starts else int(incumbent.makespan)
+                )
 
-        time_2_delta: dict[int, int] = {}
-        for start, end in intervals:
-            time_2_delta[int(start)] = time_2_delta.get(int(start), 0) + 1
-            time_2_delta[int(end)] = time_2_delta.get(int(end), 0) - 1
+            for job_id, mc_id in stage_right_ops:
+                start = int(start_map[job_id, stage_id, mc_id])
+                duration = int(stage_2_job_2_p_dict[stage_id][job_id])
+                stage_intervals.append((start, start + duration, duration))
 
-        event_times = sorted(time_2_delta)
-        usage = 0
-        seen = [False] * mc_cnt
-        for idx, time in enumerate(event_times):
-            usage += time_2_delta[time]
-            next_time = event_times[idx + 1] if idx + 1 < len(event_times) else None
-            if next_time is None or next_time <= time:
-                continue
-
-            active_levels = min(usage, mc_cnt)
-            if use_earliest:
-                for level in range(1, active_levels + 1):
-                    if not seen[level - 1]:
-                        frontiers[level - 1] = int(time)
-                        seen[level - 1] = True
-            else:
-                for level in range(1, active_levels + 1):
-                    frontiers[level - 1] = int(next_time)
-        return frontiers
+            right_boundary_profile[stage_id] = stage_boundaries
+            right_fixed_intervals[stage_id] = stage_intervals
+        return right_boundary_profile, right_fixed_intervals
 
     @staticmethod
     def _normalize_for_yaml(value):
@@ -540,7 +526,7 @@ class PwCpConstructor:
         tighten_ranges: bool,
         link_job_completion: bool,
     ) -> HybridFlowshopLiteSchedule | None:
-        st = self._require_state()
+        _timer = ElapsedTimer()
         incumbent_obj = int(incumbent.makespan)
         logging.info(
             "PW-CP subproblem (batch=%d, subproblem=%d) starting. "
@@ -587,13 +573,14 @@ class PwCpConstructor:
                 mdl,
                 timelimit,
                 solver_thread_cnt,
-                e_timer=st.timer,
+                e_timer=_timer,
                 obj_value_is_valid=False,
                 obj_bound_is_valid=False,
                 use_lns_only=use_lns_only,
                 log_level_obj_value=logging.NOTSET,
                 log_level_obj_bound=logging.NOTSET,
                 log_search_progress=True,
+                last_timestamp_note=f"batch={spec.batch_idx + 1}",
             )
             if not getattr(report, "is_feasible", False):
                 self._append_subproblem_log(
@@ -633,16 +620,17 @@ class PwCpConstructor:
             )
             return candidate_schedule
         else:
-            # Non-final batch: minimize maximum boundary deviation
-            BaseModelBuilder.add_boundary_deviation_objective(
+            # Non-final batch: maximize right guard slack
+            BaseModelBuilder.add_right_guard_objective(
                 mdl,
                 params,
                 variables,
                 optimization_ops=spec.partition.optimization,
                 right_boundary_profile=spec.right_boundary_profile,
+                right_fixed_intervals=spec.right_fixed_intervals,
                 horizon=incumbent.makespan,
             )
-            self._apply_boundary_deviation_hints(
+            self._apply_right_guard_hints(
                 mdl=mdl,
                 incumbent=incumbent,
                 optimization_ops=spec.partition.optimization,
@@ -651,14 +639,14 @@ class PwCpConstructor:
             )
             mdl.add_hint(variables.makespan, incumbent_obj)
             logging.info(
-                "Solving non-final batch with boundary deviation minimization (timelimit=%.2fs).",
+                "Solving non-final batch with right guard slack maximization (timelimit=%.2fs).",
                 timelimit,
             )
             report = self.ctx.solve_cp_model_2(
                 mdl,
                 timelimit,
                 solver_thread_cnt,
-                e_timer=st.timer,
+                e_timer=_timer,
                 obj_value_is_valid=False,
                 obj_bound_is_valid=False,
                 use_lns_only=use_lns_only,
@@ -707,63 +695,64 @@ class PwCpConstructor:
             return candidate_schedule
 
     @staticmethod
-    def _compute_boundary_deviation_hint_values(
+    def _compute_right_guard_hint_values(
         incumbent: HybridFlowshopLiteSchedule,
         optimization_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
         params: Params,
     ) -> dict[str, int]:
-        """Compute incumbent values for boundary-deviation objective auxiliaries."""
-        stage_2_intervals: dict[str, list[tuple[int, int]]] = {}
+        """Compute incumbent values for right-guard objective auxiliaries."""
+        stage_2_machine_2_intervals: dict[str, dict[str, list[tuple[int, int]]]] = {}
         start_time_map = incumbent.get_jik_2_start_time_map()
         end_time_map = incumbent.get_jik_2_end_time_map()
 
         for job_id, stage_id, machine_id in optimization_ops:
-            stage_2_intervals.setdefault(stage_id, []).append(
+            stage_2_machine_2_intervals.setdefault(stage_id, {}).setdefault(
+                machine_id, []
+            ).append(
                 (
                     int(start_time_map[job_id, stage_id, machine_id]),
                     int(end_time_map[job_id, stage_id, machine_id]),
                 )
             )
 
-        stage_max_deviations: list[int] = []
         hint_values: dict[str, int] = {}
-        for stage_id, intervals in stage_2_intervals.items():
-            mc_cnt = len(params.M_of[stage_id])
-            current_frontier = PwCpConstructor._compute_usage_frontier_from_intervals(
-                intervals,
-                mc_cnt=mc_cnt,
-                fallback=0,
-                use_earliest=False,
-            )
-            for level, frontier in enumerate(current_frontier, start=1):
-                hint_values[f"T_{stage_id}_{level}"] = frontier
-            deviations = [
-                current_time - boundary_start
-                for current_time, boundary_start in zip(
-                    current_frontier, right_boundary_profile[stage_id], strict=False
-                )
-            ]
-            for idx, deviation in enumerate(deviations, start=1):
-                hint_values[f"boundary_deviation_{stage_id}_{idx}"] = deviation
+        stage_guard_mins: list[int] = []
+        for stage_id, machine_ids in params.M_of.items():
+            stage_extras: list[int] = []
+            machine_2_intervals = stage_2_machine_2_intervals.get(stage_id, {})
+            for machine_idx, (machine_id, guard_end) in enumerate(
+                zip(machine_ids, right_boundary_profile[stage_id], strict=False),
+                start=1,
+            ):
+                latest_end_before_guard = 0
+                for start, end in machine_2_intervals.get(machine_id, []):
+                    if start < guard_end:
+                        latest_end_before_guard = max(
+                            latest_end_before_guard, min(end, guard_end)
+                        )
+                extra = max(0, guard_end - latest_end_before_guard)
+                hint_values[f"guard_extra_{stage_id}_{machine_idx}"] = extra
+                hint_values[f"guard_start_{stage_id}_{machine_idx}"] = guard_end - extra
+                stage_extras.append(extra)
 
-            stage_max_deviation = max(deviations)
-            hint_values[f"max_deviation_{stage_id}"] = stage_max_deviation
-            stage_max_deviations.append(stage_max_deviation)
+            stage_guard_min = min(stage_extras, default=0)
+            hint_values[f"stage_guard_min_{stage_id}"] = stage_guard_min
+            stage_guard_mins.append(stage_guard_min)
 
-        hint_values["global_max_deviation"] = max(stage_max_deviations)
+        hint_values["global_guard_min"] = min(stage_guard_mins, default=0)
         return hint_values
 
     @staticmethod
-    def _apply_boundary_deviation_hints(
+    def _apply_right_guard_hints(
         mdl: CustomCpModel,
         incumbent: HybridFlowshopLiteSchedule,
         optimization_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
         params: Params,
     ) -> None:
-        """Apply incumbent hints for boundary-deviation auxiliaries by variable name."""
-        hint_values = PwCpConstructor._compute_boundary_deviation_hint_values(
+        """Apply incumbent hints for right-guard auxiliaries by variable name."""
+        hint_values = PwCpConstructor._compute_right_guard_hint_values(
             incumbent=incumbent,
             optimization_ops=optimization_ops,
             right_boundary_profile=right_boundary_profile,
@@ -793,9 +782,7 @@ class PwCpConstructor:
                 batch_idx=spec.batch_idx,
                 subproblem_idx=spec.subproblem_idx,
                 is_last_batch=spec.is_last_batch,
-                objective_name=(
-                    "makespan" if spec.is_last_batch else "boundary_deviation"
-                ),
+                objective_name=("makespan" if spec.is_last_batch else "right_guard_slack"),
                 time_limit_sec=time_limit_sec,
                 elapsed_time_sec=report.elapsed_time,
                 status=report.status.to_solver_status_enum().value,
@@ -807,27 +794,24 @@ class PwCpConstructor:
             )
         )
 
-    def _add_boundary_deviation_objective(
+    def _add_right_guard_objective(
         self,
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
         optimization_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
+        right_fixed_intervals: StageFixedIntervals,
         horizon: int,
     ) -> cp_model.IntVar:
-        """
-        Adds a boundary deviation objective for non-final batches.
-
-        Thin wrapper around BaseModelBuilder.add_boundary_deviation_objective
-        for backward compatibility with existing tests.
-        """
-        return BaseModelBuilder.add_boundary_deviation_objective(
+        """Thin wrapper around BaseModelBuilder.add_right_guard_objective."""
+        return BaseModelBuilder.add_right_guard_objective(
             mdl,
             params,
             variables,
             optimization_ops,
             right_boundary_profile,
+            right_fixed_intervals,
             horizon,
         )
 
@@ -866,7 +850,7 @@ class PwCpConstructor:
 
         Boundary profiles are computed during partition creation:
         - left_boundary_profile: machine availability based on cutoff time
-        - right_boundary_profile: cumulative usage frontier of right-justified ops
+        - right_boundary_profile: machine-order guard end times of right-justified ops
         """
         left_ops: list[OperationRef] = []
         optimization_ops: list[OperationRef] = []
@@ -887,7 +871,7 @@ class PwCpConstructor:
             incumbent.get_jik_2_start_time_map()[op] for op in optimization_ops
         )
         left_profile = self._compute_left_boundary_profile(incumbent, cutoff)
-        right_profile = self._compute_right_boundary_profile(
+        right_profile, right_fixed_intervals = self._build_right_guard_profile(
             incumbent,
             tuple(right_ops),
             stage_2_job_2_p_dict,
@@ -899,6 +883,7 @@ class PwCpConstructor:
             right_time_fixed_ops=tuple(sorted(right_ops)),
             left_boundary_profile=left_profile,
             right_boundary_profile=right_profile,
+            right_fixed_intervals=right_fixed_intervals,
         )
 
     def _save_solution_dict(
@@ -926,5 +911,6 @@ class PwCpConstructor:
             },
             "left_boundary_profile": spec.left_boundary_profile,
             "right_boundary_profile": spec.right_boundary_profile,
+            "right_fixed_intervals": spec.right_fixed_intervals,
         }
         dump_yaml(self._normalize_for_yaml(solution_dict), output_path)

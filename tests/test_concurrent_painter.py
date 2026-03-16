@@ -27,7 +27,7 @@ def test_draw_pw_cp_subproblem_progress_plots_creates_one_plot_per_subproblem(
                     {
                         "batch_idx": 0,
                         "subproblem_idx": 1,
-                        "objective_name": "boundary_deviation",
+                        "objective_name": "right_guard_slack",
                         "status": "OPTIMAL",
                         "obj_value_records": [[0.1, 5.0], [0.3, 2.0]],
                         "obj_bound_records": [[0.1, 8.0], [0.3, 2.0]],
@@ -63,7 +63,7 @@ def test_draw_pw_cp_subproblem_progress_plots_creates_one_plot_per_subproblem(
     assert calls[0][1].name == "4-pw_cp_progress_plot_batch_001_subproblem_001.png"
     assert calls[0][0].obj_value_series.items() == [(0.1, 5.0), (0.3, 2.0)]
     assert calls[0][0].obj_bound_series.items() == [(0.1, 8.0), (0.3, 2.0)]
-    assert "boundary_deviation" in calls[0][2]["title"]
+    assert "right_guard_slack" in calls[0][2]["title"]
     assert calls[1][1].name == "4-pw_cp_progress_plot_batch_002_subproblem_002.png"
     assert calls[1][0].obj_value_series.items() == [(1.2, 99.0)]
 

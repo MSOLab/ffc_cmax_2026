@@ -14,7 +14,7 @@ from mbls.cpsat import (
 )
 from mbls.cpsat.callbacks import ValueBoundPair
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
-from routix.util.comparison import float_a_leq_b, float_equals
+from routix.util.comparison import float_a_leq_b, float_equals, float_a_stl_b
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
@@ -913,3 +913,79 @@ class HybridFlowShopCpLnsControllerCore(
         )
 
     # End solver call methods
+
+    # Start repeat
+
+    def repeat_while_improvement(
+        self,
+        routine_data: DynamicDataObject,
+        n_repeats: int | None = None,
+        max_no_improve: int | None = None,
+    ):
+        """
+        Repeats the execution of a routine a specified number of times.
+
+        Args:
+            routine_data (DynamicDataObject): The routine data to be executed.
+            n_repeats (int | None, optional): Number of times to repeat the routine.
+                If None, repeats until the stopping condition or the no-improvement
+                limit is met. Defaults to None.
+            max_no_improve (int | None, optional): Maximum number of consecutive
+                non-improving iterations before stopping.
+                If 0, stops after the first non-improving iteration.
+                If None or negative, treated as 0.
+                Defaults to None.
+        """
+        _max_no_improve: int = (
+            0 if max_no_improve is None or max_no_improve < 0 else max_no_improve
+        )
+
+        incumbent_sol = self.solution_manager.get_incumbent()
+        if incumbent_sol is None:
+            obj_before = math.inf
+        else:
+            obj_before = incumbent_sol.makespan
+
+        no_improve_count = 0
+        i = 0
+        while n_repeats is None or i < n_repeats:
+            if self.is_stopping_condition():
+                logging.info(
+                    "[Repeat] Stopping condition met at iteration %d/%s.",
+                    i + 1,
+                    n_repeats if n_repeats is not None else "inf",
+                )
+                break
+            logging.info(
+                "[Repeat] Starting repeat %d/%s.",
+                i + 1,
+                n_repeats if n_repeats is not None else "inf",
+            )
+
+            subroutine_name = f"reps_{i + 1:03d}"
+            with self.temporarily_extended_context(subroutine_name):
+                self._run_flow(DynamicDataObject.from_obj(routine_data))
+
+            incumbent_sol = self.solution_manager.get_incumbent()
+            if incumbent_sol is None:
+                obj_after = math.inf
+            else:
+                obj_after = incumbent_sol.makespan
+
+            if float_a_stl_b(obj_after, obj_before):
+                no_improve_count = 0
+                logging.info(
+                    f"[Repeat] Improvement observed ({obj_before} -> {obj_after}). Continuing."
+                )
+                obj_before = obj_after
+            else:
+                logging.info(
+                    f"[Repeat] No improvement observed ({obj_before} -> {obj_after})."
+                )
+                no_improve_count += 1
+                if no_improve_count > _max_no_improve:
+                    logging.info(
+                        f"[Repeat] Max no-improve reached ({_max_no_improve}). Stopping repeats."
+                    )
+                    break
+            i += 1

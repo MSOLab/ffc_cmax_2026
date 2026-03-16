@@ -65,7 +65,7 @@ def main() -> None:
         {"A": {"s1": 10}, "B": {"s1": 2}, "C": {"s1": 2}, "D": {"s1": 2}},
     )
     _, params, _ = ctor.builder.build(instance, sched.makespan)
-    hint_values = ctor._compute_boundary_deviation_hint_values(
+    hint_values = ctor._compute_right_guard_hint_values(
         incumbent=sched,
         optimization_ops=partition.optimization,
         right_boundary_profile=partition.right_boundary_profile,
@@ -81,12 +81,13 @@ def main() -> None:
     print(f"Right fixed ops: {partition.right_time_fixed_ops}")
     print(f"Right boundary profile: {partition.right_boundary_profile}")
     print()
-    print("Boundary deviation hint values:")
-    print(f"  T_s1_1 = {hint_values['T_s1_1']}")
-    print(f"  T_s1_2 = {hint_values['T_s1_2']}")
-    print(f"  boundary_deviation_s1_1 = {hint_values['boundary_deviation_s1_1']}")
-    print(f"  boundary_deviation_s1_2 = {hint_values['boundary_deviation_s1_2']}")
-    print(f"  global_max_deviation = {hint_values['global_max_deviation']}")
+    print("Right guard hint values:")
+    print(f"  guard_start_s1_1 = {hint_values['guard_start_s1_1']}")
+    print(f"  guard_start_s1_2 = {hint_values['guard_start_s1_2']}")
+    print(f"  guard_extra_s1_1 = {hint_values['guard_extra_s1_1']}")
+    print(f"  guard_extra_s1_2 = {hint_values['guard_extra_s1_2']}")
+    print(f"  stage_guard_min_s1 = {hint_values['stage_guard_min_s1']}")
+    print(f"  global_guard_min = {hint_values['global_guard_min']}")
 
 
 if __name__ == "__main__":

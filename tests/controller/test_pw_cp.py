@@ -195,18 +195,65 @@ def test_build_stage_batches_uses_start_time_as_tiebreaker_for_midpoint(tmp_path
     ]
 
 
-def test_compute_right_boundary_profile_uses_right_justified_start_times(tmp_path):
+def test_build_right_guard_profile_uses_machine_order_start_times(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     sched = _make_schedule()
 
-    boundary_profile = ctor._compute_right_boundary_profile(
+    boundary_profile, right_fixed_intervals = ctor._build_right_guard_profile(
         sched,
         right_time_fixed_ops=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
         stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
     )
 
-    assert boundary_profile["s1"] == [4, 5]
+    assert boundary_profile["s1"] == [5, 5]
+    assert right_fixed_intervals["s1"] == [(5, 7, 2), (5, 7, 2)]
+
+
+def test_build_right_guard_profile_keeps_machine_boundaries_not_stage_earliest_starts(
+    tmp_path,
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", 0, 2)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", 2, 4)
+    sched.add_ops_times_2_mc("s1", "m2", "j3", 9, 10)
+
+    boundary_profile, _ = ctor._build_right_guard_profile(
+        sched,
+        right_time_fixed_ops=(
+            ("j1", "s1", "m1"),
+            ("j2", "s1", "m1"),
+            ("j3", "s1", "m2"),
+        ),
+        stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 2, "j3": 1}},
+    )
+
+    assert boundary_profile["s1"] == [6, 9]
+
+
+def test_build_right_guard_profile_pads_missing_machine_with_makespan(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", 3, 5)
+
+    boundary_profile, _ = ctor._build_right_guard_profile(
+        sched,
+        right_time_fixed_ops=(("j1", "s1", "m1"),),
+        stage_2_job_2_p_dict={"s1": {"j1": 2}},
+    )
+
+    assert boundary_profile["s1"] == [3, sched.makespan]
 
 
 def test_add_kth_largest_constraint_handles_ties():
@@ -401,7 +448,7 @@ def test_run_raises_when_batch_count_changes_mid_run(monkeypatch, tmp_path):
         raise AssertionError("Expected AssertionError for changed batch count")
 
 
-def test_add_boundary_deviation_objective_aggregates_stage_maxes(tmp_path):
+def test_add_right_guard_objective_maximizes_global_stage_min(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     model = cp_model.CpModel()
@@ -417,10 +464,16 @@ def test_add_boundary_deviation_objective_aggregates_stage_maxes(tmp_path):
         ("j1", "s2"): model.new_int_var(4, 4, "e_j1_s2"),
         ("j2", "s2"): model.new_int_var(3, 3, "e_j2_s2"),
     }
+    op_intvl = {
+        ("j1", "s1"): model.new_interval_var(op_start["j1", "s1"], 3, op_end["j1", "s1"], "i_j1_s1"),
+        ("j2", "s1"): model.new_interval_var(op_start["j2", "s1"], 3, op_end["j2", "s1"], "i_j2_s1"),
+        ("j1", "s2"): model.new_interval_var(op_start["j1", "s2"], 4, op_end["j1", "s2"], "i_j1_s2"),
+        ("j2", "s2"): model.new_interval_var(op_start["j2", "s2"], 2, op_end["j2", "s2"], "i_j2_s2"),
+    }
     params = SimpleNamespace(M_of={"s1": ["m1", "m2"], "s2": ["m3", "m4"]})
-    variables = SimpleNamespace(op_start=op_start, op_end=op_end)
+    variables = SimpleNamespace(op_start=op_start, op_end=op_end, op_intvl=op_intvl)
 
-    objective = ctor._add_boundary_deviation_objective(
+    objective = ctor._add_right_guard_objective(
         model,
         params,
         variables,
@@ -431,6 +484,7 @@ def test_add_boundary_deviation_objective_aggregates_stage_maxes(tmp_path):
             ("j2", "s2", "m4"),
         ),
         right_boundary_profile={"s1": [4, 6], "s2": [2, 2]},
+        right_fixed_intervals={"s1": [], "s2": []},
         horizon=20,
     )
 
@@ -438,11 +492,10 @@ def test_add_boundary_deviation_objective_aggregates_stage_maxes(tmp_path):
     status = solver.Solve(model)
 
     assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
-    # deviation = T_ir - S_ir:
-    # s1: T=[7,5], S=[4,6] -> deviations [3,-1] -> max=3
-    # s2: T=[4,3], S=[2,2] -> deviations [2,1] -> max=2
-    # global_max = max(3, 2) = 3
-    assert solver.Value(objective) == 3
+    # s1 guard extras are [4, 1] -> stage min = 1
+    # s2 guard extras are [0, 0] -> stage min = 0
+    # global guard min = min(1, 0) = 0
+    assert solver.Value(objective) == 0
 
 
 def test_save_solution_dict_writes_boundary_metadata(tmp_path):
@@ -460,6 +513,7 @@ def test_save_solution_dict_writes_boundary_metadata(tmp_path):
         partition=partition,
         left_boundary_profile={"s1": {"m1": 0, "m2": 0}},
         right_boundary_profile={"s1": [5, 7]},
+        right_fixed_intervals={"s1": [(5, 7, 2)]},
         is_last_batch=False,
     )
 
@@ -492,6 +546,7 @@ def test_save_solution_dict_normalizes_numpy_scalars(tmp_path):
         partition=partition,
         left_boundary_profile={"s1": {"m1": np.int64(0), "m2": np.int64(0)}},
         right_boundary_profile={"s1": [np.int64(5), np.int64(7)]},
+        right_fixed_intervals={"s1": [(np.int64(5), np.int64(7), np.int64(2))]},
         is_last_batch=False,
     )
 
@@ -631,7 +686,7 @@ def test_run_collects_non_final_subproblem_obj_records(monkeypatch, tmp_path):
 
     assert len(result.subproblem_logs) == 2
     first_log = result.subproblem_logs[0]
-    assert first_log.objective_name == "boundary_deviation"
+    assert first_log.objective_name == "right_guard_slack"
     assert first_log.obj_value_records == ((0.1, 4.0), (0.3, 2.0))
     assert first_log.obj_bound_records == ((0.05, 6.0), (0.3, 2.0))
 
@@ -708,7 +763,7 @@ def test_run_adds_makespan_hint_for_final_batch(monkeypatch, tmp_path):
     assert seen_hints[0]["makespan"] == incumbent_makespan
 
 
-def test_run_adds_boundary_objective_hint_for_non_final_batch(monkeypatch, tmp_path):
+def test_run_adds_right_guard_objective_hint_for_non_final_batch(monkeypatch, tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     incumbent = _make_schedule()
@@ -738,7 +793,7 @@ def test_run_adds_boundary_objective_hint_for_non_final_batch(monkeypatch, tmp_p
     )
 
     assert len(seen_hints) == 2
-    assert "global_max_deviation" in seen_hints[0]
+    assert "global_guard_min" in seen_hints[0]
     partition = ctor._build_operation_partition(
         ctor._build_stage_batches(incumbent, batch_size=2),
         ["s1"],
@@ -747,20 +802,21 @@ def test_run_adds_boundary_objective_hint_for_non_final_batch(monkeypatch, tmp_p
         stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
     )
     _, params, _ = ctor.builder.build(instance, incumbent.makespan)
-    expected_hints = ctor._compute_boundary_deviation_hint_values(
+    expected_hints = ctor._compute_right_guard_hint_values(
         incumbent=incumbent,
         optimization_ops=partition.optimization,
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
-    assert seen_hints[0]["global_max_deviation"] == expected_hints["global_max_deviation"]
-    assert seen_hints[0]["boundary_deviation_s1_1"] == expected_hints["boundary_deviation_s1_1"]
-    assert seen_hints[0]["boundary_deviation_s1_2"] == expected_hints["boundary_deviation_s1_2"]
-    assert seen_hints[0]["T_s1_1"] == expected_hints["T_s1_1"]
-    assert seen_hints[0]["T_s1_2"] == expected_hints["T_s1_2"]
+    assert seen_hints[0]["global_guard_min"] == expected_hints["global_guard_min"]
+    assert seen_hints[0]["stage_guard_min_s1"] == expected_hints["stage_guard_min_s1"]
+    assert seen_hints[0]["guard_extra_s1_1"] == expected_hints["guard_extra_s1_1"]
+    assert seen_hints[0]["guard_extra_s1_2"] == expected_hints["guard_extra_s1_2"]
+    assert seen_hints[0]["guard_start_s1_1"] == expected_hints["guard_start_s1_1"]
+    assert seen_hints[0]["guard_start_s1_2"] == expected_hints["guard_start_s1_2"]
 
 
-def test_boundary_deviation_can_be_positive_for_feasible_schedule_with_batch_only_frontier(
+def test_machine_order_right_guard_profile_differs_from_stage_earliest_starts(
     tmp_path,
 ):
     ctx = FakePwCpContext(tmp_path)
@@ -795,9 +851,8 @@ def test_boundary_deviation_can_be_positive_for_feasible_schedule_with_batch_onl
     )
     assert partition.optimization == (("B", "s1", "m2"), ("C", "s1", "m2"))
     assert partition.right_time_fixed_ops == (("A", "s1", "m1"), ("D", "s1", "m2"))
-    # Right-justifying only the right batch moves A to [0,10] and D to [8,10],
-    # so the batch-only right frontier is [0, 8]. With same-r comparison,
-    # the feasible incumbent still gets a positive deviation on r=1.
+    # Machine-order boundaries are derived per machine, not by taking the stage's
+    # globally earliest starts.
     assert partition.right_boundary_profile == {"s1": [0, 8]}
 
     instance = create_hfs_instance(
@@ -808,21 +863,103 @@ def test_boundary_deviation_can_be_positive_for_feasible_schedule_with_batch_onl
         {"A": {"s1": 10}, "B": {"s1": 2}, "C": {"s1": 2}, "D": {"s1": 2}},
     )
     _, params, _ = ctor.builder.build(instance, sched.makespan)
-    hint_values = ctor._compute_boundary_deviation_hint_values(
+    hint_values = ctor._compute_right_guard_hint_values(
         incumbent=sched,
         optimization_ops=partition.optimization,
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
 
-    assert hint_values["T_s1_1"] == 4
-    assert hint_values["T_s1_2"] == 0
-    assert hint_values["boundary_deviation_s1_1"] == 4
-    assert hint_values["boundary_deviation_s1_2"] == -8
-    assert hint_values["global_max_deviation"] == 4
+    assert hint_values["guard_extra_s1_1"] == 0
+    assert hint_values["guard_extra_s1_2"] == 4
+    assert hint_values["stage_guard_min_s1"] == 0
+    assert hint_values["global_guard_min"] == 0
 
 
-def test_apply_boundary_deviation_hints_skips_duplicates(tmp_path):
+def test_compute_right_guard_hint_values_clips_latest_end_at_guard_boundary(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", 3, 8)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", 0, 2)
+
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 5}, "j2": {"s1": 2}},
+    )
+    _, params, _ = ctor.builder.build(instance, sched.makespan)
+
+    hint_values = ctor._compute_right_guard_hint_values(
+        incumbent=sched,
+        optimization_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_boundary_profile={"s1": [6, 5]},
+        params=params,
+    )
+
+    assert hint_values["guard_extra_s1_1"] == 0
+    assert hint_values["guard_start_s1_1"] == 6
+    assert hint_values["guard_extra_s1_2"] == 3
+    assert hint_values["guard_start_s1_2"] == 2
+    assert hint_values["stage_guard_min_s1"] == 0
+    assert hint_values["global_guard_min"] == 0
+
+
+def test_compute_right_guard_hint_values_aggregates_stage_and_global_mins(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3", "j4"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m3", "m4"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", 1, 3)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", 4, 5)
+    sched.add_ops_times_2_mc("s2", "m3", "j3", 0, 1)
+    sched.add_ops_times_2_mc("s2", "m4", "j4", 3, 6)
+
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1", "s2"],
+        {"s1": ["m1", "m2"], "s2": ["m3", "m4"]},
+        {
+            "j1": {"s1": 2, "s2": 1},
+            "j2": {"s1": 1, "s2": 1},
+            "j3": {"s1": 1, "s2": 1},
+            "j4": {"s1": 1, "s2": 3},
+        },
+    )
+    _, params, _ = ctor.builder.build(instance, sched.makespan)
+
+    hint_values = ctor._compute_right_guard_hint_values(
+        incumbent=sched,
+        optimization_ops=(
+            ("j1", "s1", "m1"),
+            ("j2", "s1", "m2"),
+            ("j3", "s2", "m3"),
+            ("j4", "s2", "m4"),
+        ),
+        right_boundary_profile={"s1": [6, 7], "s2": [4, 8]},
+        params=params,
+    )
+
+    assert hint_values["guard_extra_s1_1"] == 3
+    assert hint_values["guard_extra_s1_2"] == 2
+    assert hint_values["stage_guard_min_s1"] == 2
+    assert hint_values["guard_extra_s2_1"] == 3
+    assert hint_values["guard_extra_s2_2"] == 2
+    assert hint_values["stage_guard_min_s2"] == 2
+    assert hint_values["global_guard_min"] == 2
+
+
+def test_apply_right_guard_hints_skips_duplicates(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     incumbent = _make_schedule()
@@ -834,15 +971,16 @@ def test_apply_boundary_deviation_hints_skips_duplicates(tmp_path):
         {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
     )
     mdl, params, variables = ctor.builder.build(instance, incumbent.makespan)
-    ctor._add_boundary_deviation_objective(
+    ctor._add_right_guard_objective(
         mdl,
         params,
         variables,
         optimization_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [5, 5]},
+        right_fixed_intervals={"s1": []},
         horizon=incumbent.makespan,
     )
-    ctor._apply_boundary_deviation_hints(
+    ctor._apply_right_guard_hints(
         mdl,
         incumbent=incumbent,
         optimization_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
@@ -873,7 +1011,7 @@ def test_result_save_yaml_preserves_obj_series_and_adds_cp_sat_logs(tmp_path):
                 batch_idx=0,
                 subproblem_idx=1,
                 is_last_batch=False,
-                objective_name="boundary_deviation",
+                objective_name="right_guard_slack",
                 time_limit_sec=2.0,
                 elapsed_time_sec=0.8,
                 status="FEASIBLE",
@@ -894,7 +1032,7 @@ def test_result_save_yaml_preserves_obj_series_and_adds_cp_sat_logs(tmp_path):
     assert saved["obj_value"]["data"] == {"1.0": 10}
     assert saved["obj_value"]["notes"] == {"1.0": "batch=1"}
     assert saved["obj_bound"]["data"] == {"1.0": 10}
-    assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["objective_name"] == "boundary_deviation"
+    assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["objective_name"] == "right_guard_slack"
     assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["accepted"] is True
     assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["improved"] is True
     assert saved["pw_cp_metadata"]["summary"]["subproblem_count"] == 1
@@ -995,3 +1133,99 @@ def test_controller_pw_cp_invokes_constructor(monkeypatch):
     monkeypatch.setattr(module, "PwCpConstructor", FakeConstructor)
 
     ctrl.pw_cp(solver_thread_cnt=1)
+
+
+def test_controller_pw_cp_resolves_batch_size_ratio(monkeypatch):
+    import hybridflowshop.controller.hfs_cp_lns as module
+
+    ctrl = module.HybridFlowShopCpLnsController.__new__(
+        module.HybridFlowShopCpLnsController
+    )
+    schedule = SimpleNamespace(makespan=11)
+    ctrl.instance = SimpleNamespace(job_count=37)
+    ctrl.stage_2_job_2_p_dict = {"s1": {"j1": 1}}
+    ctrl.timer = SimpleNamespace(elapsed_sec=1.25)
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: schedule,
+        register=lambda report, solution: True,
+    )
+    ctrl.get_file_path_for_subroutine = lambda suffix: Path("/tmp") / suffix.lstrip("_")
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "pw_cp"
+    ctrl.obj_store = SimpleNamespace(
+        add_last_timestamp_note=lambda *args, **kwargs: None
+    )
+    ctrl.set_cp_model_as_base_cp_model = lambda *args, **kwargs: None
+    ctrl.draw_incumbent_gantt = lambda *args, **kwargs: None
+
+    seen_kwargs = {}
+
+    class FakeConstructor:
+        def __init__(self, ctx):
+            self.ctx = ctx
+
+        def run(self, *args, **kwargs):
+            seen_kwargs.update(kwargs)
+            obj_store = ObjValueBoundStore[int]()
+            return PwCpResult(
+                schedule=schedule,
+                sub_obj_store=obj_store,
+                last_obj_value=11,
+                subproblem_logs=(),
+                total_pw_cp_elapsed_sec=0.1,
+                max_time_per_batch=None,
+            )
+
+    monkeypatch.setattr(module, "PwCpConstructor", FakeConstructor)
+
+    ctrl.pw_cp(solver_thread_cnt=1, batch_size_ratio=0.10)
+
+    assert seen_kwargs["batch_size"] == 4
+
+
+def test_controller_pw_cp_prefers_explicit_batch_size_over_ratio(monkeypatch):
+    import hybridflowshop.controller.hfs_cp_lns as module
+
+    ctrl = module.HybridFlowShopCpLnsController.__new__(
+        module.HybridFlowShopCpLnsController
+    )
+    schedule = SimpleNamespace(makespan=11)
+    ctrl.instance = SimpleNamespace(job_count=37)
+    ctrl.stage_2_job_2_p_dict = {"s1": {"j1": 1}}
+    ctrl.timer = SimpleNamespace(elapsed_sec=1.25)
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: schedule,
+        register=lambda report, solution: True,
+    )
+    ctrl.get_file_path_for_subroutine = lambda suffix: Path("/tmp") / suffix.lstrip("_")
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "pw_cp"
+    ctrl.obj_store = SimpleNamespace(
+        add_last_timestamp_note=lambda *args, **kwargs: None
+    )
+    ctrl.set_cp_model_as_base_cp_model = lambda *args, **kwargs: None
+    ctrl.draw_incumbent_gantt = lambda *args, **kwargs: None
+
+    seen_kwargs = {}
+
+    class FakeConstructor:
+        def __init__(self, ctx):
+            self.ctx = ctx
+
+        def run(self, *args, **kwargs):
+            seen_kwargs.update(kwargs)
+            obj_store = ObjValueBoundStore[int]()
+            return PwCpResult(
+                schedule=schedule,
+                sub_obj_store=obj_store,
+                last_obj_value=11,
+                subproblem_logs=(),
+                total_pw_cp_elapsed_sec=0.1,
+                max_time_per_batch=None,
+            )
+
+    monkeypatch.setattr(module, "PwCpConstructor", FakeConstructor)
+
+    ctrl.pw_cp(solver_thread_cnt=1, batch_size=7, batch_size_ratio=0.10)
+
+    assert seen_kwargs["batch_size"] == 7
