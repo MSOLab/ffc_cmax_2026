@@ -6,7 +6,11 @@ from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
 from routix.io.path import extract_prefix_from_filename
 
-from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
+from hybridflowshop.io_solution import (
+    get_end_time_dict,
+    get_highlight_op_set,
+    get_start_time_dict,
+)
 from hybridflowshop.painter.gantt import GanttPlotter
 
 
@@ -83,8 +87,13 @@ def _process_solution_file(
 
     start_time_map = get_start_time_dict(file_path, encoding=encoding)
     end_time_map = get_end_time_dict(file_path, encoding=encoding)
+    highlight_op_set = get_highlight_op_set(file_path, encoding=encoding)
     GanttPlotter().export_hybrid_flowshop_plot(
-        output_path, start_time_map, end_time_map, job_list=all_job_id_list
+        output_path,
+        start_time_map,
+        end_time_map,
+        job_list=all_job_id_list,
+        highlight_op_set=highlight_op_set,
     )
 
 
