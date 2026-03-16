@@ -100,7 +100,7 @@ Therefore the replacement boundary notion should ideally:
 
 ## Recommended Direction
 
-Replace the current stage-level right-boundary objective with a cumulative-frontier objective.
+Replace the current stage-level right-boundary objective with a batch-specific cumulative-frontier objective.
 
 ### High-level idea
 
@@ -109,10 +109,10 @@ Instead of using:
 - `C_{i,k}` = k-th largest current completion
 - `D_{i,k}` = stage-wise earliest right starts
 
-use cumulative usage frontiers:
+use batch-specific cumulative usage frontiers:
 
-- `T_{i,r}` = last time current-batch usage on stage `i` was at least `r`
-- `S_{i,r}` = first time right-batch usage on stage `i` is at least `r` after right-justification
+- `T_{i,r}` = last time the `current batch operations` alone induce usage at least `r` on stage `i`
+- `S_{i,r}` = first time the `right batch operations` alone induce usage at least `r` on stage `i` after right-justification
 
 for `r = 1..|M_i|`.
 
@@ -123,8 +123,8 @@ Then define:
 
 This keeps the formulation machine-agnostic while comparing like with like:
 
-- current-side cumulative frontier
-- right-side cumulative frontier
+- current-batch-only cumulative frontier
+- right-batch-only cumulative frontier
 
 
 ## Why This Direction Fits The Existing Model
@@ -197,7 +197,7 @@ Current implementation:
 Needed replacement:
 
 - right-justify right-fixed ops
-- for each stage, compute right-side cumulative frontier:
+- for each stage, compute `right-batch-only` cumulative frontier:
   - `S_{i,1}`, `S_{i,2}`, ..., `S_{i,m_i}`
 - store these rank-frontier values instead of raw earliest starts
 
@@ -218,7 +218,7 @@ Current implementation uses:
 
 Needed replacement:
 
-- introduce frontier variables for current-batch cumulative usage:
+- introduce frontier variables for `current-batch-only` cumulative usage:
   - `T_{i,1}`, `T_{i,2}`, ..., `T_{i,m_i}`
 - compare with right-side frontier values:
   - `deviation_{i,r} = T_{i,r} - S_{i,r}`
@@ -245,7 +245,7 @@ Needed replacement:
 
 - compute incumbent `T_{i,r}` values
 - compute `deviation_{i,r}`
-- compute stage/global max deviation from the new frontier definition
+- compute stage/global max deviation from the new batch-specific frontier definition
 
 Relevant file:
 
@@ -295,18 +295,26 @@ This still needs implementation design work.
 
 Candidate idea:
 
-- Use end times of current-batch operations on stage `i` as candidate event times.
-- For each rank `r`, define `T_{i,r}` as the largest candidate time such that current-batch cumulative usage is at least `r` immediately before or at that event.
+- Use end times of `current batch` operations on stage `i` as candidate event times.
+- For each rank `r`, define `T_{i,r}` as the largest candidate time such that `current-batch-only` cumulative usage is at least `r` immediately before or at that event.
+
+Important clarification:
+
+- `T_{i,r}` must not mean "last time total stage usage was at least `r`".
+- It must mean "last time the current batch itself contributes usage at least `r`".
+- The same applies symmetrically to `S_{i,r}` for the right batch after right-justification.
+
+This matters because otherwise the frontier could be driven by operations outside the batch being measured, which would break the intended interpretation of the objective.
 
 Possible implementation approaches:
 
 1. Event-based Bool encoding
 - candidate times = end times of current-batch ops
-- Bool says whether stage usage at that candidate time is at least `r`
+- Bool says whether `current-batch-only` stage usage at that candidate time is at least `r`
 - `T_{i,r}` is max selected candidate
 
 2. Simpler incumbent-only prototype first
-- first compute frontiers outside the model for the incumbent only
+- first compute `current-batch-only` and `right-batch-only` frontiers outside the model for the incumbent only
 - verify they behave as intended on small and real examples
 - then implement the CP encoding
 
@@ -327,7 +335,7 @@ Use or extend:
 Need to confirm:
 
 - current formulation gives positive incumbent deviation on the demo
-- new frontier formulation does not produce the same misleading positive value
+- new batch-specific frontier formulation does not produce the same misleading positive value
 
 ### Unit tests
 
@@ -356,7 +364,7 @@ Check:
 
 ## Implementation Order Recommendation
 
-1. Add a new `verify/` script that computes cumulative frontiers for small examples.
+1. Add or extend `verify/` scripts to compute batch-specific cumulative frontiers for small examples.
 2. Decide exact mathematical definition of `T_{i,r}` and `S_{i,r}`.
 3. Update `_compute_right_boundary_profile()` to compute right-side frontiers.
 4. Update `add_boundary_deviation_objective()` to use frontier vars instead of k-th completion vars.
@@ -381,4 +389,3 @@ At the time of writing:
 - a counterexample demo exists in `verify/`
 - tests currently pass after adding the demo-related regression test
 - the non-final objective itself has not yet been redesigned
-

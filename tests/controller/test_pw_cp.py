@@ -200,14 +200,13 @@ def test_compute_right_boundary_profile_uses_right_justified_start_times(tmp_pat
     ctor = PwCpConstructor(ctx)
     sched = _make_schedule()
 
-    boundary_profile, start_times = ctor._compute_right_boundary_profile(
+    boundary_profile = ctor._compute_right_boundary_profile(
         sched,
         right_time_fixed_ops=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
         stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
     )
 
-    assert sorted(start_times["s1"]) == [5, 5]
-    assert boundary_profile["s1"] == [5, 5]
+    assert boundary_profile["s1"] == [4, 5]
 
 
 def test_add_kth_largest_constraint_handles_ties():
@@ -406,6 +405,12 @@ def test_add_boundary_deviation_objective_aggregates_stage_maxes(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     model = cp_model.CpModel()
+    op_start = {
+        ("j1", "s1"): model.new_int_var(4, 4, "s_j1_s1"),
+        ("j2", "s1"): model.new_int_var(2, 2, "s_j2_s1"),
+        ("j1", "s2"): model.new_int_var(0, 0, "s_j1_s2"),
+        ("j2", "s2"): model.new_int_var(1, 1, "s_j2_s2"),
+    }
     op_end = {
         ("j1", "s1"): model.new_int_var(7, 7, "e_j1_s1"),
         ("j2", "s1"): model.new_int_var(5, 5, "e_j2_s1"),
@@ -413,7 +418,7 @@ def test_add_boundary_deviation_objective_aggregates_stage_maxes(tmp_path):
         ("j2", "s2"): model.new_int_var(3, 3, "e_j2_s2"),
     }
     params = SimpleNamespace(M_of={"s1": ["m1", "m2"], "s2": ["m3", "m4"]})
-    variables = SimpleNamespace(op_end=op_end)
+    variables = SimpleNamespace(op_start=op_start, op_end=op_end)
 
     objective = ctor._add_boundary_deviation_objective(
         model,
@@ -433,11 +438,11 @@ def test_add_boundary_deviation_objective_aggregates_stage_maxes(tmp_path):
     status = solver.Solve(model)
 
     assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
-    # deviation = C_ik - D_ik:
-    # s1: C=[7,5], D=[6,4] (reversed) -> deviations: 7-6=1, 5-4=1 -> max=1
-    # s2: C=[4,3], D=[2,2] (reversed) -> deviations: 4-2=2, 3-2=1 -> max=2
-    # global_max = max(1, 2) = 2
-    assert solver.Value(objective) == 2
+    # deviation = T_ir - S_ir:
+    # s1: T=[7,5], S=[4,6] -> deviations [3,-1] -> max=3
+    # s2: T=[4,3], S=[2,2] -> deviations [2,1] -> max=2
+    # global_max = max(3, 2) = 3
+    assert solver.Value(objective) == 3
 
 
 def test_save_solution_dict_writes_boundary_metadata(tmp_path):
@@ -455,7 +460,6 @@ def test_save_solution_dict_writes_boundary_metadata(tmp_path):
         partition=partition,
         left_boundary_profile={"s1": {"m1": 0, "m2": 0}},
         right_boundary_profile={"s1": [5, 7]},
-        right_boundary_stage_start_times={"s1": [5, 7]},
         is_last_batch=False,
     )
 
@@ -488,7 +492,6 @@ def test_save_solution_dict_normalizes_numpy_scalars(tmp_path):
         partition=partition,
         left_boundary_profile={"s1": {"m1": np.int64(0), "m2": np.int64(0)}},
         right_boundary_profile={"s1": [np.int64(5), np.int64(7)]},
-        right_boundary_stage_start_times={"s1": [np.int64(5), np.int64(7)]},
         is_last_batch=False,
     )
 
@@ -753,9 +756,70 @@ def test_run_adds_boundary_objective_hint_for_non_final_batch(monkeypatch, tmp_p
     assert seen_hints[0]["global_max_deviation"] == expected_hints["global_max_deviation"]
     assert seen_hints[0]["boundary_deviation_s1_1"] == expected_hints["boundary_deviation_s1_1"]
     assert seen_hints[0]["boundary_deviation_s1_2"] == expected_hints["boundary_deviation_s1_2"]
-    assert seen_hints[0]["C_s1_1"] == expected_hints["C_s1_1"]
-    assert seen_hints[0]["C_s1_2"] == expected_hints["C_s1_2"]
-    assert seen_hints[0]["kth_completion_s1_1_ge_0"] == expected_hints["kth_completion_s1_1_ge_0"]
+    assert seen_hints[0]["T_s1_1"] == expected_hints["T_s1_1"]
+    assert seen_hints[0]["T_s1_2"] == expected_hints["T_s1_2"]
+
+
+def test_boundary_deviation_can_be_positive_for_feasible_schedule_with_batch_only_frontier(
+    tmp_path,
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["A", "B", "C", "D"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    # Feasible schedule:
+    # m1: A [0,10]
+    # m2: B [0,2], C [2,4], D [8,10]
+    sched.add_ops_times_2_mc("s1", "m1", "A", 0, 10)
+    sched.add_ops_times_2_mc("s1", "m2", "B", 0, 2)
+    sched.add_ops_times_2_mc("s1", "m2", "C", 2, 4)
+    sched.add_ops_times_2_mc("s1", "m2", "D", 8, 10)
+
+    batches = ctor._build_stage_batches(sched, batch_size=2, sort_by_start_time=False)
+    assert batches == {
+        "s1": [
+            (("B", "s1", "m2"), ("C", "s1", "m2")),
+            (("A", "s1", "m1"), ("D", "s1", "m2")),
+        ]
+    }
+
+    partition = ctor._build_operation_partition(
+        batches,
+        ["s1"],
+        current_batch_idx=0,
+        incumbent=sched,
+        stage_2_job_2_p_dict={"s1": {"A": 10, "B": 2, "C": 2, "D": 2}},
+    )
+    assert partition.optimization == (("B", "s1", "m2"), ("C", "s1", "m2"))
+    assert partition.right_time_fixed_ops == (("A", "s1", "m1"), ("D", "s1", "m2"))
+    # Right-justifying only the right batch moves A to [0,10] and D to [8,10],
+    # so the batch-only right frontier is [0, 8]. With same-r comparison,
+    # the feasible incumbent still gets a positive deviation on r=1.
+    assert partition.right_boundary_profile == {"s1": [0, 8]}
+
+    instance = create_hfs_instance(
+        "tiny",
+        ["A", "B", "C", "D"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"A": {"s1": 10}, "B": {"s1": 2}, "C": {"s1": 2}, "D": {"s1": 2}},
+    )
+    _, params, _ = ctor.builder.build(instance, sched.makespan)
+    hint_values = ctor._compute_boundary_deviation_hint_values(
+        incumbent=sched,
+        optimization_ops=partition.optimization,
+        right_boundary_profile=partition.right_boundary_profile,
+        params=params,
+    )
+
+    assert hint_values["T_s1_1"] == 4
+    assert hint_values["T_s1_2"] == 0
+    assert hint_values["boundary_deviation_s1_1"] == 4
+    assert hint_values["boundary_deviation_s1_2"] == -8
+    assert hint_values["global_max_deviation"] == 4
 
 
 def test_apply_boundary_deviation_hints_skips_duplicates(tmp_path):
@@ -770,7 +834,7 @@ def test_apply_boundary_deviation_hints_skips_duplicates(tmp_path):
         {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
     )
     mdl, params, variables = ctor.builder.build(instance, incumbent.makespan)
-    objective = ctor._add_boundary_deviation_objective(
+    ctor._add_boundary_deviation_objective(
         mdl,
         params,
         variables,
@@ -778,18 +842,12 @@ def test_apply_boundary_deviation_hints_skips_duplicates(tmp_path):
         right_boundary_profile={"s1": [5, 5]},
         horizon=incumbent.makespan,
     )
-    hint_values = ctor._compute_boundary_deviation_hint_values(
+    ctor._apply_boundary_deviation_hints(
+        mdl,
         incumbent=incumbent,
         optimization_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [5, 5]},
         params=params,
-    )
-
-    mdl.add_hint(objective, hint_values["global_max_deviation"])
-    ctor._apply_boundary_deviation_hints(
-        mdl,
-        hint_values=hint_values,
-        skip_var_names={"global_max_deviation"},
     )
 
     hint_var_indices = _get_hint_var_indices(mdl)

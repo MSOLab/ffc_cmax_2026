@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from bisect import bisect_left
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -682,20 +681,27 @@ class BaseModelBuilder:
         """
         Adds a boundary deviation objective for non-final batches.
 
-        For each aligned pair (C_ik, D_ik):
-            deviation_ik = C_ik - D_ik
+        For each stage, compute the current-batch cumulative usage frontier T_ir:
+            T_ir = latest time where current-batch usage is at least r
 
-        - positive (C_ik > D_ik): violation (optimized block intrudes past boundary)
-        - negative (C_ik < D_ik): improvement (optimized block finishes earlier)
+        The right boundary profile stores cumulative usage frontiers of the
+        right-justified right-side operations:
+            S_ir = earliest time where right-side usage is at least r
 
-        Objective: minimize max(deviation_ik) across all stage/rank pairs.
+        Deviation is defined rank-wise on the same usage level:
+            deviation_ir = T_ir - S_ir
+
+        - positive: current frontier intrudes into right frontier
+        - negative: current frontier stays safely to the left
+
+        Objective: minimize max(deviation_ir) across all stage/rank pairs.
 
         Args:
             mdl: The CP-SAT model.
             params: Problem parameters.
             variables: Decision variables.
             optimization_ops: Operations to be optimized.
-            right_boundary_profile: Right boundary profile mapping stage_id to list of start times.
+            right_boundary_profile: Right boundary frontier mapping stage_id to cumulative usage frontiers.
             horizon: Maximum time horizon.
 
         Returns:
@@ -712,46 +718,84 @@ class BaseModelBuilder:
 
         stage_max_deviation_vars = []
         for stage_id in optimization_stage_ids:
-            completion_vars = [
-                variables.op_end[job_id, stage_id]
-                for job_id, _stage_id, _mc_id in stage_2_optimization_ops[stage_id]
-            ]
             mc_cnt = len(params.M_of[stage_id])
-            while len(completion_vars) < mc_cnt:
-                completion_vars.append(
-                    mdl.new_int_var(
-                        0, 0, f"fixed_zero_{stage_id}_{len(completion_vars)}"
+            stage_ops = stage_2_optimization_ops[stage_id]
+            usage_vars: list[IntVar] = []
+            for time in range(horizon):
+                active_bools = []
+                for op_idx, (job_id, _stage_id, _mc_id) in enumerate(stage_ops):
+                    is_active = mdl.new_bool_var(
+                        f"is_active_{stage_id}_{op_idx}_t{time}"
                     )
-                )
+                    start_by_time = mdl.new_bool_var(
+                        f"start_by_{stage_id}_{op_idx}_t{time}"
+                    )
+                    end_after_time = mdl.new_bool_var(
+                        f"end_after_{stage_id}_{op_idx}_t{time}"
+                    )
 
-            c_vars = [
-                mdl.new_int_var(0, horizon, f"C_{stage_id}_{k + 1}")
-                for k in range(mc_cnt)
-            ]
-            for k, c_var in enumerate(c_vars, start=1):
-                BaseModelBuilder.add_kth_largest_constraint(
-                    mdl,
-                    completion_vars,
-                    c_var,
-                    k,
-                    f"kth_completion_{stage_id}_{k}",
-                )
-            for idx in range(mc_cnt - 1):
-                mdl.add(c_vars[idx] >= c_vars[idx + 1])
+                    mdl.add(variables.op_start[job_id, stage_id] <= time).OnlyEnforceIf(
+                        start_by_time
+                    )
+                    mdl.add(variables.op_start[job_id, stage_id] > time).OnlyEnforceIf(
+                        start_by_time.Not()
+                    )
+                    mdl.add(variables.op_end[job_id, stage_id] >= time + 1).OnlyEnforceIf(
+                        end_after_time
+                    )
+                    mdl.add(variables.op_end[job_id, stage_id] < time + 1).OnlyEnforceIf(
+                        end_after_time.Not()
+                    )
 
-            aligned_boundary = list(reversed(right_boundary_profile[stage_id]))
+                    mdl.add(is_active <= start_by_time)
+                    mdl.add(is_active <= end_after_time)
+                    mdl.add(is_active >= start_by_time + end_after_time - 1)
+                    active_bools.append(is_active)
+
+                usage_at_time = mdl.new_int_var(
+                    0,
+                    len(stage_ops),
+                    f"usage_{stage_id}_t{time}",
+                )
+                mdl.add(usage_at_time == sum(active_bools))
+                usage_vars.append(usage_at_time)
+
+            frontier_vars = []
             deviation_vars = []
-            for idx, (c_var, boundary_start) in enumerate(
-                zip(c_vars, aligned_boundary, strict=False)
+            for idx, boundary_start in enumerate(
+                right_boundary_profile[stage_id], start=1
             ):
-                # deviation_ik = C_ik - D_ik (위반시 양수, 개선시 음수)
+                candidates = []
+                for time, usage_at_time in enumerate(usage_vars):
+                    reaches_level = mdl.new_bool_var(
+                        f"usage_ge_{stage_id}_{idx}_t{time}"
+                    )
+                    mdl.add(usage_at_time >= idx).OnlyEnforceIf(reaches_level)
+                    mdl.add(usage_at_time < idx).OnlyEnforceIf(reaches_level.Not())
+
+                    candidate = mdl.new_int_var(
+                        0,
+                        time + 1,
+                        f"T_candidate_{stage_id}_{idx}_t{time}",
+                    )
+                    mdl.add(candidate == time + 1).OnlyEnforceIf(reaches_level)
+                    mdl.add(candidate == 0).OnlyEnforceIf(reaches_level.Not())
+                    candidates.append(candidate)
+
+                frontier = mdl.new_int_var(0, horizon, f"T_{stage_id}_{idx}")
+                mdl.add_max_equality(frontier, candidates)
+                frontier_vars.append(frontier)
+
                 deviation = mdl.new_int_var(
                     -horizon,
                     horizon,
-                    f"boundary_deviation_{stage_id}_{idx + 1}",
+                    f"boundary_deviation_{stage_id}_{idx}",
                 )
-                mdl.add(deviation == c_var - boundary_start)
+                mdl.add(deviation == frontier - boundary_start)
                 deviation_vars.append(deviation)
+
+            for idx in range(mc_cnt - 1):
+                mdl.add(frontier_vars[idx] >= frontier_vars[idx + 1])
 
             max_deviation = mdl.new_int_var(
                 -horizon, horizon, f"max_deviation_{stage_id}"
