@@ -24,7 +24,6 @@ from hybridflowshop.schedule_lite import (
 OperationRef = tuple[str, str, str]
 HighlightedOperationRef = tuple[str, str]
 StageBoundaryProfile = dict[str, list[int]]
-MachineAvailabilityProfile = dict[str, dict[str, int]]
 
 
 class PwCpContext(Protocol):
@@ -80,7 +79,6 @@ class OperationPartition:
     boundary_profile_fixed: tuple[OperationRef, ...] = field(default_factory=tuple)
 
     # Boundary profiles (computed during partition creation)
-    left_boundary_profile: MachineAvailabilityProfile | None = None
     right_boundary_profile: StageBoundaryProfile | None = None
     right_fixed_intervals: StageFixedIntervals | None = None
 
@@ -109,7 +107,6 @@ class PwCpSubproblemSpec:
     batch_idx: int
     subproblem_idx: int
     partition: OperationPartition
-    left_boundary_profile: MachineAvailabilityProfile
     right_boundary_profile: StageBoundaryProfile
     right_fixed_intervals: StageFixedIntervals
     is_last_batch: bool
@@ -415,36 +412,16 @@ class PwCpConstructor:
         st.subproblem_idx += 1
 
         # Profiles are now computed during partition creation
-        assert partition.left_boundary_profile is not None, "Left profile must be set"
         assert partition.right_boundary_profile is not None, "Right profile must be set"
         assert partition.right_fixed_intervals is not None, "Right intervals must be set"
         return PwCpSubproblemSpec(
             batch_idx=batch_idx,
             subproblem_idx=st.subproblem_idx,
             partition=partition,
-            left_boundary_profile=partition.left_boundary_profile,
             right_boundary_profile=partition.right_boundary_profile,
             right_fixed_intervals=partition.right_fixed_intervals,
             is_last_batch=(batch_idx == max_batch_cnt - 1),
         )
-
-    def _compute_left_boundary_profile(
-        self, incumbent: HybridFlowshopLiteSchedule, cutoff: int
-    ) -> MachineAvailabilityProfile:
-        profile: MachineAvailabilityProfile = {
-            stage_id: {mc_id: 0 for mc_id in incumbent.machines_per_stage[stage_id]}
-            for stage_id in incumbent.stages
-        }
-        for stage_id in incumbent.stages:
-            for mc_id in incumbent.machines_per_stage[stage_id]:
-                latest_end = 0
-                for start_time, end_time, _job_id in incumbent.get_job_sequence(
-                    stage_id, mc_id
-                ):
-                    if start_time < cutoff:
-                        latest_end = end_time
-                profile[stage_id][mc_id] = int(latest_end)
-        return profile
 
     def _build_right_guard_profile(
         self,
@@ -848,8 +825,7 @@ class PwCpConstructor:
         where batch_idx=0 contains earliest operations and higher indices contain
         later operations.
 
-        Boundary profiles are computed during partition creation:
-        - left_boundary_profile: machine availability based on cutoff time
+        Boundary profile is computed during partition creation:
         - right_boundary_profile: machine-order guard end times of right-justified ops
         """
         left_ops: list[OperationRef] = []
@@ -866,11 +842,7 @@ class PwCpConstructor:
                 else:
                     right_ops.extend(batch)
 
-        # Compute boundary profiles during partition creation
-        cutoff = min(
-            incumbent.get_jik_2_start_time_map()[op] for op in optimization_ops
-        )
-        left_profile = self._compute_left_boundary_profile(incumbent, cutoff)
+        # Compute boundary profile during partition creation
         right_profile, right_fixed_intervals = self._build_right_guard_profile(
             incumbent,
             tuple(right_ops),
@@ -881,7 +853,6 @@ class PwCpConstructor:
             left_time_fixed_ops=tuple(sorted(left_ops)),
             optimization=tuple(sorted(optimization_ops)),
             right_time_fixed_ops=tuple(sorted(right_ops)),
-            left_boundary_profile=left_profile,
             right_boundary_profile=right_profile,
             right_fixed_intervals=right_fixed_intervals,
         )
@@ -909,7 +880,6 @@ class PwCpConstructor:
                 "right_time_fixed_ops": list(spec.partition.right_time_fixed_ops),
                 "boundary_profile_fixed": list(spec.partition.boundary_profile_fixed),
             },
-            "left_boundary_profile": spec.left_boundary_profile,
             "right_boundary_profile": spec.right_boundary_profile,
             "right_fixed_intervals": spec.right_fixed_intervals,
         }
