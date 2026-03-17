@@ -17,6 +17,7 @@ from hybridflowshop.cpsat_model_2.cumulative import (
     StageFixedIntervals,
 )
 from hybridflowshop.cpsat_model_2.params import Params
+from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
 )
@@ -273,7 +274,7 @@ class PwCpConstructor:
                     )
                     break
 
-                partition = self._build_operation_partition(
+                partition, right_justified_sched = self._build_operation_partition(
                     current_batches,
                     ref_schedule.stages,
                     batch_idx,
@@ -311,7 +312,15 @@ class PwCpConstructor:
                 else:
                     st.incumbent.make_semi_active(stage_2_job_2_p_dict)
 
-                if debug_export:
+                if debug_export and batch_idx < max_batch_cnt:
+                    self._draw_right_boundary_gantt(
+                        right_justified_schedule=right_justified_sched,
+                        right_time_fixed_ops=partition.right_time_fixed_ops,
+                        optimization_ops=partition.optimization,
+                        right_boundary_profile=partition.right_boundary_profile,
+                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                        batch_idx=batch_idx,
+                    )
                     self._save_solution_dict(spec, st.incumbent, accepted=accepted)
 
                 ts = st.timer.elapsed_sec
@@ -413,7 +422,9 @@ class PwCpConstructor:
 
         # Profiles are now computed during partition creation
         assert partition.right_boundary_profile is not None, "Right profile must be set"
-        assert partition.right_fixed_intervals is not None, "Right intervals must be set"
+        assert partition.right_fixed_intervals is not None, (
+            "Right intervals must be set"
+        )
         return PwCpSubproblemSpec(
             batch_idx=batch_idx,
             subproblem_idx=st.subproblem_idx,
@@ -428,7 +439,7 @@ class PwCpConstructor:
         incumbent: HybridFlowshopLiteSchedule,
         right_time_fixed_ops: tuple[OperationRef, ...],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
-    ) -> tuple[StageBoundaryProfile, StageFixedIntervals]:
+    ) -> tuple[StageBoundaryProfile, StageFixedIntervals, HybridFlowshopLiteSchedule]:
         shifted = incumbent.deepcopy()
         shifted.make_right_justified(
             stage_2_job_2_p_dict,
@@ -463,7 +474,7 @@ class PwCpConstructor:
 
             right_boundary_profile[stage_id] = stage_boundaries
             right_fixed_intervals[stage_id] = stage_intervals
-        return right_boundary_profile, right_fixed_intervals
+        return right_boundary_profile, right_fixed_intervals, shifted
 
     @staticmethod
     def _normalize_for_yaml(value):
@@ -759,7 +770,9 @@ class PwCpConstructor:
                 batch_idx=spec.batch_idx,
                 subproblem_idx=spec.subproblem_idx,
                 is_last_batch=spec.is_last_batch,
-                objective_name=("makespan" if spec.is_last_batch else "right_guard_slack"),
+                objective_name=(
+                    "makespan" if spec.is_last_batch else "right_guard_slack"
+                ),
                 time_limit_sec=time_limit_sec,
                 elapsed_time_sec=report.elapsed_time,
                 status=report.status.to_solver_status_enum().value,
@@ -812,7 +825,7 @@ class PwCpConstructor:
         current_batch_idx: int,
         incumbent: HybridFlowshopLiteSchedule,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
-    ) -> OperationPartition:
+    ) -> tuple[OperationPartition, HybridFlowshopLiteSchedule]:
         """
         Build operation partition based on batch indices.
 
@@ -843,18 +856,116 @@ class PwCpConstructor:
                     right_ops.extend(batch)
 
         # Compute boundary profile during partition creation
-        right_profile, right_fixed_intervals = self._build_right_guard_profile(
-            incumbent,
-            tuple(right_ops),
-            stage_2_job_2_p_dict,
+        right_profile, right_fixed_intervals, right_justified_sched = (
+            self._build_right_guard_profile(
+                incumbent,
+                tuple(right_ops),
+                stage_2_job_2_p_dict,
+            )
         )
 
-        return OperationPartition(
+        partition = OperationPartition(
             left_time_fixed_ops=tuple(sorted(left_ops)),
             optimization=tuple(sorted(optimization_ops)),
             right_time_fixed_ops=tuple(sorted(right_ops)),
             right_boundary_profile=right_profile,
             right_fixed_intervals=right_fixed_intervals,
+        )
+        return partition, right_justified_sched
+
+    def _draw_right_boundary_gantt(
+        self,
+        right_justified_schedule: HybridFlowshopLiteSchedule,
+        right_time_fixed_ops: tuple[OperationRef, ...],
+        optimization_ops: tuple[OperationRef, ...],
+        right_boundary_profile: StageBoundaryProfile | None,
+        stage_2_job_2_p_dict: dict[str, dict[str, int]],
+        batch_idx: int,
+    ) -> None:
+        """Draws Gantt chart of right-justified schedule with boundary visualization.
+
+        Adds dummy Slack operations to represent guard regions and draws the
+        Gantt chart with optimization operations highlighted.
+        """
+        if right_boundary_profile is None:
+            return
+        viz_schedule = right_justified_schedule.deepcopy()
+
+        assert isinstance(viz_schedule.jobs, list), (
+            "Expected viz_schedule.jobs to be a list for visualization purposes."
+        )
+
+        def generate_slack_job_id(stage_id: str, machine_id: str) -> str:
+            job_id = f"slack-{stage_id}-{machine_id}"
+            viz_schedule.jobs.append(job_id)
+            return job_id
+
+        # For each stage and machine, add a dummy operation representing the guard region
+        for stage_id, machine_ids in viz_schedule.machines_per_stage.items():
+            profile_values = right_boundary_profile.get(stage_id, [])
+
+            for machine_idx, machine_id in enumerate(machine_ids):
+                if machine_idx >= len(profile_values):
+                    continue
+                guard_end = profile_values[machine_idx]
+
+                # Find the latest end time of optimization ops on this machine
+                opt_ops_on_machine = [
+                    (job_id, stage_id, machine_id)
+                    for job_id, op_stage_id, op_machine_id in optimization_ops
+                    if op_stage_id == stage_id and op_machine_id == machine_id
+                ]
+
+                if opt_ops_on_machine:
+                    # Calculate latest end time before guard (matching _compute_right_guard_hint_values)
+                    latest_end_before_guard = 0
+                    for job_id, _, _ in opt_ops_on_machine:
+                        op_end = right_justified_schedule.get_jik_2_end_time_map()[
+                            (job_id, stage_id, machine_id)
+                        ]
+                        # Only consider operations that start before guard_end
+                        if (
+                            right_justified_schedule.get_jik_2_start_time_map()[
+                                (job_id, stage_id, machine_id)
+                            ]
+                            < guard_end
+                        ):
+                            latest_end_before_guard = max(
+                                latest_end_before_guard, min(op_end, guard_end)
+                            )
+
+                    # Calculate dummy operation duration (slack)
+                    dummy_duration = max(0, guard_end - latest_end_before_guard)
+                    if dummy_duration > 0:
+                        # Add dummy operation
+                        viz_schedule.add_operation_2_stage(
+                            stage_id,
+                            generate_slack_job_id(stage_id, machine_id),
+                            dummy_duration,
+                            release_t=latest_end_before_guard,
+                        )
+
+        # Build highlight set from optimization operations
+        highlight_op_set: set[tuple[str, str]] = {
+            (job_id, stage_id) for job_id, stage_id, _ in optimization_ops
+        }
+
+        # Draw and save Gantt chart
+        output_path = self.ctx.get_file_path_for_subroutine(
+            f"_pw_cp_batch_{batch_idx + 1:03d}_right_boundary_gantt.png"
+        )
+        plotter = GanttPlotter()
+        plotter.export_hybrid_flowshop_plot(
+            output_path,
+            viz_schedule.get_jik_2_start_time_map(),
+            viz_schedule.get_jik_2_end_time_map(),
+            job_list=None,
+            stage_list=None,
+            machine_list_per_stage=None,
+            all_job_list=None,
+            highlight_op_set=highlight_op_set,
+            force_start=None,
+            force_end=None,
         )
 
     def _save_solution_dict(
