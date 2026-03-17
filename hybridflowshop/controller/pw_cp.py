@@ -437,13 +437,14 @@ class PwCpConstructor:
     def _build_right_guard_profile(
         self,
         incumbent: HybridFlowshopLiteSchedule,
+        right_justified_op_set: set[OperationRef],
         right_time_fixed_ops: tuple[OperationRef, ...],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
     ) -> tuple[StageBoundaryProfile, StageFixedIntervals, HybridFlowshopLiteSchedule]:
         shifted = incumbent.deepcopy()
         shifted.make_right_justified(
             stage_2_job_2_p_dict,
-            operation_set=set(right_time_fixed_ops),
+            operation_set=right_justified_op_set,
         )
         start_map = shifted.get_jik_2_start_time_map()
         right_boundary_profile: StageBoundaryProfile = {}
@@ -856,9 +857,11 @@ class PwCpConstructor:
                     right_ops.extend(batch)
 
         # Compute boundary profile during partition creation
+        right_justified_op_set = set(right_ops) | set(optimization_ops)
         right_profile, right_fixed_intervals, right_justified_sched = (
             self._build_right_guard_profile(
                 incumbent,
+                right_justified_op_set,
                 tuple(right_ops),
                 stage_2_job_2_p_dict,
             )
