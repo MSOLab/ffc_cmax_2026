@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -17,7 +18,6 @@ from .params import Params
 # Type aliases for PW-CP right slack objective
 OperationRef = tuple[str, str, str]
 StageBoundaryProfile = dict[str, list[int]]
-StageFixedIntervals = dict[str, list[tuple[int, int, int]]]
 
 
 @dataclass
@@ -39,6 +39,15 @@ class CumulativeVars:
 
     makespan: IntVar
     """Makespan variable"""
+
+
+@dataclass
+class RightSlackVars:
+    slack_start: dict[tuple[str, int], IntVar]
+    slack_extra: dict[tuple[str, int], IntVar]
+    slack_interval: dict[tuple[str, int], IntervalVar]
+    stage_slack_min: dict[str, IntVar]
+    global_slack_min: IntVar
 
 
 class BaseModelBuilder:
@@ -253,32 +262,39 @@ class BaseModelBuilder:
         )
 
     @staticmethod
-    def _add_structural_constraints(
+    def _add_precedence_constraints(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+    ) -> None:
+        """Add consecutive-stage precedence constraints for each job."""
+        j_list = params.j_list
+        i_list = params.i_list
+
+        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
+        for j in j_list:
+            for i, next_i in consecutive_stage_pairs:
+                mdl.add(variables.op_end[j, i] <= variables.op_start[j, next_i])
+
+    @staticmethod
+    def _add_base_capacity_constraints(
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
         stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]] = {},
     ) -> None:
-        # Alias for readability
-        j_list = params.j_list
+        """Add the default stage-capacity cumulative constraints."""
         i_list = params.i_list
         last_i = i_list[-1]
-
-        # Precedence between consecutive stages for each job
-        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
-        for j in j_list:
-            for i, next_i in consecutive_stage_pairs:
-                mdl.add(variables.op_end[j, i] <= variables.op_start[j, next_i])
 
         stage_2_horizon: dict[str, int] = {
             stage: max(mc_2_horizon.values())
             for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
         }
 
-        # Capacity constraints for each stage
         for i in i_list:
-            intervals = [variables.op_intvl[j, i] for j in j_list]
-            demands = [1] * len(j_list)
+            intervals = [variables.op_intvl[j, i] for j in params.j_list]
+            demands = [1] * len(params.j_list)
             # Additional dummy intervals based on stage_2_mc_2_horizon
             if i in stage_2_mc_2_horizon and i != last_i:
                 stage_horizon = stage_2_horizon[i]
@@ -297,6 +313,22 @@ class BaseModelBuilder:
 
             capacity = len(params.M_of[i])
             mdl.add_cumulative(intervals, demands, capacity)
+
+    @staticmethod
+    def _add_structural_constraints(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]] = {},
+    ) -> None:
+        """Add precedence and default stage-capacity constraints."""
+        BaseModelBuilder._add_precedence_constraints(mdl, params, variables)
+        BaseModelBuilder._add_base_capacity_constraints(
+            mdl,
+            params,
+            variables,
+            stage_2_mc_2_horizon,
+        )
 
     @staticmethod
     def _add_job_completion_link_constraints(
@@ -671,70 +703,23 @@ class BaseModelBuilder:
         model.add(sum(gt) <= k - 1)
 
     @staticmethod
-    def add_right_slack_objective(
+    def add_right_slack_variables(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
         slack_occupying_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
-        right_fixed_intervals: StageFixedIntervals,
         horizon: int,
-    ) -> IntVar:
-        """
-        Adds a right-slack objective for non-final batches.
-
-        For each stage, create one slack interval per machine. Each slack ends at
-        the earliest start time of right-time-fixed operations on its machine.
-        If the machine has no right-time-fixed operation, the slack ends at the
-        makespan. The objective maximizes the minimum slack size across all stages and
-        machine-indexed slacks.
-
-        Args:
-            mdl: The CP-SAT model.
-            params: Problem parameters.
-            variables: Decision variables.
-            slack_occupying_ops: Operations that occupy slack time.
-            right_boundary_profile: Stage-to-machine slack end times.
-            right_fixed_intervals: Stage-wise fixed right-side intervals in the
-                same right-justified schedule used for slack ends.
-            horizon: Maximum time horizon.
-
-        Returns:
-            global_slack_min: The global minimum slack slack variable.
-        """
+    ) -> RightSlackVars:
+        """Create right-slack auxiliary variables for non-final batches."""
         target_stage_ids = tuple(
             sorted({stage_id for _job_id, stage_id, _mc_id in slack_occupying_ops})
         )
-        stage_2_target_ops: dict[str, list[OperationRef]] = {
-            stage_id: [] for stage_id in target_stage_ids
-        }
-        for op in slack_occupying_ops:
-            stage_2_target_ops[op[1]].append(op)
-
-        stage_slack_min_vars: list[IntVar] = []
+        slack_start_vars: dict[tuple[str, int], IntVar] = {}
+        slack_extra_vars: dict[tuple[str, int], IntVar] = {}
+        slack_interval_vars: dict[tuple[str, int], IntervalVar] = {}
+        stage_slack_min_vars: dict[str, IntVar] = {}
         for stage_id in target_stage_ids:
-            mc_cnt = len(params.M_of[stage_id])
-            stage_ops = stage_2_target_ops[stage_id]
             slack_end_times = right_boundary_profile[stage_id]
-
-            unfixed_intervals = [
-                variables.op_intvl[job_id, stage_id]
-                for job_id, _stage_id, _mc_id in stage_ops
-            ]
-            fixed_intervals = [
-                mdl.new_interval_var(
-                    start,
-                    duration,
-                    end,
-                    f"right_fixed_interval_{stage_id}_{interval_idx}",
-                )
-                for interval_idx, (start, end, duration) in enumerate(
-                    right_fixed_intervals.get(stage_id, [])
-                )
-            ]
-
-            slack_intervals: list[IntervalVar] = []
-            slack_lengths: list[IntVar] = []
             for machine_idx, slack_end in enumerate(slack_end_times, start=1):
                 slack_lth = mdl.new_int_var(
                     0,
@@ -746,31 +731,97 @@ class BaseModelBuilder:
                     slack_end,
                     f"slack_start_{stage_id}_{machine_idx}",
                 )
-                slack_intervals.append(
-                    mdl.new_interval_var(
-                        slack_start,
-                        slack_lth,
-                        slack_end,
-                        f"slack_interval_{stage_id}_{machine_idx}",
-                    )
+                slack_intvl = mdl.new_interval_var(
+                    slack_start,
+                    slack_lth,
+                    slack_end,
+                    f"slack_interval_{stage_id}_{machine_idx}",
                 )
-                slack_lengths.append(slack_lth)
+                slack_start_vars[stage_id, machine_idx] = slack_start
+                slack_extra_vars[stage_id, machine_idx] = slack_lth
+                slack_interval_vars[stage_id, machine_idx] = slack_intvl
 
-            intervals = unfixed_intervals + fixed_intervals + slack_intervals
-            demands = [1] * len(intervals)
-            mdl.add_cumulative(intervals, demands, mc_cnt)
-
-            stage_slack_min = mdl.new_int_var(
+            stage_slack_min_vars[stage_id] = mdl.new_int_var(
                 0,
                 horizon,
                 f"stage_slack_min_{stage_id}",
             )
-            for slack_lth in slack_lengths:
-                mdl.add(stage_slack_min <= slack_lth)
-            stage_slack_min_vars.append(stage_slack_min)
-
         global_slack_min = mdl.new_int_var(0, horizon, "global_slack_min")
-        for stage_slack_min in stage_slack_min_vars:
-            mdl.add(global_slack_min <= stage_slack_min)
-        mdl.maximize(global_slack_min)
-        return global_slack_min
+        return RightSlackVars(
+            slack_start=slack_start_vars,
+            slack_extra=slack_extra_vars,
+            slack_interval=slack_interval_vars,
+            stage_slack_min=stage_slack_min_vars,
+            global_slack_min=global_slack_min,
+        )
+
+    @staticmethod
+    def add_right_slack_constraints(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        slack_occupying_ops: tuple[OperationRef, ...],
+        right_time_fixed_ops: tuple[OperationRef, ...],
+        right_boundary_profile: StageBoundaryProfile,
+        slack_vars: RightSlackVars,
+    ) -> None:
+        """Add non-final stage-capacity constraints including slack intervals."""
+        target_stage_ids = tuple(
+            sorted(
+                {
+                    stage_id
+                    for _job_id, stage_id, _mc_id in (
+                        slack_occupying_ops + right_time_fixed_ops
+                    )
+                }
+            )
+        )
+        stage_2_ops: dict[str, list[OperationRef]] = {
+            stage_id: [] for stage_id in target_stage_ids
+        }
+        for op in slack_occupying_ops + right_time_fixed_ops:
+            stage_2_ops[op[1]].append(op)
+
+        for stage_id in target_stage_ids:
+            stage_max_slack_end = max(right_boundary_profile[stage_id], default=0)
+            for job_id, _stage_id, _machine_id in [
+                op for op in slack_occupying_ops if op[1] == stage_id
+            ]:
+                mdl.add(variables.op_end[job_id, stage_id] <= stage_max_slack_end)
+
+            op_intervals = [
+                variables.op_intvl[job_id, stage_id]
+                for job_id, _stage_id, _machine_id in stage_2_ops[stage_id]
+            ]
+            slack_intervals = [
+                slack_vars.slack_interval[stage_id, machine_idx]
+                for machine_idx in range(1, len(right_boundary_profile[stage_id]) + 1)
+            ]
+            intervals = op_intervals + slack_intervals
+            demands = [1] * len(intervals)
+            mdl.add_cumulative(intervals, demands, len(params.M_of[stage_id]))
+
+    @staticmethod
+    def add_right_slack_objective(
+        mdl: CustomCpModel,
+        slack_occupying_ops: tuple[OperationRef, ...],
+        slack_vars: RightSlackVars,
+    ) -> IntVar:
+        """Add right-slack objective constraints using pre-built slack variables."""
+        target_stage_ids = tuple(
+            sorted({stage_id for _job_id, stage_id, _mc_id in slack_occupying_ops})
+        )
+        for stage_id in target_stage_ids:
+            machine_indices = sorted(
+                machine_idx
+                for slack_stage_id, machine_idx in slack_vars.slack_extra
+                if slack_stage_id == stage_id
+            )
+            for machine_idx in machine_indices:
+                mdl.add(
+                    slack_vars.stage_slack_min[stage_id]
+                    <= slack_vars.slack_extra[stage_id, machine_idx]
+                )
+            mdl.add(slack_vars.global_slack_min <= slack_vars.stage_slack_min[stage_id])
+        mdl.maximize(slack_vars.global_slack_min)
+        return slack_vars.global_slack_min

@@ -198,7 +198,7 @@ def test_build_right_boundary_profile_uses_machine_order_start_times(tmp_path):
     ctor = PwCpConstructor(ctx)
     sched = _make_schedule()
     operation_list = [("j3", "s1", "m1"), ("j4", "s1", "m2")]
-    boundary_profile, right_fixed_intervals, _ = ctor._build_right_boundary_profile(
+    boundary_profile, right_justified = ctor._build_right_boundary_profile(
         sched,
         operation_list,
         [],
@@ -207,7 +207,8 @@ def test_build_right_boundary_profile_uses_machine_order_start_times(tmp_path):
     )
 
     assert boundary_profile["s1"] == [5, 5]
-    assert right_fixed_intervals["s1"] == [(5, 7, 2), (5, 7, 2)]
+    assert right_justified.get_jik_2_start_time_map()["j3", "s1", "m1"] == 5
+    assert right_justified.get_jik_2_start_time_map()["j4", "s1", "m2"] == 5
 
 
 def test_build_right_boundary_profile_keeps_machine_boundaries_not_stage_earliest_starts(
@@ -229,7 +230,7 @@ def test_build_right_boundary_profile_keeps_machine_boundaries_not_stage_earlies
     sched.add_ops_times_2_mc("s1", "m1", "j2", 2, 4)
     sched.add_ops_times_2_mc("s1", "m2", "j3", 9, 10)
 
-    boundary_profile, _, _ = ctor._build_right_boundary_profile(
+    boundary_profile, _ = ctor._build_right_boundary_profile(
         sched,
         operation_list,
         [],
@@ -251,7 +252,7 @@ def test_build_right_boundary_profile_pads_missing_machine_with_makespan(tmp_pat
     )
     sched.add_ops_times_2_mc("s1", "m1", "j1", 3, 5)
 
-    boundary_profile, _, _ = ctor._build_right_boundary_profile(
+    boundary_profile, _ = ctor._build_right_boundary_profile(
         sched,
         operation_list,
         [],
@@ -455,20 +456,18 @@ def test_run_raises_when_batch_count_changes_mid_run(monkeypatch, tmp_path):
 
 
 def test_add_right_slack_objective_maximizes_global_stage_min(tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
     model = cp_model.CpModel()
     op_start = {
         ("j1", "s1"): model.new_int_var(4, 4, "s_j1_s1"),
         ("j2", "s1"): model.new_int_var(2, 2, "s_j2_s1"),
         ("j1", "s2"): model.new_int_var(0, 0, "s_j1_s2"),
-        ("j2", "s2"): model.new_int_var(1, 1, "s_j2_s2"),
+        ("j2", "s2"): model.new_int_var(0, 0, "s_j2_s2"),
     }
     op_end = {
         ("j1", "s1"): model.new_int_var(7, 7, "e_j1_s1"),
         ("j2", "s1"): model.new_int_var(5, 5, "e_j2_s1"),
-        ("j1", "s2"): model.new_int_var(4, 4, "e_j1_s2"),
-        ("j2", "s2"): model.new_int_var(3, 3, "e_j2_s2"),
+        ("j1", "s2"): model.new_int_var(1, 1, "e_j1_s2"),
+        ("j2", "s2"): model.new_int_var(2, 2, "e_j2_s2"),
     }
     op_intvl = {
         ("j1", "s1"): model.new_interval_var(
@@ -478,7 +477,7 @@ def test_add_right_slack_objective_maximizes_global_stage_min(tmp_path):
             op_start["j2", "s1"], 3, op_end["j2", "s1"], "i_j2_s1"
         ),
         ("j1", "s2"): model.new_interval_var(
-            op_start["j1", "s2"], 4, op_end["j1", "s2"], "i_j1_s2"
+            op_start["j1", "s2"], 1, op_end["j1", "s2"], "i_j1_s2"
         ),
         ("j2", "s2"): model.new_interval_var(
             op_start["j2", "s2"], 2, op_end["j2", "s2"], "i_j2_s2"
@@ -487,7 +486,19 @@ def test_add_right_slack_objective_maximizes_global_stage_min(tmp_path):
     params = SimpleNamespace(M_of={"s1": ["m1", "m2"], "s2": ["m3", "m4"]})
     variables = SimpleNamespace(op_start=op_start, op_end=op_end, op_intvl=op_intvl)
 
-    objective = BaseModelBuilder.add_right_slack_objective(
+    slack_vars = BaseModelBuilder.add_right_slack_variables(
+        model,
+        params,
+        slack_occupying_ops=(
+            ("j1", "s1", "m1"),
+            ("j2", "s1", "m2"),
+            ("j1", "s2", "m3"),
+            ("j2", "s2", "m4"),
+        ),
+        right_boundary_profile={"s1": [7, 7], "s2": [2, 2]},
+        horizon=20,
+    )
+    BaseModelBuilder.add_right_slack_constraints(
         model,
         params,
         variables,
@@ -497,19 +508,75 @@ def test_add_right_slack_objective_maximizes_global_stage_min(tmp_path):
             ("j1", "s2", "m3"),
             ("j2", "s2", "m4"),
         ),
-        right_boundary_profile={"s1": [4, 6], "s2": [2, 2]},
-        right_fixed_intervals={"s1": [], "s2": []},
-        horizon=20,
+        right_time_fixed_ops=(),
+        right_boundary_profile={"s1": [7, 7], "s2": [2, 2]},
+        slack_vars=slack_vars,
+    )
+    objective = BaseModelBuilder.add_right_slack_objective(
+        model,
+        slack_occupying_ops=(
+            ("j1", "s1", "m1"),
+            ("j2", "s1", "m2"),
+            ("j1", "s2", "m3"),
+            ("j2", "s2", "m4"),
+        ),
+        slack_vars=slack_vars,
     )
 
     solver = cp_model.CpSolver()
     status = solver.Solve(model)
 
     assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
-    # s1 slack lengths are [4, 1] -> stage min = 1
+    # s1 slack lengths are [0, 2] -> stage min = 0
     # s2 slack lengths are [0, 0] -> stage min = 0
-    # global slack min = min(1, 0) = 0
+    # global slack min = min(0, 0) = 0
     assert solver.Value(objective) == 0
+
+
+def test_add_right_slack_constraints_caps_unfixed_end_by_stage_max_slack_end():
+    model = cp_model.CpModel()
+    op_start = {
+        ("j1", "s1"): model.new_int_var(0, 20, "s_j1_s1"),
+        ("j2", "s1"): model.new_int_var(0, 20, "s_j2_s1"),
+    }
+    op_end = {
+        ("j1", "s1"): model.new_int_var(3, 23, "e_j1_s1"),
+        ("j2", "s1"): model.new_int_var(2, 22, "e_j2_s1"),
+    }
+    op_intvl = {
+        ("j1", "s1"): model.new_interval_var(
+            op_start["j1", "s1"], 3, op_end["j1", "s1"], "i_j1_s1"
+        ),
+        ("j2", "s1"): model.new_interval_var(
+            op_start["j2", "s1"], 2, op_end["j2", "s1"], "i_j2_s1"
+        ),
+    }
+    params = SimpleNamespace(M_of={"s1": ["m1", "m2"]})
+    variables = SimpleNamespace(op_start=op_start, op_end=op_end, op_intvl=op_intvl)
+    slack_vars = BaseModelBuilder.add_right_slack_variables(
+        model,
+        params,
+        slack_occupying_ops=(("j1", "s1", "m1"),),
+        right_boundary_profile={"s1": [4, 6]},
+        horizon=20,
+    )
+
+    BaseModelBuilder.add_right_slack_constraints(
+        model,
+        params,
+        variables,
+        slack_occupying_ops=(("j1", "s1", "m1"),),
+        right_time_fixed_ops=(("j2", "s1", "m2"),),
+        right_boundary_profile={"s1": [4, 6]},
+        slack_vars=slack_vars,
+    )
+    model.maximize(op_end["j1", "s1"])
+
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+
+    assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+    assert solver.Value(op_end["j1", "s1"]) == 6
 
 
 def test_save_solution_dict_writes_boundary_metadata(tmp_path):
@@ -526,7 +593,6 @@ def test_save_solution_dict_writes_boundary_metadata(tmp_path):
         subproblem_idx=1,
         partition=partition,
         right_boundary_profile={"s1": [5, 7]},
-        right_fixed_intervals={"s1": [(5, 7, 2)]},
         is_last_batch=False,
     )
 
@@ -558,7 +624,6 @@ def test_save_solution_dict_normalizes_numpy_scalars(tmp_path):
         subproblem_idx=np.int64(1),
         partition=partition,
         right_boundary_profile={"s1": [np.int64(5), np.int64(7)]},
-        right_fixed_intervals={"s1": [(np.int64(5), np.int64(7), np.int64(2))]},
         is_last_batch=False,
     )
 
@@ -812,7 +877,7 @@ def test_run_adds_right_slack_objective_hint_for_non_final_batch(monkeypatch, tm
 
     assert len(seen_hints) == 2
     assert "global_slack_min" in seen_hints[0]
-    partition, _ = ctor._build_operation_partition(
+    partition, right_justified = ctor._build_operation_partition(
         ctor._build_stage_batches(incumbent, batch_size=2),
         ["s1"],
         current_batch_idx=0,
@@ -821,8 +886,8 @@ def test_run_adds_right_slack_objective_hint_for_non_final_batch(monkeypatch, tm
     )
     _, params, _ = ctor.builder.build(instance, incumbent.makespan)
     expected_hints = ctor._compute_right_slack_hint_values(
-        incumbent=incumbent,
-        unfixed_ops=partition.unfixed,
+        schedule=right_justified,
+        slack_occupying_ops=partition.slack_occupying_operations,
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
@@ -882,8 +947,8 @@ def test_machine_order_right_boundary_profile_differs_from_stage_earliest_starts
     )
     _, params, _ = ctor.builder.build(instance, sched.makespan)
     hint_values = ctor._compute_right_slack_hint_values(
-        incumbent=sched,
-        unfixed_ops=partition.unfixed,
+        schedule=sched,
+        slack_occupying_ops=partition.slack_occupying_operations,
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
@@ -915,8 +980,8 @@ def test_compute_right_slack_hint_values_clips_latest_end_at_slack_boundary(tmp_
     _, params, _ = ctor.builder.build(instance, sched.makespan)
 
     hint_values = ctor._compute_right_slack_hint_values(
-        incumbent=sched,
-        unfixed_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        schedule=sched,
+        slack_occupying_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [6, 5]},
         params=params,
     )
@@ -957,8 +1022,8 @@ def test_compute_right_slack_hint_values_aggregates_stage_and_global_mins(tmp_pa
     _, params, _ = ctor.builder.build(instance, sched.makespan)
 
     hint_values = ctor._compute_right_slack_hint_values(
-        incumbent=sched,
-        unfixed_ops=(
+        schedule=sched,
+        slack_occupying_ops=(
             ("j1", "s1", "m1"),
             ("j2", "s1", "m2"),
             ("j3", "s2", "m3"),
@@ -989,19 +1054,22 @@ def test_apply_right_slack_hints_skips_duplicates(tmp_path):
         {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
     )
     mdl, params, variables = ctor.builder.build(instance, incumbent.makespan)
-    BaseModelBuilder.add_right_slack_objective(
+    slack_vars = BaseModelBuilder.add_right_slack_variables(
         mdl,
         params,
-        variables,
         slack_occupying_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [5, 5]},
-        right_fixed_intervals={"s1": []},
         horizon=incumbent.makespan,
+    )
+    BaseModelBuilder.add_right_slack_objective(
+        mdl,
+        slack_occupying_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        slack_vars=slack_vars,
     )
     ctor._apply_right_slack_hints(
         mdl,
-        incumbent=incumbent,
-        unfixed_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        schedule=incumbent,
+        slack_occupying_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [5, 5]},
         params=params,
     )
@@ -1013,11 +1081,13 @@ def test_apply_right_slack_hints_skips_duplicates(tmp_path):
 def test_result_save_yaml_preserves_obj_series_and_adds_cp_sat_logs(tmp_path):
     obj_store = ObjValueBoundStore[int]()
     obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
-    obj_store.obj_bound_series.name = "ObjVal before PW-CP batch"
-    obj_store.add_obj_value(1.0, 10, None)
-    obj_store.add_obj_bound(1.0, 10, None)
+    obj_store.add_obj_value(0.0, 12, None)
     obj_store.add_last_timestamp_note(
-        "batch=1", obj_value_is_valid=True, obj_bound_is_valid=True
+        "initial_schedule", obj_value_is_valid=True, obj_bound_is_valid=False
+    )
+    obj_store.add_obj_value(1.0, 10, None)
+    obj_store.add_last_timestamp_note(
+        "batch=1", obj_value_is_valid=True, obj_bound_is_valid=False
     )
 
     result = PwCpResult(
@@ -1047,9 +1117,12 @@ def test_result_save_yaml_preserves_obj_series_and_adds_cp_sat_logs(tmp_path):
     result.save_yaml(output_path)
 
     saved = load_yaml(output_path)
-    assert saved["obj_value"]["data"] == {"1.0": 10}
-    assert saved["obj_value"]["notes"] == {"1.0": "batch=1"}
-    assert saved["obj_bound"]["data"] == {"1.0": 10}
+    assert saved["obj_value"]["data"] == {"0.0": 12, "1.0": 10}
+    assert saved["obj_value"]["notes"] == {
+        "0.0": "initial_schedule",
+        "1.0": "batch=1",
+    }
+    assert "obj_bound" not in saved
     assert (
         saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["objective_name"]
         == "right_slack"
@@ -1063,18 +1136,20 @@ def test_result_save_yaml_preserves_obj_series_and_adds_cp_sat_logs(tmp_path):
     assert saved["pw_cp_metadata"]["summary"]["final_incumbent_makespan"] == 10
     assert saved["pw_cp_metadata"]["summary"]["max_time_per_batch"] == 2.0
     loaded_store = ObjValueBoundStore.load_yaml(output_path)
-    assert loaded_store.obj_value_series.items() == [(1.0, 10)]
-    assert loaded_store.obj_bound_series.items() == [(1.0, 10)]
+    assert loaded_store.obj_value_series.items() == [(0.0, 12), (1.0, 10)]
+    assert loaded_store.obj_bound_series.items() == []
 
 
 def test_result_save_yaml_handles_rejected_and_empty_records(tmp_path):
     obj_store = ObjValueBoundStore[int]()
     obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
-    obj_store.obj_bound_series.name = "ObjVal before PW-CP batch"
-    obj_store.add_obj_value(2.0, 11, None)
-    obj_store.add_obj_bound(2.0, 11, None)
+    obj_store.add_obj_value(0.0, 12, None)
     obj_store.add_last_timestamp_note(
-        "batch=2", obj_value_is_valid=True, obj_bound_is_valid=True
+        "initial_schedule", obj_value_is_valid=True, obj_bound_is_valid=False
+    )
+    obj_store.add_obj_value(2.0, 11, None)
+    obj_store.add_last_timestamp_note(
+        "batch=2", obj_value_is_valid=True, obj_bound_is_valid=False
     )
 
     result = PwCpResult(
@@ -1111,8 +1186,10 @@ def test_result_save_yaml_handles_rejected_and_empty_records(tmp_path):
     )
     assert saved["pw_cp_metadata"]["summary"]["accepted_count"] == 0
     assert saved["pw_cp_metadata"]["summary"]["last_obj_improvement_time_sec"] is None
+    assert "obj_bound" not in saved
     loaded_store = ObjValueBoundStore.load_yaml(output_path)
-    assert loaded_store.obj_value_series.items() == [(2.0, 11)]
+    assert loaded_store.obj_value_series.items() == [(0.0, 12), (2.0, 11)]
+    assert loaded_store.obj_bound_series.items() == []
 
 
 def test_controller_pw_cp_invokes_constructor(monkeypatch):

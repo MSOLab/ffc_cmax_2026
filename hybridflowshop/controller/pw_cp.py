@@ -14,7 +14,6 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 from hybridflowshop.cpsat_model_2.cumulative import (
     BaseModelBuilder,
     CumulativeVars,
-    StageFixedIntervals,
 )
 from hybridflowshop.cpsat_model_2.params import Params
 from hybridflowshop.painter.gantt import GanttPlotter
@@ -25,6 +24,7 @@ from hybridflowshop.schedule_lite import (
 OperationRef = tuple[str, str, str]
 HighlightedOperationRef = tuple[str, str]
 StageBoundaryProfile = dict[str, list[int]]
+SolvedSlackIntervals = dict[str, list[tuple[str, int, int]]]
 
 
 class PwCpContext(Protocol):
@@ -80,7 +80,6 @@ class OperationPartition:
 
     # Boundary profiles (computed during partition creation)
     right_boundary_profile: StageBoundaryProfile | None = None
-    right_fixed_intervals: StageFixedIntervals | None = None
 
     @property
     def all_operations(self) -> tuple[OperationRef, ...]:
@@ -92,6 +91,11 @@ class OperationPartition:
         """Return all operations that should have fixed start times in CP model."""
         return self.left_time_fixed + self.right_time_fixed
 
+    @property
+    def slack_occupying_operations(self) -> tuple[OperationRef, ...]:
+        """Return all operations except right-time-fixed ones."""
+        return self.left_time_fixed + self.unfixed
+
 
 @dataclass(frozen=True)
 class PwCpSubproblemSpec:
@@ -99,7 +103,6 @@ class PwCpSubproblemSpec:
     subproblem_idx: int
     partition: OperationPartition
     right_boundary_profile: StageBoundaryProfile
-    right_fixed_intervals: StageFixedIntervals
     is_last_batch: bool
 
 
@@ -157,6 +160,7 @@ class PwCpResult:
         to avoid unnecessary I/O operations.
         """
         solution_dict = self.sub_obj_store.to_dict()
+        solution_dict.pop("obj_bound", None)
 
         accepted_count = sum(1 for log in self.subproblem_logs if log.accepted)
         improving_subproblem_count = sum(
@@ -226,7 +230,12 @@ class PwCpConstructor:
 
         sub_obj_store = ObjValueBoundStore[int]()
         sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
-        sub_obj_store.obj_bound_series.name = "ObjVal before PW-CP batch"
+        sub_obj_store.add_obj_value(0.0, int(ref_schedule.makespan), None)
+        sub_obj_store.add_last_timestamp_note(
+            "initial_schedule",
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+        )
 
         self._st = PwCpRunState(
             timer=timer,
@@ -281,6 +290,7 @@ class PwCpConstructor:
                 candidate = self._solve_subproblem(
                     spec=spec,
                     incumbent=st.incumbent,
+                    right_justified_schedule=right_justified_sched,
                     instance=instance,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
                     max_time_per_batch=max_time_per_batch,
@@ -288,6 +298,7 @@ class PwCpConstructor:
                     use_lns_only=use_lns_only,
                     tighten_ranges=tighten_ranges,
                     link_job_completion=link_job_completion,
+                    debug_export=debug_export,
                 )
 
                 accepted = False
@@ -315,11 +326,10 @@ class PwCpConstructor:
 
                 ts = st.timer.elapsed_sec
                 st.sub_obj_store.add_obj_value(ts, int(st.incumbent.makespan), None)
-                st.sub_obj_store.add_obj_bound(ts, int(st.incumbent.makespan), None)
                 st.sub_obj_store.add_last_timestamp_note(
                     f"batch={batch_idx + 1}",
                     obj_value_is_valid=True,
-                    obj_bound_is_valid=True,
+                    obj_bound_is_valid=False,
                 )
 
             if error_if_infeasible:
@@ -412,15 +422,11 @@ class PwCpConstructor:
 
         # Profiles are now computed during partition creation
         assert partition.right_boundary_profile is not None, "Right profile must be set"
-        assert partition.right_fixed_intervals is not None, (
-            "Right intervals must be set"
-        )
         return PwCpSubproblemSpec(
             batch_idx=batch_idx,
             subproblem_idx=st.subproblem_idx,
             partition=partition,
             right_boundary_profile=partition.right_boundary_profile,
-            right_fixed_intervals=partition.right_fixed_intervals,
             is_last_batch=(batch_idx == max_batch_cnt - 1),
         )
 
@@ -431,7 +437,7 @@ class PwCpConstructor:
         l_tf_ops: list[OperationRef],
         r_tf_ops: list[OperationRef],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
-    ) -> tuple[StageBoundaryProfile, StageFixedIntervals, HybridFlowshopLiteSchedule]:
+    ) -> tuple[StageBoundaryProfile, HybridFlowshopLiteSchedule]:
         shifted = incumbent.deepcopy()
         r_justified_op_set = set(all_ops) - set(l_tf_ops)
         shifted.make_right_justified(
@@ -440,7 +446,6 @@ class PwCpConstructor:
         )
         start_map = shifted.get_jik_2_start_time_map()
         right_boundary_profile: StageBoundaryProfile = {}
-        right_fixed_intervals: StageFixedIntervals = {}
         for stage_id in shifted.stages:
             stage_right_ops = [
                 (job_id, mc_id)
@@ -448,7 +453,6 @@ class PwCpConstructor:
                 if op_stage_id == stage_id
             ]
             stage_boundaries: list[int] = []
-            stage_intervals: list[tuple[int, int, int]] = []
 
             for mc_id in shifted.machines_per_stage[stage_id]:
                 machine_starts = [
@@ -460,14 +464,8 @@ class PwCpConstructor:
                     min(machine_starts) if machine_starts else int(incumbent.makespan)
                 )
 
-            for job_id, mc_id in stage_right_ops:
-                start = int(start_map[job_id, stage_id, mc_id])
-                duration = int(stage_2_job_2_p_dict[stage_id][job_id])
-                stage_intervals.append((start, start + duration, duration))
-
             right_boundary_profile[stage_id] = stage_boundaries
-            right_fixed_intervals[stage_id] = stage_intervals
-        return right_boundary_profile, right_fixed_intervals, shifted
+        return right_boundary_profile, shifted
 
     @staticmethod
     def _normalize_for_yaml(value):
@@ -499,6 +497,7 @@ class PwCpConstructor:
         self,
         spec: PwCpSubproblemSpec,
         incumbent: HybridFlowshopLiteSchedule,
+        right_justified_schedule: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         max_time_per_batch: float | None,
@@ -506,6 +505,7 @@ class PwCpConstructor:
         use_lns_only: bool,
         tighten_ranges: bool,
         link_job_completion: bool,
+        debug_export: bool,
     ) -> HybridFlowshopLiteSchedule | None:
         _timer = ElapsedTimer()
         incumbent_obj = int(incumbent.makespan)
@@ -518,22 +518,27 @@ class PwCpConstructor:
             len(spec.partition.unfixed),
             len(spec.partition.time_fixed_operations),
         )
-
-        mdl, params, variables = self.builder.build(
-            instance,
-            incumbent.makespan,
-            tighten_ranges=tighten_ranges,
-            link_job_completion=link_job_completion,
+        mdl = CustomCpModel()
+        params: Params = BaseModelBuilder._make_params(instance)
+        variables: CumulativeVars = BaseModelBuilder._make_vars(
+            mdl, params, incumbent.makespan, tighten_ranges=tighten_ranges
         )
+        if link_job_completion:
+            BaseModelBuilder._add_job_completion_link_constraints(
+                mdl, params, variables
+            )
+
+        hint_schedule = incumbent if spec.is_last_batch else right_justified_schedule
         BaseModelBuilder.apply_start_hints_from_start_time_map(
-            mdl, params, variables, incumbent.get_jik_2_start_time_map()
+            mdl, params, variables, hint_schedule.get_jik_2_start_time_map()
         )
         BaseModelBuilder.apply_end_hints_from_end_time_map(
-            mdl, params, variables, incumbent.get_jik_2_end_time_map()
+            mdl, params, variables, hint_schedule.get_jik_2_end_time_map()
         )
 
+        right_justified_start_map = right_justified_schedule.get_jik_2_start_time_map()
         frozen_start_time_map = {
-            op: incumbent.get_jik_2_start_time_map()[op]
+            op: right_justified_start_map[op]
             for op in spec.partition.time_fixed_operations
         }
         BaseModelBuilder.add_start_time_freezed_operation_constraints(
@@ -543,8 +548,9 @@ class PwCpConstructor:
         timelimit = self.ctx.get_remaining_time_limit(max_time_per_batch)
 
         if spec.is_last_batch:
-            # Final batch: minimize makespan directly
-            mdl.minimize(variables.makespan)
+            # Final batch: solve original problem
+            BaseModelBuilder._add_structural_constraints(mdl, params, variables)
+            BaseModelBuilder._define_objective(mdl, params, variables)
             mdl.add_hint(variables.makespan, incumbent_obj)
             logging.info(
                 "Solving final batch with makespan minimization (timelimit=%.2fs).",
@@ -602,19 +608,32 @@ class PwCpConstructor:
             return candidate_schedule
         else:
             # Non-final batch: maximize right slack
-            BaseModelBuilder.add_right_slack_objective(
+            BaseModelBuilder._add_precedence_constraints(mdl, params, variables)
+            slack_vars = BaseModelBuilder.add_right_slack_variables(
+                mdl,
+                params,
+                slack_occupying_ops=spec.partition.slack_occupying_operations,
+                right_boundary_profile=spec.right_boundary_profile,
+                horizon=incumbent.makespan,
+            )
+            BaseModelBuilder.add_right_slack_constraints(
                 mdl,
                 params,
                 variables,
-                slack_occupying_ops=spec.partition.unfixed,
+                slack_occupying_ops=spec.partition.slack_occupying_operations,
+                right_time_fixed_ops=spec.partition.right_time_fixed,
                 right_boundary_profile=spec.right_boundary_profile,
-                right_fixed_intervals=spec.right_fixed_intervals,
-                horizon=incumbent.makespan,
+                slack_vars=slack_vars,
+            )
+            BaseModelBuilder.add_right_slack_objective(
+                mdl,
+                slack_occupying_ops=spec.partition.slack_occupying_operations,
+                slack_vars=slack_vars,
             )
             self._apply_right_slack_hints(
                 mdl=mdl,
-                incumbent=incumbent,
-                unfixed_ops=spec.partition.unfixed,
+                schedule=right_justified_schedule,
+                slack_occupying_ops=spec.partition.slack_occupying_operations,
                 right_boundary_profile=spec.right_boundary_profile,
                 params=params,
             )
@@ -653,7 +672,26 @@ class PwCpConstructor:
                 return None
 
             candidate_schedule = self.ctx.create_schedule(params, variables)
+            candidate_before_semi_active = (
+                candidate_schedule.deepcopy() if debug_export else None
+            )
+            solved_slack_intervals = (
+                self._extract_solved_slack_intervals(
+                    mdl=mdl,
+                    schedule=candidate_schedule,
+                    right_boundary_profile=spec.right_boundary_profile,
+                )
+                if debug_export
+                else {}
+            )
             candidate_schedule.make_semi_active(stage_2_job_2_p_dict)
+            if candidate_before_semi_active is not None:
+                self._draw_candidate_retiming_gantts(
+                    spec=spec,
+                    before_semi_active=candidate_before_semi_active,
+                    after_semi_active=candidate_schedule,
+                    solved_slack_intervals=solved_slack_intervals,
+                )
             candidate_obj = int(candidate_schedule.makespan)
             self._append_subproblem_log(
                 spec=spec,
@@ -676,18 +714,18 @@ class PwCpConstructor:
             return candidate_schedule
 
     @staticmethod
-    def _compute_right_slack_hint_values(
-        incumbent: HybridFlowshopLiteSchedule,
-        unfixed_ops: tuple[OperationRef, ...],
+    def _compute_right_slack_values(
+        schedule: HybridFlowshopLiteSchedule,
+        slack_occupying_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
         params: Params,
-    ) -> dict[str, int]:
-        """Compute incumbent values for right-slack objective auxiliaries."""
+    ) -> dict[str, dict[str, int] | dict[str, list[tuple[str, int, int]]]]:
+        """Compute right-slack summaries from a schedule and boundary profile."""
         stage_2_machine_2_intervals: dict[str, dict[str, list[tuple[int, int]]]] = {}
-        start_time_map = incumbent.get_jik_2_start_time_map()
-        end_time_map = incumbent.get_jik_2_end_time_map()
+        start_time_map = schedule.get_jik_2_start_time_map()
+        end_time_map = schedule.get_jik_2_end_time_map()
 
-        for job_id, stage_id, machine_id in unfixed_ops:
+        for job_id, stage_id, machine_id in slack_occupying_ops:
             stage_2_machine_2_intervals.setdefault(stage_id, {}).setdefault(
                 machine_id, []
             ).append(
@@ -698,10 +736,12 @@ class PwCpConstructor:
             )
 
         hint_values: dict[str, int] = {}
+        slack_intervals_by_stage: dict[str, list[tuple[str, int, int]]] = {}
         stage_slack_mins: list[int] = []
         for stage_id, machine_ids in params.M_of.items():
             stage_extras: list[int] = []
             machine_2_intervals = stage_2_machine_2_intervals.get(stage_id, {})
+            stage_slack_intervals: list[tuple[str, int, int]] = []
             for machine_idx, (machine_id, slack_end) in enumerate(
                 zip(machine_ids, right_boundary_profile[stage_id], strict=False),
                 start=1,
@@ -716,26 +756,50 @@ class PwCpConstructor:
                 hint_values[f"slack_extra_{stage_id}_{machine_idx}"] = extra
                 hint_values[f"slack_start_{stage_id}_{machine_idx}"] = slack_end - extra
                 stage_extras.append(extra)
+                if extra > 0:
+                    stage_slack_intervals.append(
+                        (machine_id, slack_end - extra, slack_end)
+                    )
 
             stage_slack_min = min(stage_extras, default=0)
             hint_values[f"stage_slack_min_{stage_id}"] = stage_slack_min
             stage_slack_mins.append(stage_slack_min)
+            if stage_slack_intervals:
+                slack_intervals_by_stage[stage_id] = stage_slack_intervals
 
         hint_values["global_slack_min"] = min(stage_slack_mins, default=0)
-        return hint_values
+        return {
+            "hint_values": hint_values,
+            "slack_intervals_by_stage": slack_intervals_by_stage,
+        }
+
+    @staticmethod
+    def _compute_right_slack_hint_values(
+        schedule: HybridFlowshopLiteSchedule,
+        slack_occupying_ops: tuple[OperationRef, ...],
+        right_boundary_profile: StageBoundaryProfile,
+        params: Params,
+    ) -> dict[str, int]:
+        """Compute hint values for right-slack objective auxiliaries."""
+        return PwCpConstructor._compute_right_slack_values(
+            schedule=schedule,
+            slack_occupying_ops=slack_occupying_ops,
+            right_boundary_profile=right_boundary_profile,
+            params=params,
+        )["hint_values"]
 
     @staticmethod
     def _apply_right_slack_hints(
         mdl: CustomCpModel,
-        incumbent: HybridFlowshopLiteSchedule,
-        unfixed_ops: tuple[OperationRef, ...],
+        schedule: HybridFlowshopLiteSchedule,
+        slack_occupying_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
         params: Params,
     ) -> None:
-        """Apply incumbent hints for right-slack auxiliaries by variable name."""
+        """Apply schedule-derived hints for right-slack auxiliaries by variable name."""
         hint_values = PwCpConstructor._compute_right_slack_hint_values(
-            incumbent=incumbent,
-            unfixed_ops=unfixed_ops,
+            schedule=schedule,
+            slack_occupying_ops=slack_occupying_ops,
             right_boundary_profile=right_boundary_profile,
             params=params,
         )
@@ -748,6 +812,55 @@ class PwCpConstructor:
             if var_idx is None:
                 continue
             mdl.add_hint(mdl.get_int_var_from_proto_index(var_idx), value)
+
+    def _extract_solved_slack_intervals(
+        self,
+        mdl: CustomCpModel,
+        schedule: HybridFlowshopLiteSchedule,
+        right_boundary_profile: StageBoundaryProfile,
+    ) -> SolvedSlackIntervals:
+        """Extract solved slack intervals from the current CP-SAT solution."""
+        proto = mdl.Proto()
+        name_to_index = {
+            var.name: var_idx for var_idx, var in enumerate(proto.variables) if var.name
+        }
+        solved: SolvedSlackIntervals = {}
+
+        for stage_id, machine_ids in schedule.machines_per_stage.items():
+            slack_end_times = right_boundary_profile.get(stage_id, [])
+            stage_slacks: list[tuple[str, int, int]] = []
+            for machine_idx, machine_id in enumerate(machine_ids, start=1):
+                if machine_idx > len(slack_end_times):
+                    continue
+                start_var_idx = name_to_index.get(
+                    f"slack_start_{stage_id}_{machine_idx}"
+                )
+                length_var_idx = name_to_index.get(
+                    f"slack_extra_{stage_id}_{machine_idx}"
+                )
+                if start_var_idx is None or length_var_idx is None:
+                    continue
+
+                slack_start = int(
+                    self.ctx.solver.Value(
+                        mdl.get_int_var_from_proto_index(start_var_idx)
+                    )
+                )
+                slack_length = int(
+                    self.ctx.solver.Value(
+                        mdl.get_int_var_from_proto_index(length_var_idx)
+                    )
+                )
+                if slack_length <= 0:
+                    continue
+
+                slack_end = int(slack_end_times[machine_idx - 1])
+                stage_slacks.append((machine_id, slack_start, slack_end))
+
+            if stage_slacks:
+                solved[stage_id] = stage_slacks
+
+        return solved
 
     def _append_subproblem_log(
         self,
@@ -828,14 +941,12 @@ class PwCpConstructor:
                     r_tf_ops.extend(batch)
 
         # Compute boundary profile during partition creation
-        right_profile, right_fixed_intervals, right_justified_sched = (
-            self._build_right_boundary_profile(
-                incumbent,
-                all_ops,
-                l_tf_ops,
-                r_tf_ops,
-                stage_2_job_2_p_dict,
-            )
+        right_profile, right_justified_sched = self._build_right_boundary_profile(
+            incumbent,
+            all_ops,
+            l_tf_ops,
+            r_tf_ops,
+            stage_2_job_2_p_dict,
         )
 
         partition = OperationPartition(
@@ -843,7 +954,6 @@ class PwCpConstructor:
             unfixed=tuple(sorted(free_ops)),
             right_time_fixed=tuple(sorted(r_tf_ops)),
             right_boundary_profile=right_profile,
-            right_fixed_intervals=right_fixed_intervals,
         )
         return partition, right_justified_sched
 
@@ -874,50 +984,31 @@ class PwCpConstructor:
             viz_schedule.jobs.append(job_id)
             return job_id
 
-        # For each stage and machine, add a dummy operation representing the slack region
-        for stage_id, machine_ids in viz_schedule.machines_per_stage.items():
-            profile_values = right_boundary_profile.get(stage_id, [])
-
-            for machine_idx, machine_id in enumerate(machine_ids):
-                if machine_idx >= len(profile_values):
-                    continue
-                slack_end = profile_values[machine_idx]
-
-                # Find the latest end time of unfixed ops on this machine
-                opt_ops_on_machine = [
-                    (job_id, stage_id, machine_id)
-                    for job_id, op_stage_id, op_machine_id in unfixed_ops
-                    if op_stage_id == stage_id and op_machine_id == machine_id
-                ]
-
-                if opt_ops_on_machine:
-                    # Calculate latest end time before slack (matching _compute_right_slack_hint_values)
-                    latest_end_before_slack = 0
-                    for job_id, _, _ in opt_ops_on_machine:
-                        op_end = right_justified_schedule.get_jik_2_end_time_map()[
-                            (job_id, stage_id, machine_id)
-                        ]
-                        # Only consider operations that start before slack_end
-                        if (
-                            right_justified_schedule.get_jik_2_start_time_map()[
-                                (job_id, stage_id, machine_id)
-                            ]
-                            < slack_end
-                        ):
-                            latest_end_before_slack = max(
-                                latest_end_before_slack, min(op_end, slack_end)
-                            )
-
-                    # Calculate dummy operation duration (slack)
-                    dummy_duration = max(0, slack_end - latest_end_before_slack)
-                    if dummy_duration > 0:
-                        # Add dummy operation
-                        viz_schedule.add_operation_2_stage(
-                            stage_id,
-                            generate_slack_job_id(stage_id, machine_id),
-                            dummy_duration,
-                            release_t=latest_end_before_slack,
-                        )
+        slack_occupying_ops = tuple(
+            sorted(
+                set(right_justified_schedule.get_jik_2_start_time_map())
+                - set(right_time_fixed_ops)
+            )
+        )
+        slack_summary = self._compute_right_slack_values(
+            schedule=right_justified_schedule,
+            slack_occupying_ops=slack_occupying_ops,
+            right_boundary_profile=right_boundary_profile,
+            params=Params(
+                j_list=list(viz_schedule.jobs),
+                i_list=list(viz_schedule.stages),
+                M_of=viz_schedule.machines_per_stage,
+                p={},
+            ),
+        )
+        for stage_id, stage_slacks in slack_summary["slack_intervals_by_stage"].items():
+            for machine_id, slack_start, slack_end in stage_slacks:
+                viz_schedule.add_operation_2_stage(
+                    stage_id,
+                    generate_slack_job_id(stage_id, machine_id),
+                    slack_end - slack_start,
+                    release_t=slack_start,
+                )
 
         # Build highlight set from unfixed operations
         highlight_op_set: set[tuple[str, str]] = {
@@ -942,6 +1033,91 @@ class PwCpConstructor:
             force_end=None,
         )
 
+    def _draw_candidate_retiming_gantts(
+        self,
+        spec: PwCpSubproblemSpec,
+        before_semi_active: HybridFlowshopLiteSchedule,
+        after_semi_active: HybridFlowshopLiteSchedule,
+        solved_slack_intervals: SolvedSlackIntervals,
+    ) -> None:
+        """Draw candidate schedules before and after semi-active retiming."""
+        highlight_op_set: set[tuple[str, str]] = {
+            (job_id, stage_id) for job_id, stage_id, _ in spec.partition.unfixed
+        }
+        force_end = max(
+            int(before_semi_active.makespan),
+            int(after_semi_active.makespan),
+        )
+
+        before_start_map, before_end_map, before_machine_list_per_stage = (
+            self._build_plot_inputs_with_slack_intervals(
+                before_semi_active,
+                solved_slack_intervals,
+            )
+        )
+        schedule_items = (
+            (
+                "before_semi_active",
+                before_start_map,
+                before_end_map,
+                before_machine_list_per_stage,
+            ),
+            (
+                "after_semi_active",
+                after_semi_active.get_jik_2_start_time_map(),
+                after_semi_active.get_jik_2_end_time_map(),
+                after_semi_active.machines_per_stage,
+            ),
+        )
+        for suffix, start_map, end_map, machine_list_per_stage in schedule_items:
+            output_path = self.ctx.get_file_path_for_subroutine(
+                f"_pw_cp_batch_{spec.batch_idx + 1:03d}_candidate_{suffix}.png"
+            )
+            plotter = GanttPlotter()
+            plotter.export_hybrid_flowshop_plot(
+                output_path,
+                start_map,
+                end_map,
+                job_list=None,
+                stage_list=None,
+                machine_list_per_stage=machine_list_per_stage,
+                all_job_list=None,
+                highlight_op_set=highlight_op_set,
+                force_start=0,
+                force_end=force_end,
+            )
+
+    @staticmethod
+    def _build_plot_inputs_with_slack_intervals(
+        schedule: HybridFlowshopLiteSchedule,
+        solved_slack_intervals: SolvedSlackIntervals,
+    ) -> tuple[
+        dict[tuple[str, str, str], int],
+        dict[tuple[str, str, str], int],
+        dict[str, list[str]],
+    ]:
+        """Build plotting inputs with solved slack intervals on separate lanes."""
+        start_map = dict(schedule.get_jik_2_start_time_map())
+        end_map = dict(schedule.get_jik_2_end_time_map())
+        machine_list_per_stage = {
+            stage_id: list(machine_ids)
+            for stage_id, machine_ids in schedule.machines_per_stage.items()
+        }
+
+        for stage_id, stage_slacks in solved_slack_intervals.items():
+            stage_machine_ids = machine_list_per_stage.setdefault(stage_id, [])
+            for machine_id, slack_start, slack_end in stage_slacks:
+                if slack_end <= slack_start:
+                    continue
+                slack_machine_id = f"{machine_id}__cp_slack"
+                if slack_machine_id not in stage_machine_ids:
+                    stage_machine_ids.append(slack_machine_id)
+                slack_job_id = f"cp-slack-{stage_id}-{machine_id}"
+                start_map[(slack_job_id, stage_id, slack_machine_id)] = slack_start
+                end_map[(slack_job_id, stage_id, slack_machine_id)] = slack_end
+
+        return start_map, end_map, machine_list_per_stage
+
     def _save_solution_dict(
         self,
         spec: PwCpSubproblemSpec,
@@ -965,6 +1141,5 @@ class PwCpConstructor:
                 "right_time_fixed": list(spec.partition.right_time_fixed),
             },
             "right_boundary_profile": spec.right_boundary_profile,
-            "right_fixed_intervals": spec.right_fixed_intervals,
         }
         dump_yaml(self._normalize_for_yaml(solution_dict), output_path)
