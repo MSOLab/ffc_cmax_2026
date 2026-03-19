@@ -263,6 +263,18 @@ class PwCpConstructor:
             raise RuntimeError("PwCpConstructor.run() is not active; state is missing.")
         return self._st
 
+    @staticmethod
+    def _resolve_batch_time_limit(
+        partition: OperationPartition,
+        unfixed_op_time_limit_multiplier: float | None,
+        max_time_per_batch: float | None,
+    ) -> float | None:
+        if unfixed_op_time_limit_multiplier is not None:
+            if unfixed_op_time_limit_multiplier <= 0:
+                raise ValueError("unfixed_op_time_limit_multiplier must be > 0")
+            return len(partition.unfixed) * unfixed_op_time_limit_multiplier
+        return max_time_per_batch
+
     def run(
         self,
         ref_schedule: HybridFlowshopLiteSchedule,
@@ -274,6 +286,7 @@ class PwCpConstructor:
         enable_promotion_profile_fixed: bool = False,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        unfixed_op_time_limit_multiplier: float | None = None,
         max_time_per_batch: float | None = None,
         solver_thread_cnt: int | None = None,
         use_lns_only: bool = False,
@@ -285,6 +298,11 @@ class PwCpConstructor:
         timer = ElapsedTimer()
         if solver_thread_cnt is None:
             solver_thread_cnt = 1
+        if (
+            unfixed_op_time_limit_multiplier is not None
+            and unfixed_op_time_limit_multiplier <= 0
+        ):
+            raise ValueError("unfixed_op_time_limit_multiplier must be > 0")
 
         sub_obj_store = ObjValueBoundStore[int]()
         sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
@@ -301,7 +319,11 @@ class PwCpConstructor:
             sub_obj_store=sub_obj_store,
             subproblem_idx=0,
             subproblem_logs=[],
-            max_time_per_batch=max_time_per_batch,
+            max_time_per_batch=(
+                None
+                if unfixed_op_time_limit_multiplier is not None
+                else max_time_per_batch
+            ),
         )
 
         try:
@@ -323,14 +345,6 @@ class PwCpConstructor:
                         f"initial={max_batch_cnt}, current={current_max_batch_cnt}."
                     )
 
-                timelimit = self.ctx.get_remaining_time_limit(max_time_per_batch)
-                if timelimit <= 0:
-                    logging.info(
-                        "PW-CP time limit exhausted before batch %d.",
-                        batch_idx + 1,
-                    )
-                    break
-
                 partition, right_justified_sched = self._build_operation_partition(
                     current_batches,
                     ref_schedule.stages,
@@ -342,6 +356,20 @@ class PwCpConstructor:
                 )
                 if enable_promotion_profile_fixed:
                     partition = partition.promote_job_contained_ops()
+
+                batch_time_limit = self._resolve_batch_time_limit(
+                    partition=partition,
+                    max_time_per_batch=max_time_per_batch,
+                    unfixed_op_time_limit_multiplier=unfixed_op_time_limit_multiplier,
+                )
+                timelimit = self.ctx.get_remaining_time_limit(batch_time_limit)
+                if timelimit <= 0:
+                    logging.info(
+                        "PW-CP time limit exhausted before batch %d.",
+                        batch_idx + 1,
+                    )
+                    break
+
                 spec = self._build_subproblem_spec(
                     incumbent=st.incumbent,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
@@ -357,7 +385,7 @@ class PwCpConstructor:
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
                     profile_fix_by_machine=profile_fix_by_machine,
                     machine_precedence_stride=machine_precedence_stride,
-                    max_time_per_batch=max_time_per_batch,
+                    max_time_per_batch=batch_time_limit,
                     solver_thread_cnt=solver_thread_cnt,
                     use_lns_only=use_lns_only,
                     tighten_ranges=tighten_ranges,

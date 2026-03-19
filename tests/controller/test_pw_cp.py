@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from mbls.cpsat import ObjValueBoundStore
 from ortools.sat.python import cp_model
 from routix.io.yaml import load_yaml
@@ -1073,14 +1074,18 @@ def test_solve_subproblem_adds_profile_fixed_precedence_constraints(
     monkeypatch.setattr(
         BaseModelBuilder,
         "add_stage_ops_precedence_constraints_after_dispatch_from_schedule",
-        staticmethod(fake_add_stage_ops_precedence_constraints_after_dispatch_from_schedule),
+        staticmethod(
+            fake_add_stage_ops_precedence_constraints_after_dispatch_from_schedule
+        ),
     )
     monkeypatch.setattr(
         ctx,
         "solve_cp_model_2",
         lambda *args, **kwargs: _make_solver_report(status="FEASIBLE"),
     )
-    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+    monkeypatch.setattr(
+        ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy()
+    )
 
     instance = create_hfs_instance(
         "tiny",
@@ -1625,3 +1630,193 @@ def test_controller_pw_cp_forwards_profile_fixed_kwargs(monkeypatch):
     assert seen_kwargs["enable_promotion_profile_fixed"] is True
     assert seen_kwargs["profile_fix_by_machine"] is True
     assert seen_kwargs["machine_precedence_stride"] == 2
+
+
+def test_controller_pw_cp_forwards_unfixed_time_limit_multiplier(monkeypatch):
+    import hybridflowshop.controller.hfs_cp_lns as module
+
+    ctrl = module.HybridFlowShopCpLnsController.__new__(
+        module.HybridFlowShopCpLnsController
+    )
+    schedule = SimpleNamespace(makespan=11)
+    ctrl.instance = SimpleNamespace(job_count=4, stage_count=2)
+    ctrl.stage_2_job_2_p_dict = {"s1": {"j1": 1}}
+    ctrl.timer = SimpleNamespace(elapsed_sec=1.25)
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: schedule,
+        register=lambda report, solution: True,
+    )
+    ctrl.get_file_path_for_subroutine = lambda suffix: Path("/tmp") / suffix.lstrip("_")
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "pw_cp"
+    ctrl.obj_store = SimpleNamespace(
+        add_last_timestamp_note=lambda *args, **kwargs: None
+    )
+    ctrl.set_cp_model_as_base_cp_model = lambda *args, **kwargs: None
+    ctrl.draw_incumbent_gantt = lambda *args, **kwargs: None
+
+    seen_kwargs = {}
+
+    class FakeConstructor:
+        def __init__(self, ctx):
+            self.ctx = ctx
+
+        def run(self, *args, **kwargs):
+            seen_kwargs.update(kwargs)
+            obj_store = ObjValueBoundStore[int]()
+            return PwCpResult(
+                schedule=schedule,
+                sub_obj_store=obj_store,
+                last_obj_value=11,
+                subproblem_logs=(),
+                total_pw_cp_elapsed_sec=0.1,
+                max_time_per_batch=None,
+            )
+
+    monkeypatch.setattr(module, "PwCpConstructor", FakeConstructor)
+
+    ctrl.pw_cp(
+        solver_thread_cnt=3,
+        cp_tl_c_multiplier=0.1,
+        max_time_per_batch=9.0,
+        unfixed_op_time_limit_multiplier=0.005,
+    )
+
+    assert seen_kwargs["unfixed_op_time_limit_multiplier"] == 0.005
+    assert seen_kwargs["max_time_per_batch"] == 9.0
+
+
+def test_controller_pw_cp_rejects_non_positive_unfixed_time_limit_multiplier():
+    import hybridflowshop.controller.hfs_cp_lns as module
+
+    ctrl = module.HybridFlowShopCpLnsController.__new__(
+        module.HybridFlowShopCpLnsController
+    )
+    schedule = SimpleNamespace(makespan=11)
+    ctrl.instance = SimpleNamespace(job_count=4, stage_count=2)
+    ctrl.stage_2_job_2_p_dict = {"s1": {"j1": 1}}
+    ctrl.timer = SimpleNamespace(elapsed_sec=1.25)
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: schedule,
+        register=lambda report, solution: True,
+    )
+    ctrl.get_file_path_for_subroutine = lambda suffix: Path("/tmp") / suffix.lstrip("_")
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "pw_cp"
+    ctrl.obj_store = SimpleNamespace(
+        add_last_timestamp_note=lambda *args, **kwargs: None
+    )
+    ctrl.set_cp_model_as_base_cp_model = lambda *args, **kwargs: None
+    ctrl.draw_incumbent_gantt = lambda *args, **kwargs: None
+
+    with pytest.raises(
+        ValueError, match="unfixed_op_time_limit_multiplier must be > 0"
+    ):
+        ctrl.pw_cp(solver_thread_cnt=1, unfixed_op_time_limit_multiplier=0.0)
+
+
+def test_run_uses_unfixed_count_scaled_time_limit(monkeypatch, tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    incumbent = _make_multi_stage_schedule()
+    seen_limits = []
+
+    def fake_solve_subproblem(**kwargs):
+        seen_limits.append(kwargs["max_time_per_batch"])
+        return None
+
+    monkeypatch.setattr(ctor, "_solve_subproblem", fake_solve_subproblem)
+
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1", "s2"],
+        {"s1": ["m1", "m2"], "s2": ["m3", "m4"]},
+        {
+            "j1": {"s1": 2, "s2": 3},
+            "j2": {"s1": 3, "s2": 3},
+            "j3": {"s1": 2, "s2": 3},
+            "j4": {"s1": 2, "s2": 3},
+        },
+    )
+
+    ctor.run(
+        incumbent,
+        instance,
+        {
+            "s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2},
+            "s2": {"j1": 3, "j2": 3, "j3": 3, "j4": 3},
+        },
+        batch_size=1,
+        max_time_per_batch=99.0,
+        unfixed_op_time_limit_multiplier=0.5,
+    )
+
+    assert seen_limits == [1.0, 1.0, 1.0, 1.0]
+
+
+def test_run_unfixed_count_scaled_time_limit_overrides_scalar_limits(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    incumbent = _make_multi_stage_schedule()
+    seen_ctx_limits = []
+
+    def fake_get_remaining_time_limit(subroutine_time_limit):
+        seen_ctx_limits.append(subroutine_time_limit)
+        return subroutine_time_limit if subroutine_time_limit is not None else 1.0
+
+    monkeypatch.setattr(ctx, "get_remaining_time_limit", fake_get_remaining_time_limit)
+    monkeypatch.setattr(ctor, "_solve_subproblem", lambda **kwargs: None)
+
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1", "s2"],
+        {"s1": ["m1", "m2"], "s2": ["m3", "m4"]},
+        {
+            "j1": {"s1": 2, "s2": 3},
+            "j2": {"s1": 3, "s2": 3},
+            "j3": {"s1": 2, "s2": 3},
+            "j4": {"s1": 2, "s2": 3},
+        },
+    )
+
+    ctor.run(
+        incumbent,
+        instance,
+        {
+            "s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2},
+            "s2": {"j1": 3, "j2": 3, "j3": 3, "j4": 3},
+        },
+        batch_size=2,
+        max_time_per_batch=99.0,
+        unfixed_op_time_limit_multiplier=0.25,
+    )
+
+    assert seen_ctx_limits == [1.0, 1.0]
+
+
+def test_run_rejects_non_positive_unfixed_time_limit_multiplier(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+
+    with pytest.raises(
+        ValueError, match="unfixed_op_time_limit_multiplier must be > 0"
+    ):
+        ctor.run(
+            _make_schedule(),
+            instance,
+            {"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+            batch_size=1,
+            unfixed_op_time_limit_multiplier=0.0,
+        )
