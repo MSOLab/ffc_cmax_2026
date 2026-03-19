@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -68,14 +70,16 @@ class PwCpContext(Protocol):
 @dataclass(frozen=True)
 class OperationPartition:
     """
-    Encapsulates the three-way partition of operations for PW-CP subproblems.
+    Encapsulates the operation partition of PW-CP subproblems.
 
-    Designed to be extended with additional operation categories (e.g.,
-    profile-fixed operations) without changing the interface.
+    Operations are grouped into time-fixed, profile-fixed, unfixed, and
+    right-time-fixed regions around the current batch.
     """
 
     left_time_fixed: tuple[OperationRef, ...]
+    left_profile_fixed: tuple[OperationRef, ...]
     unfixed: tuple[OperationRef, ...]
+    right_profile_fixed: tuple[OperationRef, ...]
     right_time_fixed: tuple[OperationRef, ...]
 
     # Boundary profiles (computed during partition creation)
@@ -84,7 +88,13 @@ class OperationPartition:
     @property
     def all_operations(self) -> tuple[OperationRef, ...]:
         """Return all operations in the partition."""
-        return self.left_time_fixed + self.unfixed + self.right_time_fixed
+        return (
+            self.left_time_fixed
+            + self.left_profile_fixed
+            + self.unfixed
+            + self.right_profile_fixed
+            + self.right_time_fixed
+        )
 
     @property
     def time_fixed_operations(self) -> tuple[OperationRef, ...]:
@@ -92,9 +102,52 @@ class OperationPartition:
         return self.left_time_fixed + self.right_time_fixed
 
     @property
+    def profile_fixed_operations(self) -> tuple[OperationRef, ...]:
+        """Return all operations that keep precedence but not start times fixed."""
+        return self.left_profile_fixed + self.right_profile_fixed
+
+    @property
     def slack_occupying_operations(self) -> tuple[OperationRef, ...]:
         """Return all operations except right-time-fixed ones."""
-        return self.left_time_fixed + self.unfixed
+        return (
+            self.left_time_fixed
+            + self.left_profile_fixed
+            + self.unfixed
+            + self.right_profile_fixed
+        )
+
+    def promote_job_contained_ops(self) -> OperationPartition:
+        """Promote profile-fixed operations of unfixed jobs into the unfixed set."""
+        unfixed_job_ids = {job_id for job_id, _stage_id, _mc_id in self.unfixed}
+        if not unfixed_job_ids:
+            return self
+
+        promoted_left = tuple(
+            sorted(op for op in self.left_profile_fixed if op[0] not in unfixed_job_ids)
+        )
+        promoted_right = tuple(
+            sorted(
+                op for op in self.right_profile_fixed if op[0] not in unfixed_job_ids
+            )
+        )
+        promoted_unfixed = tuple(
+            sorted(
+                self.unfixed
+                + tuple(
+                    op
+                    for op in self.left_profile_fixed + self.right_profile_fixed
+                    if op[0] in unfixed_job_ids
+                )
+            )
+        )
+        return OperationPartition(
+            left_time_fixed=self.left_time_fixed,
+            left_profile_fixed=promoted_left,
+            unfixed=promoted_unfixed,
+            right_profile_fixed=promoted_right,
+            right_time_fixed=self.right_time_fixed,
+            right_boundary_profile=self.right_boundary_profile,
+        )
 
 
 @dataclass(frozen=True)
@@ -216,6 +269,11 @@ class PwCpConstructor:
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         batch_size: int = 1,
+        left_profile_fixed_batch_count: int = 0,
+        right_profile_fixed_batch_count: int = 0,
+        enable_promotion_profile_fixed: bool = False,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         max_time_per_batch: float | None = None,
         solver_thread_cnt: int | None = None,
         use_lns_only: bool = False,
@@ -279,7 +337,11 @@ class PwCpConstructor:
                     batch_idx,
                     incumbent=st.incumbent,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                    left_profile_fixed_batch_count=left_profile_fixed_batch_count,
+                    right_profile_fixed_batch_count=right_profile_fixed_batch_count,
                 )
+                if enable_promotion_profile_fixed:
+                    partition = partition.promote_job_contained_ops()
                 spec = self._build_subproblem_spec(
                     incumbent=st.incumbent,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
@@ -293,6 +355,8 @@ class PwCpConstructor:
                     right_justified_schedule=right_justified_sched,
                     instance=instance,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                    profile_fix_by_machine=profile_fix_by_machine,
+                    machine_precedence_stride=machine_precedence_stride,
                     max_time_per_batch=max_time_per_batch,
                     solver_thread_cnt=solver_thread_cnt,
                     use_lns_only=use_lns_only,
@@ -500,6 +564,8 @@ class PwCpConstructor:
         right_justified_schedule: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
+        profile_fix_by_machine: bool,
+        machine_precedence_stride: int,
         max_time_per_batch: float | None,
         solver_thread_cnt: int,
         use_lns_only: bool,
@@ -544,6 +610,20 @@ class PwCpConstructor:
         BaseModelBuilder.add_start_time_freezed_operation_constraints(
             mdl, variables, frozen_start_time_map
         )
+        if spec.partition.profile_fixed_operations:
+            profile_fixed_schedule = incumbent.deepcopy()
+            profile_fixed_schedule.remove_operations(
+                set(profile_fixed_schedule.get_jik_2_start_time_map())
+                - set(spec.partition.profile_fixed_operations)
+            )
+            BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                mdl,
+                params,
+                variables,
+                profile_fixed_schedule,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            )
 
         timelimit = self.ctx.get_remaining_time_limit(max_time_per_batch)
 
@@ -908,14 +988,18 @@ class PwCpConstructor:
         current_batch_idx: int,
         incumbent: HybridFlowshopLiteSchedule,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
+        left_profile_fixed_batch_count: int = 0,
+        right_profile_fixed_batch_count: int = 0,
     ) -> tuple[OperationPartition, HybridFlowshopLiteSchedule]:
         """
         Build operation partition based on batch indices.
 
         Partitioning rule:
-        - left_time_fixed: operations from batches with idx < current_batch_idx
+        - left_time_fixed: sufficiently earlier batches
+        - left_profile_fixed: immediately preceding batches
         - unfixed: operations from batch at current_batch_idx
-        - right_time_fixed: operations from batches with idx > current_batch_idx
+        - right_profile_fixed: immediately following batches
+        - right_time_fixed: sufficiently later batches
 
         This leverages the existing time-based sorting in _build_stage_batches,
         where batch_idx=0 contains earliest operations and higher indices contain
@@ -926,17 +1010,23 @@ class PwCpConstructor:
         """
         all_ops: list[OperationRef] = []
         l_tf_ops: list[OperationRef] = []
-        free_ops: list[OperationRef] = []
+        l_pf_ops: list[OperationRef] = []
+        unfixed_ops: list[OperationRef] = []
+        r_pf_ops: list[OperationRef] = []
         r_tf_ops: list[OperationRef] = []
 
         for stage_id in stage_ids:
             batches = stage_2_batches[stage_id]
             all_ops.extend([op for batch in batches for op in batch])
             for idx, batch in enumerate(batches):
-                if idx < current_batch_idx:
+                if idx < current_batch_idx - left_profile_fixed_batch_count:
                     l_tf_ops.extend(batch)
+                elif idx < current_batch_idx:
+                    l_pf_ops.extend(batch)
                 elif idx == current_batch_idx:
-                    free_ops.extend(batch)
+                    unfixed_ops.extend(batch)
+                elif idx <= current_batch_idx + right_profile_fixed_batch_count:
+                    r_pf_ops.extend(batch)
                 else:
                     r_tf_ops.extend(batch)
 
@@ -951,7 +1041,9 @@ class PwCpConstructor:
 
         partition = OperationPartition(
             left_time_fixed=tuple(sorted(l_tf_ops)),
-            unfixed=tuple(sorted(free_ops)),
+            left_profile_fixed=tuple(sorted(l_pf_ops)),
+            unfixed=tuple(sorted(unfixed_ops)),
+            right_profile_fixed=tuple(sorted(r_pf_ops)),
             right_time_fixed=tuple(sorted(r_tf_ops)),
             right_boundary_profile=right_profile,
         )
@@ -1137,7 +1229,9 @@ class PwCpConstructor:
             "accepted": accepted,
             "partition": {
                 "left_time_fixed": list(spec.partition.left_time_fixed),
+                "left_profile_fixed": list(spec.partition.left_profile_fixed),
                 "unfixed": list(spec.partition.unfixed),
+                "right_profile_fixed": list(spec.partition.right_profile_fixed),
                 "right_time_fixed": list(spec.partition.right_time_fixed),
             },
             "right_boundary_profile": spec.right_boundary_profile,

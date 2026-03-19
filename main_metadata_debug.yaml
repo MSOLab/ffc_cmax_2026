@@ -21,7 +21,7 @@ dicts_of_i_o_data_path:
 
 
 # Output and Logging configuration
-output_dir_scenarios: "Outputs_scenarios"
+output_dir_scenarios: "Outputs_debug"
 scenario_log_filename: "hfs_multi_scenario_runner.log"
 result_dir_name: "results"
 
