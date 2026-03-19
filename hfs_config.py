@@ -42,7 +42,7 @@ class BaselineColumnMapping(BaseModel):
         "Instance", description="Column name for the instance identifier."
     )
     job_cnt: str = Field("n", description="Column name for the job count.")
-    stage_cnt: str = Field("s", description="Column name for the stage count.")
+    stage_cnt: str = Field("c", description="Column name for the stage count.")
     obj_val: str = Field(
         "UB", description="Column name for the objective value (upper bound)."
     )
