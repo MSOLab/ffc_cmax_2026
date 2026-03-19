@@ -1,5 +1,5 @@
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -74,10 +74,9 @@ class OperationPartition:
     profile-fixed operations) without changing the interface.
     """
 
-    left_time_fixed_ops: tuple[OperationRef, ...]
-    optimization: tuple[OperationRef, ...]
-    right_time_fixed_ops: tuple[OperationRef, ...]
-    boundary_profile_fixed: tuple[OperationRef, ...] = field(default_factory=tuple)
+    left_time_fixed: tuple[OperationRef, ...]
+    unfixed: tuple[OperationRef, ...]
+    right_time_fixed: tuple[OperationRef, ...]
 
     # Boundary profiles (computed during partition creation)
     right_boundary_profile: StageBoundaryProfile | None = None
@@ -86,21 +85,12 @@ class OperationPartition:
     @property
     def all_operations(self) -> tuple[OperationRef, ...]:
         """Return all operations in the partition."""
-        return (
-            self.left_time_fixed_ops
-            + self.optimization
-            + self.right_time_fixed_ops
-            + self.boundary_profile_fixed
-        )
+        return self.left_time_fixed + self.unfixed + self.right_time_fixed
 
     @property
     def time_fixed_operations(self) -> tuple[OperationRef, ...]:
         """Return all operations that should have fixed start times in CP model."""
-        return (
-            self.left_time_fixed_ops
-            + self.right_time_fixed_ops
-            + self.boundary_profile_fixed
-        )
+        return self.left_time_fixed + self.right_time_fixed
 
 
 @dataclass(frozen=True)
@@ -315,8 +305,8 @@ class PwCpConstructor:
                 if debug_export and batch_idx < max_batch_cnt:
                     self._draw_right_boundary_gantt(
                         right_justified_schedule=right_justified_sched,
-                        right_time_fixed_ops=partition.right_time_fixed_ops,
-                        optimization_ops=partition.optimization,
+                        right_time_fixed_ops=partition.right_time_fixed,
+                        unfixed_ops=partition.unfixed,
                         right_boundary_profile=partition.right_boundary_profile,
                         stage_2_job_2_p_dict=stage_2_job_2_p_dict,
                         batch_idx=batch_idx,
@@ -434,17 +424,19 @@ class PwCpConstructor:
             is_last_batch=(batch_idx == max_batch_cnt - 1),
         )
 
-    def _build_right_guard_profile(
+    def _build_right_boundary_profile(
         self,
         incumbent: HybridFlowshopLiteSchedule,
-        right_justified_op_set: set[OperationRef],
-        right_time_fixed_ops: tuple[OperationRef, ...],
+        all_ops: list[OperationRef],
+        l_tf_ops: list[OperationRef],
+        r_tf_ops: list[OperationRef],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
     ) -> tuple[StageBoundaryProfile, StageFixedIntervals, HybridFlowshopLiteSchedule]:
         shifted = incumbent.deepcopy()
+        r_justified_op_set = set(all_ops) - set(l_tf_ops)
         shifted.make_right_justified(
             stage_2_job_2_p_dict,
-            operation_set=right_justified_op_set,
+            operation_set=r_justified_op_set,
         )
         start_map = shifted.get_jik_2_start_time_map()
         right_boundary_profile: StageBoundaryProfile = {}
@@ -452,7 +444,7 @@ class PwCpConstructor:
         for stage_id in shifted.stages:
             stage_right_ops = [
                 (job_id, mc_id)
-                for job_id, op_stage_id, mc_id in right_time_fixed_ops
+                for job_id, op_stage_id, mc_id in r_tf_ops
                 if op_stage_id == stage_id
             ]
             stage_boundaries: list[int] = []
@@ -492,11 +484,11 @@ class PwCpConstructor:
 
     @staticmethod
     def _build_highlight_ops(
-        optimization_ops: tuple[OperationRef, ...],
+        unfixed_ops: tuple[OperationRef, ...],
     ) -> list[HighlightedOperationRef]:
         highlight_ops: list[HighlightedOperationRef] = []
         seen: set[HighlightedOperationRef] = set()
-        for job_id, stage_id, _machine_id in optimization_ops:
+        for job_id, stage_id, _machine_id in unfixed_ops:
             op_ref = (job_id, stage_id)
             if op_ref not in seen:
                 seen.add(op_ref)
@@ -519,11 +511,11 @@ class PwCpConstructor:
         incumbent_obj = int(incumbent.makespan)
         logging.info(
             "PW-CP subproblem (batch=%d, subproblem=%d) starting. "
-            "Incumbent makespan=%d, optimization ops=%d, time_fixed ops=%d.",
+            "Incumbent makespan=%d, unfixed ops=%d, time_fixed ops=%d.",
             spec.batch_idx + 1,
             spec.subproblem_idx,
             incumbent_obj,
-            len(spec.partition.optimization),
+            len(spec.partition.unfixed),
             len(spec.partition.time_fixed_operations),
         )
 
@@ -609,26 +601,26 @@ class PwCpConstructor:
             )
             return candidate_schedule
         else:
-            # Non-final batch: maximize right guard slack
-            BaseModelBuilder.add_right_guard_objective(
+            # Non-final batch: maximize right slack
+            BaseModelBuilder.add_right_slack_objective(
                 mdl,
                 params,
                 variables,
-                optimization_ops=spec.partition.optimization,
+                slack_occupying_ops=spec.partition.unfixed,
                 right_boundary_profile=spec.right_boundary_profile,
                 right_fixed_intervals=spec.right_fixed_intervals,
                 horizon=incumbent.makespan,
             )
-            self._apply_right_guard_hints(
+            self._apply_right_slack_hints(
                 mdl=mdl,
                 incumbent=incumbent,
-                optimization_ops=spec.partition.optimization,
+                unfixed_ops=spec.partition.unfixed,
                 right_boundary_profile=spec.right_boundary_profile,
                 params=params,
             )
             mdl.add_hint(variables.makespan, incumbent_obj)
             logging.info(
-                "Solving non-final batch with right guard slack maximization (timelimit=%.2fs).",
+                "Solving non-final batch with right slack maximization (timelimit=%.2fs).",
                 timelimit,
             )
             report = self.ctx.solve_cp_model_2(
@@ -684,18 +676,18 @@ class PwCpConstructor:
             return candidate_schedule
 
     @staticmethod
-    def _compute_right_guard_hint_values(
+    def _compute_right_slack_hint_values(
         incumbent: HybridFlowshopLiteSchedule,
-        optimization_ops: tuple[OperationRef, ...],
+        unfixed_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
         params: Params,
     ) -> dict[str, int]:
-        """Compute incumbent values for right-guard objective auxiliaries."""
+        """Compute incumbent values for right-slack objective auxiliaries."""
         stage_2_machine_2_intervals: dict[str, dict[str, list[tuple[int, int]]]] = {}
         start_time_map = incumbent.get_jik_2_start_time_map()
         end_time_map = incumbent.get_jik_2_end_time_map()
 
-        for job_id, stage_id, machine_id in optimization_ops:
+        for job_id, stage_id, machine_id in unfixed_ops:
             stage_2_machine_2_intervals.setdefault(stage_id, {}).setdefault(
                 machine_id, []
             ).append(
@@ -706,44 +698,44 @@ class PwCpConstructor:
             )
 
         hint_values: dict[str, int] = {}
-        stage_guard_mins: list[int] = []
+        stage_slack_mins: list[int] = []
         for stage_id, machine_ids in params.M_of.items():
             stage_extras: list[int] = []
             machine_2_intervals = stage_2_machine_2_intervals.get(stage_id, {})
-            for machine_idx, (machine_id, guard_end) in enumerate(
+            for machine_idx, (machine_id, slack_end) in enumerate(
                 zip(machine_ids, right_boundary_profile[stage_id], strict=False),
                 start=1,
             ):
-                latest_end_before_guard = 0
+                latest_end_before_slack = 0
                 for start, end in machine_2_intervals.get(machine_id, []):
-                    if start < guard_end:
-                        latest_end_before_guard = max(
-                            latest_end_before_guard, min(end, guard_end)
+                    if start < slack_end:
+                        latest_end_before_slack = max(
+                            latest_end_before_slack, min(end, slack_end)
                         )
-                extra = max(0, guard_end - latest_end_before_guard)
-                hint_values[f"guard_extra_{stage_id}_{machine_idx}"] = extra
-                hint_values[f"guard_start_{stage_id}_{machine_idx}"] = guard_end - extra
+                extra = max(0, slack_end - latest_end_before_slack)
+                hint_values[f"slack_extra_{stage_id}_{machine_idx}"] = extra
+                hint_values[f"slack_start_{stage_id}_{machine_idx}"] = slack_end - extra
                 stage_extras.append(extra)
 
-            stage_guard_min = min(stage_extras, default=0)
-            hint_values[f"stage_guard_min_{stage_id}"] = stage_guard_min
-            stage_guard_mins.append(stage_guard_min)
+            stage_slack_min = min(stage_extras, default=0)
+            hint_values[f"stage_slack_min_{stage_id}"] = stage_slack_min
+            stage_slack_mins.append(stage_slack_min)
 
-        hint_values["global_guard_min"] = min(stage_guard_mins, default=0)
+        hint_values["global_slack_min"] = min(stage_slack_mins, default=0)
         return hint_values
 
     @staticmethod
-    def _apply_right_guard_hints(
+    def _apply_right_slack_hints(
         mdl: CustomCpModel,
         incumbent: HybridFlowshopLiteSchedule,
-        optimization_ops: tuple[OperationRef, ...],
+        unfixed_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
         params: Params,
     ) -> None:
-        """Apply incumbent hints for right-guard auxiliaries by variable name."""
-        hint_values = PwCpConstructor._compute_right_guard_hint_values(
+        """Apply incumbent hints for right-slack auxiliaries by variable name."""
+        hint_values = PwCpConstructor._compute_right_slack_hint_values(
             incumbent=incumbent,
-            optimization_ops=optimization_ops,
+            unfixed_ops=unfixed_ops,
             right_boundary_profile=right_boundary_profile,
             params=params,
         )
@@ -771,9 +763,7 @@ class PwCpConstructor:
                 batch_idx=spec.batch_idx,
                 subproblem_idx=spec.subproblem_idx,
                 is_last_batch=spec.is_last_batch,
-                objective_name=(
-                    "makespan" if spec.is_last_batch else "right_guard_slack"
-                ),
+                objective_name=("makespan" if spec.is_last_batch else "right_slack"),
                 time_limit_sec=time_limit_sec,
                 elapsed_time_sec=report.elapsed_time,
                 status=report.status.to_solver_status_enum().value,
@@ -783,27 +773,6 @@ class PwCpConstructor:
                 obj_value_records=tuple(report.obj_value_records),
                 obj_bound_records=tuple(report.obj_bound_records),
             )
-        )
-
-    def _add_right_guard_objective(
-        self,
-        mdl: CustomCpModel,
-        params: Params,
-        variables: CumulativeVars,
-        optimization_ops: tuple[OperationRef, ...],
-        right_boundary_profile: StageBoundaryProfile,
-        right_fixed_intervals: StageFixedIntervals,
-        horizon: int,
-    ) -> cp_model.IntVar:
-        """Thin wrapper around BaseModelBuilder.add_right_guard_objective."""
-        return BaseModelBuilder.add_right_guard_objective(
-            mdl,
-            params,
-            variables,
-            optimization_ops,
-            right_boundary_profile,
-            right_fixed_intervals,
-            horizon,
         )
 
     def _validate_and_get_batch_count(
@@ -831,46 +800,48 @@ class PwCpConstructor:
         Build operation partition based on batch indices.
 
         Partitioning rule:
-        - left_time_fixed_ops: operations from batches with idx < current_batch_idx
-        - optimization: operations from batch at current_batch_idx
-        - right_time_fixed_ops: operations from batches with idx > current_batch_idx
+        - left_time_fixed: operations from batches with idx < current_batch_idx
+        - unfixed: operations from batch at current_batch_idx
+        - right_time_fixed: operations from batches with idx > current_batch_idx
 
         This leverages the existing time-based sorting in _build_stage_batches,
         where batch_idx=0 contains earliest operations and higher indices contain
         later operations.
 
         Boundary profile is computed during partition creation:
-        - right_boundary_profile: machine-order guard end times of right-justified ops
+        - right_boundary_profile: machine-order slack end times of right-justified ops
         """
-        left_ops: list[OperationRef] = []
-        optimization_ops: list[OperationRef] = []
-        right_ops: list[OperationRef] = []
+        all_ops: list[OperationRef] = []
+        l_tf_ops: list[OperationRef] = []
+        free_ops: list[OperationRef] = []
+        r_tf_ops: list[OperationRef] = []
 
         for stage_id in stage_ids:
             batches = stage_2_batches[stage_id]
+            all_ops.extend([op for batch in batches for op in batch])
             for idx, batch in enumerate(batches):
                 if idx < current_batch_idx:
-                    left_ops.extend(batch)
+                    l_tf_ops.extend(batch)
                 elif idx == current_batch_idx:
-                    optimization_ops.extend(batch)
+                    free_ops.extend(batch)
                 else:
-                    right_ops.extend(batch)
+                    r_tf_ops.extend(batch)
 
         # Compute boundary profile during partition creation
-        right_justified_op_set = set(right_ops) | set(optimization_ops)
         right_profile, right_fixed_intervals, right_justified_sched = (
-            self._build_right_guard_profile(
+            self._build_right_boundary_profile(
                 incumbent,
-                right_justified_op_set,
-                tuple(right_ops),
+                all_ops,
+                l_tf_ops,
+                r_tf_ops,
                 stage_2_job_2_p_dict,
             )
         )
 
         partition = OperationPartition(
-            left_time_fixed_ops=tuple(sorted(left_ops)),
-            optimization=tuple(sorted(optimization_ops)),
-            right_time_fixed_ops=tuple(sorted(right_ops)),
+            left_time_fixed=tuple(sorted(l_tf_ops)),
+            unfixed=tuple(sorted(free_ops)),
+            right_time_fixed=tuple(sorted(r_tf_ops)),
             right_boundary_profile=right_profile,
             right_fixed_intervals=right_fixed_intervals,
         )
@@ -880,15 +851,15 @@ class PwCpConstructor:
         self,
         right_justified_schedule: HybridFlowshopLiteSchedule,
         right_time_fixed_ops: tuple[OperationRef, ...],
-        optimization_ops: tuple[OperationRef, ...],
+        unfixed_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile | None,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         batch_idx: int,
     ) -> None:
         """Draws Gantt chart of right-justified schedule with boundary visualization.
 
-        Adds dummy Slack operations to represent guard regions and draws the
-        Gantt chart with optimization operations highlighted.
+        Adds dummy Slack operations to represent slack regions and draws the
+        Gantt chart with unfixed operations highlighted.
         """
         if right_boundary_profile is None:
             return
@@ -903,54 +874,54 @@ class PwCpConstructor:
             viz_schedule.jobs.append(job_id)
             return job_id
 
-        # For each stage and machine, add a dummy operation representing the guard region
+        # For each stage and machine, add a dummy operation representing the slack region
         for stage_id, machine_ids in viz_schedule.machines_per_stage.items():
             profile_values = right_boundary_profile.get(stage_id, [])
 
             for machine_idx, machine_id in enumerate(machine_ids):
                 if machine_idx >= len(profile_values):
                     continue
-                guard_end = profile_values[machine_idx]
+                slack_end = profile_values[machine_idx]
 
-                # Find the latest end time of optimization ops on this machine
+                # Find the latest end time of unfixed ops on this machine
                 opt_ops_on_machine = [
                     (job_id, stage_id, machine_id)
-                    for job_id, op_stage_id, op_machine_id in optimization_ops
+                    for job_id, op_stage_id, op_machine_id in unfixed_ops
                     if op_stage_id == stage_id and op_machine_id == machine_id
                 ]
 
                 if opt_ops_on_machine:
-                    # Calculate latest end time before guard (matching _compute_right_guard_hint_values)
-                    latest_end_before_guard = 0
+                    # Calculate latest end time before slack (matching _compute_right_slack_hint_values)
+                    latest_end_before_slack = 0
                     for job_id, _, _ in opt_ops_on_machine:
                         op_end = right_justified_schedule.get_jik_2_end_time_map()[
                             (job_id, stage_id, machine_id)
                         ]
-                        # Only consider operations that start before guard_end
+                        # Only consider operations that start before slack_end
                         if (
                             right_justified_schedule.get_jik_2_start_time_map()[
                                 (job_id, stage_id, machine_id)
                             ]
-                            < guard_end
+                            < slack_end
                         ):
-                            latest_end_before_guard = max(
-                                latest_end_before_guard, min(op_end, guard_end)
+                            latest_end_before_slack = max(
+                                latest_end_before_slack, min(op_end, slack_end)
                             )
 
                     # Calculate dummy operation duration (slack)
-                    dummy_duration = max(0, guard_end - latest_end_before_guard)
+                    dummy_duration = max(0, slack_end - latest_end_before_slack)
                     if dummy_duration > 0:
                         # Add dummy operation
                         viz_schedule.add_operation_2_stage(
                             stage_id,
                             generate_slack_job_id(stage_id, machine_id),
                             dummy_duration,
-                            release_t=latest_end_before_guard,
+                            release_t=latest_end_before_slack,
                         )
 
-        # Build highlight set from optimization operations
+        # Build highlight set from unfixed operations
         highlight_op_set: set[tuple[str, str]] = {
-            (job_id, stage_id) for job_id, stage_id, _ in optimization_ops
+            (job_id, stage_id) for job_id, stage_id, _ in unfixed_ops
         }
 
         # Draw and save Gantt chart
@@ -984,15 +955,14 @@ class PwCpConstructor:
         solution_dict = {
             "start_time_map": incumbent.get_jik_2_start_time_map(),
             "end_time_map": incumbent.get_jik_2_end_time_map(),
-            "highlight_ops": self._build_highlight_ops(spec.partition.optimization),
+            "highlight_ops": self._build_highlight_ops(spec.partition.unfixed),
             "batch_idx": spec.batch_idx,
             "subproblem_idx": spec.subproblem_idx,
             "accepted": accepted,
             "partition": {
-                "left_time_fixed_ops": list(spec.partition.left_time_fixed_ops),
-                "optimization": list(spec.partition.optimization),
-                "right_time_fixed_ops": list(spec.partition.right_time_fixed_ops),
-                "boundary_profile_fixed": list(spec.partition.boundary_profile_fixed),
+                "left_time_fixed": list(spec.partition.left_time_fixed),
+                "unfixed": list(spec.partition.unfixed),
+                "right_time_fixed": list(spec.partition.right_time_fixed),
             },
             "right_boundary_profile": spec.right_boundary_profile,
             "right_fixed_intervals": spec.right_fixed_intervals,

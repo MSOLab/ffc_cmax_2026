@@ -1,0 +1,37 @@
+# Input data configuration
+# pra_common_params_rel_path: "resources/pra_common_params.yaml"
+# baseline_csv_path: "resources/pra_ref/soaData.csv"
+# input_dir: "resources/pra"
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020small_ref/20260129_CPO_2mn_8t.csv"
+input_dir: "resources/ff2020small"
+# baseline_csv_path: "resources/ff2020big_ref/20260129_CPO_2mn_8t.csv"
+# baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+# input_dir: "resources/ff2020big"
+benchmark_idx_list:
+  - 5
+benchmark_filename_format: "{}.txt"
+
+# Scenario configurations
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_pw_cp/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260319-01.yaml"
+    output_dir: "ff2020/20260319-01"
+    description: "LB -> Dispatch -> PW-CP"
+
+
+# Output and Logging configuration
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+# Execution configuration
+instance_worker_cnt: 1
+
+# Analysis and plotting options
+draw_gantt: true
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: true
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0

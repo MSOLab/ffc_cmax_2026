@@ -17,8 +17,8 @@ class GanttPlotter:
     cmap_name = "tab20"
     machine_height = 1.0
     bar_height = 0.8
-    bar_alpha = 0.7
-    grid_alpha = 0.5
+    bar_alpha = 0.5
+    grid_alpha = 0.3
     figsize = (12, 8)
 
     def __init__(self):
@@ -295,7 +295,7 @@ class GanttPlotter:
         duration = e_time - s_time
 
         edgecolor = "black"
-        linewidth = 2.0 if highlight else 1.0
+        linewidth = 3.0 if highlight else 1.0
         alpha = 1.0 if highlight else self.bar_alpha
 
         self.ax.add_patch(

@@ -102,9 +102,7 @@ def _get_hint_map(mdl):
 def _get_named_hint_map(mdl):
     proto = mdl.Proto()
     hint_map = _get_hint_map(mdl)
-    return {
-        proto.variables[var_idx].name: value for var_idx, value in hint_map.items()
-    }
+    return {proto.variables[var_idx].name: value for var_idx, value in hint_map.items()}
 
 
 def _get_hint_var_indices(mdl):
@@ -195,14 +193,16 @@ def test_build_stage_batches_uses_start_time_as_tiebreaker_for_midpoint(tmp_path
     ]
 
 
-def test_build_right_guard_profile_uses_machine_order_start_times(tmp_path):
+def test_build_right_boundary_profile_uses_machine_order_start_times(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     sched = _make_schedule()
-
-    boundary_profile, right_fixed_intervals = ctor._build_right_guard_profile(
+    operation_list = [("j3", "s1", "m1"), ("j4", "s1", "m2")]
+    boundary_profile, right_fixed_intervals, _ = ctor._build_right_boundary_profile(
         sched,
-        right_time_fixed_ops=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        operation_list,
+        [],
+        operation_list,
         stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
     )
 
@@ -210,11 +210,16 @@ def test_build_right_guard_profile_uses_machine_order_start_times(tmp_path):
     assert right_fixed_intervals["s1"] == [(5, 7, 2), (5, 7, 2)]
 
 
-def test_build_right_guard_profile_keeps_machine_boundaries_not_stage_earliest_starts(
+def test_build_right_boundary_profile_keeps_machine_boundaries_not_stage_earliest_starts(
     tmp_path,
 ):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
+    operation_list = [
+        ("j1", "s1", "m1"),
+        ("j2", "s1", "m1"),
+        ("j3", "s1", "m2"),
+    ]
     sched = HybridFlowshopLiteSchedule(
         jobs=["j1", "j2", "j3"],
         stages=["s1"],
@@ -224,22 +229,21 @@ def test_build_right_guard_profile_keeps_machine_boundaries_not_stage_earliest_s
     sched.add_ops_times_2_mc("s1", "m1", "j2", 2, 4)
     sched.add_ops_times_2_mc("s1", "m2", "j3", 9, 10)
 
-    boundary_profile, _ = ctor._build_right_guard_profile(
+    boundary_profile, _, _ = ctor._build_right_boundary_profile(
         sched,
-        right_time_fixed_ops=(
-            ("j1", "s1", "m1"),
-            ("j2", "s1", "m1"),
-            ("j3", "s1", "m2"),
-        ),
+        operation_list,
+        [],
+        operation_list,
         stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 2, "j3": 1}},
     )
 
     assert boundary_profile["s1"] == [6, 9]
 
 
-def test_build_right_guard_profile_pads_missing_machine_with_makespan(tmp_path):
+def test_build_right_boundary_profile_pads_missing_machine_with_makespan(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
+    operation_list = [("j1", "s1", "m1")]
     sched = HybridFlowshopLiteSchedule(
         jobs=["j1"],
         stages=["s1"],
@@ -247,9 +251,11 @@ def test_build_right_guard_profile_pads_missing_machine_with_makespan(tmp_path):
     )
     sched.add_ops_times_2_mc("s1", "m1", "j1", 3, 5)
 
-    boundary_profile, _ = ctor._build_right_guard_profile(
+    boundary_profile, _, _ = ctor._build_right_boundary_profile(
         sched,
-        right_time_fixed_ops=(("j1", "s1", "m1"),),
+        operation_list,
+        [],
+        operation_list,
         stage_2_job_2_p_dict={"s1": {"j1": 2}},
     )
 
@@ -342,13 +348,13 @@ def test_run_uses_batch_union_across_stages_and_exact_iteration_count(
 
     assert len(seen_specs) == 2
     # Operations are sorted in OperationPartition
-    assert seen_specs[0].partition.optimization == (
+    assert seen_specs[0].partition.unfixed == (
         ("j1", "s1", "m1"),
         ("j1", "s2", "m3"),
         ("j2", "s1", "m2"),
         ("j2", "s2", "m4"),
     )
-    assert seen_specs[1].partition.optimization == (
+    assert seen_specs[1].partition.unfixed == (
         ("j3", "s1", "m1"),
         ("j3", "s2", "m3"),
         ("j4", "s1", "m2"),
@@ -448,7 +454,7 @@ def test_run_raises_when_batch_count_changes_mid_run(monkeypatch, tmp_path):
         raise AssertionError("Expected AssertionError for changed batch count")
 
 
-def test_add_right_guard_objective_maximizes_global_stage_min(tmp_path):
+def test_add_right_slack_objective_maximizes_global_stage_min(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     model = cp_model.CpModel()
@@ -465,19 +471,27 @@ def test_add_right_guard_objective_maximizes_global_stage_min(tmp_path):
         ("j2", "s2"): model.new_int_var(3, 3, "e_j2_s2"),
     }
     op_intvl = {
-        ("j1", "s1"): model.new_interval_var(op_start["j1", "s1"], 3, op_end["j1", "s1"], "i_j1_s1"),
-        ("j2", "s1"): model.new_interval_var(op_start["j2", "s1"], 3, op_end["j2", "s1"], "i_j2_s1"),
-        ("j1", "s2"): model.new_interval_var(op_start["j1", "s2"], 4, op_end["j1", "s2"], "i_j1_s2"),
-        ("j2", "s2"): model.new_interval_var(op_start["j2", "s2"], 2, op_end["j2", "s2"], "i_j2_s2"),
+        ("j1", "s1"): model.new_interval_var(
+            op_start["j1", "s1"], 3, op_end["j1", "s1"], "i_j1_s1"
+        ),
+        ("j2", "s1"): model.new_interval_var(
+            op_start["j2", "s1"], 3, op_end["j2", "s1"], "i_j2_s1"
+        ),
+        ("j1", "s2"): model.new_interval_var(
+            op_start["j1", "s2"], 4, op_end["j1", "s2"], "i_j1_s2"
+        ),
+        ("j2", "s2"): model.new_interval_var(
+            op_start["j2", "s2"], 2, op_end["j2", "s2"], "i_j2_s2"
+        ),
     }
     params = SimpleNamespace(M_of={"s1": ["m1", "m2"], "s2": ["m3", "m4"]})
     variables = SimpleNamespace(op_start=op_start, op_end=op_end, op_intvl=op_intvl)
 
-    objective = ctor._add_right_guard_objective(
+    objective = BaseModelBuilder.add_right_slack_objective(
         model,
         params,
         variables,
-        optimization_ops=(
+        slack_occupying_ops=(
             ("j1", "s1", "m1"),
             ("j2", "s1", "m2"),
             ("j1", "s2", "m3"),
@@ -492,9 +506,9 @@ def test_add_right_guard_objective_maximizes_global_stage_min(tmp_path):
     status = solver.Solve(model)
 
     assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
-    # s1 guard extras are [4, 1] -> stage min = 1
-    # s2 guard extras are [0, 0] -> stage min = 0
-    # global guard min = min(1, 0) = 0
+    # s1 slack lengths are [4, 1] -> stage min = 1
+    # s2 slack lengths are [0, 0] -> stage min = 0
+    # global slack min = min(1, 0) = 0
     assert solver.Value(objective) == 0
 
 
@@ -503,9 +517,9 @@ def test_save_solution_dict_writes_boundary_metadata(tmp_path):
     ctor = PwCpConstructor(ctx)
     sched = _make_schedule()
     partition = OperationPartition(
-        left_time_fixed_ops=(("j3", "s1", "m1"),),
-        optimization=(("j1", "s1", "m1"),),
-        right_time_fixed_ops=(("j2", "s1", "m2"),),
+        left_time_fixed=(("j3", "s1", "m1"),),
+        unfixed=(("j1", "s1", "m1"),),
+        right_time_fixed=(("j2", "s1", "m2"),),
     )
     spec = PwCpSubproblemSpec(
         batch_idx=0,
@@ -522,8 +536,8 @@ def test_save_solution_dict_writes_boundary_metadata(tmp_path):
     assert output_path.exists()
     text = output_path.read_text(encoding="utf-8")
     saved = load_yaml(output_path)
-    assert "optimization:" in text
     assert "highlight_ops:" in text
+    assert "partition:" in text
     assert "right_boundary_profile" in text
     assert "accepted: true" in text.lower()
     assert saved["highlight_ops"] == [["j1", "s1"]]
@@ -535,9 +549,9 @@ def test_save_solution_dict_normalizes_numpy_scalars(tmp_path):
     ctor = PwCpConstructor(ctx)
     sched = _make_schedule()
     partition = OperationPartition(
-        left_time_fixed_ops=(("j3", "s1", "m1"),),
-        optimization=(("j1", "s1", "m1"),),
-        right_time_fixed_ops=(("j2", "s1", "m2"),),
+        left_time_fixed=(("j3", "s1", "m1"),),
+        unfixed=(("j1", "s1", "m1"),),
+        right_time_fixed=(("j2", "s1", "m2"),),
     )
     spec = PwCpSubproblemSpec(
         batch_idx=np.int64(0),
@@ -564,9 +578,7 @@ def test_run_debug_export_saves_accepted_incumbent_with_highlight_ops(
     ctor = PwCpConstructor(ctx)
     incumbent = _make_schedule()
     accepted_schedule = incumbent.deepcopy()
-    accepted_schedule.make_semi_active(
-        {"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}}
-    )
+    accepted_schedule.make_semi_active({"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}})
 
     monkeypatch.setattr(
         ctor,
@@ -664,7 +676,9 @@ def test_run_collects_non_final_subproblem_obj_records(monkeypatch, tmp_path):
             obj_bound_records=((0.05, 6.0), (0.3, 2.0)),
         ),
     )
-    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: candidate_schedule)
+    monkeypatch.setattr(
+        ctx, "create_schedule", lambda *args, **kwargs: candidate_schedule
+    )
 
     instance = create_hfs_instance(
         "tiny",
@@ -684,7 +698,7 @@ def test_run_collects_non_final_subproblem_obj_records(monkeypatch, tmp_path):
 
     assert len(result.subproblem_logs) == 2
     first_log = result.subproblem_logs[0]
-    assert first_log.objective_name == "right_guard_slack"
+    assert first_log.objective_name == "right_slack"
     assert first_log.obj_value_records == ((0.1, 4.0), (0.3, 2.0))
     assert first_log.obj_bound_records == ((0.05, 6.0), (0.3, 2.0))
 
@@ -705,7 +719,9 @@ def test_run_collects_final_batch_as_makespan_objective(monkeypatch, tmp_path):
             obj_bound_records=((0.2, 7.0),),
         ),
     )
-    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: candidate_schedule)
+    monkeypatch.setattr(
+        ctx, "create_schedule", lambda *args, **kwargs: candidate_schedule
+    )
 
     instance = create_hfs_instance(
         "tiny",
@@ -739,7 +755,9 @@ def test_run_adds_makespan_hint_for_final_batch(monkeypatch, tmp_path):
         return _make_solver_report(status="OPTIMAL")
 
     monkeypatch.setattr(ctx, "solve_cp_model_2", fake_solve_cp_model_2)
-    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+    monkeypatch.setattr(
+        ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy()
+    )
 
     instance = create_hfs_instance(
         "tiny",
@@ -761,7 +779,7 @@ def test_run_adds_makespan_hint_for_final_batch(monkeypatch, tmp_path):
     assert seen_hints[0]["makespan"] == incumbent_makespan
 
 
-def test_run_adds_right_guard_objective_hint_for_non_final_batch(monkeypatch, tmp_path):
+def test_run_adds_right_slack_objective_hint_for_non_final_batch(monkeypatch, tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     incumbent = _make_schedule()
@@ -772,7 +790,9 @@ def test_run_adds_right_guard_objective_hint_for_non_final_batch(monkeypatch, tm
         return _make_solver_report(status="FEASIBLE")
 
     monkeypatch.setattr(ctx, "solve_cp_model_2", fake_solve_cp_model_2)
-    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+    monkeypatch.setattr(
+        ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy()
+    )
 
     instance = create_hfs_instance(
         "tiny",
@@ -783,7 +803,7 @@ def test_run_adds_right_guard_objective_hint_for_non_final_batch(monkeypatch, tm
     )
 
     ctor.run(
-        incumbent,
+        incumbent.deepcopy(),
         instance,
         {"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
         batch_size=2,
@@ -791,8 +811,8 @@ def test_run_adds_right_guard_objective_hint_for_non_final_batch(monkeypatch, tm
     )
 
     assert len(seen_hints) == 2
-    assert "global_guard_min" in seen_hints[0]
-    partition = ctor._build_operation_partition(
+    assert "global_slack_min" in seen_hints[0]
+    partition, _ = ctor._build_operation_partition(
         ctor._build_stage_batches(incumbent, batch_size=2),
         ["s1"],
         current_batch_idx=0,
@@ -800,21 +820,21 @@ def test_run_adds_right_guard_objective_hint_for_non_final_batch(monkeypatch, tm
         stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
     )
     _, params, _ = ctor.builder.build(instance, incumbent.makespan)
-    expected_hints = ctor._compute_right_guard_hint_values(
+    expected_hints = ctor._compute_right_slack_hint_values(
         incumbent=incumbent,
-        optimization_ops=partition.optimization,
+        unfixed_ops=partition.unfixed,
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
-    assert seen_hints[0]["global_guard_min"] == expected_hints["global_guard_min"]
-    assert seen_hints[0]["stage_guard_min_s1"] == expected_hints["stage_guard_min_s1"]
-    assert seen_hints[0]["guard_extra_s1_1"] == expected_hints["guard_extra_s1_1"]
-    assert seen_hints[0]["guard_extra_s1_2"] == expected_hints["guard_extra_s1_2"]
-    assert seen_hints[0]["guard_start_s1_1"] == expected_hints["guard_start_s1_1"]
-    assert seen_hints[0]["guard_start_s1_2"] == expected_hints["guard_start_s1_2"]
+    assert seen_hints[0]["global_slack_min"] == expected_hints["global_slack_min"]
+    assert seen_hints[0]["stage_slack_min_s1"] == expected_hints["stage_slack_min_s1"]
+    assert seen_hints[0]["slack_extra_s1_1"] == expected_hints["slack_extra_s1_1"]
+    assert seen_hints[0]["slack_extra_s1_2"] == expected_hints["slack_extra_s1_2"]
+    assert seen_hints[0]["slack_start_s1_1"] == expected_hints["slack_start_s1_1"]
+    assert seen_hints[0]["slack_start_s1_2"] == expected_hints["slack_start_s1_2"]
 
 
-def test_machine_order_right_guard_profile_differs_from_stage_earliest_starts(
+def test_machine_order_right_boundary_profile_differs_from_stage_earliest_starts(
     tmp_path,
 ):
     ctx = FakePwCpContext(tmp_path)
@@ -840,15 +860,15 @@ def test_machine_order_right_guard_profile_differs_from_stage_earliest_starts(
         ]
     }
 
-    partition = ctor._build_operation_partition(
+    partition, _ = ctor._build_operation_partition(
         batches,
         ["s1"],
         current_batch_idx=0,
         incumbent=sched,
         stage_2_job_2_p_dict={"s1": {"A": 10, "B": 2, "C": 2, "D": 2}},
     )
-    assert partition.optimization == (("B", "s1", "m2"), ("C", "s1", "m2"))
-    assert partition.right_time_fixed_ops == (("A", "s1", "m1"), ("D", "s1", "m2"))
+    assert partition.unfixed == (("B", "s1", "m2"), ("C", "s1", "m2"))
+    assert partition.right_time_fixed == (("A", "s1", "m1"), ("D", "s1", "m2"))
     # Machine-order boundaries are derived per machine, not by taking the stage's
     # globally earliest starts.
     assert partition.right_boundary_profile == {"s1": [0, 8]}
@@ -861,20 +881,20 @@ def test_machine_order_right_guard_profile_differs_from_stage_earliest_starts(
         {"A": {"s1": 10}, "B": {"s1": 2}, "C": {"s1": 2}, "D": {"s1": 2}},
     )
     _, params, _ = ctor.builder.build(instance, sched.makespan)
-    hint_values = ctor._compute_right_guard_hint_values(
+    hint_values = ctor._compute_right_slack_hint_values(
         incumbent=sched,
-        optimization_ops=partition.optimization,
+        unfixed_ops=partition.unfixed,
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
 
-    assert hint_values["guard_extra_s1_1"] == 0
-    assert hint_values["guard_extra_s1_2"] == 4
-    assert hint_values["stage_guard_min_s1"] == 0
-    assert hint_values["global_guard_min"] == 0
+    assert hint_values["slack_extra_s1_1"] == 0
+    assert hint_values["slack_extra_s1_2"] == 4
+    assert hint_values["stage_slack_min_s1"] == 0
+    assert hint_values["global_slack_min"] == 0
 
 
-def test_compute_right_guard_hint_values_clips_latest_end_at_guard_boundary(tmp_path):
+def test_compute_right_slack_hint_values_clips_latest_end_at_slack_boundary(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     sched = HybridFlowshopLiteSchedule(
@@ -894,22 +914,22 @@ def test_compute_right_guard_hint_values_clips_latest_end_at_guard_boundary(tmp_
     )
     _, params, _ = ctor.builder.build(instance, sched.makespan)
 
-    hint_values = ctor._compute_right_guard_hint_values(
+    hint_values = ctor._compute_right_slack_hint_values(
         incumbent=sched,
-        optimization_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        unfixed_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [6, 5]},
         params=params,
     )
 
-    assert hint_values["guard_extra_s1_1"] == 0
-    assert hint_values["guard_start_s1_1"] == 6
-    assert hint_values["guard_extra_s1_2"] == 3
-    assert hint_values["guard_start_s1_2"] == 2
-    assert hint_values["stage_guard_min_s1"] == 0
-    assert hint_values["global_guard_min"] == 0
+    assert hint_values["slack_extra_s1_1"] == 0
+    assert hint_values["slack_start_s1_1"] == 6
+    assert hint_values["slack_extra_s1_2"] == 3
+    assert hint_values["slack_start_s1_2"] == 2
+    assert hint_values["stage_slack_min_s1"] == 0
+    assert hint_values["global_slack_min"] == 0
 
 
-def test_compute_right_guard_hint_values_aggregates_stage_and_global_mins(tmp_path):
+def test_compute_right_slack_hint_values_aggregates_stage_and_global_mins(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     sched = HybridFlowshopLiteSchedule(
@@ -936,9 +956,9 @@ def test_compute_right_guard_hint_values_aggregates_stage_and_global_mins(tmp_pa
     )
     _, params, _ = ctor.builder.build(instance, sched.makespan)
 
-    hint_values = ctor._compute_right_guard_hint_values(
+    hint_values = ctor._compute_right_slack_hint_values(
         incumbent=sched,
-        optimization_ops=(
+        unfixed_ops=(
             ("j1", "s1", "m1"),
             ("j2", "s1", "m2"),
             ("j3", "s2", "m3"),
@@ -948,16 +968,16 @@ def test_compute_right_guard_hint_values_aggregates_stage_and_global_mins(tmp_pa
         params=params,
     )
 
-    assert hint_values["guard_extra_s1_1"] == 3
-    assert hint_values["guard_extra_s1_2"] == 2
-    assert hint_values["stage_guard_min_s1"] == 2
-    assert hint_values["guard_extra_s2_1"] == 3
-    assert hint_values["guard_extra_s2_2"] == 2
-    assert hint_values["stage_guard_min_s2"] == 2
-    assert hint_values["global_guard_min"] == 2
+    assert hint_values["slack_extra_s1_1"] == 3
+    assert hint_values["slack_extra_s1_2"] == 2
+    assert hint_values["stage_slack_min_s1"] == 2
+    assert hint_values["slack_extra_s2_1"] == 3
+    assert hint_values["slack_extra_s2_2"] == 2
+    assert hint_values["stage_slack_min_s2"] == 2
+    assert hint_values["global_slack_min"] == 2
 
 
-def test_apply_right_guard_hints_skips_duplicates(tmp_path):
+def test_apply_right_slack_hints_skips_duplicates(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     incumbent = _make_schedule()
@@ -969,19 +989,19 @@ def test_apply_right_guard_hints_skips_duplicates(tmp_path):
         {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
     )
     mdl, params, variables = ctor.builder.build(instance, incumbent.makespan)
-    ctor._add_right_guard_objective(
+    BaseModelBuilder.add_right_slack_objective(
         mdl,
         params,
         variables,
-        optimization_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        slack_occupying_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [5, 5]},
         right_fixed_intervals={"s1": []},
         horizon=incumbent.makespan,
     )
-    ctor._apply_right_guard_hints(
+    ctor._apply_right_slack_hints(
         mdl,
         incumbent=incumbent,
-        optimization_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        unfixed_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
         right_boundary_profile={"s1": [5, 5]},
         params=params,
     )
@@ -1009,7 +1029,7 @@ def test_result_save_yaml_preserves_obj_series_and_adds_cp_sat_logs(tmp_path):
                 batch_idx=0,
                 subproblem_idx=1,
                 is_last_batch=False,
-                objective_name="right_guard_slack",
+                objective_name="right_slack",
                 time_limit_sec=2.0,
                 elapsed_time_sec=0.8,
                 status="FEASIBLE",
@@ -1030,7 +1050,10 @@ def test_result_save_yaml_preserves_obj_series_and_adds_cp_sat_logs(tmp_path):
     assert saved["obj_value"]["data"] == {"1.0": 10}
     assert saved["obj_value"]["notes"] == {"1.0": "batch=1"}
     assert saved["obj_bound"]["data"] == {"1.0": 10}
-    assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["objective_name"] == "right_guard_slack"
+    assert (
+        saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["objective_name"]
+        == "right_slack"
+    )
     assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["accepted"] is True
     assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["improved"] is True
     assert saved["pw_cp_metadata"]["summary"]["subproblem_count"] == 1
@@ -1083,7 +1106,9 @@ def test_result_save_yaml_handles_rejected_and_empty_records(tmp_path):
 
     saved = load_yaml(output_path)
     assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["obj_value_records"] == []
-    assert saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["candidate_makespan"] is None
+    assert (
+        saved["pw_cp_metadata"]["cp_sat_subproblems"][0]["candidate_makespan"] is None
+    )
     assert saved["pw_cp_metadata"]["summary"]["accepted_count"] == 0
     assert saved["pw_cp_metadata"]["summary"]["last_obj_improvement_time_sec"] is None
     loaded_store = ObjValueBoundStore.load_yaml(output_path)

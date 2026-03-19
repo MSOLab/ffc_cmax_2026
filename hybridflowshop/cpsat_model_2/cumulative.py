@@ -14,7 +14,7 @@ from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from .params import Params
 
-# Type aliases for PW-CP right guard objective
+# Type aliases for PW-CP right slack objective
 OperationRef = tuple[str, str, str]
 StageBoundaryProfile = dict[str, list[int]]
 StageFixedIntervals = dict[str, list[tuple[int, int, int]]]
@@ -671,52 +671,53 @@ class BaseModelBuilder:
         model.add(sum(gt) <= k - 1)
 
     @staticmethod
-    def add_right_guard_objective(
+    def add_right_slack_objective(
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
-        optimization_ops: tuple[OperationRef, ...],
+        slack_occupying_ops: tuple[OperationRef, ...],
         right_boundary_profile: StageBoundaryProfile,
         right_fixed_intervals: StageFixedIntervals,
         horizon: int,
     ) -> IntVar:
         """
-        Adds a right-guard slack objective for non-final batches.
+        Adds a right-slack objective for non-final batches.
 
-        For each stage, create one guard interval per machine. Each guard ends at
-        the earliest right-justified start time on its machine (or makespan if the
-        machine has no right-side operation). The objective maximizes the minimum
-        guard size across all stages and machine-indexed guards.
+        For each stage, create one slack interval per machine. Each slack ends at
+        the earliest start time of right-time-fixed operations on its machine.
+        If the machine has no right-time-fixed operation, the slack ends at the
+        makespan. The objective maximizes the minimum slack size across all stages and
+        machine-indexed slacks.
 
         Args:
             mdl: The CP-SAT model.
             params: Problem parameters.
             variables: Decision variables.
-            optimization_ops: Operations to be optimized.
-            right_boundary_profile: Stage-to-machine guard end times.
+            slack_occupying_ops: Operations that occupy slack time.
+            right_boundary_profile: Stage-to-machine slack end times.
             right_fixed_intervals: Stage-wise fixed right-side intervals in the
-                same right-justified schedule used for guard ends.
+                same right-justified schedule used for slack ends.
             horizon: Maximum time horizon.
 
         Returns:
-            global_guard_min: The global minimum guard slack variable.
+            global_slack_min: The global minimum slack slack variable.
         """
-        optimization_stage_ids = tuple(
-            sorted({stage_id for _job_id, stage_id, _mc_id in optimization_ops})
+        target_stage_ids = tuple(
+            sorted({stage_id for _job_id, stage_id, _mc_id in slack_occupying_ops})
         )
-        stage_2_optimization_ops: dict[str, list[OperationRef]] = {
-            stage_id: [] for stage_id in optimization_stage_ids
+        stage_2_target_ops: dict[str, list[OperationRef]] = {
+            stage_id: [] for stage_id in target_stage_ids
         }
-        for op in optimization_ops:
-            stage_2_optimization_ops[op[1]].append(op)
+        for op in slack_occupying_ops:
+            stage_2_target_ops[op[1]].append(op)
 
-        stage_guard_min_vars = []
-        for stage_id in optimization_stage_ids:
+        stage_slack_min_vars: list[IntVar] = []
+        for stage_id in target_stage_ids:
             mc_cnt = len(params.M_of[stage_id])
-            stage_ops = stage_2_optimization_ops[stage_id]
-            guard_end_times = right_boundary_profile[stage_id]
+            stage_ops = stage_2_target_ops[stage_id]
+            slack_end_times = right_boundary_profile[stage_id]
 
-            optimization_intervals = [
+            unfixed_intervals = [
                 variables.op_intvl[job_id, stage_id]
                 for job_id, _stage_id, _mc_id in stage_ops
             ]
@@ -732,45 +733,44 @@ class BaseModelBuilder:
                 )
             ]
 
-            guard_intervals: list[IntervalVar] = []
-            stage_extras: list[IntVar] = []
-            for machine_idx, guard_end in enumerate(guard_end_times, start=1):
-                extra = mdl.new_int_var(
+            slack_intervals: list[IntervalVar] = []
+            slack_lengths: list[IntVar] = []
+            for machine_idx, slack_end in enumerate(slack_end_times, start=1):
+                slack_lth = mdl.new_int_var(
                     0,
-                    guard_end,
-                    f"guard_extra_{stage_id}_{machine_idx}",
+                    slack_end,
+                    f"slack_extra_{stage_id}_{machine_idx}",
                 )
-                guard_start = mdl.new_int_var(
+                slack_start = mdl.new_int_var(
                     0,
-                    guard_end,
-                    f"guard_start_{stage_id}_{machine_idx}",
+                    slack_end,
+                    f"slack_start_{stage_id}_{machine_idx}",
                 )
-                mdl.add(guard_start + extra == guard_end)
-                guard_intervals.append(
+                slack_intervals.append(
                     mdl.new_interval_var(
-                        guard_start,
-                        extra,
-                        guard_end,
-                        f"guard_interval_{stage_id}_{machine_idx}",
+                        slack_start,
+                        slack_lth,
+                        slack_end,
+                        f"slack_interval_{stage_id}_{machine_idx}",
                     )
                 )
-                stage_extras.append(extra)
+                slack_lengths.append(slack_lth)
 
-            intervals = optimization_intervals + fixed_intervals + guard_intervals
+            intervals = unfixed_intervals + fixed_intervals + slack_intervals
             demands = [1] * len(intervals)
             mdl.add_cumulative(intervals, demands, mc_cnt)
 
-            stage_guard_min = mdl.new_int_var(
+            stage_slack_min = mdl.new_int_var(
                 0,
                 horizon,
-                f"stage_guard_min_{stage_id}",
+                f"stage_slack_min_{stage_id}",
             )
-            for extra in stage_extras:
-                mdl.add(stage_guard_min <= extra)
-            stage_guard_min_vars.append(stage_guard_min)
+            for slack_lth in slack_lengths:
+                mdl.add(stage_slack_min <= slack_lth)
+            stage_slack_min_vars.append(stage_slack_min)
 
-        global_guard_min = mdl.new_int_var(0, horizon, "global_guard_min")
-        for stage_guard_min in stage_guard_min_vars:
-            mdl.add(global_guard_min <= stage_guard_min)
-        mdl.maximize(global_guard_min)
-        return global_guard_min
+        global_slack_min = mdl.new_int_var(0, horizon, "global_slack_min")
+        for stage_slack_min in stage_slack_min_vars:
+            mdl.add(global_slack_min <= stage_slack_min)
+        mdl.maximize(global_slack_min)
+        return global_slack_min
