@@ -1396,6 +1396,18 @@ dicts_of_i_o_data_path:
     subroutine_flow_rel_path: "configs_ncs/20260319/subroutine_flow_20260319-06.yaml"
     output_dir: "ff2020/20260319-06"
     description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,unfixed*0.01)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/20260319/subroutine_flow_20260319-07.yaml"
+    output_dir: "ff2020/20260319-07"
+    description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,unfixed*0.02)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/20260319/subroutine_flow_20260319-08.yaml"
+    output_dir: "ff2020/20260319-08"
+    description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,unfixed*0.05)"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/20260319/subroutine_flow_20260319-09.yaml"
+    output_dir: "ff2020/20260319-09"
+    description: "LB -> Dispatch -> PW-CP(10%~50%,+5%,unfixed*0.1)"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
