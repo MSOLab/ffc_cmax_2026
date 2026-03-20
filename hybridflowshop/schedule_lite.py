@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import bisect
+import logging
 from typing import Iterable, Iterator, Mapping, Sequence
 
 JobIdType = str
@@ -696,6 +697,156 @@ class HybridFlowshopLiteSchedule:
             release_t = job_2_release[job_id] if job_2_release is not None else None
             self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
 
+    def _get_next_stage_start_time(
+        self,
+        stage_id: StageIdType,
+        job_id: JobIdType,
+        default_if_missing: int | None = None,
+    ) -> int:
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+
+        stage_idx = self.stage_2_index[stage_id]
+        if stage_idx >= len(self.stages) - 1:
+            if default_if_missing is not None:
+                return default_if_missing
+            raise ValueError(f"Stage ID {stage_id} has no next stage")
+
+        next_stage_id = self.stages[stage_idx + 1]
+        for mc_id in self.machines_per_stage[next_stage_id]:
+            for start_time, _end_time, scheduled_job_id in self.get_job_sequence(
+                next_stage_id, mc_id
+            ):
+                if scheduled_job_id == job_id:
+                    return start_time
+
+        if default_if_missing is not None:
+            return default_if_missing
+        raise ValueError(f"Job ID {job_id} not found in next stage after {stage_id}")
+
+    def _get_latest_feasible_slot_on_machine(
+        self,
+        stage_id: StageIdType,
+        mc_id: McIdType,
+        duration: int,
+        upper_bound: int,
+    ) -> tuple[int, int]:
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if mc_id not in self.machines_per_stage[stage_id]:
+            raise ValueError(f"Invalid machine ID: {mc_id} for stage ID: {stage_id}")
+        if duration <= 0:
+            raise ValueError("Duration must be greater than 0")
+        if upper_bound < duration:
+            raise ValueError(
+                f"No feasible slot on {stage_id}.{mc_id} before {upper_bound}"
+            )
+
+        job_tuple_seq = self.get_job_sequence(stage_id, mc_id)
+        next_end = upper_bound
+
+        for start_time, end_time, _job_id in reversed(job_tuple_seq):
+            gap_end = next_end
+            gap_start = end_time
+            if gap_end - gap_start >= duration:
+                latest_end = gap_end
+                return latest_end - duration, latest_end
+            next_end = min(next_end, start_time)
+
+        if next_end >= duration:
+            return next_end - duration, next_end
+
+        raise ValueError(f"No feasible slot on {stage_id}.{mc_id} before {upper_bound}")
+
+    def dispatch_stage_reversed_by_jobs(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        job_2_duration: Mapping[JobIdType, int],
+        mc_2_lct: Mapping[McIdType, int],
+        *,
+        job_2_deadline: Mapping[JobIdType, int] | None = None,
+    ) -> None:
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+
+        mc_2_index = {
+            mc_id: idx for idx, mc_id in enumerate(self.machines_per_stage[stage_id])
+        }
+
+        for job_id in job_id_seq:
+            if job_id not in job_2_duration:
+                raise ValueError(f"Duration for job ID {job_id} not provided")
+
+            duration = job_2_duration[job_id]
+            next_stage_start = (
+                self._get_next_stage_start_time(
+                    stage_id, job_id, default_if_missing=None
+                )
+                if self.stage_2_index[stage_id] < len(self.stages) - 1
+                else None
+            )
+            job_deadline = (
+                job_2_deadline[job_id]
+                if job_2_deadline is not None and job_id in job_2_deadline
+                else None
+            )
+
+            best_candidate: tuple[int, int, int, McIdType] | None = None
+            machine_failure_info: dict[McIdType, dict[str, object]] = {}
+            for mc_id, mc_lct in mc_2_lct.items():
+                if mc_id not in mc_2_index:
+                    raise ValueError(
+                        f"Invalid machine ID: {mc_id} for stage ID: {stage_id}"
+                    )
+
+                upper_bound = mc_lct
+                if job_deadline is not None:
+                    upper_bound = min(upper_bound, job_deadline)
+                if next_stage_start is not None:
+                    upper_bound = min(upper_bound, next_stage_start)
+
+                try:
+                    start_time, end_time = self._get_latest_feasible_slot_on_machine(
+                        stage_id=stage_id,
+                        mc_id=mc_id,
+                        duration=duration,
+                        upper_bound=upper_bound,
+                    )
+                except ValueError:
+                    machine_failure_info[mc_id] = {
+                        "mc_lct": mc_lct,
+                        "upper_bound": upper_bound,
+                        "job_sequence": self.get_job_sequence(stage_id, mc_id),
+                    }
+                    continue
+
+                candidate = (start_time, end_time, -mc_2_index[mc_id], mc_id)
+                if best_candidate is None or candidate > best_candidate:
+                    best_candidate = candidate
+
+            if best_candidate is None:
+                logging.error(
+                    "Reverse dispatch failed for %s on %s: duration=%s "
+                    "job_deadline=%s next_stage_start=%s mc_2_lct=%s "
+                    "machine_failure_info=%s",
+                    job_id,
+                    stage_id,
+                    duration,
+                    job_deadline,
+                    next_stage_start,
+                    dict(mc_2_lct),
+                    machine_failure_info,
+                )
+                raise ValueError(
+                    f"Unable to reverse-dispatch job {job_id} on stage {stage_id}"
+                )
+
+            start_time, end_time, _neg_mc_idx, target_mc_id = best_candidate
+            self.add_ops_times_2_mc(
+                stage_id, target_mc_id, job_id, start_time, end_time
+            )
+
     def dispatch_job_by_stages(
         self,
         job_id: JobIdType,
@@ -1126,7 +1277,7 @@ class HybridFlowshopLiteSchedule:
                 ]
                 for job_tuple in job_tuple_seq:
                     if job_tuple[2] in job_id_set:
-                        del self.__stage_2_job_2_end_time[stage_id][job_tuple[2]]
+                        self.__stage_2_job_2_end_time[stage_id].pop(job_tuple[2], None)
                 self.__stage_2_mc_2_job_tuple_seq[stage_id][mc_id] = new_job_tuple_seq
 
     def remove_jobs(self, job_ids: set[JobIdType]) -> None:
@@ -1191,7 +1342,9 @@ class HybridFlowshopLiteSchedule:
                 job_2_end_time[job_id] = end_time
         self.__stage_2_job_2_end_time[stage_id] = job_2_end_time
 
-    def _get_stage_job_2_start_time(self, stage_id: StageIdType) -> dict[JobIdType, int]:
+    def _get_stage_job_2_start_time(
+        self, stage_id: StageIdType
+    ) -> dict[JobIdType, int]:
         job_2_start_time: dict[JobIdType, int] = {}
         for mc_id in self.machines_per_stage[stage_id]:
             for start_time, _, job_id in self.__stage_2_mc_2_job_tuple_seq[stage_id][
@@ -1455,6 +1608,136 @@ class HybridFlowshopLiteSchedule:
             # Invalidate stale end-time entries for both jobs at this stage.
             self.__stage_2_job_2_end_time[stage_id].pop(job_id_1, None)
             self.__stage_2_job_2_end_time[stage_id].pop(job_id_2, None)
+
+    def collect_stage_machine_suffix_job_ids(
+        self,
+        stage_id: StageIdType,
+        machine_id: McIdType,
+        start_job_id: JobIdType,
+    ) -> list[JobIdType]:
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if machine_id not in self.machines_per_stage[stage_id]:
+            raise ValueError(
+                f"Invalid machine ID: {machine_id} for stage ID: {stage_id}"
+            )
+
+        job_tuple_seq = self.get_job_sequence(stage_id, machine_id)
+        start_idx = next(
+            (
+                idx
+                for idx, (_s, _e, job_id) in enumerate(job_tuple_seq)
+                if job_id == start_job_id
+            ),
+            None,
+        )
+        if start_idx is None:
+            raise ValueError(
+                f"Job ID {start_job_id} not found on {stage_id}.{machine_id}"
+            )
+        return [job_id for _s, _e, job_id in job_tuple_seq[start_idx:]]
+
+    def swap_stage_machine_operation_sets(
+        self,
+        stage_id: StageIdType,
+        from_machine_id: McIdType,
+        from_job_ids: Sequence[JobIdType],
+        to_machine_id: McIdType,
+        to_job_ids: Sequence[JobIdType],
+        stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+        *,
+        do_make_semi_active: bool = False,
+    ) -> None:
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if from_machine_id not in self.machines_per_stage[stage_id]:
+            raise ValueError(
+                f"Invalid machine ID: {from_machine_id} for stage ID: {stage_id}"
+            )
+        if to_machine_id not in self.machines_per_stage[stage_id]:
+            raise ValueError(
+                f"Invalid machine ID: {to_machine_id} for stage ID: {stage_id}"
+            )
+        if from_machine_id == to_machine_id:
+            if list(from_job_ids) == list(to_job_ids):
+                return
+            raise ValueError("swap_stage_machine_operation_sets requires two machines")
+
+        from_job_ids = list(from_job_ids)
+        to_job_ids = list(to_job_ids)
+        if len(set(from_job_ids)) != len(from_job_ids):
+            raise ValueError("Duplicate job IDs in from_job_ids")
+        if len(set(to_job_ids)) != len(to_job_ids):
+            raise ValueError("Duplicate job IDs in to_job_ids")
+        overlap_job_ids = set(from_job_ids) & set(to_job_ids)
+        if overlap_job_ids:
+            overlap_job_id = next(iter(sorted(overlap_job_ids)))
+            raise ValueError(
+                f"Job ID {overlap_job_id} cannot be swapped from both machines"
+            )
+
+        from_job_id_set = set(from_job_ids)
+        to_job_id_set = set(to_job_ids)
+        from_seq = self.get_job_sequence(stage_id, from_machine_id)
+        to_seq = self.get_job_sequence(stage_id, to_machine_id)
+
+        existing_from_job_ids = [job_id for _s, _e, job_id in from_seq]
+        existing_to_job_ids = [job_id for _s, _e, job_id in to_seq]
+        for job_id in from_job_ids:
+            if job_id not in existing_from_job_ids:
+                raise ValueError(
+                    f"Job ID {job_id} not found on {stage_id}.{from_machine_id}"
+                )
+        for job_id in to_job_ids:
+            if job_id not in existing_to_job_ids:
+                raise ValueError(
+                    f"Job ID {job_id} not found on {stage_id}.{to_machine_id}"
+                )
+
+        from_selected = [
+            job_tuple for job_tuple in from_seq if job_tuple[2] in from_job_id_set
+        ]
+        to_selected = [
+            job_tuple for job_tuple in to_seq if job_tuple[2] in to_job_id_set
+        ]
+        from_remaining = [
+            job_tuple for job_tuple in from_seq if job_tuple[2] not in from_job_id_set
+        ]
+        to_remaining = [
+            job_tuple for job_tuple in to_seq if job_tuple[2] not in to_job_id_set
+        ]
+        from_insert_idx = next(
+            (
+                idx
+                for idx, (_s, _e, job_id) in enumerate(from_seq)
+                if job_id in from_job_id_set
+            ),
+            len(from_remaining),
+        )
+        to_insert_idx = next(
+            (
+                idx
+                for idx, (_s, _e, job_id) in enumerate(to_seq)
+                if job_id in to_job_id_set
+            ),
+            len(to_remaining),
+        )
+
+        self.__stage_2_mc_2_job_tuple_seq[stage_id][from_machine_id] = (
+            from_remaining[:from_insert_idx]
+            + to_selected
+            + from_remaining[from_insert_idx:]
+        )
+        self.__stage_2_mc_2_job_tuple_seq[stage_id][to_machine_id] = (
+            to_remaining[:to_insert_idx] + from_selected + to_remaining[to_insert_idx:]
+        )
+
+        affected_job_ids = set(from_job_ids) | set(to_job_ids)
+        if do_make_semi_active:
+            self.make_semi_active(stage_2_job_2_duration, start_from_stage=stage_id)
+        else:
+            for job_id in affected_job_ids:
+                self.__stage_2_job_2_end_time[stage_id].pop(job_id, None)
 
     # Getters - critical path
 

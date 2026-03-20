@@ -25,7 +25,7 @@ from hybridflowshop.schedule_lite import (
 
 OperationRef = tuple[str, str, str]
 HighlightedOperationRef = tuple[str, str]
-StageBoundaryProfile = dict[str, list[int]]
+StageBoundaryProfile = dict[str, list[int | None]]
 SolvedSlackIntervals = dict[str, list[tuple[str, int, int]]]
 
 
@@ -327,6 +327,15 @@ class PwCpConstructor:
         )
 
         try:
+            if debug_export:
+                self._draw_schedule_gantt(
+                    schedule=ref_schedule,
+                    output_suffix="_batch_000_initial_gantt.png",
+                    highlight_op_set=None,
+                    machine_list_per_stage=None,
+                    force_start=None,
+                    force_end=None,
+                )
             initial_batches = self._build_stage_batches(
                 ref_schedule, batch_size=batch_size
             )
@@ -406,14 +415,6 @@ class PwCpConstructor:
                     st.incumbent.make_semi_active(stage_2_job_2_p_dict)
 
                 if debug_export and batch_idx < max_batch_cnt:
-                    self._draw_right_boundary_gantt(
-                        right_justified_schedule=right_justified_sched,
-                        right_time_fixed_ops=partition.right_time_fixed,
-                        unfixed_ops=partition.unfixed,
-                        right_boundary_profile=partition.right_boundary_profile,
-                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                        batch_idx=batch_idx,
-                    )
                     self._save_solution_dict(spec, st.incumbent, accepted=accepted)
 
                 ts = st.timer.elapsed_sec
@@ -553,7 +554,7 @@ class PwCpConstructor:
                     if op_mc_id == mc_id
                 ]
                 stage_boundaries.append(
-                    min(machine_starts) if machine_starts else int(incumbent.makespan)
+                    min(machine_starts) if machine_starts else None
                 )
 
             right_boundary_profile[stage_id] = stage_boundaries
@@ -674,7 +675,7 @@ class PwCpConstructor:
                 use_lns_only=use_lns_only,
                 log_level_obj_value=logging.NOTSET,
                 log_level_obj_bound=logging.NOTSET,
-                log_search_progress=True,
+                log_search_progress=debug_export,
                 last_timestamp_note=f"batch={spec.batch_idx + 1}",
             )
             if not getattr(report, "is_feasible", False):
@@ -760,7 +761,7 @@ class PwCpConstructor:
                 use_lns_only=use_lns_only,
                 log_level_obj_value=logging.NOTSET,
                 log_level_obj_bound=logging.NOTSET,
-                log_search_progress=True,
+                log_search_progress=debug_export,
                 last_timestamp_note=f"batch={spec.batch_idx + 1}",
             )
             if not getattr(report, "is_feasible", False):
@@ -780,26 +781,55 @@ class PwCpConstructor:
                 return None
 
             candidate_schedule = self.ctx.create_schedule(params, variables)
-            candidate_before_semi_active = (
-                candidate_schedule.deepcopy() if debug_export else None
-            )
-            solved_slack_intervals = (
-                self._extract_solved_slack_intervals(
-                    mdl=mdl,
-                    schedule=candidate_schedule,
-                    right_boundary_profile=spec.right_boundary_profile,
-                )
-                if debug_export
-                else {}
-            )
-            candidate_schedule.make_semi_active(stage_2_job_2_p_dict)
-            if candidate_before_semi_active is not None:
-                self._draw_candidate_retiming_gantts(
-                    spec=spec,
-                    before_semi_active=candidate_before_semi_active,
-                    after_semi_active=candidate_schedule,
-                    solved_slack_intervals=solved_slack_intervals,
-                )
+            candidate_before_retiming = candidate_schedule.deepcopy()
+            candidate_after_successor_reassign: HybridFlowshopLiteSchedule | None = None
+            candidate_after_predecessor_reassign: HybridFlowshopLiteSchedule | None = None
+            candidate_after_semi_active: HybridFlowshopLiteSchedule | None = None
+            solved_slack_intervals: SolvedSlackIntervals = {}
+            try:
+                if report.obj_value is None:
+                    raise ValueError(
+                        "Non-final batch feasible solution must report a right-slack objective value."
+                    )
+                if report.obj_value < 0:
+                    raise ValueError(
+                        f"Non-final batch right-slack objective must be >= 0, got {report.obj_value}."
+                    )
+                if report.obj_value > 0:
+                    solved_slack_intervals = self._extract_solved_slack_intervals(
+                        mdl=mdl,
+                        schedule=candidate_schedule,
+                        right_boundary_profile=spec.right_boundary_profile,
+                    )
+                    self._apply_successor_machine_reassignment(
+                        candidate_schedule=candidate_schedule,
+                        solved_slack_intervals=solved_slack_intervals,
+                        right_boundary_profile=spec.right_boundary_profile,
+                        partition=spec.partition,
+                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                    )
+                    candidate_after_successor_reassign = candidate_schedule.deepcopy()
+                    self._apply_predecessor_machine_reassignment(
+                        candidate_schedule=candidate_schedule,
+                        solved_slack_intervals=solved_slack_intervals,
+                        partition=spec.partition,
+                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                    )
+                    candidate_after_predecessor_reassign = candidate_schedule.deepcopy()
+
+                candidate_schedule.make_semi_active(stage_2_job_2_p_dict)
+                candidate_after_semi_active = candidate_schedule.deepcopy()
+            finally:
+                if debug_export:
+                    self._draw_candidate_retiming_gantts(
+                        spec=spec,
+                        before_retiming=candidate_before_retiming,
+                        after_successor_reassign=candidate_after_successor_reassign,
+                        after_predecessor_reassign=candidate_after_predecessor_reassign,
+                        after_semi_active=candidate_after_semi_active,
+                        solved_slack_intervals=solved_slack_intervals,
+                    )
+
             candidate_obj = int(candidate_schedule.makespan)
             self._append_subproblem_log(
                 spec=spec,
@@ -845,37 +875,53 @@ class PwCpConstructor:
 
         hint_values: dict[str, int] = {}
         slack_intervals_by_stage: dict[str, list[tuple[str, int, int]]] = {}
-        stage_slack_mins: list[int] = []
+        actual_slack_end_by_stage_machine: dict[tuple[str, int], int] = {}
+        slack_lengths: list[int] = []
+
         for stage_id, machine_ids in params.M_of.items():
-            stage_extras: list[int] = []
             machine_2_intervals = stage_2_machine_2_intervals.get(stage_id, {})
             stage_slack_intervals: list[tuple[str, int, int]] = []
             for machine_idx, (machine_id, slack_end) in enumerate(
-                zip(machine_ids, right_boundary_profile[stage_id], strict=False),
+                zip(machine_ids, right_boundary_profile.get(stage_id, []), strict=False),
                 start=1,
             ):
+                if slack_end is None:
+                    continue
                 latest_end_before_slack = 0
                 for start, end in machine_2_intervals.get(machine_id, []):
                     if start < slack_end:
                         latest_end_before_slack = max(
                             latest_end_before_slack, min(end, slack_end)
                         )
-                extra = max(0, slack_end - latest_end_before_slack)
-                hint_values[f"slack_extra_{stage_id}_{machine_idx}"] = extra
-                hint_values[f"slack_start_{stage_id}_{machine_idx}"] = slack_end - extra
-                stage_extras.append(extra)
-                if extra > 0:
+                slack_length = max(0, slack_end - latest_end_before_slack)
+                slack_lengths.append(slack_length)
+                actual_slack_end_by_stage_machine[stage_id, machine_idx] = slack_end
+
+        common_slack_length = min(slack_lengths) if slack_lengths else 0
+
+        for stage_id, machine_ids in params.M_of.items():
+            stage_slack_intervals = []
+            for machine_idx, (machine_id, slack_end) in enumerate(
+                zip(machine_ids, right_boundary_profile.get(stage_id, []), strict=False),
+                start=1,
+            ):
+                del slack_end
+                actual_slack_end = actual_slack_end_by_stage_machine.get(
+                    (stage_id, machine_idx)
+                )
+                if actual_slack_end is None:
+                    continue
+                slack_start = max(0, actual_slack_end - common_slack_length)
+                hint_values[f"slack_start_{stage_id}_{machine_idx}"] = slack_start
+                if common_slack_length > 0:
                     stage_slack_intervals.append(
-                        (machine_id, slack_end - extra, slack_end)
+                        (machine_id, slack_start, actual_slack_end)
                     )
 
-            stage_slack_min = min(stage_extras, default=0)
-            hint_values[f"stage_slack_min_{stage_id}"] = stage_slack_min
-            stage_slack_mins.append(stage_slack_min)
             if stage_slack_intervals:
                 slack_intervals_by_stage[stage_id] = stage_slack_intervals
 
-        hint_values["global_slack_min"] = min(stage_slack_mins, default=0)
+        hint_values["slack_length"] = common_slack_length
         return {
             "hint_values": hint_values,
             "slack_intervals_by_stage": slack_intervals_by_stage,
@@ -928,6 +974,15 @@ class PwCpConstructor:
         right_boundary_profile: StageBoundaryProfile,
     ) -> SolvedSlackIntervals:
         """Extract solved slack intervals from the current CP-SAT solution."""
+        try:
+            _ = self.ctx.solver.ResponseProto()
+        except RuntimeError:
+            logging.debug(
+                "Skipping solved slack extraction because the CP solver response "
+                "is unavailable in the current context."
+            )
+            return {}
+
         proto = mdl.Proto()
         name_to_index = {
             var.name: var_idx for var_idx, var in enumerate(proto.variables) if var.name
@@ -940,11 +995,14 @@ class PwCpConstructor:
             for machine_idx, machine_id in enumerate(machine_ids, start=1):
                 if machine_idx > len(slack_end_times):
                     continue
+                slack_end = slack_end_times[machine_idx - 1]
+                if slack_end is None:
+                    continue
                 start_var_idx = name_to_index.get(
                     f"slack_start_{stage_id}_{machine_idx}"
                 )
                 length_var_idx = name_to_index.get(
-                    f"slack_extra_{stage_id}_{machine_idx}"
+                    "slack_length"
                 )
                 if start_var_idx is None or length_var_idx is None:
                     continue
@@ -962,13 +1020,249 @@ class PwCpConstructor:
                 if slack_length <= 0:
                     continue
 
-                slack_end = int(slack_end_times[machine_idx - 1])
-                stage_slacks.append((machine_id, slack_start, slack_end))
+                stage_slacks.append((machine_id, slack_start, int(slack_end)))
 
             if stage_slacks:
                 solved[stage_id] = stage_slacks
 
         return solved
+
+    @staticmethod
+    def _find_job_machine_on_stage(
+        schedule: HybridFlowshopLiteSchedule,
+        stage_id: str,
+        job_id: str,
+    ) -> str | None:
+        for machine_id in schedule.machines_per_stage[stage_id]:
+            for _start_time, _end_time, scheduled_job_id in schedule.get_job_sequence(
+                stage_id, machine_id
+            ):
+                if scheduled_job_id == job_id:
+                    return machine_id
+        return None
+
+    @staticmethod
+    def _find_first_job_on_machine_starting_at_or_after(
+        schedule: HybridFlowshopLiteSchedule,
+        stage_id: str,
+        machine_id: str,
+        time_point: int,
+    ) -> str | None:
+        for start_time, _end_time, job_id in schedule.get_job_sequence(
+            stage_id, machine_id
+        ):
+            if start_time >= time_point:
+                return job_id
+        return None
+
+    def _apply_successor_machine_reassignment(
+        self,
+        candidate_schedule: HybridFlowshopLiteSchedule,
+        solved_slack_intervals: SolvedSlackIntervals,
+        right_boundary_profile: StageBoundaryProfile,
+        partition: OperationPartition,
+        stage_2_job_2_p_dict: dict[str, dict[str, int]],
+    ) -> None:
+        """Align stage-local machine assignment with solved CP slack intervals."""
+        del right_boundary_profile
+
+        if not solved_slack_intervals:
+            return
+
+        for stage_id, stage_slacks in solved_slack_intervals.items():
+            sorted_stage_slacks = sorted(
+                stage_slacks,
+                key=lambda slack: (slack[1], slack[2], slack[0]),
+            )
+            for target_machine_id, slack_start, slack_end in sorted_stage_slacks:
+                if slack_end <= slack_start:
+                    continue
+
+                boundary_job_ids: list[str] = []
+                for (
+                    job_id,
+                    op_stage_id,
+                    intended_machine_id,
+                ) in partition.right_time_fixed:
+                    if (
+                        op_stage_id != stage_id
+                        or intended_machine_id != target_machine_id
+                    ):
+                        continue
+                    current_machine_id = self._find_job_machine_on_stage(
+                        candidate_schedule, stage_id, job_id
+                    )
+                    if current_machine_id is None:
+                        continue
+                    for (
+                        start_time,
+                        _end_time,
+                        scheduled_job_id,
+                    ) in candidate_schedule.get_job_sequence(
+                        stage_id, current_machine_id
+                    ):
+                        if scheduled_job_id == job_id and start_time == slack_end:
+                            boundary_job_ids.append(job_id)
+                            break
+
+                if not boundary_job_ids:
+                    if slack_end != candidate_schedule.makespan:
+                        logging.warning(
+                            "PW-CP slack reassignment skipped for %s.%s [%d, %d): "
+                            "no right-boundary job starts at slack_end. "
+                            "Possible mismatch between CP solution and current schedule "
+                            "(slack_end=%d, makespan=%d).",
+                            stage_id,
+                            target_machine_id,
+                            slack_start,
+                            slack_end,
+                            slack_end,
+                            candidate_schedule.makespan,
+                        )
+                    continue
+
+                boundary_job_id = boundary_job_ids[0]
+                current_machine_id = self._find_job_machine_on_stage(
+                    candidate_schedule, stage_id, boundary_job_id
+                )
+                if current_machine_id is None:
+                    raise ValueError(
+                        f"Boundary job {boundary_job_id} not found on stage {stage_id}"
+                    )
+                if current_machine_id == target_machine_id:
+                    logging.debug(
+                        "PW-CP slack reassignment not needed for %s.%s [%d, %d): "
+                        "boundary job %s is already on the intended machine.",
+                        stage_id,
+                        target_machine_id,
+                        slack_start,
+                        slack_end,
+                        boundary_job_id,
+                    )
+                    continue
+
+                target_start_job_id = (
+                    self._find_first_job_on_machine_starting_at_or_after(
+                        candidate_schedule,
+                        stage_id,
+                        target_machine_id,
+                        slack_end,
+                    )
+                )
+                if target_start_job_id is None:
+                    logging.debug(
+                        "PW-CP slack reassignment skipped for %s.%s [%d, %d): "
+                        "target machine has no suffix to exchange.",
+                        stage_id,
+                        target_machine_id,
+                        slack_start,
+                        slack_end,
+                    )
+                    continue
+
+                logging.debug(
+                    "PW-CP swapping suffixes on stage %s: %s.%s -> %s.%s "
+                    "(boundary_job=%s, target_start_job=%s, slack=[%d, %d))",
+                    stage_id,
+                    current_machine_id,
+                    boundary_job_id,
+                    target_machine_id,
+                    target_start_job_id,
+                    boundary_job_id,
+                    target_start_job_id,
+                    slack_start,
+                    slack_end,
+                )
+                from_suffix_job_ids = candidate_schedule.collect_stage_machine_suffix_job_ids(
+                    stage_id, current_machine_id, boundary_job_id
+                )
+                to_suffix_job_ids = candidate_schedule.collect_stage_machine_suffix_job_ids(
+                    stage_id, target_machine_id, target_start_job_id
+                )
+                candidate_schedule.swap_stage_machine_operation_sets(
+                    stage_id=stage_id,
+                    from_machine_id=current_machine_id,
+                    from_job_ids=from_suffix_job_ids,
+                    to_machine_id=target_machine_id,
+                    to_job_ids=to_suffix_job_ids,
+                    stage_2_job_2_duration=stage_2_job_2_p_dict,
+                    do_make_semi_active=False,
+                )
+
+    def _apply_predecessor_machine_reassignment(
+        self,
+        candidate_schedule: HybridFlowshopLiteSchedule,
+        solved_slack_intervals: SolvedSlackIntervals,
+        partition: OperationPartition,
+        stage_2_job_2_p_dict: dict[str, dict[str, int]],
+    ) -> None:
+        if not solved_slack_intervals:
+            return
+
+        right_time_fixed_job_ids_by_stage: dict[str, set[str]] = {}
+        for job_id, stage_id, _machine_id in partition.right_time_fixed:
+            right_time_fixed_job_ids_by_stage.setdefault(stage_id, set()).add(job_id)
+
+        for stage_id in reversed(candidate_schedule.stages):
+            stage_slacks = solved_slack_intervals.get(stage_id)
+            if not stage_slacks:
+                continue
+
+            right_time_fixed_job_ids = right_time_fixed_job_ids_by_stage.get(stage_id, set())
+            target_machine_ids = {machine_id for machine_id, _slack_start, _slack_end in stage_slacks}
+            stage_job_infos: list[tuple[str, int, int, str]] = []
+            removed_ops: set[tuple[str, str, str]] = set()
+            for machine_id, start_time, end_time, job_id in candidate_schedule.iter_operations_on_stage(
+                stage_id
+            ):
+                del start_time
+                if machine_id not in target_machine_ids:
+                    continue
+                if job_id in right_time_fixed_job_ids:
+                    continue
+                stage_job_infos.append(
+                    (
+                        job_id,
+                        end_time,
+                        stage_2_job_2_p_dict[stage_id][job_id],
+                        machine_id,
+                    )
+                )
+                removed_ops.add((job_id, stage_id, machine_id))
+
+            if not stage_job_infos:
+                logging.debug(
+                    "PW-CP predecessor reassignment skipped for %s: "
+                    "no non-right-time-fixed operations found.",
+                    stage_id,
+                )
+                continue
+
+            # Sort by end_time primarily (descending), then by duration (descending), then by job_id (ascending)
+            job_id_seq = [
+                job_id
+                for job_id, _end_time, _duration, _ in sorted(
+                    stage_job_infos,
+                    key=lambda item: (-item[1], -item[2], item[0]),
+                )
+            ]
+            job_2_deadline = {
+                job_id: end_time
+                for job_id, end_time, _, _ in stage_job_infos
+            }
+            mc_2_lct = {
+                machine_id: slack_start
+                for machine_id, slack_start, _slack_end in stage_slacks
+            }
+
+            candidate_schedule.remove_operations(removed_ops)
+            candidate_schedule.dispatch_stage_reversed_by_jobs(
+                stage_id=stage_id,
+                job_id_seq=job_id_seq,
+                job_2_duration=stage_2_job_2_p_dict[stage_id],
+                mc_2_lct=mc_2_lct,
+                job_2_deadline=job_2_deadline,
+            )
 
     def _append_subproblem_log(
         self,
@@ -1077,121 +1371,68 @@ class PwCpConstructor:
         )
         return partition, right_justified_sched
 
-    def _draw_right_boundary_gantt(
+    def _draw_schedule_gantt(
         self,
-        right_justified_schedule: HybridFlowshopLiteSchedule,
-        right_time_fixed_ops: tuple[OperationRef, ...],
-        unfixed_ops: tuple[OperationRef, ...],
-        right_boundary_profile: StageBoundaryProfile | None,
-        stage_2_job_2_p_dict: dict[str, dict[str, int]],
-        batch_idx: int,
+        schedule: HybridFlowshopLiteSchedule,
+        output_suffix: str,
+        highlight_op_set: set[tuple[str, str]] | None,
+        machine_list_per_stage: dict[str, list[str]] | None,
+        force_start: int | None,
+        force_end: int | None,
     ) -> None:
-        """Draws Gantt chart of right-justified schedule with boundary visualization.
-
-        Adds dummy Slack operations to represent slack regions and draws the
-        Gantt chart with unfixed operations highlighted.
-        """
-        if right_boundary_profile is None:
-            return
-        viz_schedule = right_justified_schedule.deepcopy()
-
-        assert isinstance(viz_schedule.jobs, list), (
-            "Expected viz_schedule.jobs to be a list for visualization purposes."
-        )
-
-        def generate_slack_job_id(stage_id: str, machine_id: str) -> str:
-            job_id = f"slack-{stage_id}-{machine_id}"
-            viz_schedule.jobs.append(job_id)
-            return job_id
-
-        slack_occupying_ops = tuple(
-            sorted(
-                set(right_justified_schedule.get_jik_2_start_time_map())
-                - set(right_time_fixed_ops)
-            )
-        )
-        slack_summary = self._compute_right_slack_values(
-            schedule=right_justified_schedule,
-            slack_occupying_ops=slack_occupying_ops,
-            right_boundary_profile=right_boundary_profile,
-            params=Params(
-                j_list=list(viz_schedule.jobs),
-                i_list=list(viz_schedule.stages),
-                M_of=viz_schedule.machines_per_stage,
-                p={},
-            ),
-        )
-        for stage_id, stage_slacks in slack_summary["slack_intervals_by_stage"].items():
-            for machine_id, slack_start, slack_end in stage_slacks:
-                viz_schedule.add_operation_2_stage(
-                    stage_id,
-                    generate_slack_job_id(stage_id, machine_id),
-                    slack_end - slack_start,
-                    release_t=slack_start,
-                )
-
-        # Build highlight set from unfixed operations
-        highlight_op_set: set[tuple[str, str]] = {
-            (job_id, stage_id) for job_id, stage_id, _ in unfixed_ops
-        }
-
-        # Draw and save Gantt chart
-        output_path = self.ctx.get_file_path_for_subroutine(
-            f"_pw_cp_batch_{batch_idx + 1:03d}_right_boundary_gantt.png"
-        )
+        output_path = self.ctx.get_file_path_for_subroutine(output_suffix)
         plotter = GanttPlotter()
         plotter.export_hybrid_flowshop_plot(
             output_path,
-            viz_schedule.get_jik_2_start_time_map(),
-            viz_schedule.get_jik_2_end_time_map(),
+            schedule.get_jik_2_start_time_map(),
+            schedule.get_jik_2_end_time_map(),
             job_list=None,
             stage_list=None,
-            machine_list_per_stage=None,
+            machine_list_per_stage=machine_list_per_stage,
             all_job_list=None,
             highlight_op_set=highlight_op_set,
-            force_start=None,
-            force_end=None,
+            force_start=force_start,
+            force_end=force_end,
         )
 
     def _draw_candidate_retiming_gantts(
         self,
         spec: PwCpSubproblemSpec,
-        before_semi_active: HybridFlowshopLiteSchedule,
-        after_semi_active: HybridFlowshopLiteSchedule,
+        before_retiming: HybridFlowshopLiteSchedule,
+        after_successor_reassign: HybridFlowshopLiteSchedule | None,
+        after_predecessor_reassign: HybridFlowshopLiteSchedule | None,
+        after_semi_active: HybridFlowshopLiteSchedule | None,
         solved_slack_intervals: SolvedSlackIntervals,
     ) -> None:
-        """Draw candidate schedules before and after semi-active retiming."""
+        """Draw candidate schedules for each reassignment and retiming step."""
         highlight_op_set: set[tuple[str, str]] = {
             (job_id, stage_id) for job_id, stage_id, _ in spec.partition.unfixed
         }
-        force_end = max(
-            int(before_semi_active.makespan),
-            int(after_semi_active.makespan),
-        )
-
-        before_start_map, before_end_map, before_machine_list_per_stage = (
-            self._build_plot_inputs_with_slack_intervals(
-                before_semi_active,
-                solved_slack_intervals,
+        schedule_items: list[tuple[str, HybridFlowshopLiteSchedule]] = [
+            ("01_before_retiming", before_retiming)
+        ]
+        if after_successor_reassign is not None:
+            schedule_items.append(
+                ("02_after_successor_reassign", after_successor_reassign)
             )
-        )
-        schedule_items = (
-            (
-                "before_semi_active",
-                before_start_map,
-                before_end_map,
-                before_machine_list_per_stage,
-            ),
-            (
-                "after_semi_active",
-                after_semi_active.get_jik_2_start_time_map(),
-                after_semi_active.get_jik_2_end_time_map(),
-                after_semi_active.machines_per_stage,
-            ),
-        )
-        for suffix, start_map, end_map, machine_list_per_stage in schedule_items:
+        if after_predecessor_reassign is not None:
+            schedule_items.append(
+                ("03_after_predecessor_reassign", after_predecessor_reassign)
+            )
+        if after_semi_active is not None:
+            schedule_items.append(("04_after_semi_active", after_semi_active))
+
+        force_end = max(int(schedule.makespan) for _, schedule in schedule_items)
+
+        for suffix, schedule in schedule_items:
+            start_map, end_map, machine_list_per_stage = (
+                self._build_plot_inputs_with_slack_intervals(
+                    schedule,
+                    solved_slack_intervals,
+                )
+            )
             output_path = self.ctx.get_file_path_for_subroutine(
-                f"_pw_cp_batch_{spec.batch_idx + 1:03d}_candidate_{suffix}.png"
+                f"_batch_{spec.batch_idx + 1:03d}_candidate_{suffix}.png"
             )
             plotter = GanttPlotter()
             plotter.export_hybrid_flowshop_plot(
@@ -1246,7 +1487,7 @@ class PwCpConstructor:
         accepted: bool,
     ) -> None:
         output_path = self.ctx.get_file_path_for_subroutine(
-            f"_pw_cp_batch_{spec.batch_idx + 1:03d}_solution.yaml"
+            f"_batch_{spec.batch_idx + 1:03d}_solution.yaml"
         )
         solution_dict = {
             "start_time_map": incumbent.get_jik_2_start_time_map(),

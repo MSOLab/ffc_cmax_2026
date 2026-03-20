@@ -1,5 +1,7 @@
 """Tests for remove_operations and remove_jobs methods in HybridFlowshopLiteSchedule."""
 
+import logging
+
 import pytest
 
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule

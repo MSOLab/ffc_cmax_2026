@@ -18,7 +18,10 @@ dicts_of_i_o_data_path:
     subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260319-01.yaml"
     output_dir: "ff2020/20260319-01"
     description: "LB -> Dispatch -> PW-CP"
-
+  - stopping_criteria_rel_path: "configs_pw_cp/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260319-02.yaml"
+    output_dir: "ff2020/20260319-02"
+    description: "LB -> Dispatch -> PW-CP(mc-prof-fix)"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_debug"

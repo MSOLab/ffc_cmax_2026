@@ -10,8 +10,8 @@ from matplotlib.figure import Figure
 
 class GanttPlotter:
     # matplotlib.pyplot variables
-    fig: Figure
-    ax: Axes
+    fig: Figure | None
+    ax: Axes | None
 
     # constants
     cmap_name = "tab20"
@@ -22,7 +22,18 @@ class GanttPlotter:
     figsize = (12, 8)
 
     def __init__(self):
-        self.fig, self.ax = plt.subplots(figsize=self.figsize)
+        self.fig = None
+        self.ax = None
+
+    def _ensure_figure(self) -> None:
+        if self.fig is None or self.ax is None:
+            self.fig, self.ax = plt.subplots(figsize=self.figsize)
+
+    def close(self) -> None:
+        if self.fig is not None:
+            plt.close(self.fig)
+            self.fig = None
+            self.ax = None
 
     def display_hybrid_flowshop_plot(
         self,
@@ -48,6 +59,7 @@ class GanttPlotter:
             force_end=force_end,
         )
         plt.show()
+        self.close()
 
     def export_hybrid_flowshop_plot(
         self,
@@ -62,25 +74,28 @@ class GanttPlotter:
         force_start: int | None = None,
         force_end: int | None = None,
     ):
+        self._ensure_figure()
+        assert self.ax is not None
+        assert self.fig is not None
         self.ax.clear()
 
-        self.plot_hybrid_flowshop(
-            start_time_map,
-            end_time_map,
-            job_list=job_list,
-            stage_list=stage_list,
-            machine_list_per_stage=machine_list_per_stage,
-            all_job_list=all_job_list,
-            highlight_op_set=highlight_op_set,
-            force_start=force_start,
-            force_end=force_end,
-        )
+        try:
+            self.plot_hybrid_flowshop(
+                start_time_map,
+                end_time_map,
+                job_list=job_list,
+                stage_list=stage_list,
+                machine_list_per_stage=machine_list_per_stage,
+                all_job_list=all_job_list,
+                highlight_op_set=highlight_op_set,
+                force_start=force_start,
+                force_end=force_end,
+            )
 
-        self.fig.savefig(file_path, bbox_inches="tight", dpi=300)
-        logging.info(f"Gantt chart saved to {file_path}")
-
-        plt.close(self.fig)
-        self.fig, self.ax = plt.subplots(figsize=self.figsize)
+            self.fig.savefig(file_path, bbox_inches="tight", dpi=300)
+            logging.debug(f"Gantt chart saved to {file_path}")
+        finally:
+            self.close()
 
     def plot_hybrid_flowshop(
         self,
@@ -108,6 +123,8 @@ class GanttPlotter:
             force_start (int, optional): If provided, forces the x-axis to start at this time
             force_end (int, optional): If provided, forces the x-axis to end at this time
         """
+        self._ensure_figure()
+        assert self.ax is not None
         self.set_x_horizon(
             start_time_map, end_time_map, force_start=force_start, force_end=force_end
         )

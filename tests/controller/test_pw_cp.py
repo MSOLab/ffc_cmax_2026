@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,12 +82,14 @@ def _make_solver_report(
     elapsed_time=0.5,
     is_feasible=True,
     status="FEASIBLE",
+    obj_value=1.0,
     obj_value_records=(),
     obj_bound_records=(),
 ):
     return SimpleNamespace(
         elapsed_time=elapsed_time,
         is_feasible=is_feasible,
+        obj_value=obj_value,
         status=SimpleNamespace(
             to_solver_status_enum=lambda: SimpleNamespace(value=status)
         ),
@@ -242,7 +245,7 @@ def test_build_right_boundary_profile_keeps_machine_boundaries_not_stage_earlies
     assert boundary_profile["s1"] == [6, 9]
 
 
-def test_build_right_boundary_profile_pads_missing_machine_with_makespan(tmp_path):
+def test_build_right_boundary_profile_marks_missing_machine_with_none(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
     operation_list = [("j1", "s1", "m1")]
@@ -261,7 +264,7 @@ def test_build_right_boundary_profile_pads_missing_machine_with_makespan(tmp_pat
         stage_2_job_2_p_dict={"s1": {"j1": 2}},
     )
 
-    assert boundary_profile["s1"] == [3, sched.makespan]
+    assert boundary_profile["s1"] == [3, None]
 
 
 def test_add_kth_largest_constraint_handles_ties():
@@ -580,6 +583,52 @@ def test_add_right_slack_constraints_caps_unfixed_end_by_stage_max_slack_end():
     assert solver.Value(op_end["j1", "s1"]) == 6
 
 
+def test_add_right_slack_constraints_skips_none_boundary_machine():
+    model = cp_model.CpModel()
+    op_start = {
+        ("j1", "s1"): model.new_int_var(0, 20, "s_j1_s1"),
+        ("j2", "s1"): model.new_int_var(0, 20, "s_j2_s1"),
+    }
+    op_end = {
+        ("j1", "s1"): model.new_int_var(3, 23, "e_j1_s1"),
+        ("j2", "s1"): model.new_int_var(2, 22, "e_j2_s1"),
+    }
+    op_intvl = {
+        ("j1", "s1"): model.new_interval_var(
+            op_start["j1", "s1"], 3, op_end["j1", "s1"], "i_j1_s1"
+        ),
+        ("j2", "s1"): model.new_interval_var(
+            op_start["j2", "s1"], 2, op_end["j2", "s1"], "i_j2_s1"
+        ),
+    }
+    params = SimpleNamespace(M_of={"s1": ["m1", "m2"]})
+    variables = SimpleNamespace(op_start=op_start, op_end=op_end, op_intvl=op_intvl)
+    slack_vars = BaseModelBuilder.add_right_slack_variables(
+        model,
+        params,
+        slack_occupying_ops=(("j1", "s1", "m1"),),
+        right_boundary_profile={"s1": [4, None]},
+        horizon=20,
+    )
+
+    BaseModelBuilder.add_right_slack_constraints(
+        model,
+        params,
+        variables,
+        slack_occupying_ops=(("j1", "s1", "m1"),),
+        right_time_fixed_ops=(("j2", "s1", "m2"),),
+        right_boundary_profile={"s1": [4, None]},
+        slack_vars=slack_vars,
+    )
+    model.maximize(op_end["j1", "s1"])
+
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+
+    assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+    assert solver.Value(op_end["j1", "s1"]) == 4
+
+
 def test_operation_partition_properties_include_profile_fixed_ops():
     partition = OperationPartition(
         left_time_fixed=(("j1", "s1", "m1"),),
@@ -655,7 +704,7 @@ def test_save_solution_dict_writes_boundary_metadata(tmp_path):
 
     ctor._save_solution_dict(spec, sched, accepted=True)
 
-    output_path = ctx.get_file_path_for_subroutine("_pw_cp_batch_001_solution.yaml")
+    output_path = ctx.get_file_path_for_subroutine("_batch_001_solution.yaml")
     assert output_path.exists()
     text = output_path.read_text(encoding="utf-8")
     saved = load_yaml(output_path)
@@ -690,7 +739,7 @@ def test_save_solution_dict_normalizes_numpy_scalars(tmp_path):
 
     ctor._save_solution_dict(spec, sched, accepted=True)
 
-    output_path = ctx.get_file_path_for_subroutine("_pw_cp_batch_001_solution.yaml")
+    output_path = ctx.get_file_path_for_subroutine("_batch_001_solution.yaml")
     assert output_path.exists()
     text = output_path.read_text(encoding="utf-8")
     assert "!!python" not in text
@@ -730,7 +779,7 @@ def test_run_debug_export_saves_accepted_incumbent_with_highlight_ops(
         debug_export=True,
     )
 
-    output_path = ctx.get_file_path_for_subroutine("_pw_cp_batch_001_solution.yaml")
+    output_path = ctx.get_file_path_for_subroutine("_batch_001_solution.yaml")
     saved = load_yaml(output_path)
     assert saved["start_time_map"] == accepted_schedule.get_jik_2_start_time_map()
     assert saved["end_time_map"] == accepted_schedule.get_jik_2_end_time_map()
@@ -739,6 +788,7 @@ def test_run_debug_export_saves_accepted_incumbent_with_highlight_ops(
         ("j1", "s1"),
         ("j2", "s1"),
     }
+    assert (tmp_path / "batch_000_initial_gantt.png").exists()
 
 
 def test_run_debug_export_saves_rejected_incumbent_with_highlight_ops(
@@ -774,7 +824,7 @@ def test_run_debug_export_saves_rejected_incumbent_with_highlight_ops(
         debug_export=True,
     )
 
-    output_path = ctx.get_file_path_for_subroutine("_pw_cp_batch_001_solution.yaml")
+    output_path = ctx.get_file_path_for_subroutine("_batch_001_solution.yaml")
     saved = load_yaml(output_path)
     assert saved["start_time_map"] == incumbent.get_jik_2_start_time_map()
     assert saved["end_time_map"] == incumbent.get_jik_2_end_time_map()
@@ -937,7 +987,7 @@ def test_run_adds_right_slack_objective_hint_for_non_final_batch(monkeypatch, tm
     )
 
     assert len(seen_hints) == 2
-    assert "global_slack_min" in seen_hints[0]
+    assert "slack_length" in seen_hints[0]
     partition, right_justified = ctor._build_operation_partition(
         ctor._build_stage_batches(incumbent, batch_size=2),
         ["s1"],
@@ -952,10 +1002,7 @@ def test_run_adds_right_slack_objective_hint_for_non_final_batch(monkeypatch, tm
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
-    assert seen_hints[0]["global_slack_min"] == expected_hints["global_slack_min"]
-    assert seen_hints[0]["stage_slack_min_s1"] == expected_hints["stage_slack_min_s1"]
-    assert seen_hints[0]["slack_extra_s1_1"] == expected_hints["slack_extra_s1_1"]
-    assert seen_hints[0]["slack_extra_s1_2"] == expected_hints["slack_extra_s1_2"]
+    assert seen_hints[0]["slack_length"] == expected_hints["slack_length"]
     assert seen_hints[0]["slack_start_s1_1"] == expected_hints["slack_start_s1_1"]
     assert seen_hints[0]["slack_start_s1_2"] == expected_hints["slack_start_s1_2"]
 
@@ -1141,6 +1188,798 @@ def test_solve_subproblem_adds_profile_fixed_precedence_constraints(
     ctor._st = None
 
 
+def test_apply_successor_machine_reassignment_moves_boundary_suffix(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3", "j4"],
+        stages=["s0", "s1"],
+        machines_per_stage={"s0": ["u1", "u2", "u3", "u4"], "s1": ["m1", "m2"]},
+    )
+    candidate.add_ops_times_2_mc("s0", "u1", "j1", 0, 2)
+    candidate.add_ops_times_2_mc("s0", "u2", "j2", 0, 2)
+    candidate.add_ops_times_2_mc("s0", "u3", "j3", 0, 5)
+    candidate.add_ops_times_2_mc("s0", "u4", "j4", 0, 5)
+    candidate.add_ops_times_2_mc("s1", "m1", "j1", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m1", "j4", 5, 7)
+    candidate.add_ops_times_2_mc("s1", "m2", "j2", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m2", "j3", 5, 7)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+
+    ctor._apply_successor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s1": [("m1", 2, 5)]},
+        right_boundary_profile={"s1": [5, 5]},
+        partition=partition,
+        stage_2_job_2_p_dict={
+            "s0": {"j1": 2, "j2": 2, "j3": 5, "j4": 5},
+            "s1": {"j1": 2, "j2": 2, "j3": 2, "j4": 2},
+        },
+    )
+    candidate.make_semi_active(
+        {
+            "s0": {"j1": 2, "j2": 2, "j3": 5, "j4": 5},
+            "s1": {"j1": 2, "j2": 2, "j3": 2, "j4": 2},
+        }
+    )
+
+    start_map = candidate.get_jik_2_start_time_map()
+    assert start_map[("j1", "s1", "m1")] == 2
+    assert start_map[("j3", "s1", "m1")] == 5
+    assert start_map[("j2", "s1", "m2")] == 2
+    assert start_map[("j4", "s1", "m2")] == 5
+
+
+def test_apply_successor_machine_reassignment_handles_multiple_intervals(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["a", "b", "c", "d", "e", "f"],
+        stages=["s0", "s1"],
+        machines_per_stage={
+            "s0": ["u1", "u2", "u3", "u4", "u5", "u6"],
+            "s1": ["m1", "m2", "m3"],
+        },
+    )
+    candidate.add_ops_times_2_mc("s0", "u1", "a", 0, 2)
+    candidate.add_ops_times_2_mc("s0", "u2", "b", 0, 2)
+    candidate.add_ops_times_2_mc("s0", "u3", "c", 0, 2)
+    candidate.add_ops_times_2_mc("s0", "u4", "d", 0, 6)
+    candidate.add_ops_times_2_mc("s0", "u5", "e", 0, 8)
+    candidate.add_ops_times_2_mc("s0", "u6", "f", 0, 10)
+    candidate.add_ops_times_2_mc("s1", "m1", "a", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m1", "f", 10, 12)
+    candidate.add_ops_times_2_mc("s1", "m2", "b", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m2", "d", 6, 8)
+    candidate.add_ops_times_2_mc("s1", "m3", "c", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m3", "e", 8, 10)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("a", "s1", "m1"), ("b", "s1", "m2"), ("c", "s1", "m3")),
+        right_profile_fixed=(),
+        right_time_fixed=(
+            ("d", "s1", "m1"),
+            ("e", "s1", "m2"),
+            ("f", "s1", "m3"),
+        ),
+        right_boundary_profile={"s1": [6, 8, 10]},
+    )
+
+    ctor._apply_successor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s1": [("m1", 2, 6), ("m2", 2, 8)]},
+        right_boundary_profile={"s1": [6, 8, 10]},
+        partition=partition,
+        stage_2_job_2_p_dict={
+            "s0": {"a": 2, "b": 2, "c": 2, "d": 6, "e": 8, "f": 10},
+            "s1": {job_id: 2 for job_id in ["a", "b", "c", "d", "e", "f"]},
+        },
+    )
+    candidate.make_semi_active(
+        {
+            "s0": {"a": 2, "b": 2, "c": 2, "d": 6, "e": 8, "f": 10},
+            "s1": {job_id: 2 for job_id in ["a", "b", "c", "d", "e", "f"]},
+        }
+    )
+
+    start_map = candidate.get_jik_2_start_time_map()
+    assert start_map[("d", "s1", "m1")] == 6
+    assert start_map[("e", "s1", "m2")] == 8
+
+
+def test_apply_successor_machine_reassignment_is_noop_when_already_aligned(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = _make_schedule()
+    before = candidate.get_jik_2_start_time_map().copy()
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [4, 5]},
+    )
+
+    ctor._apply_successor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s1": [("m1", 2, 4), ("m2", 3, 5)]},
+        right_boundary_profile={"s1": [4, 5]},
+        partition=partition,
+        stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+    )
+
+    assert candidate.get_jik_2_start_time_map() == before
+
+
+def test_apply_successor_machine_reassignment_sorts_by_slack_start(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["a", "b", "c", "d", "e", "f", "g"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2", "m3"]},
+    )
+    candidate.add_ops_times_2_mc("s1", "m1", "a", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m1", "f", 10, 12)
+    candidate.add_ops_times_2_mc("s1", "m2", "b", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m2", "d", 6, 8)
+    candidate.add_ops_times_2_mc("s1", "m2", "g", 9, 11)
+    candidate.add_ops_times_2_mc("s1", "m3", "c", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m3", "e", 8, 10)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(
+            ("a", "s1", "m1"),
+            ("b", "s1", "m2"),
+            ("c", "s1", "m3"),
+            ("g", "s1", "m2"),
+        ),
+        right_profile_fixed=(),
+        right_time_fixed=(
+            ("d", "s1", "m1"),
+            ("e", "s1", "m2"),
+            ("f", "s1", "m3"),
+        ),
+        right_boundary_profile={"s1": [6, 8, 10]},
+    )
+    seen_target_machine_ids = []
+
+    def fake_swap_stage_machine_operation_sets(**kwargs):
+        seen_target_machine_ids.append(kwargs["to_machine_id"])
+
+    monkeypatch.setattr(
+        candidate,
+        "swap_stage_machine_operation_sets",
+        fake_swap_stage_machine_operation_sets,
+    )
+
+    ctor._apply_successor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s1": [("m2", 5, 8), ("m1", 2, 6)]},
+        right_boundary_profile={"s1": [6, 8, 10]},
+        partition=partition,
+        stage_2_job_2_p_dict={
+            "s1": {job_id: 2 for job_id in ["a", "b", "c", "d", "e", "f", "g"]}
+        },
+    )
+
+    assert seen_target_machine_ids == ["m1", "m2"]
+
+
+def test_apply_successor_machine_reassignment_skips_warning_when_slack_end_is_makespan(
+    caplog, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    candidate.add_ops_times_2_mc("s1", "m1", "j1", 0, 10)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(),
+        right_profile_fixed=(),
+        right_time_fixed=(),
+        right_boundary_profile={"s1": [10]},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ctor._apply_successor_machine_reassignment(
+            candidate_schedule=candidate,
+            solved_slack_intervals={"s1": [("m1", 5, 10)]},
+            right_boundary_profile={"s1": [10]},
+            partition=partition,
+            stage_2_job_2_p_dict={"s1": {"j1": 10}},
+        )
+
+    assert "no right-boundary job starts at slack_end" not in caplog.text
+
+
+def test_apply_predecessor_machine_reassignment_redispatches_by_deadline(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3", "j4", "j5", "j6"],
+        stages=["s0", "s1"],
+        machines_per_stage={"s0": ["u1", "u2", "u3", "u4", "u5", "u6"], "s1": ["m1", "m2", "m3"]},
+    )
+    for machine_id, job_id, end_time in [
+        ("u1", "j1", 4),
+        ("u2", "j2", 2),
+        ("u3", "j3", 1),
+        ("u4", "j4", 4),
+        ("u5", "j5", 9),
+        ("u6", "j6", 8),
+    ]:
+        candidate.add_ops_times_2_mc("s0", machine_id, job_id, 0, end_time)
+    candidate.add_ops_times_2_mc("s1", "m1", "j1", 4, 6)
+    candidate.add_ops_times_2_mc("s1", "m1", "j4", 6, 8)
+    candidate.add_ops_times_2_mc("s1", "m2", "j2", 2, 4)
+    candidate.add_ops_times_2_mc("s1", "m2", "j5", 9, 11)
+    candidate.add_ops_times_2_mc("s1", "m3", "j3", 1, 3)
+    candidate.add_ops_times_2_mc("s1", "m3", "j6", 8, 10)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2"), ("j3", "s1", "m3")),
+        right_profile_fixed=(),
+        right_time_fixed=(
+            ("j4", "s1", "m1"),
+            ("j5", "s1", "m2"),
+            ("j6", "s1", "m3"),
+        ),
+        right_boundary_profile={"s1": [4, 9, 8]},
+    )
+
+    ctor._apply_predecessor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s1": [("m1", 1, 4), ("m2", 8, 9), ("m3", 3, 8)]},
+        partition=partition,
+        stage_2_job_2_p_dict={
+            "s0": {"j1": 4, "j2": 2, "j3": 1, "j4": 4, "j5": 9, "j6": 8},
+            "s1": {"j1": 2, "j2": 2, "j3": 2, "j4": 2, "j5": 2, "j6": 2},
+        },
+    )
+    candidate.make_semi_active(
+        {
+            "s0": {"j1": 4, "j2": 2, "j3": 1, "j4": 4, "j5": 9, "j6": 8},
+            "s1": {"j1": 2, "j2": 2, "j3": 2, "j4": 2, "j5": 2, "j6": 2},
+        }
+    )
+
+    start_map = candidate.get_jik_2_start_time_map()
+    end_map = candidate.get_jik_2_end_time_map()
+    assert end_map[("j1", "s1", "m2")] <= 6
+    assert end_map[("j2", "s1", "m2")] <= 4
+    assert end_map[("j3", "s1", "m3")] <= 3
+    assert start_map[("j4", "s1", "m1")] >= 4
+
+
+def test_apply_predecessor_machine_reassignment_only_reassigns_target_machines(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3", "j4"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2", "m3"]},
+    )
+    candidate.add_ops_times_2_mc("s1", "m1", "j1", 0, 2)
+    candidate.add_ops_times_2_mc("s1", "m1", "j4", 6, 8)
+    candidate.add_ops_times_2_mc("s1", "m2", "j2", 2, 4)
+    candidate.add_ops_times_2_mc("s1", "m3", "j3", 4, 6)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2"), ("j3", "s1", "m3")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j4", "s1", "m1"),),
+        right_boundary_profile={"s1": [6, 0, 0]},
+    )
+    before = candidate.get_jik_2_start_time_map().copy()
+
+    ctor._apply_predecessor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s1": [("m1", 4, 6), ("m2", 4, 4)]},
+        partition=partition,
+        stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 2, "j3": 2, "j4": 2}},
+    )
+
+    after = candidate.get_jik_2_start_time_map()
+    assert after[("j3", "s1", "m3")] == before[("j3", "s1", "m3")]
+
+
+def test_apply_predecessor_machine_reassignment_skips_when_no_predecessor_exists(
+    tmp_path,
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3", "j4"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    candidate.add_ops_times_2_mc("s1", "m1", "j3", 5, 7)
+    candidate.add_ops_times_2_mc("s1", "m2", "j4", 5, 7)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    before = candidate.get_jik_2_start_time_map().copy()
+
+    ctor._apply_predecessor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s1": [("m1", 1, 5), ("m2", 2, 5)]},
+        partition=partition,
+        stage_2_job_2_p_dict={"s1": {"j3": 2, "j4": 2}},
+    )
+
+    assert candidate.get_jik_2_start_time_map() == before
+
+
+def test_apply_predecessor_machine_reassignment_processes_stages_in_reverse_order(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s0", "s1"],
+        machines_per_stage={"s0": ["m0"], "s1": ["m1"]},
+    )
+    candidate.add_ops_times_2_mc("s0", "m0", "j1", 0, 3)
+    candidate.add_ops_times_2_mc("s1", "m1", "j1", 3, 5)
+    candidate.add_ops_times_2_mc("s0", "m0", "j2", 3, 6)
+    candidate.add_ops_times_2_mc("s1", "m1", "j2", 6, 8)
+
+    seen_stage_ids = []
+    orig = candidate.dispatch_stage_reversed_by_jobs
+
+    def spy(*args, **kwargs):
+        seen_stage_ids.append(kwargs["stage_id"])
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(candidate, "dispatch_stage_reversed_by_jobs", spy)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s0", "m0"), ("j1", "s1", "m1")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j2", "s0", "m0"), ("j2", "s1", "m1")),
+        right_boundary_profile={"s0": [3], "s1": [6]},
+    )
+
+    ctor._apply_predecessor_machine_reassignment(
+        candidate_schedule=candidate,
+        solved_slack_intervals={"s0": [("m0", 3, 6)], "s1": [("m1", 6, 8)]},
+        partition=partition,
+        stage_2_job_2_p_dict={"s0": {"j1": 3, "j2": 3}, "s1": {"j1": 2, "j2": 2}},
+    )
+
+    assert seen_stage_ids == ["s1", "s0"]
+
+
+def test_apply_predecessor_machine_reassignment_surfaces_reverse_dispatch_infeasibility(
+    tmp_path,
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    candidate = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    candidate.add_ops_times_2_mc("s1", "m1", "j1", 0, 1)
+    candidate.add_ops_times_2_mc("s1", "m1", "j2", 1, 3)
+
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"),),
+        right_profile_fixed=(),
+        right_time_fixed=(("j2", "s1", "m1"),),
+        right_boundary_profile={"s1": [1]},
+    )
+
+    with pytest.raises(ValueError, match="Unable to reverse-dispatch job j1 on stage s1"):
+        ctor._apply_predecessor_machine_reassignment(
+            candidate_schedule=candidate,
+            solved_slack_intervals={"s1": [("m1", 1, 3)]},
+            partition=partition,
+            stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 2}},
+        )
+
+
+def test_solve_subproblem_non_final_reassigns_slack_before_make_semi_active(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+    call_order = []
+
+    monkeypatch.setattr(
+        ctx,
+        "solve_cp_model_2",
+        lambda *args, **kwargs: _make_solver_report(status="FEASIBLE", obj_value=1.0),
+    )
+    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+    monkeypatch.setattr(
+        ctor,
+        "_extract_solved_slack_intervals",
+        lambda *args, **kwargs: {"s1": [("m1", 2, 5)]},
+    )
+
+    def fake_successor_reassign(*args, **kwargs):
+        call_order.append("successor_reassign")
+
+    monkeypatch.setattr(
+        ctor, "_apply_successor_machine_reassignment", fake_successor_reassign
+    )
+    monkeypatch.setattr(
+        ctor,
+        "_apply_predecessor_machine_reassignment",
+        lambda *args, **kwargs: call_order.append("predecessor_reassign"),
+    )
+
+    candidate_for_order = incumbent.deepcopy()
+
+    def fake_create_schedule(*args, **kwargs):
+        def fake_make_semi_active(*_args, **_kwargs):
+            call_order.append("semi_active")
+
+        candidate_for_order.make_semi_active = fake_make_semi_active
+        return candidate_for_order
+
+    monkeypatch.setattr(ctx, "create_schedule", fake_create_schedule)
+
+    ctor._solve_subproblem(
+        spec=spec,
+        incumbent=incumbent,
+        right_justified_schedule=incumbent.deepcopy(),
+        instance=instance,
+        stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+        max_time_per_batch=1.0,
+        solver_thread_cnt=1,
+        profile_fix_by_machine=False,
+        machine_precedence_stride=1,
+        use_lns_only=False,
+        tighten_ranges=False,
+        link_job_completion=False,
+        debug_export=False,
+    )
+
+    assert call_order == [
+        "successor_reassign",
+        "predecessor_reassign",
+        "semi_active",
+    ]
+    ctor._st = None
+
+
+def test_solve_subproblem_non_final_disables_search_log_when_debug_export_is_false(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+    seen = {}
+
+    def fake_solve_cp_model_2(*args, **kwargs):
+        seen["log_search_progress"] = kwargs["log_search_progress"]
+        return _make_solver_report(status="FEASIBLE", obj_value=0.0)
+
+    monkeypatch.setattr(ctx, "solve_cp_model_2", fake_solve_cp_model_2)
+    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+
+    ctor._solve_subproblem(
+        spec=spec,
+        incumbent=incumbent,
+        right_justified_schedule=incumbent.deepcopy(),
+        instance=instance,
+        stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+        max_time_per_batch=1.0,
+        solver_thread_cnt=1,
+        profile_fix_by_machine=False,
+        machine_precedence_stride=1,
+        use_lns_only=False,
+        tighten_ranges=False,
+        link_job_completion=False,
+        debug_export=False,
+    )
+
+    assert seen["log_search_progress"] is False
+    assert not (tmp_path / "cp_sat_search_batch=1.log").exists()
+    ctor._st = None
+
+
+def test_solve_subproblem_final_enables_search_log_when_debug_export_is_true(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=True,
+    )
+    seen = {}
+
+    def fake_solve_cp_model_2(*args, **kwargs):
+        seen["log_search_progress"] = kwargs["log_search_progress"]
+        return _make_solver_report(status="FEASIBLE", obj_value=7.0)
+
+    monkeypatch.setattr(ctx, "solve_cp_model_2", fake_solve_cp_model_2)
+    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+
+    ctor._solve_subproblem(
+        spec=spec,
+        incumbent=incumbent,
+        right_justified_schedule=incumbent.deepcopy(),
+        instance=instance,
+        stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+        max_time_per_batch=1.0,
+        solver_thread_cnt=1,
+        profile_fix_by_machine=False,
+        machine_precedence_stride=1,
+        use_lns_only=False,
+        tighten_ranges=False,
+        link_job_completion=False,
+        debug_export=True,
+    )
+
+    assert seen["log_search_progress"] is True
+    ctor._st = None
+
+
+def test_solve_subproblem_non_final_obj_value_zero_skips_reassignments_and_still_retimes(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+    call_order = []
+
+    monkeypatch.setattr(
+        ctx,
+        "solve_cp_model_2",
+        lambda *args, **kwargs: _make_solver_report(status="FEASIBLE", obj_value=0.0),
+    )
+    monkeypatch.setattr(
+        ctor,
+        "_extract_solved_slack_intervals",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("slack intervals should not be extracted when obj_value == 0")
+        ),
+    )
+    monkeypatch.setattr(
+        ctor,
+        "_apply_successor_machine_reassignment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("successor reassignment should be skipped when obj_value == 0")
+        ),
+    )
+    monkeypatch.setattr(
+        ctor,
+        "_apply_predecessor_machine_reassignment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "predecessor reassignment should be skipped when obj_value == 0"
+            )
+        ),
+    )
+
+    candidate_for_order = incumbent.deepcopy()
+
+    def fake_create_schedule(*args, **kwargs):
+        def fake_make_semi_active(*_args, **_kwargs):
+            call_order.append("semi_active")
+
+        candidate_for_order.make_semi_active = fake_make_semi_active
+        return candidate_for_order
+
+    monkeypatch.setattr(ctx, "create_schedule", fake_create_schedule)
+
+    ctor._solve_subproblem(
+        spec=spec,
+        incumbent=incumbent,
+        right_justified_schedule=incumbent.deepcopy(),
+        instance=instance,
+        stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+        max_time_per_batch=1.0,
+        solver_thread_cnt=1,
+        profile_fix_by_machine=False,
+        machine_precedence_stride=1,
+        use_lns_only=False,
+        tighten_ranges=False,
+        link_job_completion=False,
+        debug_export=False,
+    )
+
+    assert call_order == ["semi_active"]
+    for filename in [
+        "batch_001_candidate_01_before_retiming.png",
+        "batch_001_candidate_02_after_successor_reassign.png",
+        "batch_001_candidate_03_after_predecessor_reassign.png",
+        "batch_001_candidate_04_after_semi_active.png",
+    ]:
+        assert not (tmp_path / filename).exists()
+    ctor._st = None
+
+
+def test_solve_subproblem_non_final_raises_on_negative_obj_value(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+
+    monkeypatch.setattr(
+        ctx,
+        "solve_cp_model_2",
+        lambda *args, **kwargs: _make_solver_report(status="FEASIBLE", obj_value=-1.0),
+    )
+    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+
+    with pytest.raises(ValueError, match="right-slack objective must be >= 0"):
+        ctor._solve_subproblem(
+            spec=spec,
+            incumbent=incumbent,
+            right_justified_schedule=incumbent.deepcopy(),
+            instance=instance,
+            stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+            max_time_per_batch=1.0,
+            solver_thread_cnt=1,
+            profile_fix_by_machine=False,
+            machine_precedence_stride=1,
+            use_lns_only=False,
+            tighten_ranges=False,
+            link_job_completion=False,
+            debug_export=False,
+        )
+
+    assert (tmp_path / "batch_001_candidate_01_before_retiming.png").exists()
+    assert not (tmp_path / "batch_001_candidate_04_after_semi_active.png").exists()
+    ctor._st = None
+
+
 def test_machine_order_right_boundary_profile_differs_from_stage_earliest_starts(
     tmp_path,
 ):
@@ -1195,10 +2034,43 @@ def test_machine_order_right_boundary_profile_differs_from_stage_earliest_starts
         params=params,
     )
 
-    assert hint_values["slack_extra_s1_1"] == 0
-    assert hint_values["slack_extra_s1_2"] == 4
-    assert hint_values["stage_slack_min_s1"] == 0
-    assert hint_values["global_slack_min"] == 0
+    # Actual slack lengths are [0, 4], so the shared hint length is 0 and
+    # each start is recomputed as slack_end - 0.
+    assert hint_values["slack_length"] == 0
+    assert hint_values["slack_start_s1_1"] == 0
+    assert hint_values["slack_start_s1_2"] == 8
+
+
+def test_compute_right_slack_hint_values_skips_none_boundary_machine(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", 3, 8)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", 0, 2)
+
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 5}, "j2": {"s1": 2}},
+    )
+    _, params, _ = ctor.builder.build(instance, sched.makespan)
+
+    hint_values = ctor._compute_right_slack_hint_values(
+        schedule=sched,
+        slack_occupying_ops=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_boundary_profile={"s1": [6, None]},
+        params=params,
+    )
+
+    assert hint_values["slack_length"] == 0
+    assert hint_values["slack_start_s1_1"] == 6
+    assert "slack_start_s1_2" not in hint_values
 
 
 def test_compute_right_slack_hint_values_clips_latest_end_at_slack_boundary(tmp_path):
@@ -1228,12 +2100,11 @@ def test_compute_right_slack_hint_values_clips_latest_end_at_slack_boundary(tmp_
         params=params,
     )
 
-    assert hint_values["slack_extra_s1_1"] == 0
+    # Actual slack lengths are [0, 3], so the shared hint length is 0 and
+    # each start is recomputed as slack_end - 0.
+    assert hint_values["slack_length"] == 0
     assert hint_values["slack_start_s1_1"] == 6
-    assert hint_values["slack_extra_s1_2"] == 3
-    assert hint_values["slack_start_s1_2"] == 2
-    assert hint_values["stage_slack_min_s1"] == 0
-    assert hint_values["global_slack_min"] == 0
+    assert hint_values["slack_start_s1_2"] == 5
 
 
 def test_compute_right_slack_hint_values_aggregates_stage_and_global_mins(tmp_path):
@@ -1275,13 +2146,13 @@ def test_compute_right_slack_hint_values_aggregates_stage_and_global_mins(tmp_pa
         params=params,
     )
 
-    assert hint_values["slack_extra_s1_1"] == 3
-    assert hint_values["slack_extra_s1_2"] == 2
-    assert hint_values["stage_slack_min_s1"] == 2
-    assert hint_values["slack_extra_s2_1"] == 3
-    assert hint_values["slack_extra_s2_2"] == 2
-    assert hint_values["stage_slack_min_s2"] == 2
-    assert hint_values["global_slack_min"] == 2
+    # Actual slack lengths are [3, 2, 3, 2], so the shared hint length is 2 and
+    # each start is recomputed as slack_end - 2.
+    assert hint_values["slack_length"] == 2
+    assert hint_values["slack_start_s1_1"] == 4
+    assert hint_values["slack_start_s1_2"] == 5
+    assert hint_values["slack_start_s2_1"] == 2
+    assert hint_values["slack_start_s2_2"] == 6
 
 
 def test_apply_right_slack_hints_skips_duplicates(tmp_path):
@@ -1820,3 +2691,306 @@ def test_run_rejects_non_positive_unfixed_time_limit_multiplier(tmp_path):
             batch_size=1,
             unfixed_op_time_limit_multiplier=0.0,
         )
+
+
+def test_draw_candidate_retiming_gantts_includes_reassignment_step(tmp_path):
+    """Test that _draw_candidate_retiming_gantts draws 4 Gantt charts with correct naming."""
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+
+    # Create four schedule states
+    before_retiming = _make_schedule()
+
+    after_successor_reassign = _make_schedule().deepcopy()
+    after_predecessor_reassign = _make_schedule().deepcopy()
+
+    after_semi_active = _make_schedule().deepcopy()
+    after_semi_active.make_semi_active({"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}})
+
+    solved_slack_intervals = {"s1": [("m1", 2, 5)]}
+
+    ctor._draw_candidate_retiming_gantts(
+        spec=spec,
+        before_retiming=before_retiming,
+        after_successor_reassign=after_successor_reassign,
+        after_predecessor_reassign=after_predecessor_reassign,
+        after_semi_active=after_semi_active,
+        solved_slack_intervals=solved_slack_intervals,
+    )
+
+    # Verify 4 files created with correct naming
+    # Note: get_file_path_for_subroutine strips leading "_", so check without it
+    expected_files = [
+        "batch_001_candidate_01_before_retiming.png",
+        "batch_001_candidate_02_after_successor_reassign.png",
+        "batch_001_candidate_03_after_predecessor_reassign.png",
+        "batch_001_candidate_04_after_semi_active.png",
+    ]
+    for filename in expected_files:
+        file_path = tmp_path / filename
+        assert file_path.exists(), f"Expected file {filename} not found"
+
+
+def test_draw_candidate_retiming_gantts_skips_missing_optional_steps(tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+    after_semi_active = _make_schedule().deepcopy()
+    after_semi_active.make_semi_active({"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}})
+
+    ctor._draw_candidate_retiming_gantts(
+        spec=spec,
+        before_retiming=_make_schedule(),
+        after_successor_reassign=None,
+        after_predecessor_reassign=None,
+        after_semi_active=after_semi_active,
+        solved_slack_intervals={},
+    )
+
+    assert (tmp_path / "batch_001_candidate_01_before_retiming.png").exists()
+    assert (tmp_path / "batch_001_candidate_04_after_semi_active.png").exists()
+    assert not (tmp_path / "batch_001_candidate_02_after_successor_reassign.png").exists()
+    assert not (
+        tmp_path / "batch_001_candidate_03_after_predecessor_reassign.png"
+    ).exists()
+
+
+def test_solve_subproblem_draws_available_gantts_when_successor_reassignment_fails(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+
+    monkeypatch.setattr(
+        ctx,
+        "solve_cp_model_2",
+        lambda *args, **kwargs: _make_solver_report(status="FEASIBLE", obj_value=1.0),
+    )
+    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+    monkeypatch.setattr(
+        ctor,
+        "_apply_successor_machine_reassignment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("synthetic successor failure")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="synthetic successor failure"):
+        ctor._solve_subproblem(
+            spec=spec,
+            incumbent=incumbent,
+            right_justified_schedule=incumbent.deepcopy(),
+            instance=instance,
+            stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+            max_time_per_batch=1.0,
+            solver_thread_cnt=1,
+            profile_fix_by_machine=False,
+            machine_precedence_stride=1,
+            use_lns_only=False,
+            tighten_ranges=False,
+            link_job_completion=False,
+            debug_export=False,
+        )
+
+    for filename in [
+        "batch_001_candidate_01_before_retiming.png",
+        "batch_001_candidate_02_after_successor_reassign.png",
+        "batch_001_candidate_03_after_predecessor_reassign.png",
+        "batch_001_candidate_04_after_semi_active.png",
+    ]:
+        assert not (tmp_path / filename).exists()
+
+
+def test_solve_subproblem_draws_available_gantts_when_predecessor_reassignment_fails(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+
+    monkeypatch.setattr(
+        ctx,
+        "solve_cp_model_2",
+        lambda *args, **kwargs: _make_solver_report(status="FEASIBLE", obj_value=1.0),
+    )
+    monkeypatch.setattr(ctx, "create_schedule", lambda *args, **kwargs: incumbent.deepcopy())
+    monkeypatch.setattr(
+        ctor,
+        "_apply_predecessor_machine_reassignment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("synthetic predecessor failure")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="synthetic predecessor failure"):
+        ctor._solve_subproblem(
+            spec=spec,
+            incumbent=incumbent,
+            right_justified_schedule=incumbent.deepcopy(),
+            instance=instance,
+            stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+            max_time_per_batch=1.0,
+            solver_thread_cnt=1,
+            profile_fix_by_machine=False,
+            machine_precedence_stride=1,
+            use_lns_only=False,
+            tighten_ranges=False,
+            link_job_completion=False,
+            debug_export=False,
+        )
+
+    for filename in [
+        "batch_001_candidate_01_before_retiming.png",
+        "batch_001_candidate_02_after_successor_reassign.png",
+        "batch_001_candidate_03_after_predecessor_reassign.png",
+        "batch_001_candidate_04_after_semi_active.png",
+    ]:
+        assert not (tmp_path / filename).exists()
+
+
+def test_solve_subproblem_draws_available_gantts_when_make_semi_active_fails(
+    monkeypatch, tmp_path
+):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    ctor._st = SimpleNamespace(subproblem_logs=[])
+    incumbent = _make_schedule()
+    instance = create_hfs_instance(
+        "tiny",
+        ["j1", "j2", "j3", "j4"],
+        ["s1"],
+        {"s1": ["m1", "m2"]},
+        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
+    )
+    partition = OperationPartition(
+        left_time_fixed=(),
+        left_profile_fixed=(),
+        unfixed=(("j1", "s1", "m1"), ("j2", "s1", "m2")),
+        right_profile_fixed=(),
+        right_time_fixed=(("j3", "s1", "m1"), ("j4", "s1", "m2")),
+        right_boundary_profile={"s1": [5, 5]},
+    )
+    spec = PwCpSubproblemSpec(
+        batch_idx=0,
+        subproblem_idx=1,
+        partition=partition,
+        right_boundary_profile={"s1": [5, 5]},
+        is_last_batch=False,
+    )
+
+    monkeypatch.setattr(
+        ctx,
+        "solve_cp_model_2",
+        lambda *args, **kwargs: _make_solver_report(status="FEASIBLE", obj_value=1.0),
+    )
+    candidate_schedule = incumbent.deepcopy()
+
+    def fake_create_schedule(*args, **kwargs):
+        def fail_make_semi_active(*_args, **_kwargs):
+            raise ValueError("synthetic semi-active failure")
+
+        candidate_schedule.make_semi_active = fail_make_semi_active
+        return candidate_schedule
+
+    monkeypatch.setattr(ctx, "create_schedule", fake_create_schedule)
+
+    with pytest.raises(ValueError, match="synthetic semi-active failure"):
+        ctor._solve_subproblem(
+            spec=spec,
+            incumbent=incumbent,
+            right_justified_schedule=incumbent.deepcopy(),
+            instance=instance,
+            stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
+            max_time_per_batch=1.0,
+            solver_thread_cnt=1,
+            profile_fix_by_machine=False,
+            machine_precedence_stride=1,
+            use_lns_only=False,
+            tighten_ranges=False,
+            link_job_completion=False,
+            debug_export=False,
+        )
+
+    for filename in [
+        "batch_001_candidate_01_before_retiming.png",
+        "batch_001_candidate_02_after_successor_reassign.png",
+        "batch_001_candidate_03_after_predecessor_reassign.png",
+        "batch_001_candidate_04_after_semi_active.png",
+    ]:
+        assert not (tmp_path / filename).exists()

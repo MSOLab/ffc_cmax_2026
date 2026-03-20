@@ -10,6 +10,6 @@
   profile_fix_by_machine: true
   machine_precedence_stride: 1
   max_time_per_batch: 50
-  debug_export: true
+  debug_export: false
   error_if_infeasible: true
   solver_thread_cnt: 8

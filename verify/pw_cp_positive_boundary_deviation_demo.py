@@ -136,8 +136,8 @@ def main() -> None:
     )
     _, params, _ = ctor.builder.build(instance, sched.makespan)
     hint_values = ctor._compute_right_slack_hint_values(
-        incumbent=sched,
-        unfixed_ops=partition.unfixed,
+        schedule=sched,
+        slack_occupying_ops=partition.unfixed,
         right_boundary_profile=partition.right_boundary_profile,
         params=params,
     )
@@ -270,12 +270,18 @@ def main() -> None:
     print()
 
     print("INTERPRETATION:")
-    print("  slack_start_s1_1 = 0: Machine 1 slack starts at t=0")
-    print("  slack_start_s1_2 = 4: Machine 2 slack starts at t=4")
-    print("  slack_extra_s1_1 = 0: Machine 1 has 0 slack (fully utilized)")
-    print("  slack_extra_s1_2 = 4: Machine 2 has 4 units of slack")
-    print("  stage_slack_min_s1 = 0: Stage minimum slack = 0")
-    print("  global_slack_min = 0: Global minimum slack = 0")
+    print(
+        f"  slack_start_s1_1 = {hint_values['slack_start_s1_1']}: "
+        f"Machine 1 slack starts at t={hint_values['slack_start_s1_1']}"
+    )
+    print(
+        f"  slack_start_s1_2 = {hint_values['slack_start_s1_2']}: "
+        f"Machine 2 slack starts at t={hint_values['slack_start_s1_2']}"
+    )
+    print(
+        f"  slack_length = {hint_values['slack_length']}: "
+        "Unified slack length (all machines share same length)"
+    )
     print()
 
     print("=" * 70)

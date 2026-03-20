@@ -17,7 +17,7 @@ from .params import Params
 
 # Type aliases for PW-CP right slack objective
 OperationRef = tuple[str, str, str]
-StageBoundaryProfile = dict[str, list[int]]
+StageBoundaryProfile = dict[str, list[int | None]]
 
 
 @dataclass
@@ -44,10 +44,8 @@ class CumulativeVars:
 @dataclass
 class RightSlackVars:
     slack_start: dict[tuple[str, int], IntVar]
-    slack_extra: dict[tuple[str, int], IntVar]
+    slack_length: IntVar
     slack_interval: dict[tuple[str, int], IntervalVar]
-    stage_slack_min: dict[str, IntVar]
-    global_slack_min: IntVar
 
 
 class BaseModelBuilder:
@@ -715,44 +713,39 @@ class BaseModelBuilder:
             sorted({stage_id for _job_id, stage_id, _mc_id in slack_occupying_ops})
         )
         slack_start_vars: dict[tuple[str, int], IntVar] = {}
-        slack_extra_vars: dict[tuple[str, int], IntVar] = {}
         slack_interval_vars: dict[tuple[str, int], IntervalVar] = {}
-        stage_slack_min_vars: dict[str, IntVar] = {}
+
+        # 단일 공통 길이 변수 생성
+        slack_length = mdl.new_int_var(
+            0,
+            horizon,
+            "slack_length",
+        )
+
         for stage_id in target_stage_ids:
             slack_end_times = right_boundary_profile[stage_id]
             for machine_idx, slack_end in enumerate(slack_end_times, start=1):
-                slack_lth = mdl.new_int_var(
-                    0,
-                    slack_end,
-                    f"slack_extra_{stage_id}_{machine_idx}",
-                )
+                if slack_end is None:
+                    continue
                 slack_start = mdl.new_int_var(
                     0,
                     slack_end,
                     f"slack_start_{stage_id}_{machine_idx}",
                 )
+                # 공통 길이 변수 사용
                 slack_intvl = mdl.new_interval_var(
                     slack_start,
-                    slack_lth,
+                    slack_length,
                     slack_end,
                     f"slack_interval_{stage_id}_{machine_idx}",
                 )
                 slack_start_vars[stage_id, machine_idx] = slack_start
-                slack_extra_vars[stage_id, machine_idx] = slack_lth
                 slack_interval_vars[stage_id, machine_idx] = slack_intvl
 
-            stage_slack_min_vars[stage_id] = mdl.new_int_var(
-                0,
-                horizon,
-                f"stage_slack_min_{stage_id}",
-            )
-        global_slack_min = mdl.new_int_var(0, horizon, "global_slack_min")
         return RightSlackVars(
             slack_start=slack_start_vars,
-            slack_extra=slack_extra_vars,
+            slack_length=slack_length,
             slack_interval=slack_interval_vars,
-            stage_slack_min=stage_slack_min_vars,
-            global_slack_min=global_slack_min,
         )
 
     @staticmethod
@@ -783,11 +776,17 @@ class BaseModelBuilder:
             stage_2_ops[op[1]].append(op)
 
         for stage_id in target_stage_ids:
-            stage_max_slack_end = max(right_boundary_profile[stage_id], default=0)
-            for job_id, _stage_id, _machine_id in [
-                op for op in slack_occupying_ops if op[1] == stage_id
-            ]:
-                mdl.add(variables.op_end[job_id, stage_id] <= stage_max_slack_end)
+            valid_slack_ends = [
+                slack_end
+                for slack_end in right_boundary_profile[stage_id]
+                if slack_end is not None
+            ]
+            if valid_slack_ends:
+                stage_max_slack_end = max(valid_slack_ends)
+                for job_id, _stage_id, _machine_id in [
+                    op for op in slack_occupying_ops if op[1] == stage_id
+                ]:
+                    mdl.add(variables.op_end[job_id, stage_id] <= stage_max_slack_end)
 
             op_intervals = [
                 variables.op_intvl[job_id, stage_id]
@@ -795,7 +794,10 @@ class BaseModelBuilder:
             ]
             slack_intervals = [
                 slack_vars.slack_interval[stage_id, machine_idx]
-                for machine_idx in range(1, len(right_boundary_profile[stage_id]) + 1)
+                for machine_idx, slack_end in enumerate(
+                    right_boundary_profile[stage_id], start=1
+                )
+                if slack_end is not None
             ]
             intervals = op_intervals + slack_intervals
             demands = [1] * len(intervals)
@@ -808,20 +810,6 @@ class BaseModelBuilder:
         slack_vars: RightSlackVars,
     ) -> IntVar:
         """Add right-slack objective constraints using pre-built slack variables."""
-        target_stage_ids = tuple(
-            sorted({stage_id for _job_id, stage_id, _mc_id in slack_occupying_ops})
-        )
-        for stage_id in target_stage_ids:
-            machine_indices = sorted(
-                machine_idx
-                for slack_stage_id, machine_idx in slack_vars.slack_extra
-                if slack_stage_id == stage_id
-            )
-            for machine_idx in machine_indices:
-                mdl.add(
-                    slack_vars.stage_slack_min[stage_id]
-                    <= slack_vars.slack_extra[stage_id, machine_idx]
-                )
-            mdl.add(slack_vars.global_slack_min <= slack_vars.stage_slack_min[stage_id])
-        mdl.maximize(slack_vars.global_slack_min)
-        return slack_vars.global_slack_min
+        # 단일 공통 길이 변수 직접 최대화
+        mdl.maximize(slack_vars.slack_length)
+        return slack_vars.slack_length
