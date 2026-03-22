@@ -273,6 +273,7 @@ class PwCpConstructor:
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         batch_size: int = 1,
+        lr_profile_fixed_batch_count: int = 0,
         left_profile_fixed_batch_count: int = 0,
         right_profile_fixed_batch_count: int = 0,
         enable_promotion_profile_fixed: bool = False,
@@ -294,6 +295,17 @@ class PwCpConstructor:
             and non_time_fixed_op_time_limit_multiplier <= 0
         ):
             raise ValueError("non_time_fixed_op_time_limit_multiplier must be > 0")
+        if lr_profile_fixed_batch_count > 0:
+            # Override
+            _left_profile_fixed_batch_count = lr_profile_fixed_batch_count
+            _right_profile_fixed_batch_count = lr_profile_fixed_batch_count
+        else:
+            if left_profile_fixed_batch_count < 0:
+                raise ValueError("left_profile_fixed_batch_count must be >= 0")
+            if right_profile_fixed_batch_count < 0:
+                raise ValueError("right_profile_fixed_batch_count must be >= 0")
+            _left_profile_fixed_batch_count = left_profile_fixed_batch_count
+            _right_profile_fixed_batch_count = right_profile_fixed_batch_count
 
         sub_obj_store = ObjValueBoundStore[int]()
         sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
@@ -353,8 +365,8 @@ class PwCpConstructor:
                         current_batch,
                         stage_id,
                         batch_idx,
-                        left_profile_fixed_batch_count=left_profile_fixed_batch_count,
-                        right_profile_fixed_batch_count=right_profile_fixed_batch_count,
+                        left_profile_fixed_batch_count=_left_profile_fixed_batch_count,
+                        right_profile_fixed_batch_count=_right_profile_fixed_batch_count,
                     )
                 if enable_promotion_profile_fixed:
                     unfixed_job_set = set(
@@ -363,8 +375,10 @@ class PwCpConstructor:
                         for job_id in partition.unfixed_jobs
                     )
                     for stage_id, partition in stage_2_partition.items():
-                        stage_2_partition[stage_id] = partition.promote_job_contained_ops(
-                            promoted_job_id_set=unfixed_job_set
+                        stage_2_partition[stage_id] = (
+                            partition.promote_job_contained_ops(
+                                promoted_job_id_set=unfixed_job_set
+                            )
                         )
 
                 # Determine if this is a makespan batch (no right-time-fixed ops)
