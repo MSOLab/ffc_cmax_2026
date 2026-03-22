@@ -7,6 +7,7 @@ from typing import Iterable, Iterator, Mapping, Sequence
 JobIdType = str
 StageIdType = str
 McIdType = str
+OperationType = tuple[JobIdType, StageIdType, McIdType]
 
 
 class HybridFlowshopLiteSchedule:
@@ -374,22 +375,18 @@ class HybridFlowshopLiteSchedule:
             ):
                 yield stage, mc, start_time, end_time, job_id
 
-    def get_operation_set(self) -> set[tuple[JobIdType, StageIdType, McIdType]]:
+    def get_operation_set(self) -> set[OperationType]:
         return {
             (job_id, stage, mc) for stage, mc, _, _, job_id in self._iter_operations()
         }
 
-    def get_jik_2_start_time_map(
-        self,
-    ) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+    def get_jik_2_start_time_map(self) -> dict[OperationType, int]:
         return {
             (job_id, stage, mc): int(start)
             for stage, mc, start, _, job_id in self._iter_operations()
         }
 
-    def get_jik_2_end_time_map(
-        self,
-    ) -> dict[tuple[JobIdType, StageIdType, McIdType], int]:
+    def get_jik_2_end_time_map(self) -> dict[OperationType, int]:
         return {
             (job_id, stage, mc): int(end)
             for stage, mc, _, end, job_id in self._iter_operations()
@@ -1266,9 +1263,7 @@ class HybridFlowshopLiteSchedule:
 
     # Setters - remove
 
-    def remove_operations(
-        self, removed_ops: set[tuple[JobIdType, StageIdType, McIdType]]
-    ) -> None:
+    def remove_operations(self, removed_ops: set[OperationType]) -> None:
         stage_2_mc_2_job_id_set: dict[StageIdType, dict[McIdType, set[JobIdType]]] = {}
         for job_id, stage_id, mc_id in removed_ops:
             if stage_id not in stage_2_mc_2_job_id_set:
@@ -1338,8 +1333,7 @@ class HybridFlowshopLiteSchedule:
 
     def _is_selected_operation(
         self,
-        operation_set: set[tuple[JobIdType, StageIdType, McIdType]]
-        | frozenset[tuple[JobIdType, StageIdType, McIdType]],
+        operation_set: set[OperationType] | frozenset[OperationType],
         stage_id: StageIdType,
         mc_id: McIdType,
         job_id: JobIdType,
@@ -1371,8 +1365,7 @@ class HybridFlowshopLiteSchedule:
         stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
         start_from_stage: StageIdType | None = None,
         *,
-        operation_set: set[tuple[JobIdType, StageIdType, McIdType]]
-        | frozenset[tuple[JobIdType, StageIdType, McIdType]] = frozenset(),
+        operation_set: set[OperationType] | frozenset[OperationType] = frozenset(),
     ) -> None:
         """Convert to semi-active schedule by retiming operations in-place.
 
@@ -1472,8 +1465,7 @@ class HybridFlowshopLiteSchedule:
         self,
         stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
         *,
-        operation_set: set[tuple[JobIdType, StageIdType, McIdType]]
-        | frozenset[tuple[JobIdType, StageIdType, McIdType]] = frozenset(),
+        operation_set: set[OperationType] | frozenset[OperationType] = frozenset(),
     ) -> None:
         """Right-shift operations in-place while preserving the current makespan.
 
@@ -1874,7 +1866,7 @@ class HybridFlowshopLiteSchedule:
         stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
         tolerance: float = 1e-9,
         include_singletons: bool = False,
-    ) -> list[list[tuple[JobIdType, StageIdType, McIdType]]]:
+    ) -> list[list[OperationType]]:
         """
         Find all critical blocks in the schedule.
 
@@ -1890,7 +1882,7 @@ class HybridFlowshopLiteSchedule:
                 Defaults to False.
 
         Returns:
-            list[list[tuple[JobIdType, StageIdType, McIdType]]]: List of critical blocks,
+            list[list[OperationType]]: List of critical blocks,
             where each block is a list of operations (job_id, stage_id, machine_id)
             in execution order on the same machine.
         """
@@ -1940,7 +1932,7 @@ class HybridFlowshopLiteSchedule:
         # )
 
         # Extract consecutive sequences as critical blocks
-        blocks: list[list[tuple[JobIdType, StageIdType, McIdType]]] = []
+        blocks: list[list[OperationType]] = []
         for stage_id, mc_2_job_seq in stage_2_mc_2_jobs.items():
             job_2_end_time = self.__stage_2_job_2_end_time[stage_id]
             job_2_duration = stage_2_job_2_duration[stage_id]
@@ -1948,7 +1940,7 @@ class HybridFlowshopLiteSchedule:
                 if not job_seq:
                     continue
 
-                current_block: list[tuple[JobIdType, StageIdType, McIdType]] = []
+                current_block: list[OperationType] = []
 
                 for i, job_id in enumerate(job_seq):
                     current_block.append((job_id, stage_id, mc_id))
@@ -2030,8 +2022,8 @@ def validate_schedule(
 
 
 def validate_duration(
-    start_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
-    end_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    start_map: Mapping[OperationType, int],
+    end_map: Mapping[OperationType, int],
     stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
 ) -> None:
     """Raise ``ValueError`` if ``end - start != duration`` for any operation.
@@ -2055,8 +2047,8 @@ def validate_duration(
 
 
 def validate_precedence(
-    start_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
-    end_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    start_map: Mapping[OperationType, int],
+    end_map: Mapping[OperationType, int],
     stages: Sequence[StageIdType],
 ) -> None:
     """Raise ``ValueError`` if any precedence constraint is violated.
@@ -2090,8 +2082,8 @@ def validate_precedence(
 
 
 def validate_no_overlap(
-    start_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
-    end_map: Mapping[tuple[JobIdType, StageIdType, McIdType], int],
+    start_map: Mapping[OperationType, int],
+    end_map: Mapping[OperationType, int],
     stages: Sequence[StageIdType],
     machines_per_stage: Mapping[StageIdType, Sequence[McIdType]],
 ) -> None:
