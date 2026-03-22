@@ -11,13 +11,14 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    JobIdType,
+    McIdType,
+    StageIdType,
+)
 
 from .params import Params
-
-# Type aliases for PW-CP right slack objective
-OperationRef = tuple[str, str, str]
-StageBoundaryProfile = dict[str, list[int | None]]
 
 
 @dataclass
@@ -44,13 +45,6 @@ class CumulativeVars(OperationVars):
     """Makespan variable"""
 
 
-@dataclass
-class RightSlackVars:
-    slack_start: dict[tuple[str, int], IntVar]
-    slack_length: IntVar
-    slack_interval: dict[tuple[str, int], IntervalVar]
-
-
 class BaseModelBuilder:
     def build(
         self,
@@ -62,7 +56,7 @@ class BaseModelBuilder:
         link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
-        params: Params = self._make_params(instance)
+        params: Params = self.make_params(instance)
         variables: CumulativeVars = self._make_vars(
             mdl, params, horizon, tighten_ranges=tighten_ranges
         )
@@ -90,7 +84,7 @@ class BaseModelBuilder:
         link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
-        params: Params = self._make_params(instance)
+        params: Params = self.make_params(instance)
         variables: CumulativeVars = self._make_vars_horizon_per_stage(
             mdl, params, stage_2_mc_2_horizon, tighten_ranges=tighten_ranges
         )
@@ -104,7 +98,7 @@ class BaseModelBuilder:
         return mdl, params, variables
 
     @staticmethod
-    def _make_params(instance: HybridFlowshopParameters) -> Params:
+    def make_params(instance: HybridFlowshopParameters) -> Params:
         j_list = instance.job_id_list
         i_list = instance.stage_id_list
         M_of = instance.stage_2_machines_map
@@ -168,10 +162,7 @@ class BaseModelBuilder:
                     j_i_2_head[j, i] + p, horizon - j_i_2_tail[j, i], f"end_{j}_{i}"
                 )
                 interval_var = mdl.new_interval_var(
-                    start_var,
-                    params.p[j, i],
-                    end_var,
-                    f"interval_{j}_{i}",
+                    start_var, p, end_var, f"interval_{j}_{i}"
                 )
 
                 op_start[(j, i)] = start_var
@@ -475,7 +466,7 @@ class BaseModelBuilder:
     def add_fixed_operation_precedence_constraint(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
+        variables: OperationVars,
         j1: str,
         j2: str,
         i: str,
@@ -501,7 +492,7 @@ class BaseModelBuilder:
     def add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
+        variables: OperationVars,
         current_schedule: HybridFlowshopLiteSchedule,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
@@ -591,21 +582,28 @@ class BaseModelBuilder:
                     ),
                 )
 
-                # 인덱스 기반 탐색으로 변경
+                # Index-based selection of precedence arcs:
+                # for each job j1 in end-time order
                 for idx, j1 in enumerate(sorted_by_end):
                     j1_end_time = j_2_end_time_map.get(j1, float("inf"))
                     max_candidates = min(
                         len(params.M_of[i]), len(sorted_by_end) - idx - 1
                     )
 
-                    # 이진 탐색으로 j1_end_time 이후 시작하는 첫 job 찾기
+                    # Find the position in the start-time sorted list where jobs start
+                    # after j1 ends; use bisect_left to find the insertion point
+                    # for j1_end_time in the sorted_by_start list
                     start_idx = bisect_left(
                         sorted_by_start,
                         j1_end_time,
                         key=lambda j: j_2_start_time_map.get(j, float("inf")),
                     )
 
-                    j2_list = sorted_by_start[start_idx : start_idx + max_candidates]
+                    # Add precedence constraints from j1 to a bounded number
+                    # of successor candidates in start-time order
+                    j2_list: list[JobIdType] = sorted_by_start[
+                        start_idx : start_idx + max_candidates
+                    ]
                     for j2 in j2_list:
                         BaseModelBuilder.add_fixed_operation_precedence_constraint(
                             mdl, params, variables, j1, j2, i
@@ -614,8 +612,8 @@ class BaseModelBuilder:
     @staticmethod
     def add_start_time_freezed_operation_constraints(
         mdl: CustomCpModel,
-        variables: CumulativeVars,
-        start_time_map: dict[tuple[str, str, str], int],
+        variables: OperationVars,
+        start_time_map: dict[tuple[JobIdType, StageIdType, McIdType], int],
     ) -> None:
         for (j, i, k), s_time in start_time_map.items():
             mdl.add(variables.op_start[j, i] == s_time)
@@ -626,14 +624,14 @@ class BaseModelBuilder:
     def apply_start_hints_from_start_time_map(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
-        start_time_map: dict[tuple[str, str, str], int],
+        variables: OperationVars,
+        start_time_map: dict[tuple[JobIdType, StageIdType, McIdType], int],
         ignore_integrity_check: bool = True,
     ) -> None:
         """Applies start time hints to the model from a given start time map.
 
         Args:
-            start_time_map (dict[tuple[str, str, str], int]): A mapping from (job_id, stage_id, machine_id) to start time.
+            start_time_map (dict[tuple[JobIdType, StageIdType, McIdType], int]): A mapping from (job_id, stage_id, machine_id) to start time.
         """
         for (j, i, _), s_time in start_time_map.items():
             if not ignore_integrity_check:
@@ -645,174 +643,17 @@ class BaseModelBuilder:
     def apply_end_hints_from_end_time_map(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
-        end_time_map: dict[tuple[str, str, str], int],
+        variables: OperationVars,
+        end_time_map: dict[tuple[JobIdType, StageIdType, McIdType], int],
         ignore_integrity_check: bool = True,
     ) -> None:
         """Applies end time hints to the model from a given end time map.
 
         Args:
-            end_time_map (dict[tuple[str, str, str], int]): A mapping from (job_id, stage_id, machine_id) to end time.
+            end_time_map (dict[tuple[JobIdType, StageIdType, McIdType], int]): A mapping from (job_id, stage_id, machine_id) to end time.
         """
         for (j, i, _), e_time in end_time_map.items():
             if not ignore_integrity_check:
                 assert j in params.j_list, f"Job {j} not in job list."
                 assert i in params.i_list, f"Stage {i} not in stage list."
             mdl.add_hint(variables.op_end[j, i], e_time)
-
-    @staticmethod
-    def add_kth_largest_constraint(
-        model: CustomCpModel,
-        x: list[IntVar],
-        z: IntVar,
-        k: int,
-        name_prefix: str,
-    ) -> None:
-        """
-        Enforce z to be the k-th largest value in x (1-based, descending order).
-
-        This handles ties correctly:
-        - at least k values are >= z
-        - at most k-1 values are > z
-
-        Args:
-            model: The CP-SAT model.
-            x: List of integer variables.
-            z: Output variable representing the k-th largest value.
-            k: The rank (1-based, descending order). Must be 1 <= k <= len(x).
-            name_prefix: Prefix for variable names.
-        """
-        assert 1 <= k <= len(x)
-
-        ge = []
-        gt = []
-
-        for idx, xi in enumerate(x):
-            b_ge = model.new_bool_var(f"{name_prefix}_ge_{idx}")
-            b_gt = model.new_bool_var(f"{name_prefix}_gt_{idx}")
-
-            model.add(xi >= z).OnlyEnforceIf(b_ge)
-            model.add(xi < z).OnlyEnforceIf(b_ge.Not())
-
-            model.add(xi > z).OnlyEnforceIf(b_gt)
-            model.add(xi <= z).OnlyEnforceIf(b_gt.Not())
-
-            ge.append(b_ge)
-            gt.append(b_gt)
-
-        model.add(sum(ge) >= k)
-        model.add(sum(gt) <= k - 1)
-
-    @staticmethod
-    def add_right_slack_variables(
-        mdl: CustomCpModel,
-        params: Params,
-        slack_occupying_ops: tuple[OperationRef, ...],
-        right_boundary_profile: StageBoundaryProfile,
-        horizon: int,
-    ) -> RightSlackVars:
-        """Create right-slack auxiliary variables for non-final batches."""
-        target_stage_ids = tuple(
-            sorted({stage_id for _job_id, stage_id, _mc_id in slack_occupying_ops})
-        )
-        slack_start_vars: dict[tuple[str, int], IntVar] = {}
-        slack_interval_vars: dict[tuple[str, int], IntervalVar] = {}
-
-        # 단일 공통 길이 변수 생성
-        slack_length = mdl.new_int_var(
-            0,
-            horizon,
-            "slack_length",
-        )
-
-        for stage_id in target_stage_ids:
-            slack_end_times = right_boundary_profile[stage_id]
-            for machine_idx, slack_end in enumerate(slack_end_times, start=1):
-                if slack_end is None:
-                    continue
-                slack_start = mdl.new_int_var(
-                    0,
-                    slack_end,
-                    f"slack_start_{stage_id}_{machine_idx}",
-                )
-                # 공통 길이 변수 사용
-                slack_intvl = mdl.new_interval_var(
-                    slack_start,
-                    slack_length,
-                    slack_end,
-                    f"slack_interval_{stage_id}_{machine_idx}",
-                )
-                slack_start_vars[stage_id, machine_idx] = slack_start
-                slack_interval_vars[stage_id, machine_idx] = slack_intvl
-
-        return RightSlackVars(
-            slack_start=slack_start_vars,
-            slack_length=slack_length,
-            slack_interval=slack_interval_vars,
-        )
-
-    @staticmethod
-    def add_right_slack_constraints(
-        mdl: CustomCpModel,
-        params: Params,
-        variables: CumulativeVars,
-        slack_occupying_ops: tuple[OperationRef, ...],
-        right_time_fixed_ops: tuple[OperationRef, ...],
-        right_boundary_profile: StageBoundaryProfile,
-        slack_vars: RightSlackVars,
-    ) -> None:
-        """Add non-final stage-capacity constraints including slack intervals."""
-        target_stage_ids = tuple(
-            sorted(
-                {
-                    stage_id
-                    for _job_id, stage_id, _mc_id in (
-                        slack_occupying_ops + right_time_fixed_ops
-                    )
-                }
-            )
-        )
-        stage_2_ops: dict[str, list[OperationRef]] = {
-            stage_id: [] for stage_id in target_stage_ids
-        }
-        for op in slack_occupying_ops + right_time_fixed_ops:
-            stage_2_ops[op[1]].append(op)
-
-        for stage_id in target_stage_ids:
-            valid_slack_ends = [
-                slack_end
-                for slack_end in right_boundary_profile[stage_id]
-                if slack_end is not None
-            ]
-            if valid_slack_ends:
-                stage_max_slack_end = max(valid_slack_ends)
-                for job_id, _stage_id, _machine_id in [
-                    op for op in slack_occupying_ops if op[1] == stage_id
-                ]:
-                    mdl.add(variables.op_end[job_id, stage_id] <= stage_max_slack_end)
-
-            op_intervals = [
-                variables.op_intvl[job_id, stage_id]
-                for job_id, _stage_id, _machine_id in stage_2_ops[stage_id]
-            ]
-            slack_intervals = [
-                slack_vars.slack_interval[stage_id, machine_idx]
-                for machine_idx, slack_end in enumerate(
-                    right_boundary_profile[stage_id], start=1
-                )
-                if slack_end is not None
-            ]
-            intervals = op_intervals + slack_intervals
-            demands = [1] * len(intervals)
-            mdl.add_cumulative(intervals, demands, len(params.M_of[stage_id]))
-
-    @staticmethod
-    def add_right_slack_objective(
-        mdl: CustomCpModel,
-        slack_occupying_ops: tuple[OperationRef, ...],
-        slack_vars: RightSlackVars,
-    ) -> IntVar:
-        """Add right-slack objective constraints using pre-built slack variables."""
-        # 단일 공통 길이 변수 직접 최대화
-        mdl.maximize(slack_vars.slack_length)
-        return slack_vars.slack_length

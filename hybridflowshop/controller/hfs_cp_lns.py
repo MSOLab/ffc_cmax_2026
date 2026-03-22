@@ -1950,13 +1950,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         enable_promotion_profile_fixed: bool = False,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
-        unfixed_op_time_limit_multiplier: float | None = None,
+        non_time_fixed_op_time_limit_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         max_time_per_batch: float | None = None,
         use_lns_only: bool = False,
         debug_export: bool = False,
         tighten_ranges: bool = False,
-        link_job_completion: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ):
@@ -1981,12 +1980,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
 
         if (
-            unfixed_op_time_limit_multiplier is not None
-            and unfixed_op_time_limit_multiplier <= 0
+            non_time_fixed_op_time_limit_multiplier is not None
+            and non_time_fixed_op_time_limit_multiplier <= 0
         ):
-            raise ValueError("unfixed_op_time_limit_multiplier must be > 0")
+            raise ValueError("non_time_fixed_op_time_limit_multiplier must be > 0")
 
-        if unfixed_op_time_limit_multiplier is not None:
+        if non_time_fixed_op_time_limit_multiplier is not None:
             _max_time_per_batch = max_time_per_batch
         elif cp_tl_c_multiplier is not None:
             _max_time_per_batch = cp_tl_c_multiplier * self.instance.stage_count
@@ -2004,13 +2003,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             enable_promotion_profile_fixed=enable_promotion_profile_fixed,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
-            unfixed_op_time_limit_multiplier=unfixed_op_time_limit_multiplier,
+            non_time_fixed_op_time_limit_multiplier=non_time_fixed_op_time_limit_multiplier,
             max_time_per_batch=_max_time_per_batch,
             solver_thread_cnt=solver_thread_cnt,
             use_lns_only=use_lns_only,
             debug_export=debug_export,
             tighten_ranges=tighten_ranges,
-            link_job_completion=link_job_completion,
             error_if_infeasible=error_if_infeasible,
         )
         obj_value = float(result.schedule.makespan)

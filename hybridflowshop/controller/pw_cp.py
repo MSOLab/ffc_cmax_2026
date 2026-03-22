@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 from mbls.cpsat import CpsatSolverReport, CustomCpModel, ObjValueBoundStore
 from ortools.sat.python import cp_model
@@ -13,20 +13,28 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from hybridflowshop.cpsat_model_2.cumulative import (
-    BaseModelBuilder,
-    CumulativeVars,
-)
+from hybridflowshop.cpsat_model_2.cumulative import CumulativeVars, OperationVars
 from hybridflowshop.cpsat_model_2.params import Params
+from hybridflowshop.cpsat_model_2.pw_cp import (
+    DummyBarVars,
+    JobMcType,
+    OperationPartition,
+    PwCpModelBuilder,
+    PwCpVars,
+    create_pw_cp_schedule,
+)
 from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
+    JobIdType,
+    McIdType,
+    OperationType,
+    StageIdType,
 )
 
-OperationRef = tuple[str, str, str]
-HighlightedOperationRef = tuple[str, str]
-StageBoundaryProfile = dict[str, list[int | None]]
-SolvedSlackIntervals = dict[str, list[tuple[str, int, int]]]
+HighlightOperationType = tuple[JobIdType, StageIdType]
+StageBoundaryProfile = dict[StageIdType, list[int | None]]
+SolvedSlackIntervals = dict[StageIdType, list[tuple[JobIdType, int, int]]]
 
 
 class PwCpContext(Protocol):
@@ -60,103 +68,87 @@ class PwCpContext(Protocol):
         self, params: Params, variables: CumulativeVars
     ) -> HybridFlowshopLiteSchedule: ...
 
-    def check_feasibility(
-        self, start_time_map: dict[tuple[str, str, str], int]
-    ) -> float: ...
+    def check_feasibility(self, start_time_map: dict[OperationType, int]) -> float: ...
 
     def get_file_path_for_subroutine(self, suffix: str) -> Path: ...
-
-
-@dataclass(frozen=True)
-class OperationPartition:
-    """
-    Encapsulates the operation partition of PW-CP subproblems.
-
-    Operations are grouped into time-fixed, profile-fixed, unfixed, and
-    right-time-fixed regions around the current batch.
-    """
-
-    left_time_fixed: tuple[OperationRef, ...]
-    left_profile_fixed: tuple[OperationRef, ...]
-    unfixed: tuple[OperationRef, ...]
-    right_profile_fixed: tuple[OperationRef, ...]
-    right_time_fixed: tuple[OperationRef, ...]
-
-    # Boundary profiles (computed during partition creation)
-    right_boundary_profile: StageBoundaryProfile | None = None
-
-    @property
-    def all_operations(self) -> tuple[OperationRef, ...]:
-        """Return all operations in the partition."""
-        return (
-            self.left_time_fixed
-            + self.left_profile_fixed
-            + self.unfixed
-            + self.right_profile_fixed
-            + self.right_time_fixed
-        )
-
-    @property
-    def time_fixed_operations(self) -> tuple[OperationRef, ...]:
-        """Return all operations that should have fixed start times in CP model."""
-        return self.left_time_fixed + self.right_time_fixed
-
-    @property
-    def profile_fixed_operations(self) -> tuple[OperationRef, ...]:
-        """Return all operations that keep precedence but not start times fixed."""
-        return self.left_profile_fixed + self.right_profile_fixed
-
-    @property
-    def slack_occupying_operations(self) -> tuple[OperationRef, ...]:
-        """Return all operations except right-time-fixed ones."""
-        return (
-            self.left_time_fixed
-            + self.left_profile_fixed
-            + self.unfixed
-            + self.right_profile_fixed
-        )
-
-    def promote_job_contained_ops(self) -> OperationPartition:
-        """Promote profile-fixed operations of unfixed jobs into the unfixed set."""
-        unfixed_job_ids = {job_id for job_id, _stage_id, _mc_id in self.unfixed}
-        if not unfixed_job_ids:
-            return self
-
-        promoted_left = tuple(
-            sorted(op for op in self.left_profile_fixed if op[0] not in unfixed_job_ids)
-        )
-        promoted_right = tuple(
-            sorted(
-                op for op in self.right_profile_fixed if op[0] not in unfixed_job_ids
-            )
-        )
-        promoted_unfixed = tuple(
-            sorted(
-                self.unfixed
-                + tuple(
-                    op
-                    for op in self.left_profile_fixed + self.right_profile_fixed
-                    if op[0] in unfixed_job_ids
-                )
-            )
-        )
-        return OperationPartition(
-            left_time_fixed=self.left_time_fixed,
-            left_profile_fixed=promoted_left,
-            unfixed=promoted_unfixed,
-            right_profile_fixed=promoted_right,
-            right_time_fixed=self.right_time_fixed,
-            right_boundary_profile=self.right_boundary_profile,
-        )
 
 
 @dataclass(frozen=True)
 class PwCpSubproblemSpec:
     batch_idx: int
     subproblem_idx: int
-    partition: OperationPartition
-    right_boundary_profile: StageBoundaryProfile
+    stage_2_partition: Mapping[StageIdType, OperationPartition]
+    stage_2_mc_2_window: dict[StageIdType, dict[McIdType, tuple[int, int]]]
+    init_schedule: HybridFlowshopLiteSchedule
     is_last_batch: bool
+
+    @property
+    def left_time_fixed_op_set(self) -> set[JobMcType]:
+        return set(
+            op
+            for partition in self.stage_2_partition.values()
+            for op in partition.left_time_fixed
+        )
+
+    @property
+    def left_profile_fixed_op_set(self) -> set[JobMcType]:
+        return set(
+            op
+            for partition in self.stage_2_partition.values()
+            for op in partition.left_profile_fixed
+        )
+
+    @property
+    def unfixed_op_set(self) -> set[JobMcType]:
+        return set(
+            op
+            for partition in self.stage_2_partition.values()
+            for op in partition.unfixed
+        )
+
+    @property
+    def right_profile_fixed_op_set(self) -> set[JobMcType]:
+        return set(
+            op
+            for partition in self.stage_2_partition.values()
+            for op in partition.right_profile_fixed
+        )
+
+    @property
+    def right_time_fixed_op_set(self) -> set[JobMcType]:
+        return set(
+            op
+            for partition in self.stage_2_partition.values()
+            for op in partition.right_time_fixed
+        )
+
+    @property
+    def is_right_time_fixed_empty(self) -> bool:
+        """True if no right-time-fixed operations exist."""
+        return len(self.right_time_fixed_op_set) == 0
+
+    @property
+    def time_fixed_op_set(self) -> set[JobMcType]:
+        return set(
+            op
+            for partition in self.stage_2_partition.values()
+            for op in partition.time_fixed
+        )
+
+    @property
+    def profile_fixed_op_set(self) -> set[JobMcType]:
+        return set(
+            op
+            for partition in self.stage_2_partition.values()
+            for op in partition.profile_fixed
+        )
+
+    @property
+    def non_time_fixed_op_count(self) -> int:
+        return sum(
+            len(partition.non_time_fixed)
+            for partition in self.stage_2_partition.values()
+        )
 
 
 @dataclass(frozen=True)
@@ -255,7 +247,7 @@ class PwCpResult:
 class PwCpConstructor:
     def __init__(self, ctx: PwCpContext):
         self.ctx = ctx
-        self.builder = BaseModelBuilder()
+        self.builder = PwCpModelBuilder
         self._st: PwCpRunState | None = None
 
     def _require_state(self) -> PwCpRunState:
@@ -265,14 +257,14 @@ class PwCpConstructor:
 
     @staticmethod
     def _resolve_batch_time_limit(
-        partition: OperationPartition,
-        unfixed_op_time_limit_multiplier: float | None,
+        non_time_fixed_op_count: int,
+        non_time_fixed_op_time_limit_multiplier: float | None,
         max_time_per_batch: float | None,
     ) -> float | None:
-        if unfixed_op_time_limit_multiplier is not None:
-            if unfixed_op_time_limit_multiplier <= 0:
-                raise ValueError("unfixed_op_time_limit_multiplier must be > 0")
-            return len(partition.unfixed) * unfixed_op_time_limit_multiplier
+        if non_time_fixed_op_time_limit_multiplier is not None:
+            if non_time_fixed_op_time_limit_multiplier <= 0:
+                raise ValueError("non_time_fixed_op_time_limit_multiplier must be > 0")
+            return non_time_fixed_op_count * non_time_fixed_op_time_limit_multiplier
         return max_time_per_batch
 
     def run(
@@ -286,23 +278,22 @@ class PwCpConstructor:
         enable_promotion_profile_fixed: bool = False,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
-        unfixed_op_time_limit_multiplier: float | None = None,
+        non_time_fixed_op_time_limit_multiplier: float | None = None,
         max_time_per_batch: float | None = None,
         solver_thread_cnt: int | None = None,
         use_lns_only: bool = False,
         debug_export: bool = False,
         tighten_ranges: bool = False,
-        link_job_completion: bool = False,
         error_if_infeasible: bool = False,
     ) -> PwCpResult:
         timer = ElapsedTimer()
         if solver_thread_cnt is None:
             solver_thread_cnt = 1
         if (
-            unfixed_op_time_limit_multiplier is not None
-            and unfixed_op_time_limit_multiplier <= 0
+            non_time_fixed_op_time_limit_multiplier is not None
+            and non_time_fixed_op_time_limit_multiplier <= 0
         ):
-            raise ValueError("unfixed_op_time_limit_multiplier must be > 0")
+            raise ValueError("non_time_fixed_op_time_limit_multiplier must be > 0")
 
         sub_obj_store = ObjValueBoundStore[int]()
         sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
@@ -321,7 +312,7 @@ class PwCpConstructor:
             subproblem_logs=[],
             max_time_per_batch=(
                 None
-                if unfixed_op_time_limit_multiplier is not None
+                if non_time_fixed_op_time_limit_multiplier is not None
                 else max_time_per_batch
             ),
         )
@@ -354,65 +345,85 @@ class PwCpConstructor:
                         f"initial={max_batch_cnt}, current={current_max_batch_cnt}."
                     )
 
-                partition, right_justified_sched = self._build_operation_partition(
-                    current_batches,
-                    ref_schedule.stages,
-                    batch_idx,
-                    incumbent=st.incumbent,
-                    stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                    left_profile_fixed_batch_count=left_profile_fixed_batch_count,
-                    right_profile_fixed_batch_count=right_profile_fixed_batch_count,
-                )
-                if enable_promotion_profile_fixed:
-                    partition = partition.promote_job_contained_ops()
-
-                batch_time_limit = self._resolve_batch_time_limit(
-                    partition=partition,
-                    max_time_per_batch=max_time_per_batch,
-                    unfixed_op_time_limit_multiplier=unfixed_op_time_limit_multiplier,
-                )
-                timelimit = self.ctx.get_remaining_time_limit(batch_time_limit)
-                if timelimit <= 0:
-                    logging.info(
-                        "PW-CP time limit exhausted before batch %d.",
-                        batch_idx + 1,
+                # Step 1: Build partition
+                stage_2_partition: dict[str, OperationPartition] = {}
+                for stage_id in ref_schedule.stages:
+                    current_batch = current_batches[stage_id]
+                    stage_2_partition[stage_id] = self._build_operation_partition(
+                        current_batch,
+                        stage_id,
+                        batch_idx,
+                        left_profile_fixed_batch_count=left_profile_fixed_batch_count,
+                        right_profile_fixed_batch_count=right_profile_fixed_batch_count,
                     )
-                    break
+                if enable_promotion_profile_fixed:
+                    unfixed_job_set = set(
+                        job_id
+                        for partition in stage_2_partition.values()
+                        for job_id in partition.unfixed_jobs
+                    )
+                    for stage_id, partition in stage_2_partition.items():
+                        stage_2_partition[stage_id] = partition.promote_job_contained_ops(
+                            promoted_job_id_set=unfixed_job_set
+                        )
 
-                spec = self._build_subproblem_spec(
+                # Determine if this is a makespan batch (no right-time-fixed ops)
+                has_right_time_fixed = any(
+                    len(partition.right_time_fixed) > 0
+                    for partition in stage_2_partition.values()
+                )
+                spec = self._build_batch_spec(
                     incumbent=st.incumbent,
+                    stage_2_partition=stage_2_partition,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                    partition=partition,
                     batch_idx=batch_idx,
                     max_batch_cnt=max_batch_cnt,
                 )
-                candidate = self._solve_subproblem(
-                    spec=spec,
-                    incumbent=st.incumbent,
-                    right_justified_schedule=right_justified_sched,
-                    instance=instance,
-                    stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                    profile_fix_by_machine=profile_fix_by_machine,
-                    machine_precedence_stride=machine_precedence_stride,
-                    max_time_per_batch=batch_time_limit,
-                    solver_thread_cnt=solver_thread_cnt,
-                    use_lns_only=use_lns_only,
-                    tighten_ranges=tighten_ranges,
-                    link_job_completion=link_job_completion,
-                    debug_export=debug_export,
+
+                batch_time_limit = self._resolve_batch_time_limit(
+                    spec.non_time_fixed_op_count,
+                    max_time_per_batch=max_time_per_batch,
+                    non_time_fixed_op_time_limit_multiplier=non_time_fixed_op_time_limit_multiplier,
                 )
 
-                accepted = False
-                if candidate is not None and candidate.makespan < st.incumbent.makespan:
-                    try:
-                        self.ctx.check_feasibility(candidate.get_jik_2_start_time_map())
-                    except Exception:
-                        logging.exception("PW-CP candidate failed feasibility check.")
-                    else:
-                        st.incumbent = candidate
-                        accepted = True
+                if not has_right_time_fixed:
+                    logging.info(
+                        "Processing makespan batch %d/%d: no right-time-fixed operations, "
+                        "switching to makespan minimization.",
+                        batch_idx + 1,
+                        max_batch_cnt,
+                    )
+                    candidate = self._solve_makespan_batch(
+                        spec=spec,
+                        instance=instance,
+                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                        profile_fix_by_machine=profile_fix_by_machine,
+                        machine_precedence_stride=machine_precedence_stride,
+                        max_time_per_batch=batch_time_limit,
+                        solver_thread_cnt=solver_thread_cnt,
+                        use_lns_only=use_lns_only,
+                        tighten_ranges=tighten_ranges,
+                        debug_export=debug_export,
+                    )
                 else:
-                    st.incumbent.make_semi_active(stage_2_job_2_p_dict)
+                    candidate = self._solve_slack_batch(
+                        spec=spec,
+                        instance=instance,
+                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                        profile_fix_by_machine=profile_fix_by_machine,
+                        machine_precedence_stride=machine_precedence_stride,
+                        max_time_per_batch=batch_time_limit,
+                        solver_thread_cnt=solver_thread_cnt,
+                        use_lns_only=use_lns_only,
+                        tighten_ranges=tighten_ranges,
+                        debug_export=debug_export,
+                    )
+
+                st.incumbent, accepted = self._accept_candidate_or_repair_incumbent(
+                    candidate=candidate,
+                    incumbent=st.incumbent,
+                    stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                )
 
                 if debug_export and batch_idx < max_batch_cnt:
                     self._save_solution_dict(spec, st.incumbent, accepted=accepted)
@@ -446,7 +457,7 @@ class PwCpConstructor:
         schedule: HybridFlowshopLiteSchedule,
         batch_size: int,
         sort_by_start_time: bool = False,
-    ) -> dict[str, list[tuple[OperationRef, ...]]]:
+    ) -> dict[StageIdType, list[tuple[JobMcType, ...]]]:
         """Builds batches of operations for each stage.
 
         Operations within each stage are sorted before batching. The sorting
@@ -467,7 +478,7 @@ class PwCpConstructor:
 
         Returns:
             A dictionary mapping stage_id to a list of batches, where each batch
-            is a tuple of operation references (job_id, stage_id, machine_id).
+            is a tuple of operation references (job_id, machine_id).
 
         Example:
             With operations:
@@ -478,7 +489,7 @@ class PwCpConstructor:
             sort_by_start_time=False -> order: B, A (by midpoint: 45 < 50)
         """
         _batch_size = max(1, batch_size)
-        stage_2_batches: dict[str, list[tuple[OperationRef, ...]]] = {}
+        stage_2_batches: dict[StageIdType, list[tuple[JobMcType, ...]]] = {}
         for stage_id in schedule.stages:
             ops = sorted(
                 (
@@ -495,70 +506,171 @@ class PwCpConstructor:
             )
             stage_2_batches[stage_id] = [
                 tuple(
-                    (job_id, stage_id, mc_id)
+                    (job_id, mc_id)
                     for job_id, _, mc_id, _, _ in ops[idx : idx + _batch_size]
                 )
                 for idx in range(0, len(ops), _batch_size)
             ]
         return stage_2_batches
 
+    def _build_operation_partition(
+        self,
+        batches: list[tuple[JobMcType, ...]],
+        stage_id: StageIdType,
+        current_batch_idx: int,
+        left_profile_fixed_batch_count: int = 0,
+        right_profile_fixed_batch_count: int = 0,
+    ) -> OperationPartition:
+        """
+        Build operation partition based on batch indices.
+
+        Partitioning rule:
+        - left_time_fixed: sufficiently earlier batches
+        - left_profile_fixed: immediately preceding batches
+        - unfixed: operations from batch at current_batch_idx
+        - right_profile_fixed: immediately following batches
+        - right_time_fixed: sufficiently later batches
+
+        This leverages the existing time-based sorting in _build_stage_batches,
+        where batch_idx=0 contains earliest operations and higher indices contain
+        later operations.
+        """
+        l_tf_ops: list[JobMcType] = []
+        l_pf_ops: list[JobMcType] = []
+        unfixed_ops: list[JobMcType] = []
+        r_pf_ops: list[JobMcType] = []
+        r_tf_ops: list[JobMcType] = []
+
+        for idx, batch in enumerate(batches):
+            if idx < current_batch_idx - left_profile_fixed_batch_count:
+                l_tf_ops.extend(batch)
+            elif idx < current_batch_idx:
+                l_pf_ops.extend(batch)
+            elif idx == current_batch_idx:
+                unfixed_ops.extend(batch)
+            elif idx <= current_batch_idx + right_profile_fixed_batch_count:
+                r_pf_ops.extend(batch)
+            else:
+                r_tf_ops.extend(batch)
+
+        return OperationPartition(
+            left_time_fixed=tuple(sorted(l_tf_ops)),
+            left_profile_fixed=tuple(sorted(l_pf_ops)),
+            unfixed=tuple(sorted(unfixed_ops)),
+            right_profile_fixed=tuple(sorted(r_pf_ops)),
+            right_time_fixed=tuple(sorted(r_tf_ops)),
+        )
+
+    def _build_window_map(
+        self,
+        right_justified_schedule: HybridFlowshopLiteSchedule,
+        stage_2_partition: Mapping[StageIdType, OperationPartition],
+        stage_2_job_2_p_dict: dict[StageIdType, dict[JobIdType, int]],
+    ) -> dict[StageIdType, dict[McIdType, tuple[int, int]]]:
+        """
+        Builds the window map for each machine
+        based on the right-justified schedule and operation partition.
+
+        Returns:
+            dict[str, dict[str, tuple[int, int]]]: stage_id -> mc_id -> (left_boundary, right_boundary)
+        """
+        start_map = right_justified_schedule.get_jik_2_start_time_map()
+        end_map = right_justified_schedule.get_jik_2_end_time_map()
+
+        # Machine boundaries (nested dict: stage_id -> machine_idx -> (left, right))
+        horizon = int(right_justified_schedule.makespan)
+        stage_2_mc_2_window: dict[str, dict[str, tuple[int, int]]] = {}
+
+        for stage_id in right_justified_schedule.stages:
+            partition = stage_2_partition[stage_id]
+            stage_2_mc_2_window[stage_id] = {}
+            for mc_id in right_justified_schedule.machines_per_stage[stage_id]:
+                # right_boundary: min start time of right_time_fixed ops on this machine
+                stage_r_tf_ops = [
+                    (job_id, stage_id, op_mc_id)
+                    for job_id, op_mc_id in partition.right_time_fixed
+                    if op_mc_id == mc_id
+                ]
+                machine_right_starts = [start_map[op] for op in stage_r_tf_ops]
+                right_boundary = (
+                    min(machine_right_starts) if machine_right_starts else horizon
+                )
+
+                # left_boundary: max end time of left_time_fixed ops on this machine
+                stage_l_tf_ops = [
+                    (job_id, stage_id, op_mc_id)
+                    for job_id, op_mc_id in partition.left_time_fixed
+                    if op_mc_id == mc_id
+                ]
+                left_boundary = (
+                    max(end_map[op] for op in stage_l_tf_ops) if stage_l_tf_ops else 0
+                )
+
+                stage_2_mc_2_window[stage_id][mc_id] = (left_boundary, right_boundary)
+
+        return stage_2_mc_2_window
+
     def _build_subproblem_spec(
         self,
-        incumbent: HybridFlowshopLiteSchedule,
-        stage_2_job_2_p_dict: dict[str, dict[str, int]],
-        partition: OperationPartition,
+        stage_2_partition: Mapping[str, OperationPartition],
+        stage_2_mc_2_window: dict[str, dict[str, tuple[int, int]]],
+        init_schedule: HybridFlowshopLiteSchedule,
         batch_idx: int,
         max_batch_cnt: int,
     ) -> PwCpSubproblemSpec:
         st = self._require_state()
         st.subproblem_idx += 1
 
-        # Profiles are now computed during partition creation
-        assert partition.right_boundary_profile is not None, "Right profile must be set"
         return PwCpSubproblemSpec(
             batch_idx=batch_idx,
             subproblem_idx=st.subproblem_idx,
-            partition=partition,
-            right_boundary_profile=partition.right_boundary_profile,
+            stage_2_partition=stage_2_partition,
+            stage_2_mc_2_window=stage_2_mc_2_window,
+            init_schedule=init_schedule,
             is_last_batch=(batch_idx == max_batch_cnt - 1),
         )
 
-    def _build_right_boundary_profile(
+    def _build_batch_spec(
         self,
         incumbent: HybridFlowshopLiteSchedule,
-        all_ops: list[OperationRef],
-        l_tf_ops: list[OperationRef],
-        r_tf_ops: list[OperationRef],
+        stage_2_partition: Mapping[str, OperationPartition],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
-    ) -> tuple[StageBoundaryProfile, HybridFlowshopLiteSchedule]:
-        shifted = incumbent.deepcopy()
-        r_justified_op_set = set(all_ops) - set(l_tf_ops)
-        shifted.make_right_justified(
-            stage_2_job_2_p_dict,
-            operation_set=r_justified_op_set,
+        batch_idx: int,
+        max_batch_cnt: int,
+    ) -> PwCpSubproblemSpec:
+        # Check if right-time-fixed is empty - if so, no window needed (makespan batch)
+        has_right_time_fixed = any(
+            len(partition.right_time_fixed) > 0
+            for partition in stage_2_partition.values()
         )
-        start_map = shifted.get_jik_2_start_time_map()
-        right_boundary_profile: StageBoundaryProfile = {}
-        for stage_id in shifted.stages:
-            stage_right_ops = [
-                (job_id, mc_id)
-                for job_id, op_stage_id, mc_id in r_tf_ops
-                if op_stage_id == stage_id
-            ]
-            stage_boundaries: list[int] = []
 
-            for mc_id in shifted.machines_per_stage[stage_id]:
-                machine_starts = [
-                    int(start_map[job_id, stage_id, op_mc_id])
-                    for job_id, op_mc_id in stage_right_ops
-                    if op_mc_id == mc_id
-                ]
-                stage_boundaries.append(
-                    min(machine_starts) if machine_starts else None
-                )
+        init_schedule = incumbent.deepcopy()
+        if has_right_time_fixed:
+            # Slack batch: proceed with right-justification
+            non_ltf_op_set: set[tuple[JobIdType, StageIdType, McIdType]] = set()
+            for stage_id, partition in stage_2_partition.items():
+                for job_id, mc_id in partition.non_left_time_fixed:
+                    non_ltf_op_set.add((job_id, stage_id, mc_id))
+            init_schedule.make_right_justified(
+                stage_2_job_2_p_dict,
+                operation_set=non_ltf_op_set,
+            )
+        else:
+            # Makespan batch: no need for right-justification
+            pass
 
-            right_boundary_profile[stage_id] = stage_boundaries
-        return right_boundary_profile, shifted
+        stage_2_mc_2_window = self._build_window_map(
+            init_schedule,
+            stage_2_partition,
+            stage_2_job_2_p_dict,
+        )
+        return self._build_subproblem_spec(
+            stage_2_partition=stage_2_partition,
+            stage_2_mc_2_window=stage_2_mc_2_window,
+            init_schedule=init_schedule,
+            batch_idx=batch_idx,
+            max_batch_cnt=max_batch_cnt,
+        )
 
     @staticmethod
     def _normalize_for_yaml(value):
@@ -575,22 +687,231 @@ class PwCpConstructor:
 
     @staticmethod
     def _build_highlight_ops(
-        unfixed_ops: tuple[OperationRef, ...],
-    ) -> list[HighlightedOperationRef]:
-        highlight_ops: list[HighlightedOperationRef] = []
-        seen: set[HighlightedOperationRef] = set()
-        for job_id, stage_id, _machine_id in unfixed_ops:
-            op_ref = (job_id, stage_id)
-            if op_ref not in seen:
-                seen.add(op_ref)
-                highlight_ops.append(op_ref)
+        stage_2_partition: Mapping[str, OperationPartition],
+    ) -> list[HighlightOperationType]:
+        highlight_ops: list[HighlightOperationType] = []
+        seen: set[HighlightOperationType] = set()
+        for stage_id, partition in stage_2_partition.items():
+            for job_id, mc_id in partition.unfixed:
+                op_ref = (job_id, stage_id)
+                if op_ref not in seen:
+                    seen.add(op_ref)
+                    highlight_ops.append(op_ref)
         return highlight_ops
 
-    def _solve_subproblem(
+    def _prepare_pw_cp_model(
         self,
         spec: PwCpSubproblemSpec,
-        incumbent: HybridFlowshopLiteSchedule,
-        right_justified_schedule: HybridFlowshopLiteSchedule,
+        instance: HybridFlowshopParameters,
+        profile_fix_by_machine: bool,
+        machine_precedence_stride: int,
+        tighten_ranges: bool = False,
+    ) -> tuple[CustomCpModel, Params, PwCpVars]:
+        horizon = spec.init_schedule.makespan
+        mdl = CustomCpModel()
+
+        # Parameters
+        params: Params = self.builder.make_params(instance)
+
+        # Variables
+        non_time_fixed_vars: OperationVars = self.builder.make_non_time_fixed_ops_vars(
+            mdl,
+            params,
+            spec.init_schedule.makespan,
+            spec.stage_2_partition,
+            tighten_ranges=tighten_ranges,
+        )
+        dummy_bar_vars: DummyBarVars = self.builder.make_dummy_bar_vars(
+            mdl, params, horizon, spec.stage_2_mc_2_window
+        )
+        # Constraints
+        self.builder.add_non_fixed_job_precedence_constraints(
+            mdl,
+            params,
+            spec.stage_2_partition,
+            spec.init_schedule,
+            spec.stage_2_mc_2_window,
+            non_time_fixed_vars,
+        )
+        self.builder.add_capacity_with_dummy_bar_constraints(
+            mdl, params, spec.stage_2_partition, non_time_fixed_vars, dummy_bar_vars
+        )
+
+        # Hints
+        hint_schedule = spec.init_schedule
+        ntf_op_set: set[OperationType] = set()
+        for stage_id, partition in spec.stage_2_partition.items():
+            for job_mc_id in partition.non_time_fixed:
+                ntf_op_set.add((job_mc_id[0], stage_id, job_mc_id[1]))
+
+        all_start_time_map = hint_schedule.get_jik_2_start_time_map()
+        ntf_start_time_map = {op: all_start_time_map[op] for op in ntf_op_set}
+        all_end_time_map = hint_schedule.get_jik_2_end_time_map()
+        ntf_end_time_map = {op: all_end_time_map[op] for op in ntf_op_set}
+
+        self.builder.apply_start_hints_from_start_time_map(
+            mdl, params, non_time_fixed_vars, ntf_start_time_map
+        )
+        self.builder.apply_end_hints_from_end_time_map(
+            mdl, params, non_time_fixed_vars, ntf_end_time_map
+        )
+
+        # Profile-fixed precedence constraints
+        profile_fixed_op_set: set[JobMcType] = spec.profile_fixed_op_set
+        if profile_fixed_op_set:
+            removed_ops: set[OperationType] = set()
+            for stage_id, partition in spec.stage_2_partition.items():
+                for job_mc_id in partition.non_profile_fixed:
+                    removed_ops.add((job_mc_id[0], stage_id, job_mc_id[1]))
+
+            profile_fixed_schedule = spec.init_schedule.deepcopy()
+            profile_fixed_schedule.remove_operations(removed_ops)
+            self.builder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                mdl,
+                params,
+                non_time_fixed_vars,
+                profile_fixed_schedule,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            )
+
+        # Objective
+        self.builder.add_common_spacing_objective(mdl, dummy_bar_vars)
+
+        pw_cp_vars = PwCpVars(
+            op_start=non_time_fixed_vars.op_start,
+            op_end=non_time_fixed_vars.op_end,
+            op_intvl=non_time_fixed_vars.op_intvl,
+            left_bar_interval=dummy_bar_vars.left_bar_interval,
+            left_bar_end=dummy_bar_vars.left_bar_end,
+            right_bar_interval=dummy_bar_vars.right_bar_interval,
+            right_bar_init_start=dummy_bar_vars.right_bar_init_start,
+            common_spacing=dummy_bar_vars.common_spacing,
+        )
+        return mdl, params, pw_cp_vars
+
+    def _prepare_makespan_batch_model(
+        self,
+        spec: PwCpSubproblemSpec,
+        instance: HybridFlowshopParameters,
+        profile_fix_by_machine: bool,
+        machine_precedence_stride: int,
+        tighten_ranges: bool = False,
+    ) -> tuple[CustomCpModel, Params, PwCpVars]:
+        """Prepare CP model for makespan minimization batch.
+
+        Unlike slack batches:
+        - Uses left dummy bars (to respect left-time-fixed)
+        - Does NOT use right dummy bars or window constraints
+        - Minimizes makespan instead of maximizing common_spacing
+
+        Unlike full problem:
+        - Only optimizes non-time-fixed operations
+        - Profile-fixed operations provide precedence constraints
+        """
+        horizon = spec.init_schedule.makespan
+        mdl = CustomCpModel()
+
+        # Parameters
+        params: Params = self.builder.make_params(instance)
+        last_stage_id = params.i_list[-1]
+
+        # Validate: must have non-time-fixed operations in last stage
+        if not spec.stage_2_partition[last_stage_id].non_time_fixed:
+            raise ValueError(
+                "Makespan batch requires at least one non-time-fixed operation in the last stage. "
+                f"Got {len(spec.stage_2_partition[last_stage_id].non_time_fixed)} ops. Check partition logic."
+            )
+
+        # Variables
+        non_time_fixed_vars: OperationVars = self.builder.make_non_time_fixed_ops_vars(
+            mdl,
+            params,
+            horizon,
+            spec.stage_2_partition,
+            tighten_ranges=tighten_ranges,
+        )
+        dummy_bar_vars: DummyBarVars = self.builder.make_dummy_bar_vars(
+            mdl, params, horizon, spec.stage_2_mc_2_window
+        )
+        # Constraints
+        self.builder.add_non_fixed_job_precedence_constraints(
+            mdl,
+            params,
+            spec.stage_2_partition,
+            spec.init_schedule,
+            spec.stage_2_mc_2_window,
+            non_time_fixed_vars,
+        )
+        self.builder.add_capacity_with_dummy_bar_constraints(
+            mdl, params, spec.stage_2_partition, non_time_fixed_vars, dummy_bar_vars
+        )
+
+        # Hints
+        hint_schedule = spec.init_schedule
+        ntf_op_set: set[OperationType] = set()
+        for stage_id, partition in spec.stage_2_partition.items():
+            for job_mc_id in partition.non_time_fixed:
+                ntf_op_set.add((job_mc_id[0], stage_id, job_mc_id[1]))
+
+        all_start_time_map = hint_schedule.get_jik_2_start_time_map()
+        ntf_start_time_map = {op: all_start_time_map[op] for op in ntf_op_set}
+        all_end_time_map = hint_schedule.get_jik_2_end_time_map()
+        ntf_end_time_map = {op: all_end_time_map[op] for op in ntf_op_set}
+
+        self.builder.apply_start_hints_from_start_time_map(
+            mdl, params, non_time_fixed_vars, ntf_start_time_map
+        )
+        self.builder.apply_end_hints_from_end_time_map(
+            mdl, params, non_time_fixed_vars, ntf_end_time_map
+        )
+
+        # Profile-fixed precedence constraints (from initial schedule)
+        profile_fixed_op_set: set[JobMcType] = spec.profile_fixed_op_set
+        if profile_fixed_op_set:
+            removed_ops: set[OperationType] = set()
+            for stage_id, partition in spec.stage_2_partition.items():
+                for job_mc_id in partition.non_profile_fixed:
+                    removed_ops.add((job_mc_id[0], stage_id, job_mc_id[1]))
+
+            profile_fixed_schedule = spec.init_schedule.deepcopy()
+            profile_fixed_schedule.remove_operations(removed_ops)
+            self.builder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+                mdl,
+                params,
+                non_time_fixed_vars,
+                profile_fixed_schedule,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            )
+
+        # Objective
+        makespan_var = self.builder.add_makespan_objective(
+            mdl,
+            horizon,
+            last_stage_id,
+            spec.stage_2_partition[last_stage_id],
+            non_time_fixed_vars,
+        )
+
+        # Build PwCpVars (exclude right_bar vars as they're not used)
+        pw_cp_vars = PwCpVars(
+            op_start=non_time_fixed_vars.op_start,
+            op_end=non_time_fixed_vars.op_end,
+            op_intvl=non_time_fixed_vars.op_intvl,
+            left_bar_interval=dummy_bar_vars.left_bar_interval,
+            left_bar_end=dummy_bar_vars.left_bar_end,
+            right_bar_interval={},
+            right_bar_init_start={},
+            common_spacing=dummy_bar_vars.common_spacing,
+            makespan=makespan_var,
+        )
+
+        return mdl, params, pw_cp_vars
+
+    def _solve_slack_batch(
+        self,
+        spec: PwCpSubproblemSpec,
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool,
@@ -599,670 +920,212 @@ class PwCpConstructor:
         solver_thread_cnt: int,
         use_lns_only: bool,
         tighten_ranges: bool,
-        link_job_completion: bool,
         debug_export: bool,
     ) -> HybridFlowshopLiteSchedule | None:
         _timer = ElapsedTimer()
-        incumbent_obj = int(incumbent.makespan)
+        incumbent_obj = int(spec.init_schedule.makespan)
         logging.info(
-            "PW-CP subproblem (batch=%d, subproblem=%d) starting. "
+            "PW-CP slack subproblem (batch=%d, subproblem=%d) starting. "
             "Incumbent makespan=%d, unfixed ops=%d, time_fixed ops=%d.",
             spec.batch_idx + 1,
             spec.subproblem_idx,
             incumbent_obj,
-            len(spec.partition.unfixed),
-            len(spec.partition.time_fixed_operations),
+            len(spec.unfixed_op_set),
+            len(spec.time_fixed_op_set),
         )
-        mdl = CustomCpModel()
-        params: Params = BaseModelBuilder._make_params(instance)
-        variables: CumulativeVars = BaseModelBuilder._make_vars(
-            mdl, params, incumbent.makespan, tighten_ranges=tighten_ranges
+        mdl, params, variables = self._prepare_pw_cp_model(
+            spec=spec,
+            instance=instance,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+            tighten_ranges=tighten_ranges,
         )
-        if link_job_completion:
-            BaseModelBuilder._add_job_completion_link_constraints(
-                mdl, params, variables
-            )
+        timelimit = self.ctx.get_remaining_time_limit(max_time_per_batch)
+        logging.info(
+            "Solving non-final batch with common spacing maximization (timelimit=%.2fs).",
+            timelimit,
+        )
+        report = self.ctx.solve_cp_model_2(
+            mdl,
+            timelimit,
+            solver_thread_cnt,
+            e_timer=_timer,
+            obj_value_is_valid=False,
+            obj_bound_is_valid=False,
+            use_lns_only=use_lns_only,
+            log_level_obj_value=logging.NOTSET,
+            log_level_obj_bound=logging.NOTSET,
+            log_search_progress=debug_export,
+            last_timestamp_note=f"batch={spec.batch_idx + 1}",
+        )
 
-        hint_schedule = incumbent if spec.is_last_batch else right_justified_schedule
-        BaseModelBuilder.apply_start_hints_from_start_time_map(
-            mdl, params, variables, hint_schedule.get_jik_2_start_time_map()
+        if not getattr(report, "is_feasible", False):
+            self._append_subproblem_log(
+                spec=spec,
+                report=report,
+                time_limit_sec=timelimit,
+                incumbent_makespan_before=incumbent_obj,
+                candidate_makespan=None,
+                accepted=False,
+            )
+            logging.info(
+                "Non-final batch: no feasible solution found. "
+                "Incumbent makespan=%d remains.",
+                incumbent_obj,
+            )
+            return None
+
+        candidate_schedule = create_pw_cp_schedule(
+            self.ctx.solver,
+            params,
+            spec.stage_2_partition,
+            spec.init_schedule,
+            variables,
         )
-        BaseModelBuilder.apply_end_hints_from_end_time_map(
-            mdl, params, variables, hint_schedule.get_jik_2_end_time_map()
+        candidate_schedule.make_semi_active(stage_2_job_2_p_dict)
+        candidate_obj = int(candidate_schedule.makespan)
+        self._append_subproblem_log(
+            spec=spec,
+            report=report,
+            time_limit_sec=timelimit,
+            incumbent_makespan_before=incumbent_obj,
+            candidate_makespan=candidate_obj,
+            accepted=candidate_obj < incumbent_obj,
+        )
+        logging.info(
+            "Non-final batch: CP solution found. Incumbent makespan=%d, "
+            "CP solution makespan=%d, diff=%d (%.2f%%).",
+            incumbent_obj,
+            candidate_obj,
+            candidate_obj - incumbent_obj,
+            100.0 * (candidate_obj - incumbent_obj) / incumbent_obj
+            if incumbent_obj > 0
+            else 0,
+        )
+        return candidate_schedule
+
+    def _solve_makespan_batch(
+        self,
+        spec: PwCpSubproblemSpec,
+        instance: HybridFlowshopParameters,
+        stage_2_job_2_p_dict: dict[str, dict[str, int]],
+        profile_fix_by_machine: bool,
+        machine_precedence_stride: int,
+        max_time_per_batch: float | None,
+        solver_thread_cnt: int,
+        use_lns_only: bool,
+        tighten_ranges: bool,
+        debug_export: bool,
+    ) -> HybridFlowshopLiteSchedule | None:
+        """Solve a batch with makespan minimization.
+
+        Called when right-time-fixed operations are empty.
+        Optimizes non-time-fixed operations while respecting:
+        - Left-time-fixed operations (via left dummy bars)
+        - Profile-fixed precedence constraints
+        """
+        _timer = ElapsedTimer()
+        incumbent_obj = int(spec.init_schedule.makespan)
+        logging.info(
+            "PW-CP makespan batch (batch=%d, subproblem=%d) starting. "
+            "Incumbent makespan=%d, non-time-fixed ops=%d.",
+            spec.batch_idx + 1,
+            spec.subproblem_idx,
+            incumbent_obj,
+            len(spec.unfixed_op_set | spec.profile_fixed_op_set),
         )
 
-        right_justified_start_map = right_justified_schedule.get_jik_2_start_time_map()
-        frozen_start_time_map = {
-            op: right_justified_start_map[op]
-            for op in spec.partition.time_fixed_operations
-        }
-        BaseModelBuilder.add_start_time_freezed_operation_constraints(
-            mdl, variables, frozen_start_time_map
+        mdl, params, variables = self._prepare_makespan_batch_model(
+            spec=spec,
+            instance=instance,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+            tighten_ranges=tighten_ranges,
         )
-        if spec.partition.profile_fixed_operations:
-            profile_fixed_schedule = incumbent.deepcopy()
-            profile_fixed_schedule.remove_operations(
-                set(profile_fixed_schedule.get_jik_2_start_time_map())
-                - set(spec.partition.profile_fixed_operations)
-            )
-            BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-                mdl,
-                params,
-                variables,
-                profile_fixed_schedule,
-                profile_fix_by_machine=profile_fix_by_machine,
-                machine_precedence_stride=machine_precedence_stride,
-            )
 
         timelimit = self.ctx.get_remaining_time_limit(max_time_per_batch)
-
-        if spec.is_last_batch:
-            # Final batch: solve original problem
-            BaseModelBuilder._add_structural_constraints(mdl, params, variables)
-            BaseModelBuilder._define_objective(mdl, params, variables)
-            mdl.add_hint(variables.makespan, incumbent_obj)
-            logging.info(
-                "Solving final batch with makespan minimization (timelimit=%.2fs).",
-                timelimit,
-            )
-            report = self.ctx.solve_cp_model_2(
-                mdl,
-                timelimit,
-                solver_thread_cnt,
-                e_timer=_timer,
-                obj_value_is_valid=False,
-                obj_bound_is_valid=False,
-                use_lns_only=use_lns_only,
-                log_level_obj_value=logging.NOTSET,
-                log_level_obj_bound=logging.NOTSET,
-                log_search_progress=debug_export,
-                last_timestamp_note=f"batch={spec.batch_idx + 1}",
-            )
-            if not getattr(report, "is_feasible", False):
-                self._append_subproblem_log(
-                    spec=spec,
-                    report=report,
-                    time_limit_sec=timelimit,
-                    incumbent_makespan_before=incumbent_obj,
-                    candidate_makespan=None,
-                    accepted=False,
-                )
-                logging.info(
-                    "Final batch: no feasible solution found. "
-                    "Incumbent makespan=%d remains.",
-                    incumbent_obj,
-                )
-                return None
-
-            candidate_schedule = self.ctx.create_schedule(params, variables)
-            candidate_obj = int(candidate_schedule.makespan)
-            self._append_subproblem_log(
-                spec=spec,
-                report=report,
-                time_limit_sec=timelimit,
-                incumbent_makespan_before=incumbent_obj,
-                candidate_makespan=candidate_obj,
-                accepted=candidate_obj < incumbent_obj,
-            )
-            logging.info(
-                "Final batch: CP solution found. Incumbent makespan=%d, "
-                "CP solution makespan=%d, diff=%d (%.2f%%).",
-                incumbent_obj,
-                candidate_obj,
-                candidate_obj - incumbent_obj,
-                100.0 * (candidate_obj - incumbent_obj) / incumbent_obj
-                if incumbent_obj > 0
-                else 0,
-            )
-            return candidate_schedule
-        else:
-            # Non-final batch: maximize right slack
-            BaseModelBuilder._add_precedence_constraints(mdl, params, variables)
-            slack_vars = BaseModelBuilder.add_right_slack_variables(
-                mdl,
-                params,
-                slack_occupying_ops=spec.partition.slack_occupying_operations,
-                right_boundary_profile=spec.right_boundary_profile,
-                horizon=incumbent.makespan,
-            )
-            BaseModelBuilder.add_right_slack_constraints(
-                mdl,
-                params,
-                variables,
-                slack_occupying_ops=spec.partition.slack_occupying_operations,
-                right_time_fixed_ops=spec.partition.right_time_fixed,
-                right_boundary_profile=spec.right_boundary_profile,
-                slack_vars=slack_vars,
-            )
-            BaseModelBuilder.add_right_slack_objective(
-                mdl,
-                slack_occupying_ops=spec.partition.slack_occupying_operations,
-                slack_vars=slack_vars,
-            )
-            self._apply_right_slack_hints(
-                mdl=mdl,
-                schedule=right_justified_schedule,
-                slack_occupying_ops=spec.partition.slack_occupying_operations,
-                right_boundary_profile=spec.right_boundary_profile,
-                params=params,
-            )
-            mdl.add_hint(variables.makespan, incumbent_obj)
-            logging.info(
-                "Solving non-final batch with right slack maximization (timelimit=%.2fs).",
-                timelimit,
-            )
-            report = self.ctx.solve_cp_model_2(
-                mdl,
-                timelimit,
-                solver_thread_cnt,
-                e_timer=_timer,
-                obj_value_is_valid=False,
-                obj_bound_is_valid=False,
-                use_lns_only=use_lns_only,
-                log_level_obj_value=logging.NOTSET,
-                log_level_obj_bound=logging.NOTSET,
-                log_search_progress=debug_export,
-                last_timestamp_note=f"batch={spec.batch_idx + 1}",
-            )
-            if not getattr(report, "is_feasible", False):
-                self._append_subproblem_log(
-                    spec=spec,
-                    report=report,
-                    time_limit_sec=timelimit,
-                    incumbent_makespan_before=incumbent_obj,
-                    candidate_makespan=None,
-                    accepted=False,
-                )
-                logging.info(
-                    "Non-final batch: no feasible solution found. "
-                    "Incumbent makespan=%d remains.",
-                    incumbent_obj,
-                )
-                return None
-
-            candidate_schedule = self.ctx.create_schedule(params, variables)
-            candidate_before_retiming = candidate_schedule.deepcopy()
-            candidate_after_successor_reassign: HybridFlowshopLiteSchedule | None = None
-            candidate_after_predecessor_reassign: HybridFlowshopLiteSchedule | None = None
-            candidate_after_semi_active: HybridFlowshopLiteSchedule | None = None
-            solved_slack_intervals: SolvedSlackIntervals = {}
-            try:
-                if report.obj_value is None:
-                    raise ValueError(
-                        "Non-final batch feasible solution must report a right-slack objective value."
-                    )
-                if report.obj_value < 0:
-                    raise ValueError(
-                        f"Non-final batch right-slack objective must be >= 0, got {report.obj_value}."
-                    )
-                if report.obj_value > 0:
-                    solved_slack_intervals = self._extract_solved_slack_intervals(
-                        mdl=mdl,
-                        schedule=candidate_schedule,
-                        right_boundary_profile=spec.right_boundary_profile,
-                    )
-                    self._apply_successor_machine_reassignment(
-                        candidate_schedule=candidate_schedule,
-                        solved_slack_intervals=solved_slack_intervals,
-                        right_boundary_profile=spec.right_boundary_profile,
-                        partition=spec.partition,
-                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                    )
-                    candidate_after_successor_reassign = candidate_schedule.deepcopy()
-                    self._apply_predecessor_machine_reassignment(
-                        candidate_schedule=candidate_schedule,
-                        solved_slack_intervals=solved_slack_intervals,
-                        partition=spec.partition,
-                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                    )
-                    candidate_after_predecessor_reassign = candidate_schedule.deepcopy()
-
-                candidate_schedule.make_semi_active(stage_2_job_2_p_dict)
-                candidate_after_semi_active = candidate_schedule.deepcopy()
-            finally:
-                if debug_export:
-                    self._draw_candidate_retiming_gantts(
-                        spec=spec,
-                        before_retiming=candidate_before_retiming,
-                        after_successor_reassign=candidate_after_successor_reassign,
-                        after_predecessor_reassign=candidate_after_predecessor_reassign,
-                        after_semi_active=candidate_after_semi_active,
-                        solved_slack_intervals=solved_slack_intervals,
-                    )
-
-            candidate_obj = int(candidate_schedule.makespan)
-            self._append_subproblem_log(
-                spec=spec,
-                report=report,
-                time_limit_sec=timelimit,
-                incumbent_makespan_before=incumbent_obj,
-                candidate_makespan=candidate_obj,
-                accepted=candidate_obj < incumbent_obj,
-            )
-            logging.info(
-                "Non-final batch: CP solution found. Incumbent makespan=%d, "
-                "CP solution makespan=%d, diff=%d (%.2f%%).",
-                incumbent_obj,
-                candidate_obj,
-                candidate_obj - incumbent_obj,
-                100.0 * (candidate_obj - incumbent_obj) / incumbent_obj
-                if incumbent_obj > 0
-                else 0,
-            )
-            return candidate_schedule
-
-    @staticmethod
-    def _compute_right_slack_values(
-        schedule: HybridFlowshopLiteSchedule,
-        slack_occupying_ops: tuple[OperationRef, ...],
-        right_boundary_profile: StageBoundaryProfile,
-        params: Params,
-    ) -> dict[str, dict[str, int] | dict[str, list[tuple[str, int, int]]]]:
-        """Compute right-slack summaries from a schedule and boundary profile."""
-        stage_2_machine_2_intervals: dict[str, dict[str, list[tuple[int, int]]]] = {}
-        start_time_map = schedule.get_jik_2_start_time_map()
-        end_time_map = schedule.get_jik_2_end_time_map()
-
-        for job_id, stage_id, machine_id in slack_occupying_ops:
-            stage_2_machine_2_intervals.setdefault(stage_id, {}).setdefault(
-                machine_id, []
-            ).append(
-                (
-                    int(start_time_map[job_id, stage_id, machine_id]),
-                    int(end_time_map[job_id, stage_id, machine_id]),
-                )
-            )
-
-        hint_values: dict[str, int] = {}
-        slack_intervals_by_stage: dict[str, list[tuple[str, int, int]]] = {}
-        actual_slack_end_by_stage_machine: dict[tuple[str, int], int] = {}
-        slack_lengths: list[int] = []
-
-        for stage_id, machine_ids in params.M_of.items():
-            machine_2_intervals = stage_2_machine_2_intervals.get(stage_id, {})
-            stage_slack_intervals: list[tuple[str, int, int]] = []
-            for machine_idx, (machine_id, slack_end) in enumerate(
-                zip(machine_ids, right_boundary_profile.get(stage_id, []), strict=False),
-                start=1,
-            ):
-                if slack_end is None:
-                    continue
-                latest_end_before_slack = 0
-                for start, end in machine_2_intervals.get(machine_id, []):
-                    if start < slack_end:
-                        latest_end_before_slack = max(
-                            latest_end_before_slack, min(end, slack_end)
-                        )
-                slack_length = max(0, slack_end - latest_end_before_slack)
-                slack_lengths.append(slack_length)
-                actual_slack_end_by_stage_machine[stage_id, machine_idx] = slack_end
-
-        common_slack_length = min(slack_lengths) if slack_lengths else 0
-
-        for stage_id, machine_ids in params.M_of.items():
-            stage_slack_intervals = []
-            for machine_idx, (machine_id, slack_end) in enumerate(
-                zip(machine_ids, right_boundary_profile.get(stage_id, []), strict=False),
-                start=1,
-            ):
-                del slack_end
-                actual_slack_end = actual_slack_end_by_stage_machine.get(
-                    (stage_id, machine_idx)
-                )
-                if actual_slack_end is None:
-                    continue
-                slack_start = max(0, actual_slack_end - common_slack_length)
-                hint_values[f"slack_start_{stage_id}_{machine_idx}"] = slack_start
-                if common_slack_length > 0:
-                    stage_slack_intervals.append(
-                        (machine_id, slack_start, actual_slack_end)
-                    )
-
-            if stage_slack_intervals:
-                slack_intervals_by_stage[stage_id] = stage_slack_intervals
-
-        hint_values["slack_length"] = common_slack_length
-        return {
-            "hint_values": hint_values,
-            "slack_intervals_by_stage": slack_intervals_by_stage,
-        }
-
-    @staticmethod
-    def _compute_right_slack_hint_values(
-        schedule: HybridFlowshopLiteSchedule,
-        slack_occupying_ops: tuple[OperationRef, ...],
-        right_boundary_profile: StageBoundaryProfile,
-        params: Params,
-    ) -> dict[str, int]:
-        """Compute hint values for right-slack objective auxiliaries."""
-        return PwCpConstructor._compute_right_slack_values(
-            schedule=schedule,
-            slack_occupying_ops=slack_occupying_ops,
-            right_boundary_profile=right_boundary_profile,
-            params=params,
-        )["hint_values"]
-
-    @staticmethod
-    def _apply_right_slack_hints(
-        mdl: CustomCpModel,
-        schedule: HybridFlowshopLiteSchedule,
-        slack_occupying_ops: tuple[OperationRef, ...],
-        right_boundary_profile: StageBoundaryProfile,
-        params: Params,
-    ) -> None:
-        """Apply schedule-derived hints for right-slack auxiliaries by variable name."""
-        hint_values = PwCpConstructor._compute_right_slack_hint_values(
-            schedule=schedule,
-            slack_occupying_ops=slack_occupying_ops,
-            right_boundary_profile=right_boundary_profile,
-            params=params,
+        logging.info(
+            "Solving makespan batch with makespan minimization (timelimit=%.2fs).",
+            timelimit,
         )
-        proto = mdl.Proto()
-        name_to_index = {
-            var.name: var_idx for var_idx, var in enumerate(proto.variables) if var.name
-        }
-        for var_name, value in hint_values.items():
-            var_idx = name_to_index.get(var_name)
-            if var_idx is None:
-                continue
-            mdl.add_hint(mdl.get_int_var_from_proto_index(var_idx), value)
 
-    def _extract_solved_slack_intervals(
-        self,
-        mdl: CustomCpModel,
-        schedule: HybridFlowshopLiteSchedule,
-        right_boundary_profile: StageBoundaryProfile,
-    ) -> SolvedSlackIntervals:
-        """Extract solved slack intervals from the current CP-SAT solution."""
-        try:
-            _ = self.ctx.solver.ResponseProto()
-        except RuntimeError:
-            logging.debug(
-                "Skipping solved slack extraction because the CP solver response "
-                "is unavailable in the current context."
+        report = self.ctx.solve_cp_model_2(
+            mdl,
+            timelimit,
+            solver_thread_cnt,
+            e_timer=_timer,
+            obj_value_is_valid=False,
+            obj_bound_is_valid=False,
+            use_lns_only=use_lns_only,
+            log_level_obj_value=logging.NOTSET,
+            log_level_obj_bound=logging.NOTSET,
+            log_search_progress=debug_export,
+            last_timestamp_note=f"batch={spec.batch_idx + 1}",
+        )
+
+        if not getattr(report, "is_feasible", False):
+            self._append_subproblem_log(
+                spec=spec,
+                report=report,
+                time_limit_sec=timelimit,
+                incumbent_makespan_before=incumbent_obj,
+                candidate_makespan=None,
+                accepted=False,
             )
-            return {}
+            logging.info(
+                "Makespan batch: no feasible solution found. "
+                "Incumbent makespan=%d remains.",
+                incumbent_obj,
+            )
+            return None
 
-        proto = mdl.Proto()
-        name_to_index = {
-            var.name: var_idx for var_idx, var in enumerate(proto.variables) if var.name
-        }
-        solved: SolvedSlackIntervals = {}
+        candidate_schedule = create_pw_cp_schedule(
+            self.ctx.solver,
+            params,
+            spec.stage_2_partition,
+            spec.init_schedule,
+            variables,
+        )
+        candidate_schedule.make_semi_active(stage_2_job_2_p_dict)
+        candidate_obj = int(candidate_schedule.makespan)
 
-        for stage_id, machine_ids in schedule.machines_per_stage.items():
-            slack_end_times = right_boundary_profile.get(stage_id, [])
-            stage_slacks: list[tuple[str, int, int]] = []
-            for machine_idx, machine_id in enumerate(machine_ids, start=1):
-                if machine_idx > len(slack_end_times):
-                    continue
-                slack_end = slack_end_times[machine_idx - 1]
-                if slack_end is None:
-                    continue
-                start_var_idx = name_to_index.get(
-                    f"slack_start_{stage_id}_{machine_idx}"
-                )
-                length_var_idx = name_to_index.get(
-                    "slack_length"
-                )
-                if start_var_idx is None or length_var_idx is None:
-                    continue
+        self._append_subproblem_log(
+            spec=spec,
+            report=report,
+            time_limit_sec=timelimit,
+            incumbent_makespan_before=incumbent_obj,
+            candidate_makespan=candidate_obj,
+            accepted=candidate_obj < incumbent_obj,
+        )
 
-                slack_start = int(
-                    self.ctx.solver.Value(
-                        mdl.get_int_var_from_proto_index(start_var_idx)
-                    )
-                )
-                slack_length = int(
-                    self.ctx.solver.Value(
-                        mdl.get_int_var_from_proto_index(length_var_idx)
-                    )
-                )
-                if slack_length <= 0:
-                    continue
+        logging.info(
+            "Makespan batch: CP solution found. Incumbent makespan=%d, "
+            "CP solution makespan=%d, improvement=%d (%.2f%%).",
+            incumbent_obj,
+            candidate_obj,
+            incumbent_obj - candidate_obj,
+            100.0 * (incumbent_obj - candidate_obj) / incumbent_obj
+            if incumbent_obj > 0
+            else 0,
+        )
 
-                stage_slacks.append((machine_id, slack_start, int(slack_end)))
+        return candidate_schedule
 
-            if stage_slacks:
-                solved[stage_id] = stage_slacks
-
-        return solved
-
-    @staticmethod
-    def _find_job_machine_on_stage(
-        schedule: HybridFlowshopLiteSchedule,
-        stage_id: str,
-        job_id: str,
-    ) -> str | None:
-        for machine_id in schedule.machines_per_stage[stage_id]:
-            for _start_time, _end_time, scheduled_job_id in schedule.get_job_sequence(
-                stage_id, machine_id
-            ):
-                if scheduled_job_id == job_id:
-                    return machine_id
-        return None
-
-    @staticmethod
-    def _find_first_job_on_machine_starting_at_or_after(
-        schedule: HybridFlowshopLiteSchedule,
-        stage_id: str,
-        machine_id: str,
-        time_point: int,
-    ) -> str | None:
-        for start_time, _end_time, job_id in schedule.get_job_sequence(
-            stage_id, machine_id
-        ):
-            if start_time >= time_point:
-                return job_id
-        return None
-
-    def _apply_successor_machine_reassignment(
+    def _accept_candidate_or_repair_incumbent(
         self,
-        candidate_schedule: HybridFlowshopLiteSchedule,
-        solved_slack_intervals: SolvedSlackIntervals,
-        right_boundary_profile: StageBoundaryProfile,
-        partition: OperationPartition,
+        candidate: HybridFlowshopLiteSchedule | None,
+        incumbent: HybridFlowshopLiteSchedule,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
-    ) -> None:
-        """Align stage-local machine assignment with solved CP slack intervals."""
-        del right_boundary_profile
-
-        if not solved_slack_intervals:
-            return
-
-        for stage_id, stage_slacks in solved_slack_intervals.items():
-            sorted_stage_slacks = sorted(
-                stage_slacks,
-                key=lambda slack: (slack[1], slack[2], slack[0]),
-            )
-            for target_machine_id, slack_start, slack_end in sorted_stage_slacks:
-                if slack_end <= slack_start:
-                    continue
-
-                boundary_job_ids: list[str] = []
-                for (
-                    job_id,
-                    op_stage_id,
-                    intended_machine_id,
-                ) in partition.right_time_fixed:
-                    if (
-                        op_stage_id != stage_id
-                        or intended_machine_id != target_machine_id
-                    ):
-                        continue
-                    current_machine_id = self._find_job_machine_on_stage(
-                        candidate_schedule, stage_id, job_id
-                    )
-                    if current_machine_id is None:
-                        continue
-                    for (
-                        start_time,
-                        _end_time,
-                        scheduled_job_id,
-                    ) in candidate_schedule.get_job_sequence(
-                        stage_id, current_machine_id
-                    ):
-                        if scheduled_job_id == job_id and start_time == slack_end:
-                            boundary_job_ids.append(job_id)
-                            break
-
-                if not boundary_job_ids:
-                    if slack_end != candidate_schedule.makespan:
-                        logging.warning(
-                            "PW-CP slack reassignment skipped for %s.%s [%d, %d): "
-                            "no right-boundary job starts at slack_end. "
-                            "Possible mismatch between CP solution and current schedule "
-                            "(slack_end=%d, makespan=%d).",
-                            stage_id,
-                            target_machine_id,
-                            slack_start,
-                            slack_end,
-                            slack_end,
-                            candidate_schedule.makespan,
-                        )
-                    continue
-
-                boundary_job_id = boundary_job_ids[0]
-                current_machine_id = self._find_job_machine_on_stage(
-                    candidate_schedule, stage_id, boundary_job_id
-                )
-                if current_machine_id is None:
-                    raise ValueError(
-                        f"Boundary job {boundary_job_id} not found on stage {stage_id}"
-                    )
-                if current_machine_id == target_machine_id:
-                    logging.debug(
-                        "PW-CP slack reassignment not needed for %s.%s [%d, %d): "
-                        "boundary job %s is already on the intended machine.",
-                        stage_id,
-                        target_machine_id,
-                        slack_start,
-                        slack_end,
-                        boundary_job_id,
-                    )
-                    continue
-
-                target_start_job_id = (
-                    self._find_first_job_on_machine_starting_at_or_after(
-                        candidate_schedule,
-                        stage_id,
-                        target_machine_id,
-                        slack_end,
-                    )
-                )
-                if target_start_job_id is None:
-                    logging.debug(
-                        "PW-CP slack reassignment skipped for %s.%s [%d, %d): "
-                        "target machine has no suffix to exchange.",
-                        stage_id,
-                        target_machine_id,
-                        slack_start,
-                        slack_end,
-                    )
-                    continue
-
-                logging.debug(
-                    "PW-CP swapping suffixes on stage %s: %s.%s -> %s.%s "
-                    "(boundary_job=%s, target_start_job=%s, slack=[%d, %d))",
-                    stage_id,
-                    current_machine_id,
-                    boundary_job_id,
-                    target_machine_id,
-                    target_start_job_id,
-                    boundary_job_id,
-                    target_start_job_id,
-                    slack_start,
-                    slack_end,
-                )
-                from_suffix_job_ids = candidate_schedule.collect_stage_machine_suffix_job_ids(
-                    stage_id, current_machine_id, boundary_job_id
-                )
-                to_suffix_job_ids = candidate_schedule.collect_stage_machine_suffix_job_ids(
-                    stage_id, target_machine_id, target_start_job_id
-                )
-                candidate_schedule.swap_stage_machine_operation_sets(
-                    stage_id=stage_id,
-                    from_machine_id=current_machine_id,
-                    from_job_ids=from_suffix_job_ids,
-                    to_machine_id=target_machine_id,
-                    to_job_ids=to_suffix_job_ids,
-                    stage_2_job_2_duration=stage_2_job_2_p_dict,
-                    do_make_semi_active=False,
-                )
-
-    def _apply_predecessor_machine_reassignment(
-        self,
-        candidate_schedule: HybridFlowshopLiteSchedule,
-        solved_slack_intervals: SolvedSlackIntervals,
-        partition: OperationPartition,
-        stage_2_job_2_p_dict: dict[str, dict[str, int]],
-    ) -> None:
-        if not solved_slack_intervals:
-            return
-
-        right_time_fixed_job_ids_by_stage: dict[str, set[str]] = {}
-        for job_id, stage_id, _machine_id in partition.right_time_fixed:
-            right_time_fixed_job_ids_by_stage.setdefault(stage_id, set()).add(job_id)
-
-        for stage_id in reversed(candidate_schedule.stages):
-            stage_slacks = solved_slack_intervals.get(stage_id)
-            if not stage_slacks:
-                continue
-
-            right_time_fixed_job_ids = right_time_fixed_job_ids_by_stage.get(stage_id, set())
-            target_machine_ids = {machine_id for machine_id, _slack_start, _slack_end in stage_slacks}
-            stage_job_infos: list[tuple[str, int, int, str]] = []
-            removed_ops: set[tuple[str, str, str]] = set()
-            for machine_id, start_time, end_time, job_id in candidate_schedule.iter_operations_on_stage(
-                stage_id
-            ):
-                del start_time
-                if machine_id not in target_machine_ids:
-                    continue
-                if job_id in right_time_fixed_job_ids:
-                    continue
-                stage_job_infos.append(
-                    (
-                        job_id,
-                        end_time,
-                        stage_2_job_2_p_dict[stage_id][job_id],
-                        machine_id,
-                    )
-                )
-                removed_ops.add((job_id, stage_id, machine_id))
-
-            if not stage_job_infos:
-                logging.debug(
-                    "PW-CP predecessor reassignment skipped for %s: "
-                    "no non-right-time-fixed operations found.",
-                    stage_id,
-                )
-                continue
-
-            # Sort by end_time primarily (descending), then by duration (descending), then by job_id (ascending)
-            job_id_seq = [
-                job_id
-                for job_id, _end_time, _duration, _ in sorted(
-                    stage_job_infos,
-                    key=lambda item: (-item[1], -item[2], item[0]),
-                )
-            ]
-            job_2_deadline = {
-                job_id: end_time
-                for job_id, end_time, _, _ in stage_job_infos
-            }
-            mc_2_lct = {
-                machine_id: slack_start
-                for machine_id, slack_start, _slack_end in stage_slacks
-            }
-
-            candidate_schedule.remove_operations(removed_ops)
-            candidate_schedule.dispatch_stage_reversed_by_jobs(
-                stage_id=stage_id,
-                job_id_seq=job_id_seq,
-                job_2_duration=stage_2_job_2_p_dict[stage_id],
-                mc_2_lct=mc_2_lct,
-                job_2_deadline=job_2_deadline,
-            )
+    ) -> tuple[HybridFlowshopLiteSchedule, bool]:
+        if candidate is not None and candidate.makespan < incumbent.makespan:
+            try:
+                self.ctx.check_feasibility(candidate.get_jik_2_start_time_map())
+            except Exception:
+                logging.exception("PW-CP candidate failed feasibility check.")
+            else:
+                return candidate, True
+        incumbent.make_semi_active(stage_2_job_2_p_dict)
+        return incumbent, False
 
     def _append_subproblem_log(
         self,
@@ -1278,7 +1141,7 @@ class PwCpConstructor:
                 batch_idx=spec.batch_idx,
                 subproblem_idx=spec.subproblem_idx,
                 is_last_batch=spec.is_last_batch,
-                objective_name=("makespan" if spec.is_last_batch else "right_slack"),
+                objective_name=("makespan" if spec.is_last_batch else "common_spacing"),
                 time_limit_sec=time_limit_sec,
                 elapsed_time_sec=report.elapsed_time,
                 status=report.status.to_solver_status_enum().value,
@@ -1291,9 +1154,9 @@ class PwCpConstructor:
         )
 
     def _validate_and_get_batch_count(
-        self, stage_2_batches: dict[str, list[tuple[OperationRef, ...]]]
+        self, stage_2_batches: dict[StageIdType, list[tuple[JobMcType, ...]]]
     ) -> int:
-        batch_counts = {
+        batch_counts: dict[StageIdType, int] = {
             stage_id: len(batches) for stage_id, batches in stage_2_batches.items()
         }
         unique_counts = set(batch_counts.values())
@@ -1302,74 +1165,6 @@ class PwCpConstructor:
                 f"PW-CP requires identical batch counts across stages, got {batch_counts}."
             )
         return next(iter(unique_counts), 0)
-
-    def _build_operation_partition(
-        self,
-        stage_2_batches: dict[str, list[tuple[OperationRef, ...]]],
-        stage_ids: list[str],
-        current_batch_idx: int,
-        incumbent: HybridFlowshopLiteSchedule,
-        stage_2_job_2_p_dict: dict[str, dict[str, int]],
-        left_profile_fixed_batch_count: int = 0,
-        right_profile_fixed_batch_count: int = 0,
-    ) -> tuple[OperationPartition, HybridFlowshopLiteSchedule]:
-        """
-        Build operation partition based on batch indices.
-
-        Partitioning rule:
-        - left_time_fixed: sufficiently earlier batches
-        - left_profile_fixed: immediately preceding batches
-        - unfixed: operations from batch at current_batch_idx
-        - right_profile_fixed: immediately following batches
-        - right_time_fixed: sufficiently later batches
-
-        This leverages the existing time-based sorting in _build_stage_batches,
-        where batch_idx=0 contains earliest operations and higher indices contain
-        later operations.
-
-        Boundary profile is computed during partition creation:
-        - right_boundary_profile: machine-order slack end times of right-justified ops
-        """
-        all_ops: list[OperationRef] = []
-        l_tf_ops: list[OperationRef] = []
-        l_pf_ops: list[OperationRef] = []
-        unfixed_ops: list[OperationRef] = []
-        r_pf_ops: list[OperationRef] = []
-        r_tf_ops: list[OperationRef] = []
-
-        for stage_id in stage_ids:
-            batches = stage_2_batches[stage_id]
-            all_ops.extend([op for batch in batches for op in batch])
-            for idx, batch in enumerate(batches):
-                if idx < current_batch_idx - left_profile_fixed_batch_count:
-                    l_tf_ops.extend(batch)
-                elif idx < current_batch_idx:
-                    l_pf_ops.extend(batch)
-                elif idx == current_batch_idx:
-                    unfixed_ops.extend(batch)
-                elif idx <= current_batch_idx + right_profile_fixed_batch_count:
-                    r_pf_ops.extend(batch)
-                else:
-                    r_tf_ops.extend(batch)
-
-        # Compute boundary profile during partition creation
-        right_profile, right_justified_sched = self._build_right_boundary_profile(
-            incumbent,
-            all_ops,
-            l_tf_ops,
-            r_tf_ops,
-            stage_2_job_2_p_dict,
-        )
-
-        partition = OperationPartition(
-            left_time_fixed=tuple(sorted(l_tf_ops)),
-            left_profile_fixed=tuple(sorted(l_pf_ops)),
-            unfixed=tuple(sorted(unfixed_ops)),
-            right_profile_fixed=tuple(sorted(r_pf_ops)),
-            right_time_fixed=tuple(sorted(r_tf_ops)),
-            right_boundary_profile=right_profile,
-        )
-        return partition, right_justified_sched
 
     def _draw_schedule_gantt(
         self,
@@ -1405,9 +1200,11 @@ class PwCpConstructor:
         solved_slack_intervals: SolvedSlackIntervals,
     ) -> None:
         """Draw candidate schedules for each reassignment and retiming step."""
-        highlight_op_set: set[tuple[str, str]] = {
-            (job_id, stage_id) for job_id, stage_id, _ in spec.partition.unfixed
-        }
+        highlight_op_set: set[tuple[JobIdType, StageIdType]] = set()
+        for stage_id, partition in spec.stage_2_partition.items():
+            highlight_op_set.update(
+                (job_id, stage_id) for job_id, _ in partition.unfixed
+            )
         schedule_items: list[tuple[str, HybridFlowshopLiteSchedule]] = [
             ("01_before_retiming", before_retiming)
         ]
@@ -1492,17 +1289,16 @@ class PwCpConstructor:
         solution_dict = {
             "start_time_map": incumbent.get_jik_2_start_time_map(),
             "end_time_map": incumbent.get_jik_2_end_time_map(),
-            "highlight_ops": self._build_highlight_ops(spec.partition.unfixed),
+            "highlight_ops": self._build_highlight_ops(spec.stage_2_partition),
             "batch_idx": spec.batch_idx,
             "subproblem_idx": spec.subproblem_idx,
             "accepted": accepted,
             "partition": {
-                "left_time_fixed": list(spec.partition.left_time_fixed),
-                "left_profile_fixed": list(spec.partition.left_profile_fixed),
-                "unfixed": list(spec.partition.unfixed),
-                "right_profile_fixed": list(spec.partition.right_profile_fixed),
-                "right_time_fixed": list(spec.partition.right_time_fixed),
+                "left_time_fixed": list(spec.left_time_fixed_op_set),
+                "left_profile_fixed": list(spec.left_profile_fixed_op_set),
+                "unfixed": list(spec.unfixed_op_set),
+                "right_profile_fixed": list(spec.right_profile_fixed_op_set),
+                "right_time_fixed": list(spec.right_time_fixed_op_set),
             },
-            "right_boundary_profile": spec.right_boundary_profile,
         }
         dump_yaml(self._normalize_for_yaml(solution_dict), output_path)

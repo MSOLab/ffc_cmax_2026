@@ -21,46 +21,46 @@
     - best_of_mixed_dispatches
 - method: pw_cp
   batch_size_ratio: 0.10
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.15
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.20
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.25
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.30
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.35
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.40
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.45
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
 - method: pw_cp
   batch_size_ratio: 0.50
-  unfixed_op_time_limit_multiplier: 0.002
+  non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
