@@ -207,6 +207,53 @@ def test_deepcopy_copies_and_filters_cache():
     # Public maps should reflect the filtered schedule
     assert copied.get_jik_2_start_time_map() == {("j1", "s1", "m1"): 0}
     assert copied.get_jik_2_end_time_map() == {("j1", "s1", "m1"): 2}
+    assert copied.jobs == ["j1", "j2"]
+    assert copied.jobs is not sched.jobs
+    assert copied.stages == ["s1"]
+    assert copied.stages is not sched.stages
+    assert copied.machines_per_stage == {"s1": ["m1"]}
+    assert copied.machines_per_stage is not sched.machines_per_stage
+    assert copied.machines_per_stage["s1"] is not sched.machines_per_stage["s1"]
+
+
+def test_deepcopy_fully_detaches_metadata_and_internal_state():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=2)
+
+    copied = sched.deepcopy()
+
+    assert copied.jobs == sched.jobs
+    assert copied.jobs is not sched.jobs
+    assert copied.stages == sched.stages
+    assert copied.stages is not sched.stages
+    assert copied.machines_per_stage == sched.machines_per_stage
+    assert copied.machines_per_stage is not sched.machines_per_stage
+    assert copied.machines_per_stage["s1"] is not sched.machines_per_stage["s1"]
+
+    copied_job_2_end = _get_priv(copied, "__stage_2_job_2_end_time")
+    sched_job_2_end = _get_priv(sched, "__stage_2_job_2_end_time")
+    assert copied_job_2_end is not sched_job_2_end
+    assert copied_job_2_end["s1"] is not sched_job_2_end["s1"]
+
+    copied_seq = _get_priv(copied, "__stage_2_mc_2_job_tuple_seq")
+    sched_seq = _get_priv(sched, "__stage_2_mc_2_job_tuple_seq")
+    assert copied_seq is not sched_seq
+    assert copied_seq["s1"] is not sched_seq["s1"]
+    assert copied_seq["s1"]["m1"] is not sched_seq["s1"]["m1"]
+
+    copied.jobs.append("j3")
+    copied.stages.append("s2")
+    copied.machines_per_stage["s1"].append("m2")
+    copied.get_job_sequence("s1", "m1").append((2, 4, "j2"))
+
+    assert sched.jobs == ["j1", "j2"]
+    assert sched.stages == ["s1"]
+    assert sched.machines_per_stage == {"s1": ["m1"]}
+    assert sched.get_job_sequence("s1", "m1") == [(0, 2, "j1")]
 
 
 def test_inserts_into_idle_gap_on_machine():

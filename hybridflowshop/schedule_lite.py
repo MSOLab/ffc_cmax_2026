@@ -64,10 +64,23 @@ class HybridFlowshopLiteSchedule:
     def deepcopy(
         self, job_subsequence: set[JobIdType] | None = None
     ) -> HybridFlowshopLiteSchedule:
+        """Return a deep-copied schedule, optionally filtered to a job subset.
+
+        When ``job_subsequence`` is ``None``, this returns a full deep copy of the
+        schedule. The returned instance does not share mutable containers with the
+        original, including schedule metadata such as ``jobs``, ``stages``, and
+        ``machines_per_stage``.
+
+        When ``job_subsequence`` is provided, the returned schedule keeps the full
+        job metadata but only copies cached schedule state and machine operation
+        tuples for jobs in that subset. Empty stage/machine containers are preserved.
+        """
         new_instance = HybridFlowshopLiteSchedule(
-            jobs=self.jobs,
-            stages=self.stages,
-            machines_per_stage=self.machines_per_stage,
+            jobs=list(self.jobs),
+            stages=list(self.stages),
+            machines_per_stage={
+                stage: list(self.machines_per_stage[stage]) for stage in self.stages
+            },
         )
 
         for stage in self.stages:
