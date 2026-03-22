@@ -14,13 +14,17 @@ from mbls.cpsat import (
 )
 from mbls.cpsat.callbacks import ValueBoundPair
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
-from routix.util.comparison import float_a_leq_b, float_equals, float_a_stl_b
+from routix.util.comparison import float_a_leq_b, float_a_stl_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
 from cpsat_solver_config import SolveConfig, configure_solver
-from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
+from hybridflowshop.cpsat_model_2.cumulative import (
+    BaseModelBuilder,
+    CumulativeVars,
+    OperationVars,
+)
 from hybridflowshop.cpsat_model_2.params import Params
 from hybridflowshop.report import HfsCpsatSolverReport
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
@@ -566,7 +570,7 @@ class HybridFlowShopCpLnsControllerCore(
         return solver_report
 
     def extract_stage_2_job_2_start_time_map(
-        self, params: Params, variables: CumulativeVars
+        self, params: Params, variables: OperationVars
     ) -> dict[str, dict[str, int]]:
         start_time_map: dict[str, dict[str, int]] = {}
         """stage ID -> job ID -> start time"""
@@ -578,7 +582,7 @@ class HybridFlowShopCpLnsControllerCore(
         return start_time_map
 
     def extract_stage_2_job_2_end_time_map(
-        self, params: Params, variables: CumulativeVars
+        self, params: Params, variables: OperationVars
     ) -> dict[str, dict[str, int]]:
         end_time_map: dict[str, dict[str, int]] = {}
         """stage ID -> job ID -> end time"""
@@ -610,7 +614,7 @@ class HybridFlowShopCpLnsControllerCore(
         )
 
     def create_schedule(
-        self, params: Params, variables: CumulativeVars, make_semi_active: bool = False
+        self, params: Params, variables: OperationVars, make_semi_active: bool = False
     ) -> HybridFlowshopLiteSchedule:
         """
         Constructs a full HybridFlowshopLiteSchedule from the solved CP model.

@@ -21,7 +21,7 @@ StageBoundaryProfile = dict[str, list[int | None]]
 
 
 @dataclass
-class CumulativeVars:
+class OperationVars:
     op_start: dict[tuple[str, str], IntVar]
     """
     (j,i) -> start time variables for each operation in a job.
@@ -37,6 +37,9 @@ class CumulativeVars:
     (j,i) -> interval variables for each operation in a job.
     """
 
+
+@dataclass
+class CumulativeVars(OperationVars):
     makespan: IntVar
     """Makespan variable"""
 
