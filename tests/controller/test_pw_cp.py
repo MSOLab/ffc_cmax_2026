@@ -188,7 +188,6 @@ def test_build_slack_batch_spec_creates_right_justified_window_map(tmp_path):
         max_batch_cnt=2,
     )
 
-    assert spec.is_last_batch is False
     assert spec.stage_2_mc_2_window == {"s1": {"m1": (0, 5), "m2": (0, 5)}}
 
 
@@ -211,7 +210,6 @@ def test_prepare_subproblem_model_uses_incumbent_hints_for_makespan_batch(tmp_pa
         stage_2_partition=stage_2_partition,
         stage_2_mc_2_window={},
         init_schedule=incumbent,
-        is_last_batch=True,
     )
     instance = _make_instance(
         ["s1"],
@@ -254,7 +252,6 @@ def test_prepare_subproblem_model_uses_right_justified_hints_for_slack_batch(tmp
         stage_2_partition=stage_2_partition,
         stage_2_mc_2_window={"s1": {"m1": (0, 4), "m2": (0, 5)}},
         init_schedule=right_justified,
-        is_last_batch=False,
     )
     instance = _make_instance(
         ["s1"],
@@ -294,134 +291,6 @@ def test_accept_candidate_or_repair_incumbent_accepts_improving_solution(tmp_pat
     assert ctx.feasibility_checks == [candidate.get_jik_2_start_time_map()]
 
 
-def test_run_uses_slack_then_makespan_solve_paths(monkeypatch, tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
-    incumbent = _make_schedule()
-    calls = []
-
-    def fake_slack(**kwargs):
-        calls.append(("slack", kwargs["spec"].is_last_batch))
-        return None
-
-    def fake_makespan(**kwargs):
-        calls.append(("makespan", kwargs["spec"].is_last_batch))
-        return None
-
-    monkeypatch.setattr(ctor, "_solve_slack_batch", fake_slack)
-    monkeypatch.setattr(ctor, "_solve_makespan_batch", fake_makespan)
-
-    instance = _make_instance(
-        ["s1"],
-        {"s1": ["m1", "m2"]},
-        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
-    )
-
-    ctor.run(
-        incumbent,
-        instance,
-        {"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
-        batch_size=2,
-        max_time_per_batch=1.0,
-    )
-
-    assert calls == [("slack", False), ("makespan", True)]
-
-
-def test_run_makespan_batch_skips_window_map_when_right_time_fixed_empty(
-    monkeypatch, tmp_path
-):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
-    incumbent = _make_schedule()
-    window_map_build_count = [0]
-
-    def counting_build_window_map(*args, **kwargs):
-        window_map_build_count[0] += 1
-        return {"s1": {"m1": (0, 100), "m2": (0, 100)}}
-
-    monkeypatch.setattr(ctor, "_build_window_map", counting_build_window_map)
-
-    # Mock _solve_slack_batch to track calls
-    slack_batch_count = [0]
-    makespan_batch_count = [0]
-
-    def fake_slack(**kwargs):
-        slack_batch_count[0] += 1
-        return None
-
-    def fake_makespan(**kwargs):
-        makespan_batch_count[0] += 1
-        return None
-
-    monkeypatch.setattr(ctor, "_solve_slack_batch", fake_slack)
-    monkeypatch.setattr(ctor, "_solve_makespan_batch", fake_makespan)
-
-    instance = _make_instance(
-        ["s1"],
-        {"s1": ["m1", "m2"]},
-        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
-    )
-
-    # batch_size=4 means all operations in one batch
-    # Since all operations are in the first batch, there's no right_time_fixed -> makespan batch
-    ctor.run(
-        incumbent,
-        instance,
-        {"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
-        batch_size=4,
-        max_time_per_batch=1.0,
-    )
-
-    # Window map is still built (needed for the model), but makespan batch is solved
-    assert makespan_batch_count[0] == 1
-    assert slack_batch_count[0] == 0
-
-
-def test_run_calls_slack_then_makespan_batch_solvers(monkeypatch, tmp_path):
-    """Test that run() calls slack batch solver first, then makespan batch solver."""
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
-    incumbent = _make_schedule()
-
-    # Track which methods were called
-    call_log = []
-
-    def fake_solve_slack(**kwargs):
-        call_log.append("slack")
-        return incumbent.deepcopy()
-
-    def fake_solve_makespan(**kwargs):
-        call_log.append("makespan")
-        return incumbent.deepcopy()
-
-    monkeypatch.setattr(ctor, "_solve_slack_batch", fake_solve_slack)
-    monkeypatch.setattr(ctor, "_solve_makespan_batch", fake_solve_makespan)
-
-    instance = _make_instance(
-        ["s1"],
-        {"s1": ["m1", "m2"]},
-        {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
-    )
-
-    result = ctor.run(
-        incumbent,
-        instance,
-        {"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
-        batch_size=2,
-        max_time_per_batch=1.0,
-    )
-
-    # Verify the solver call order: slack batches first, then makespan batch
-    assert call_log[:2] == ["slack", "slack", "makespan"] or call_log == [
-        "slack",
-        "makespan",
-    ]
-    # Verify result is returned
-    assert result is not None
-    assert result.schedule is not None
-
-
 def test_run_keeps_batch_union_across_stages(monkeypatch, tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
@@ -444,8 +313,7 @@ def test_run_keeps_batch_union_across_stages(monkeypatch, tmp_path):
         seen_unfixed.append(tuple(sorted(unfixed)))
         return None
 
-    monkeypatch.setattr(ctor, "_solve_slack_batch", fake_slack)
-    monkeypatch.setattr(ctor, "_solve_makespan_batch", fake_makespan)
+    monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", fake_slack)
 
     instance = _make_instance(
         ["s1", "s2"],
@@ -529,8 +397,7 @@ def test_run_applies_promoted_partition_to_subproblem_spec(monkeypatch, tmp_path
     def fake_accept_candidate_or_repair_incumbent(**kwargs):
         return kwargs["incumbent"], False
 
-    monkeypatch.setattr(ctor, "_solve_slack_batch", fake_slack)
-    monkeypatch.setattr(ctor, "_solve_makespan_batch", fake_makespan)
+    monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", fake_slack)
     monkeypatch.setattr(
         ctor,
         "_accept_candidate_or_repair_incumbent",

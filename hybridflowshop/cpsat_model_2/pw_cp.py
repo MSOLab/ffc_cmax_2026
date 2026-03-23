@@ -269,22 +269,21 @@ class PwCpModelBuilder(BaseModelBuilder):
                     l_dummy_end[stage_id][mc_id] = left_boundary_time
 
                 # Right dummy: end fixed as horizon
-                if right_boundary_time < horizon:
-                    r_dummy_end = horizon
-                    # Length is declared as horizon - right_boundary_time + common_spacing
-                    r_dummy_lth = horizon - right_boundary_time + common_spacing
-                    # Start is variable with range [0, right_boundary_time]
-                    r_dummy_start = mdl.new_int_var(
-                        0, right_boundary_time, f"r_dummy_start_{stage_id}_{mc_id}"
-                    )
-                    r_dummy_interval = mdl.new_interval_var(
-                        r_dummy_start,
-                        r_dummy_lth,
-                        r_dummy_end,
-                        f"r_dummy_{stage_id}_{mc_id}",
-                    )
-                    r_dummy_intervals[stage_id][mc_id] = r_dummy_interval
-                    r_dummy_init_start[stage_id][mc_id] = right_boundary_time
+                r_dummy_end = horizon
+                # Length is declared as horizon - right_boundary_time + common_spacing
+                r_dummy_lth = horizon - right_boundary_time + common_spacing
+                # Start is variable with range [0, right_boundary_time]
+                r_dummy_start = mdl.new_int_var(
+                    0, right_boundary_time, f"r_dummy_start_{stage_id}_{mc_id}"
+                )
+                r_dummy_interval = mdl.new_interval_var(
+                    r_dummy_start,
+                    r_dummy_lth,
+                    r_dummy_end,
+                    f"r_dummy_{stage_id}_{mc_id}",
+                )
+                r_dummy_intervals[stage_id][mc_id] = r_dummy_interval
+                r_dummy_init_start[stage_id][mc_id] = right_boundary_time
 
         return DummyBarVars(
             left_bar_interval=l_dummy_intervals,
@@ -315,9 +314,6 @@ class PwCpModelBuilder(BaseModelBuilder):
             i_partition = stage_2_partition[i]
             i_non_time_fixed_job_set = set(j for j, _ in i_partition.non_time_fixed)
             next_i_partition = stage_2_partition[next_i]
-            next_i_est = min(
-                window[0] for window in stage_2_mc_2_window[next_i].values()
-            )
 
             # Invariant: each job has at most one operation in non_time_fixed_operations,
             # so we can directly compare job sets
@@ -330,21 +326,40 @@ class PwCpModelBuilder(BaseModelBuilder):
                 "All jobs in next_i_partition.non_time_fixed_operations have only one operation"
             )
 
+            next_i_est = min(
+                window[0] for window in stage_2_mc_2_window[next_i].values()
+            )
             for op in next_i_partition.non_time_fixed:
                 j = op[0]
                 if j in i_non_time_fixed_job_set:
-                    # Add precedence constraint: op in stage i must end before op in stage next_i starts
+                    # Add precedence constraint for non-time-fixed operation pair:
+                    # op in stage i must end before op in stage next_i starts
                     mdl.add(variables.op_end[j, i] <= variables.op_start[j, next_i])
                 else:
-                    # For jobs that are time-fixed in stage i but not in next_i,
-                    # we need to ensure they are scheduled after the end time of
-                    # the time-fixed operation in stage i
-                    end_time = right_justified_schedule.get_job_end_time(i, j)
+                    # Add start time lower bound constraint for jobs
+                    # that are time-fixed in i & non-time-fixed in next_i
+                    i_end_time = right_justified_schedule.get_job_end_time(i, j)
                     # Force only if the end time of the time-fixed operation in stage i
                     # is greater than the earliest start time in next_i,
-                    # otherwise it is already guaranteed by the time-fixed operation's position
-                    if end_time > next_i_est:
-                        mdl.add(variables.op_start[j, next_i] >= end_time)
+                    # otherwise it is already guaranteed by the left-time-fixed operation
+                    if i_end_time > next_i_est:
+                        mdl.add(variables.op_start[j, next_i] >= i_end_time)
+
+            i_lct = max(window[1] for window in stage_2_mc_2_window[i].values())
+            for op in i_partition.non_time_fixed:
+                j = op[0]
+                if j not in next_i_non_time_fixed_job_set:
+                    # Add end time upper bound constraint for jobs
+                    # that are non-time-fixed in i & time-fixed in next_i
+                    next_i_start_time = (
+                        right_justified_schedule.get_job_end_time(next_i, j)
+                        - params.p[j, next_i]
+                    )
+                    # Force only if the start time of the time-fixed operation in next_i
+                    # is less than the latest end time in stage i,
+                    # otherwise it is already guaranteed by the right-time-fixed operation
+                    if next_i_start_time < i_lct:
+                        mdl.add(variables.op_end[j, i] <= next_i_start_time)
 
     @staticmethod
     def add_capacity_with_dummy_bar_constraints(

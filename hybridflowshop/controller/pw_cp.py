@@ -80,7 +80,6 @@ class PwCpSubproblemSpec:
     stage_2_partition: Mapping[StageIdType, OperationPartition]
     stage_2_mc_2_window: dict[StageIdType, dict[McIdType, tuple[int, int]]]
     init_schedule: HybridFlowshopLiteSchedule
-    is_last_batch: bool
 
     @property
     def left_time_fixed_op_set(self) -> set[JobMcType]:
@@ -155,7 +154,6 @@ class PwCpSubproblemSpec:
 class PwCpSubproblemLog:
     batch_idx: int
     subproblem_idx: int
-    is_last_batch: bool
     objective_name: str
     time_limit_sec: float
     elapsed_time_sec: float
@@ -381,11 +379,6 @@ class PwCpConstructor:
                             )
                         )
 
-                # Determine if this is a makespan batch (no right-time-fixed ops)
-                has_right_time_fixed = any(
-                    len(partition.right_time_fixed) > 0
-                    for partition in stage_2_partition.values()
-                )
                 spec = self._build_batch_spec(
                     incumbent=st.incumbent,
                     stage_2_partition=stage_2_partition,
@@ -400,38 +393,18 @@ class PwCpConstructor:
                     non_time_fixed_op_time_limit_multiplier=non_time_fixed_op_time_limit_multiplier,
                 )
 
-                if not has_right_time_fixed:
-                    logging.info(
-                        "Processing makespan batch %d/%d: no right-time-fixed operations, "
-                        "switching to makespan minimization.",
-                        batch_idx + 1,
-                        max_batch_cnt,
-                    )
-                    candidate = self._solve_makespan_batch(
-                        spec=spec,
-                        instance=instance,
-                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                        profile_fix_by_machine=profile_fix_by_machine,
-                        machine_precedence_stride=machine_precedence_stride,
-                        max_time_per_batch=batch_time_limit,
-                        solver_thread_cnt=solver_thread_cnt,
-                        use_lns_only=use_lns_only,
-                        tighten_ranges=tighten_ranges,
-                        debug_export=debug_export,
-                    )
-                else:
-                    candidate = self._solve_slack_batch(
-                        spec=spec,
-                        instance=instance,
-                        stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                        profile_fix_by_machine=profile_fix_by_machine,
-                        machine_precedence_stride=machine_precedence_stride,
-                        max_time_per_batch=batch_time_limit,
-                        solver_thread_cnt=solver_thread_cnt,
-                        use_lns_only=use_lns_only,
-                        tighten_ranges=tighten_ranges,
-                        debug_export=debug_export,
-                    )
+                candidate = self._solve_batch_pw_cp_model(
+                    spec=spec,
+                    instance=instance,
+                    stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                    profile_fix_by_machine=profile_fix_by_machine,
+                    machine_precedence_stride=machine_precedence_stride,
+                    max_time_per_batch=batch_time_limit,
+                    solver_thread_cnt=solver_thread_cnt,
+                    use_lns_only=use_lns_only,
+                    tighten_ranges=tighten_ranges,
+                    debug_export=debug_export,
+                )
 
                 st.incumbent, accepted = self._accept_candidate_or_repair_incumbent(
                     candidate=candidate,
@@ -641,7 +614,6 @@ class PwCpConstructor:
             stage_2_partition=stage_2_partition,
             stage_2_mc_2_window=stage_2_mc_2_window,
             init_schedule=init_schedule,
-            is_last_batch=(batch_idx == max_batch_cnt - 1),
         )
 
     def _build_batch_spec(
@@ -652,7 +624,6 @@ class PwCpConstructor:
         batch_idx: int,
         max_batch_cnt: int,
     ) -> PwCpSubproblemSpec:
-        # Check if right-time-fixed is empty - if so, no window needed (makespan batch)
         has_right_time_fixed = any(
             len(partition.right_time_fixed) > 0
             for partition in stage_2_partition.values()
@@ -660,7 +631,7 @@ class PwCpConstructor:
 
         init_schedule = incumbent.deepcopy()
         if has_right_time_fixed:
-            # Slack batch: proceed with right-justification
+            # Right-time-fixed ops exist: proceed with right-justification
             non_ltf_op_set: set[tuple[JobIdType, StageIdType, McIdType]] = set()
             for stage_id, partition in stage_2_partition.items():
                 for job_id, mc_id in partition.non_left_time_fixed:
@@ -669,9 +640,7 @@ class PwCpConstructor:
                 stage_2_job_2_p_dict,
                 operation_set=non_ltf_op_set,
             )
-        else:
-            # Makespan batch: no need for right-justification
-            pass
+        # No right-time-fixed operations: no need for right-justification
 
         stage_2_mc_2_window = self._build_window_map(
             init_schedule,
@@ -923,7 +892,7 @@ class PwCpConstructor:
 
         return mdl, params, pw_cp_vars
 
-    def _solve_slack_batch(
+    def _solve_batch_pw_cp_model(
         self,
         spec: PwCpSubproblemSpec,
         instance: HybridFlowshopParameters,
@@ -1154,8 +1123,7 @@ class PwCpConstructor:
             PwCpSubproblemLog(
                 batch_idx=spec.batch_idx,
                 subproblem_idx=spec.subproblem_idx,
-                is_last_batch=spec.is_last_batch,
-                objective_name=("makespan" if spec.is_last_batch else "common_spacing"),
+                objective_name="common_spacing",
                 time_limit_sec=time_limit_sec,
                 elapsed_time_sec=report.elapsed_time,
                 status=report.status.to_solver_status_enum().value,
