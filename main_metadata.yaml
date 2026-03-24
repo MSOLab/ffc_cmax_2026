@@ -1532,10 +1532,18 @@ dicts_of_i_o_data_path:
   #   description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> NEH-CP -> CP-ALNS"
 
   # 20260324: critical job neighborhood search
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_lns_ops/subroutine_flow_dispatch_critical_job_ns.yaml"
+  #   output_dir: "ff2020/lns_ops/critical_job_ns"
+  #   description: "Dispatch -> critical_job_ns(job_count=1, critical_adjacency)"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_lns_ops/subroutine_flow_dispatch_critical_job_ns.yaml"
-    output_dir: "ff2020/lns_ops/critical_job_ns"
-    description: "Dispatch -> critical_job_ns(job_count=1, critical_adjacency)"
+    subroutine_flow_rel_path: "configs_ncs/20260324/subroutine_flow_20260324-01.yaml"
+    output_dir: "ff2020/20260324-01"
+    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> CP-ALNS(mc(1))"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/20260324/subroutine_flow_20260324-02.yaml"
+    output_dir: "ff2020/20260324-02"
+    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> CP-ALNS(mc(2))"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
