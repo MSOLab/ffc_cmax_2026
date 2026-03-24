@@ -70,8 +70,8 @@
     profile_fix_by_machine: true
     machine_precedence_stride: 2
     make_semi_active_after_cp: true
-# - method: solve_base_cp_model
-#   computational_time: null
-#   solver_thread_cnt: 8
-#   use_lns_only: true
-#   log_search_progress: true
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8
+  use_lns_only: true
+  log_search_progress: true
