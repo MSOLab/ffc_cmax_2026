@@ -395,6 +395,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound_is_valid=obj_bound_is_valid,
         )
 
+    def _fix_operations_profile(
+        self,
+        schedule_profile_fixed_only: HybridFlowshopLiteSchedule,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+    ) -> None:
+        BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
+            self.cp_model,
+            self.params,
+            self.vars,
+            schedule_profile_fixed_only,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+        )
+
     def _fix_operations_profile_except_selected(
         self,
         rescheduled_ops: set[tuple[str, str, str]],
@@ -424,10 +439,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
         out_of_block_ops_sch = incumbent_solution.deepcopy()
         out_of_block_ops_sch.remove_operations(rescheduled_ops)
-        BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
-            self.cp_model,
-            self.params,
-            self.vars,
+        self._fix_operations_profile(
             out_of_block_ops_sch,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
@@ -1245,6 +1257,37 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             machine_precedence_stride=machine_precedence_stride,
         )
         return selected_jobs
+
+    def profile_fixed_ns(
+        self,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        self._fix_profile_solve_reset(
+            lambda: self._fix_operations_profile(
+                self.solution_manager.get_incumbent(),
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            ),
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
 
     # Subroutine: Johnson-based Heuristic for initialization
 
