@@ -1,6 +1,7 @@
 import logging
 import math
 import random
+from collections import Counter, deque
 from typing import Callable, Mapping, Sequence
 
 from routix import ElapsedTimer
@@ -24,6 +25,8 @@ from hybridflowshop.dispatcher.utils import from_job_sequence_get_schedule_mixed
 from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
+    JobIdType,
+    OperationType,
 )
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
@@ -185,6 +188,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         obj_bound_is_valid: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
+        pre_solve_visualizer: Callable[[], None] | None = None,
+        post_solve_visualizer: (
+            Callable[[HybridFlowshopLiteSchedule | None], None] | None
+        ) = None,
     ):
         """Apply the profile fixing method, solve, and reset the model.
 
@@ -343,6 +350,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
 
         profile_fixing_method()
+        if pre_solve_visualizer is not None:
+            pre_solve_visualizer()
         report, solution = self.solve_with_initial_solution(
             computational_time,
             solver_thread_cnt,
@@ -354,6 +363,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
+        if post_solve_visualizer is not None:
+            post_solve_visualizer(solution)
         self.cp_model.delete_added_constraints()
 
         # Register report & solution
@@ -820,6 +831,420 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
         )
+
+    # Subroutine: Critical-job neighbor search
+
+    def critical_job_ns(
+        self,
+        job_count: int,
+        computational_time: float,
+        solver_thread_cnt: int,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        job_selection_policy: str = "critical_adjacency",
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        selection_state: dict[str, object] = {}
+
+        def profile_fixing_method() -> None:
+            selection_state["selected_jobs"] = self.apply_critical_job_operator(
+                job_count,
+                job_selection_policy=job_selection_policy,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            )
+
+        def pre_solve_visualizer() -> None:
+            if not draw_gantt:
+                return
+            incumbent_solution = self.solution_manager.get_incumbent()
+            if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+                logging.warning(
+                    "No incumbent solution available to draw pre-solve critical-job Gantt."
+                )
+                return
+            selection_state["before_schedule"] = incumbent_solution.deepcopy()
+
+        def post_solve_visualizer(solution: HybridFlowshopLiteSchedule | None) -> None:
+            if not draw_gantt:
+                return
+            selected_jobs = selection_state.get("selected_jobs")
+            before_schedule = selection_state.get("before_schedule")
+            if not isinstance(before_schedule, HybridFlowshopLiteSchedule):
+                logging.warning(
+                    "Missing pre-solve schedule for critical-job Gantt comparison."
+                )
+                return
+            if not isinstance(selected_jobs, list) or not all(
+                isinstance(job_id, str) for job_id in selected_jobs
+            ):
+                logging.warning(
+                    "Missing selected critical-job list for Gantt highlighting."
+                )
+                return
+            self._draw_critical_job_comparison_gantts(
+                before_schedule,
+                solution,
+                selected_jobs,
+            )
+
+        self._fix_profile_solve_reset(
+            profile_fixing_method,
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=False,
+            pre_solve_visualizer=pre_solve_visualizer if draw_gantt else None,
+            post_solve_visualizer=post_solve_visualizer if draw_gantt else None,
+        )
+
+    @staticmethod
+    def _normalize_job_count(job_count: int) -> int:
+        normalized = int(job_count)
+        if normalized != job_count:
+            raise ValueError(
+                f"Invalid job_count {job_count}; it must be an integer value."
+            )
+        if normalized <= 0:
+            raise ValueError(
+                f"Invalid job_count {job_count}; it must be strictly positive."
+            )
+        return normalized
+
+    def _find_critical_blocks_for_critical_job_ns(
+        self, schedule: HybridFlowshopLiteSchedule
+    ) -> list[list[OperationType]]:
+        schedule.make_semi_active(self.stage_2_job_2_p_dict)
+        critical_blocks = schedule.find_critical_blocks(
+            self.stage_2_job_2_p_dict, include_singletons=True
+        )
+        if critical_blocks:
+            return critical_blocks
+
+        start_time_map = schedule.get_jik_2_start_time_map()
+        end_time_map = schedule.get_jik_2_end_time_map()
+        last_stage_ops = 0
+        if schedule.stages:
+            last_stage_ops = sum(
+                1 for _ in schedule.iter_operations_on_stage(schedule.stages[-1])
+            )
+        logging.warning(
+            "No critical blocks found after make_semi_active; using uniform random fallback. "
+            "makespan=%s jobs=%d stages=%d start_ops=%d end_ops=%d last_stage_ops=%d",
+            schedule.makespan,
+            len(schedule.jobs),
+            len(schedule.stages),
+            len(start_time_map),
+            len(end_time_map),
+            last_stage_ops,
+        )
+        return []
+
+    @staticmethod
+    def _get_critical_job_weights(
+        critical_blocks: Sequence[Sequence[OperationType]],
+    ) -> dict[JobIdType, int]:
+        return dict(Counter(op[0] for block in critical_blocks for op in block))
+
+    @staticmethod
+    def _build_highlight_op_set_for_jobs(
+        schedule: HybridFlowshopLiteSchedule,
+        selected_jobs: Sequence[JobIdType],
+    ) -> set[tuple[str, str]]:
+        selected_job_set = set(selected_jobs)
+        return {
+            (job_id, stage_id)
+            for (job_id, stage_id, _mc_id) in schedule.get_jik_2_start_time_map()
+            if job_id in selected_job_set
+        }
+
+    def _draw_critical_job_comparison_gantts(
+        self,
+        before_schedule: HybridFlowshopLiteSchedule,
+        after_schedule: HybridFlowshopLiteSchedule | None,
+        selected_jobs: Sequence[JobIdType],
+    ) -> None:
+        schedules_to_draw: list[tuple[str, HybridFlowshopLiteSchedule]] = [
+            ("before", before_schedule)
+        ]
+        if isinstance(after_schedule, HybridFlowshopLiteSchedule):
+            schedules_to_draw.append(("after", after_schedule))
+        else:
+            logging.warning(
+                "No feasible post-solve schedule available to draw critical-job after Gantt."
+            )
+
+        force_end = max(int(schedule.makespan) for _, schedule in schedules_to_draw)
+        for suffix, schedule in schedules_to_draw:
+            highlight_op_set = self._build_highlight_op_set_for_jobs(
+                schedule,
+                selected_jobs,
+            )
+            output_path = self.get_file_path_for_subroutine(
+                f"_gantt_critical_job_{suffix}.png"
+            )
+            self.draw_gantt(
+                schedule,
+                output_path=output_path,
+                force_start=0,
+                force_end=force_end,
+                highlight_op_set=highlight_op_set,
+            )
+
+    @staticmethod
+    def _weighted_sample_without_replacement(
+        items: Sequence[JobIdType],
+        item_2_weight: Mapping[JobIdType, int | float],
+        sample_size: int,
+    ) -> list[JobIdType]:
+        if sample_size <= 0 or not items:
+            return []
+
+        remaining_items = list(items)
+        selected: list[JobIdType] = []
+        while remaining_items and len(selected) < sample_size:
+            weights = [
+                max(0.0, float(item_2_weight.get(item, 0))) for item in remaining_items
+            ]
+            if sum(weights) <= 0:
+                selected.extend(
+                    random.sample(
+                        remaining_items,
+                        k=min(sample_size - len(selected), len(remaining_items)),
+                    )
+                )
+                break
+            chosen = random.choices(remaining_items, weights=weights, k=1)[0]
+            selected.append(chosen)
+            remaining_items.remove(chosen)
+        return selected
+
+    @staticmethod
+    def _build_critical_job_adjacency(
+        critical_blocks: Sequence[Sequence[OperationType]],
+        all_jobs: Sequence[JobIdType],
+    ) -> dict[JobIdType, set[JobIdType]]:
+        """Builds an adjacency list of critical jobs based on their operations.
+
+        Args:
+            critical_blocks (Sequence[Sequence[OperationType]]): A list of critical blocks,
+                where each block is a sequence of operations.
+                Each operation is a tuple (job_id, stage_id, machine_id).
+            all_jobs (Sequence[JobIdType]): A list of all job IDs.
+
+        Returns:
+            dict[JobIdType, set[JobIdType]]: job ID -> a set of its adjacent critical jobs
+        """
+        adjacency: dict[JobIdType, set[JobIdType]] = {
+            job_id: set() for job_id in all_jobs
+        }
+        for block in critical_blocks:
+            for prev_op, next_op in zip(block, block[1:]):
+                prev_job = prev_op[0]
+                next_job = next_op[0]
+                if prev_job == next_job:
+                    continue
+                adjacency.setdefault(prev_job, set()).add(next_job)
+                adjacency.setdefault(next_job, set()).add(prev_job)
+        return adjacency
+
+    def _select_critical_jobs(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        job_count: int,
+        job_selection_policy: str,
+    ) -> list[JobIdType]:
+        """
+        Agent-facing contract for `critical_job_ns` job selection.
+
+        Purpose:
+            Choose up to `job_count` jobs that will be unfixed by `critical_job_ns`.
+            The returned list is not just a set; its order carries policy-specific
+            meaning. In `critical_adjacency`, `selected_jobs[0]` is always the seed job.
+
+        Important side effect:
+            This method mutates `schedule` indirectly because it calls
+            `_find_critical_blocks_for_critical_job_ns(schedule)`, and that helper
+            executes `schedule.make_semi_active(...)` in place before computing
+            critical blocks. Any caller that needs the pre-normalized schedule must
+            clone it before calling here.
+
+        Candidate generation:
+            1. Build critical blocks from the semi-active schedule with
+               `include_singletons=True`.
+            2. Convert those blocks into per-job weights by counting how many critical
+               operations belong to each job. A job that appears more often on
+               critical blocks receives a larger sampling weight.
+            3. The normal candidate pool is `sorted(job_weights)`, i.e. only jobs that
+               appear at least once in a critical block.
+
+        Fallback behavior:
+            - If no critical blocks are found after semi-active normalization, this is
+              treated as an anomalous state. The helper logs a warning and returns an
+              empty critical-block list. This method then falls back to uniform random
+              sampling over all jobs in the schedule.
+            - If adjacency expansion cannot reach `target_count`, the method logs a
+              warning and backfills from the remaining candidate jobs using weighted
+              random sampling without replacement.
+
+        Policy semantics:
+            - `weighted_random`
+              Sample unique jobs without replacement from the critical-job candidate
+              pool using the occurrence counts as weights.
+            - `critical_adjacency`
+              First pick one weighted-random seed job. Then perform frontier
+              expansion over the critical-job adjacency graph built from consecutive
+              jobs inside each critical block. The queue is BFS-like: pop one
+              selected job, shuffle its unseen neighbors, append them in that order,
+              and continue until the target is reached or the frontier is exhausted.
+
+        Ordering guarantees:
+            - The return value preserves selection order.
+            - For `critical_adjacency`, element 0 is the seed job and later elements
+              reflect adjacency expansion order, followed by any weighted-random
+              backfill if expansion was insufficient.
+            - For `weighted_random`, order is the draw order from the weighted
+              sampling routine.
+
+        Size semantics:
+            - `job_count` is normalized and must be strictly positive.
+            - The returned length is `min(normalized_job_count, available_candidates)`.
+              In the no-critical-block fallback, `available_candidates` means all
+              jobs in the schedule.
+        """
+        normalized_job_count = self._normalize_job_count(job_count)
+        critical_blocks = self._find_critical_blocks_for_critical_job_ns(schedule)
+        all_jobs = sorted(schedule.jobs)
+        if not critical_blocks:
+            logging.warning(
+                "No critical blocks found for critical-job selection; falling back to uniform random selection. "
+                "schedule makespan=%s jobs=%d stages=%d",
+                schedule.makespan,
+                len(schedule.jobs),
+                len(schedule.stages),
+            )
+            return random.sample(all_jobs, k=min(normalized_job_count, len(all_jobs)))
+
+        job_weights = self._get_critical_job_weights(critical_blocks)
+        candidate_jobs = sorted(job_weights)
+        target_count = min(normalized_job_count, len(candidate_jobs))
+
+        if job_selection_policy == "weighted_random":
+            return self._weighted_sample_without_replacement(
+                candidate_jobs,
+                job_weights,
+                target_count,
+            )
+        if job_selection_policy != "critical_adjacency":
+            raise ValueError(
+                "Unsupported job_selection_policy for critical_job_ns: "
+                f"{job_selection_policy}"
+            )
+
+        seed_job = self._weighted_sample_without_replacement(
+            candidate_jobs,
+            job_weights,
+            1,
+        )[0]
+        logging.info(
+            "Critical-job adjacency seed selected: seed_job=%s target_count=%d candidates=%d",
+            seed_job,
+            target_count,
+            len(candidate_jobs),
+        )
+        adjacency = self._build_critical_job_adjacency(critical_blocks, candidate_jobs)
+        selected_jobs: list[JobIdType] = [seed_job]
+        selected_job_set = {seed_job}
+        queue: deque[JobIdType] = deque([seed_job])
+
+        while queue and len(selected_jobs) < target_count:
+            current_job = queue.popleft()
+            neighbors = sorted(adjacency.get(current_job, set()) - selected_job_set)
+            random.shuffle(neighbors)
+            for neighbor in neighbors:
+                selected_jobs.append(neighbor)
+                selected_job_set.add(neighbor)
+                queue.append(neighbor)
+                if len(selected_jobs) >= target_count:
+                    break
+
+        if len(selected_jobs) < target_count:
+            remaining_jobs = [
+                job_id for job_id in candidate_jobs if job_id not in selected_job_set
+            ]
+            if remaining_jobs:
+                logging.warning(
+                    "Critical-job adjacency expansion exhausted before target; "
+                    "backfilling weighted-random jobs. selected=%d target=%d candidates=%d",
+                    len(selected_jobs),
+                    target_count,
+                    len(candidate_jobs),
+                )
+                selected_jobs.extend(
+                    self._weighted_sample_without_replacement(
+                        remaining_jobs,
+                        job_weights,
+                        target_count - len(selected_jobs),
+                    )
+                )
+
+        return selected_jobs
+
+    def apply_critical_job_operator(
+        self,
+        job_count: int,
+        job_selection_policy: str = "critical_adjacency",
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+    ) -> list[JobIdType]:
+        normalized_job_count = self._normalize_job_count(job_count)
+        logging.info(
+            "Applying critical-job operator with job_count=%d policy=%s",
+            normalized_job_count,
+            job_selection_policy,
+        )
+        if not self.solution_manager.has_incumbent():
+            raise ValueError(
+                "No incumbent solution available for critical-job operator."
+            )
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError(
+                "Incumbent solution is not a HybridFlowshopLiteSchedule"
+                f"; is of type {type(incumbent_solution)}."
+            )
+
+        selected_jobs = self._select_critical_jobs(
+            incumbent_solution, normalized_job_count, job_selection_policy
+        )
+        all_ops = list(incumbent_solution.get_jik_2_start_time_map().keys())
+        selected_job_set = set(selected_jobs)
+        selected_ops = {op for op in all_ops if op[0] in selected_job_set}
+        logging.info(
+            "Critical-job operator selected %d jobs and %d ops (target=%d): %s",
+            len(selected_job_set),
+            len(selected_ops),
+            normalized_job_count,
+            selected_jobs,
+        )
+
+        self._fix_operations_profile_except_selected(
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+        )
+        return selected_jobs
 
     # Subroutine: Johnson-based Heuristic for initialization
 

@@ -30,6 +30,8 @@ class ReactiveLoopReportEntry:
         }
         if "rho" in self.kwargs:
             row["rho"] = self.kwargs["rho"]
+        if "job_count" in self.kwargs:
+            row["job_count"] = self.kwargs["job_count"]
         if "computational_time" in self.kwargs:
             row["timelimit"] = self.kwargs["computational_time"]
         return row
@@ -40,6 +42,7 @@ class ReactiveLoopReportEntry:
             "iterCount",
             "subroutineName",
             "rho",
+            "job_count",
             "timelimit",
             "timeStart",
             "timeElapsed",

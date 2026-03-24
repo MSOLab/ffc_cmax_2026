@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import cast
 
+from mbls.cpsat import CpsatStatus
 from routix import DynamicDataObject
 
 from hybridflowshop.controller.controller_core import HybridFlowShopCpLnsControllerCore
@@ -20,7 +21,7 @@ def test_report_entry_row_and_header():
     entry = ReactiveLoopReportEntry(
         iter_count=1,
         subroutine_name="op",
-        kwargs={"rho": 0.2, "computational_time": 5},
+        kwargs={"rho": 0.2, "job_count": 3, "computational_time": 5},
         time_start=0.0,
         time_elapsed=0.1,
         prev_obj_value=999.0,
@@ -31,9 +32,10 @@ def test_report_entry_row_and_header():
     )
     row = entry.get_row_dict()
     assert row["rho"] == 0.2
+    assert row["job_count"] == 3
     assert row["timelimit"] == 5
     hdr = ReactiveLoopReportEntry.get_header()
-    assert "rho" in hdr and "timelimit" in hdr
+    assert "rho" in hdr and "job_count" in hdr and "timelimit" in hdr
 
 
 def test_tuner_basic_behavior():
@@ -61,6 +63,72 @@ def test_tuner_basic_behavior():
     assert tuner.get_current_value("rho") == 0.2
     tuner.decrement("rho")
     assert tuner.get_current_value("rho") == 0.1
+
+
+def test_reactive_looper_supports_job_count_subroutines():
+    class FakeCtrl:
+        def __init__(self):
+            self.solution_manager = SimpleNamespace(
+                _a_is_better_obj_value=lambda a, b: a < b
+            )
+            self.timer = SimpleNamespace(
+                get_elapsed_sec=lambda: 0.0,
+                get_remaining_sec=lambda _t: 100.0,
+            )
+            self.stopping_criteria = SimpleNamespace(timelimit=1000)
+            self.obj_store = SimpleNamespace(get_last_gap=lambda: None)
+
+        def is_stopping_condition(self):
+            return False
+
+        def critical_job_ns(self, job_count: int = 1, computational_time: float = 1.0):
+            return {"obj_value": job_count}
+
+        def job_block_ns(self, rho: float = 0.1, computational_time: float = 1.0):
+            return {"obj_value": rho}
+
+    ctrl = FakeCtrl()
+    looper = ReactiveLooper(
+        cast(HybridFlowShopCpLnsControllerCore, ctrl),
+        [
+            {
+                "method": "critical_job_ns",
+                "job_count": 1,
+                "computational_time": 1.0,
+            },
+            {
+                "method": "job_block_ns",
+                "rho": 0.1,
+                "computational_time": 1.0,
+            },
+        ],
+        {
+            "job_count": {"step_size": 1, "min": 1, "max": 5},
+            "rho": {"step_size": 0.1, "min": 0.1, "max": 1.0},
+            "computational_time": {"step_size": 1.0, "min": 0.1, "max": 10.0},
+        },
+        {"max_loop_count": 1},
+    )
+
+    assert looper._get_size_param_name("critical_job_ns") == "job_count"
+    assert looper._get_size_param_name("job_block_ns") == "rho"
+
+    looper.obj_value_before_step = 1.0
+    looper.no_improvement_step_series_lth = 0
+    looper._update_reactive_params(
+        "critical_job_ns",
+        SimpleNamespace(
+            status=CpsatStatus.OPTIMAL,
+            obj_value=1.0,
+            is_feasible=True,
+        ),
+    )
+    assert (
+        looper.reactive_param_tuner_dict["critical_job_ns"].get_current_value(
+            "job_count"
+        )
+        == 2
+    )
 
 
 def test_reactive_looper_writes_reports(tmp_path):

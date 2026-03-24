@@ -1518,18 +1518,24 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/20260323/subroutine_flow_20260323-27.yaml"
   #   output_dir: "ff2020/20260323-27"
   #   description: "LB -> Dispatch -> repeat(PW-CP(50%,fixed*0.01,pf=1,promotion_pf=true,profile_fix_by_machine=true,precedence_stride=2))"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260323/subroutine_flow_20260323-28.yaml"
+  #   output_dir: "ff2020/20260323-28"
+  #   description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> base CP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260323/subroutine_flow_20260323-29.yaml"
+  #   output_dir: "ff2020/20260323-29"
+  #   description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> NEH-CP -> base CP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260323/subroutine_flow_20260323-30.yaml"
+  #   output_dir: "ff2020/20260323-30"
+  #   description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> NEH-CP -> CP-ALNS"
+
+  # 20260324: critical job neighborhood search
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260323/subroutine_flow_20260323-28.yaml"
-    output_dir: "ff2020/20260323-28"
-    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> base CP"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260323/subroutine_flow_20260323-29.yaml"
-    output_dir: "ff2020/20260323-29"
-    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> NEH-CP -> base CP"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260323/subroutine_flow_20260323-30.yaml"
-    output_dir: "ff2020/20260323-30"
-    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> NEH-CP -> CP-ALNS"
+    subroutine_flow_rel_path: "configs_lns_ops/subroutine_flow_dispatch_critical_job_ns.yaml"
+    output_dir: "ff2020/lns_ops/critical_job_ns"
+    description: "Dispatch -> critical_job_ns(job_count=1, critical_adjacency)"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -1540,7 +1546,7 @@ result_dir_name: "results"
 instance_worker_cnt: 12
 
 # Analysis and plotting options
-draw_gantt: false
+draw_gantt: true
 painter_thread_cnt: 8
 result_gantt_filename_format: "{}_result_gantt.png"
 draw_progress_plot: true

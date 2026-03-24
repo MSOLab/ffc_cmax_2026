@@ -250,6 +250,7 @@ class HybridFlowShopCpLnsControllerCore(
         stage_list: Sequence[str] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
+        highlight_op_set: set[tuple[str, str]] | None = None,
     ):
         """Draws the Gantt chart of the given schedule.
 
@@ -267,11 +268,16 @@ class HybridFlowShopCpLnsControllerCore(
                 schedule.get_jik_2_end_time_map(),
                 self.instance.job_id_list,
                 stage_list=stage_list,
+                highlight_op_set=highlight_op_set,
                 force_start=force_start,
                 force_end=force_end,
             )
 
-    def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
+    def draw_incumbent_gantt(
+        self,
+        output_path: Path | None = None,
+        highlight_op_set: set[tuple[str, str]] | None = None,
+    ) -> None:
         """Draws the Gantt chart of the incumbent solution.
 
         Args:
@@ -279,7 +285,11 @@ class HybridFlowShopCpLnsControllerCore(
         """
         incumbent_solution = self.solution_manager.get_incumbent()
         if isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
-            self.draw_gantt(incumbent_solution, output_path=output_path)
+            self.draw_gantt(
+                incumbent_solution,
+                output_path=output_path,
+                highlight_op_set=highlight_op_set,
+            )
         else:
             logging.warning("No incumbent solution available to draw Gantt chart.")
 
