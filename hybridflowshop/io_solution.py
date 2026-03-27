@@ -45,11 +45,6 @@ def get_highlight_op_set(
             _validate_and_normalize_highlight_op(op)
             for op in solution_dict[HIGHLIGHT_OPS_KEY]
         }
-    elif "highlight_ops" in solution_dict:
-        data = {
-            _validate_and_normalize_highlight_op(op)
-            for op in solution_dict["highlight_ops"]
-        }
     else:
         data = set()  # No highlight ops specified, return empty set
     return data
