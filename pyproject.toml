@@ -5,13 +5,13 @@ description = "Hybrid Flow Shop Scheduling Problem"
 readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [
-    "mbls",
+    "mbls>=0.0.15",
     "ortools==9.14.6206",
     "pandas>=2.3.0",
     "pydantic>=2.11.7",
     "pyyaml>=6.0.2",
-    "routix",
-    "schore",
+    "routix>=0.0.15",
+    "schore>=0.0.7",
     "xlsxwriter>=3.2.5",
 ]
 
@@ -35,8 +35,3 @@ pythonpath = ["."]
 
 [project.scripts]
 exp_compare = "exp_compare.main_cli:main"
-
-[tool.uv.sources]
-mbls = { path = "../mbls", editable = true }
-routix = { path = "../routix", editable = true }
-schore = { path = "../schore", editable = true }
