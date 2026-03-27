@@ -8,20 +8,26 @@ input_dir: "resources/ff2020small"
 # baseline_csv_path: "resources/ff2020big_ref/20260129_CPO_2mn_8t.csv"
 # baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
 # input_dir: "resources/ff2020big"
-benchmark_idx_list:
-  - 5
+# benchmark_idx_list:
+#   - 5
+first: 1
+last: 240
 benchmark_filename_format: "{}.txt"
 
 # Scenario configurations
 dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_dispatch/stopping_criteria.yaml"
+    subroutine_flow_rel_path: "configs_dispatch/subroutine_flow_20260327-01.yaml"
+    output_dir: "ff2020/20260327-01"
+    description: "LB -> Dispatch"
   # - stopping_criteria_rel_path: "configs_pw_cp/stopping_criteria_halfnc.yaml"
   #   subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260319-01.yaml"
   #   output_dir: "ff2020/20260319-01"
   #   description: "LB -> Dispatch -> PW-CP"
-  - stopping_criteria_rel_path: "configs_pw_cp/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260319-02.yaml"
-    output_dir: "ff2020/20260319-02"
-    description: "LB -> Dispatch -> PW-CP(mc-prof-fix)"
+  # - stopping_criteria_rel_path: "configs_pw_cp/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_pw_cp/subroutine_flow_20260319-02.yaml"
+  #   output_dir: "ff2020/20260319-02"
+  #   description: "LB -> Dispatch -> PW-CP(mc-prof-fix)"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_debug"
