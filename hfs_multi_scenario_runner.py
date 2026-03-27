@@ -111,16 +111,103 @@ class HfsMultiScenarioRunner(
         Aggregates results from all scenarios and generates a comprehensive Excel report
         that includes a comparative dashboard, raw data, and scenario information.
         """
-        # 1. Aggregate all scenario summaries
+        raw_summary_df = self._aggregate_scenario_summary(
+            input_filename="multi_instance_summary.csv",
+            output_filename="all_scenarios_summary.csv",
+        )
+        if raw_summary_df is None:
+            return
+
+        # Main report (full-run summary)
+        dashboard_df = self.create_dashboard(raw_summary_df)
+        info_df = self.create_info_sheet()
+        excel_report_path = self.output_dir / "multi_scenario_report.xlsx"
+        self.write_excel_report(
+            excel_report_path,
+            dashboard_df=dashboard_df,
+            raw_summary_df=raw_summary_df,
+            info_df=info_df,
+            baseline_df=self.baseline_df,
+        )
+
+        # Additional timepoint reports (labels follow configured timepoint_summaries)
+        for label in self._resolve_timepoint_labels():
+            raw_summary_timepoint_df = self._aggregate_scenario_summary(
+                input_filename=f"multi_instance_summary_{label}.csv",
+                output_filename=f"all_scenarios_summary_{label}.csv",
+            )
+            if raw_summary_timepoint_df is None:
+                continue
+            dashboard_timepoint_df = self.create_dashboard(raw_summary_timepoint_df)
+            excel_report_timepoint_path = (
+                self.output_dir / f"multi_scenario_report_{label}.xlsx"
+            )
+            self.write_excel_report(
+                excel_report_timepoint_path,
+                dashboard_df=dashboard_timepoint_df,
+                raw_summary_df=raw_summary_timepoint_df,
+                info_df=info_df,
+                baseline_df=self.baseline_df,
+            )
+
+    def _resolve_timepoint_labels(self) -> list[str]:
+        output_metadata: dict[str, Any] = {}
+
+        if hasattr(self, "base_output_metadata") and isinstance(
+            self.base_output_metadata, dict
+        ):
+            output_metadata = self.base_output_metadata
+        elif self.runners:
+            first_runner = self.runners[0]
+            if hasattr(first_runner, "output_metadata") and isinstance(
+                first_runner.output_metadata, dict
+            ):
+                output_metadata = first_runner.output_metadata
+
+        configured = output_metadata.get("timepoint_summaries")
+        if not configured:
+            return []
+
+        labels: list[str] = []
+        seen: set[str] = set()
+        for cfg in configured:
+            if not isinstance(cfg, dict):
+                logging.warning(f"Timepoint summary config entry is not a dict: {cfg}")
+                continue
+
+            label = cfg.get("label")
+            if not label:
+                logging.warning("Timepoint summary config entry missing 'label' field")
+                continue
+
+            label_str = str(label).strip()
+            if not label_str:
+                logging.warning(
+                    f"Timepoint summary label is blank after conversion: {label}"
+                )
+                continue
+            if label_str in seen:
+                logging.warning(
+                    f"Duplicate timepoint summary label '{label_str}' skipped"
+                )
+                continue
+            seen.add(label_str)
+            labels.append(label_str)
+        return labels
+
+    def _aggregate_scenario_summary(
+        self,
+        input_filename: str,
+        output_filename: str,
+    ) -> pd.DataFrame | None:
         all_summary_dfs = []
         for i, runner in enumerate(self.runners):
-            summary_path = runner.working_dir / "multi_instance_summary.csv"
+            summary_path = runner.working_dir / input_filename
             if summary_path.exists():
                 df = pd.read_csv(summary_path)
                 scenario_name = self.scenario_configs[i].get(
                     "output_subdir", f"scenario_{i + 1}"
                 )
-                # Convert path to a valid column name (use last part of path)
                 scenario_col_name = Path(scenario_name).name
                 df["scenario"] = str(scenario_col_name)
                 all_summary_dfs.append(df)
@@ -130,31 +217,16 @@ class HfsMultiScenarioRunner(
                 )
 
         if not all_summary_dfs:
-            logging.warning("No scenario summaries found to aggregate.")
-            return
+            logging.warning(
+                f"No scenario summaries found to aggregate for {input_filename}."
+            )
+            return None
 
         raw_summary_df = pd.concat(all_summary_dfs, ignore_index=True)
-        # Save the aggregated raw summary
-        raw_summary_df.to_csv(
-            self.output_dir / "all_scenarios_summary.csv", index=False
-        )
-        logging.info(f"Aggregated summary saved to {self.output_dir}")
-
-        # 2. Create the comparison dashboard
-        dashboard_df = self.create_dashboard(raw_summary_df)
-
-        # 3. Create the scenario info sheet
-        info_df = self.create_info_sheet()
-
-        # 4. Write all DataFrames to a styled Excel report
-        excel_report_path = self.output_dir / "multi_scenario_report.xlsx"
-        self.write_excel_report(
-            excel_report_path,
-            dashboard_df=dashboard_df,
-            raw_summary_df=raw_summary_df,
-            info_df=info_df,
-            baseline_df=self.baseline_df,
-        )
+        output_path = self.output_dir / output_filename
+        raw_summary_df.to_csv(output_path, index=False)
+        logging.info(f"Aggregated summary saved to {output_path}")
+        return raw_summary_df
 
     def create_dashboard(self, raw_summary_df: pd.DataFrame) -> pd.DataFrame:
         """

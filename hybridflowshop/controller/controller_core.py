@@ -14,13 +14,17 @@ from mbls.cpsat import (
 )
 from mbls.cpsat.callbacks import ValueBoundPair
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
-from routix.util.comparison import float_a_leq_b, float_equals
+from routix.util.comparison import float_a_leq_b, float_a_stl_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
 from cpsat_solver_config import SolveConfig, configure_solver
-from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder, CumulativeVars
+from hybridflowshop.cpsat_model_2.cumulative import (
+    BaseModelBuilder,
+    CumulativeVars,
+    OperationVars,
+)
 from hybridflowshop.cpsat_model_2.params import Params
 from hybridflowshop.report import HfsCpsatSolverReport
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
@@ -91,7 +95,15 @@ class HybridFlowShopCpLnsControllerCore(
     def create_base_cp_model(self, **kwargs) -> CustomCpModel:
         builder = BaseModelBuilder()
         horizon = self.get_horizon()
-        mdl, params, variables = builder.build(self.instance, horizon)
+        tighten_ranges = kwargs.get("tighten_ranges", False)
+        link_job_completion = kwargs.get("link_job_completion", False)
+        mdl, params, variables = builder.build(
+            self.instance,
+            horizon,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
+        )
+
         self.params: Params = params
         self.vars: CumulativeVars = variables
         mdl.minimize(variables.makespan)
@@ -235,9 +247,10 @@ class HybridFlowShopCpLnsControllerCore(
         self,
         schedule: HybridFlowshopLiteSchedule,
         output_path: Path | None = None,
-        stage_list: list[str] | None = None,
+        stage_list: Sequence[str] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
+        highlight_op_set: set[tuple[str, str]] | None = None,
     ):
         """Draws the Gantt chart of the given schedule.
 
@@ -255,11 +268,16 @@ class HybridFlowShopCpLnsControllerCore(
                 schedule.get_jik_2_end_time_map(),
                 self.instance.job_id_list,
                 stage_list=stage_list,
+                highlight_op_set=highlight_op_set,
                 force_start=force_start,
                 force_end=force_end,
             )
 
-    def draw_incumbent_gantt(self, output_path: Path | None = None) -> None:
+    def draw_incumbent_gantt(
+        self,
+        output_path: Path | None = None,
+        highlight_op_set: set[tuple[str, str]] | None = None,
+    ) -> None:
         """Draws the Gantt chart of the incumbent solution.
 
         Args:
@@ -267,7 +285,11 @@ class HybridFlowShopCpLnsControllerCore(
         """
         incumbent_solution = self.solution_manager.get_incumbent()
         if isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
-            self.draw_gantt(incumbent_solution, output_path=output_path)
+            self.draw_gantt(
+                incumbent_solution,
+                output_path=output_path,
+                highlight_op_set=highlight_op_set,
+            )
         else:
             logging.warning("No incumbent solution available to draw Gantt chart.")
 
@@ -378,8 +400,14 @@ class HybridFlowShopCpLnsControllerCore(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         keep_all_feasible_solutions_in_presolve: bool | None = None,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
         e_timer: ElapsedTimer | None = None,
-        print_search_progress: bool = False,
+        log_search_progress: bool = False,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
         log_level_obj_value: int = logging.INFO,
@@ -390,11 +418,19 @@ class HybridFlowShopCpLnsControllerCore(
             e_timer = self.timer
 
         solve_cfg = SolveConfig(
-            log_search_progress=print_search_progress,
+            log_search_progress=log_search_progress,
+            log_to_stdout=False if log_search_progress else None,
+            log_to_response=True if log_search_progress else None,
             max_time_in_seconds=computational_time,
             num_workers=solver_thread_cnt,
             keep_all_feasible_solutions_in_presolve=keep_all_feasible_solutions_in_presolve,
             random_seed=self.random_seed,
+            encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+            expand_reservoir_constraints=expand_reservoir_constraints,
+            expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+            interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
         )
         self.solver = configure_solver(solve_cfg)
         obj_value_recorder = ObjectiveValueRecorder(
@@ -411,6 +447,24 @@ class HybridFlowShopCpLnsControllerCore(
         self.solver.best_bound_callback = obj_bound_recorder
 
         cp_solver_status = self.solver.solve(mdl, solution_callback=obj_value_recorder)
+        if log_search_progress:
+            solve_log = self.solver.response_proto.solve_log
+            if solve_log:
+                try:
+                    filename_suffix = "_cp_sat_search.log"
+                    if last_timestamp_note and isinstance(last_timestamp_note, str):
+                        filename_suffix = f"_cp_sat_search_{last_timestamp_note}.log"
+                    solve_log_path = self.get_file_path_for_subroutine(filename_suffix)
+                    with solve_log_path.open("a", encoding="utf-8") as fp:
+                        fp.write(
+                            f"\n=== {self._get_call_context_of_current_method()} "
+                            f"at {datetime.datetime.now().isoformat()} ===\n"
+                        )
+                        fp.write(solve_log)
+                        if not solve_log.endswith("\n"):
+                            fp.write("\n")
+                except Exception as err:
+                    logging.warning("Failed to write CP-SAT search log: %s", err)
         cpsat_status = CpsatStatus.from_cp_solver_status(cp_solver_status)
         elapsed_time = self.solver.wall_time
         if cpsat_status.is_feasible:
@@ -442,11 +496,10 @@ class HybridFlowShopCpLnsControllerCore(
                 return_list.append((entry[0], entry[1].value))
             return return_list
 
-        obj_value_records: list[tuple[float, float]] = []
+        obj_value_records = get_obj_value_records()
+        if cpsat_status.is_feasible:
+            obj_value_records.append((last_timestamp, obj_value))
         if obj_value_is_valid:
-            obj_value_records = get_obj_value_records()
-            if cpsat_status.is_feasible:
-                obj_value_records.append((last_timestamp, obj_value))
             self.extend_obj_value_log(
                 obj_value_records, is_maximize=self.cp_model.is_maximize()
             )
@@ -494,11 +547,10 @@ class HybridFlowShopCpLnsControllerCore(
                 for timestamp in timestamp_list
             ]
 
-        obj_bound_records: list[tuple[float, float]] = []
+        obj_bound_records = get_obj_bound_records()
+        if cpsat_status.is_feasible:
+            obj_bound_records.append((last_timestamp, obj_bound))
         if obj_bound_is_valid:
-            obj_bound_records = get_obj_bound_records()
-            if cpsat_status.is_feasible:
-                obj_bound_records.append((last_timestamp, obj_bound))
             self.extend_obj_bound_log(obj_bound_records, is_maximize=False)
             # Record bound for the last timestamp if it is the same as the last bound
             # and is not recorded for the last timestamp
@@ -528,7 +580,7 @@ class HybridFlowShopCpLnsControllerCore(
         return solver_report
 
     def extract_stage_2_job_2_start_time_map(
-        self, params: Params, variables: CumulativeVars
+        self, params: Params, variables: OperationVars
     ) -> dict[str, dict[str, int]]:
         start_time_map: dict[str, dict[str, int]] = {}
         """stage ID -> job ID -> start time"""
@@ -540,7 +592,7 @@ class HybridFlowShopCpLnsControllerCore(
         return start_time_map
 
     def extract_stage_2_job_2_end_time_map(
-        self, params: Params, variables: CumulativeVars
+        self, params: Params, variables: OperationVars
     ) -> dict[str, dict[str, int]]:
         end_time_map: dict[str, dict[str, int]] = {}
         """stage ID -> job ID -> end time"""
@@ -572,7 +624,7 @@ class HybridFlowShopCpLnsControllerCore(
         )
 
     def create_schedule(
-        self, params: Params, variables: CumulativeVars, make_semi_active: bool = False
+        self, params: Params, variables: OperationVars, make_semi_active: bool = False
     ) -> HybridFlowshopLiteSchedule:
         """
         Constructs a full HybridFlowshopLiteSchedule from the solved CP model.
@@ -647,6 +699,13 @@ class HybridFlowShopCpLnsControllerCore(
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
         is_initial_solution: bool = False,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -668,6 +727,24 @@ class HybridFlowShopCpLnsControllerCore(
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
+            encode_cumulative_as_reservoir (bool | None, optional): Whether to encode cumulative constraints as reservoir constraints.
+                Defaults to None.
+            expand_reservoir_constraints (bool | None, optional): Whether to expand reservoir constraints.
+                Defaults to None.
+            expand_reservoir_using_circuit (bool | None, optional): Whether to expand reservoir constraints using a circuit.
+                Defaults to None.
+            interleave_search (bool | None, optional): Whether to interleave the search.
+                Defaults to None.
+            use_lns_only (bool | None, optional): Whether to use LNS-only mode.
+                Defaults to None.
+            cp_model_probing_level (int | None, optional): The level of probing for the CP model.
+                Defaults to None.
+            log_search_progress (bool, optional): If True, logs the search progress during solving.
+                Defaults to False.
+
+        Returns:
+            tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
+                A tuple containing the solver report and the created schedule (if a feasible solution is found).
         """
         sub_timer = ElapsedTimer()
         # Utilize the objective bound if available
@@ -690,7 +767,14 @@ class HybridFlowShopCpLnsControllerCore(
             solver_thread_cnt,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
+            encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+            expand_reservoir_constraints=expand_reservoir_constraints,
+            expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+            interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
             log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
+            log_search_progress=log_search_progress,
         )
 
         hfs_solver_report = HfsCpsatSolverReport.from_other(
@@ -754,6 +838,13 @@ class HybridFlowShopCpLnsControllerCore(
         make_semi_active_after_cp: bool = False,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
@@ -774,9 +865,24 @@ class HybridFlowShopCpLnsControllerCore(
                 Defaults to False.
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
+            encode_cumulative_as_reservoir (bool | None, optional): Whether to encode cumulative constraints as reservoir constraints.
+                Defaults to None.
+            expand_reservoir_constraints (bool | None, optional): Whether to expand reservoir constraints.
+                Defaults to None.
+            expand_reservoir_using_circuit (bool | None, optional): Whether to expand reservoir constraints using a circuit.
+                Defaults to None.
+            interleave_search (bool | None, optional): Whether to interleave the search.
+                Defaults to None.
+            use_lns_only (bool | None, optional): Whether to use LNS-only mode.
+                Defaults to None.
+            cp_model_probing_level (int | None, optional): The level of probing for the CP model.
+                Defaults to None.
+            log_search_progress (bool, optional): If True, logs the search progress during solving.
+                Defaults to False.
 
-        Raises:
-            TypeError: If the incumbent solution is not compatible with the CP model.
+        Returns:
+            tuple[HfsCpsatSolverReport, HybridFlowshopLiteSchedule | None]:
+                A tuple containing the solver report and the created schedule (if a feasible solution is found).
         """
         incumbent_solution = self.solution_manager.get_incumbent()
         is_initial_run = incumbent_solution is None
@@ -799,6 +905,7 @@ class HybridFlowShopCpLnsControllerCore(
                 self.vars,
                 incumbent_solution.get_jik_2_end_time_map(),
             )
+            self.cp_model.add_hint(self.vars.makespan, incumbent_solution.makespan)
 
         return self.solve_current_cp_remaining_time_limit(
             computational_time,
@@ -808,8 +915,91 @@ class HybridFlowShopCpLnsControllerCore(
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
             is_initial_solution=is_initial_run,
+            encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+            expand_reservoir_constraints=expand_reservoir_constraints,
+            expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+            interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
+            log_search_progress=log_search_progress,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
         )
 
     # End solver call methods
+
+    # Start repeat
+
+    def repeat_while_improvement(
+        self,
+        routine_data: DynamicDataObject,
+        n_repeats: int | None = None,
+        max_no_improve: int | None = None,
+    ):
+        """
+        Repeats the execution of a routine a specified number of times.
+
+        Args:
+            routine_data (DynamicDataObject): The routine data to be executed.
+            n_repeats (int | None, optional): Number of times to repeat the routine.
+                If None, repeats until the stopping condition or the no-improvement
+                limit is met. Defaults to None.
+            max_no_improve (int | None, optional): Maximum number of consecutive
+                non-improving iterations before stopping.
+                If 0, stops after the first non-improving iteration.
+                If None or negative, treated as 0.
+                Defaults to None.
+        """
+        _max_no_improve: int = (
+            0 if max_no_improve is None or max_no_improve < 0 else max_no_improve
+        )
+
+        incumbent_sol = self.solution_manager.get_incumbent()
+        if incumbent_sol is None:
+            obj_before = math.inf
+        else:
+            obj_before = incumbent_sol.makespan
+
+        no_improve_count = 0
+        i = 0
+        while n_repeats is None or i < n_repeats:
+            if self.is_stopping_condition():
+                logging.info(
+                    "[Repeat] Stopping condition met at iteration %d/%s.",
+                    i + 1,
+                    n_repeats if n_repeats is not None else "inf",
+                )
+                break
+            logging.info(
+                "[Repeat] Starting repeat %d/%s.",
+                i + 1,
+                n_repeats if n_repeats is not None else "inf",
+            )
+
+            subroutine_name = f"reps_{i + 1:03d}"
+            with self.temporarily_extended_context(subroutine_name):
+                self._run_flow(DynamicDataObject.from_obj(routine_data))
+
+            incumbent_sol = self.solution_manager.get_incumbent()
+            if incumbent_sol is None:
+                obj_after = math.inf
+            else:
+                obj_after = incumbent_sol.makespan
+
+            if float_a_stl_b(obj_after, obj_before):
+                no_improve_count = 0
+                logging.info(
+                    f"[Repeat] Improvement observed ({obj_before} -> {obj_after}). Continuing."
+                )
+                obj_before = obj_after
+            else:
+                logging.info(
+                    f"[Repeat] No improvement observed ({obj_before} -> {obj_after})."
+                )
+                no_improve_count += 1
+                if no_improve_count > _max_no_improve:
+                    logging.info(
+                        f"[Repeat] Max no-improve reached ({_max_no_improve}). Stopping repeats."
+                    )
+                    break
+            i += 1

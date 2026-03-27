@@ -1,4 +1,4 @@
-Problem,SolverVendor,Formulation,Instance,n,m,LB,UB,Gap,ActualTime
+Problem,SolverVendor,Formulation,Instance,n,c,LB,UB,Gap,ActualTime
 Hybridflowshop,CPLEX,CP,1,40,5,976,976,0,2.593
 Hybridflowshop,CPLEX,CP,2,40,10,1292,1292,0,1.024
 Hybridflowshop,CPLEX,CP,3,40,15,1483,1501,0.01214,1200.033

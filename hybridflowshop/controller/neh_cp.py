@@ -41,6 +41,7 @@ class NehCpContext(Protocol):
         e_timer: ElapsedTimer | None = None,
         obj_value_is_valid: bool = False,
         obj_bound_is_valid: bool = False,
+        use_lns_only: bool | None = None,
         log_level_obj_value: int = logging.INFO,
         log_level_obj_bound: int = logging.INFO,
     ) -> CpsatSolverReport: ...
@@ -123,12 +124,16 @@ class NehCpConstructor:
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         minimize_sum_ci_lex: bool = False,
         cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
         make_semi_active_every_cp: bool = False,
         solver_thread_cnt: int | None = None,
+        use_lns_only: bool = False,
         error_if_infeasible: bool = False,
     ) -> NehCpResult:
         timer = ElapsedTimer()
@@ -291,12 +296,16 @@ class NehCpConstructor:
                 instance,
                 stage_2_job_2_p_dict,
                 profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
                 max_time_per_add=max_time_per_add,
                 minimize_sum_ci_lex=minimize_sum_ci_lex,
                 max_time_per_add_2nd_obj=max_time_per_add_2nd_obj,
                 minimize_sum_ci_lin=minimize_sum_ci_lin,
+                tighten_ranges=tighten_ranges,
+                link_job_completion=link_job_completion,
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
+                use_lns_only=use_lns_only,
             )
             last_timestamp = st.timer.elapsed_sec
             logging.info(
@@ -361,8 +370,11 @@ class NehCpConstructor:
         partial_sol: HybridFlowshopLiteSchedule,
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         minimize_sum_ci_lex: bool = False,
         minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
         horizon: int = partial_sol.makespan
@@ -376,6 +388,8 @@ class NehCpConstructor:
             horizon,
             minimize_sum_ci=minimize_sum_ci_lex,
             minimize_makespan_plus_sum_other_stages=minimize_sum_ci_lin,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
         )
         # mdl, params, variables = builder.build_horizon_per_stage(
         #     sub_instance, stage_2_mc_horizon
@@ -386,6 +400,7 @@ class NehCpConstructor:
             variables,
             partial_sol,
             profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
         )
 
         return mdl, params, variables
@@ -397,6 +412,7 @@ class NehCpConstructor:
         variables: CumulativeVars,
         partial_sol: HybridFlowshopLiteSchedule,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ) -> None:
         st = self._require_state()
         # Apply hint from partial solution
@@ -422,6 +438,7 @@ class NehCpConstructor:
                 variables,
                 st.partial_sol,
                 profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
             )
 
     def _solve_cp_model(
@@ -430,12 +447,16 @@ class NehCpConstructor:
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
         max_time_per_add: float | None = None,
         minimize_sum_ci_lex: bool = False,
         max_time_per_add_2nd_obj: float | None = None,
         minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
+        use_lns_only: bool = False,
     ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
         if solver_thread_cnt is None:
             solver_thread_cnt = 1
@@ -447,7 +468,10 @@ class NehCpConstructor:
             partial_sol,
             instance,
             profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
             minimize_sum_ci_lin=minimize_sum_ci_lin,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
@@ -455,6 +479,7 @@ class NehCpConstructor:
             sub_cp_mdl,
             _timelimit,
             solver_thread_cnt,
+            use_lns_only=use_lns_only,
             e_timer=st.timer,
             obj_value_is_valid=False,
             obj_bound_is_valid=False,
@@ -491,7 +516,11 @@ class NehCpConstructor:
 
         # Build secondary CP model to minimize \sum(C_i)
         sub_cp_mdl, params, variables = self._create_sub_cp_model(
-            new_sol, instance, minimize_sum_ci_lex=True
+            new_sol,
+            instance,
+            minimize_sum_ci_lex=True,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add_2nd_obj)
@@ -499,6 +528,7 @@ class NehCpConstructor:
             sub_cp_mdl,
             _timelimit,
             solver_thread_cnt,
+            use_lns_only=use_lns_only,
             e_timer=st.timer,
             obj_value_is_valid=False,
             obj_bound_is_valid=False,

@@ -207,6 +207,53 @@ def test_deepcopy_copies_and_filters_cache():
     # Public maps should reflect the filtered schedule
     assert copied.get_jik_2_start_time_map() == {("j1", "s1", "m1"): 0}
     assert copied.get_jik_2_end_time_map() == {("j1", "s1", "m1"): 2}
+    assert copied.jobs == ["j1", "j2"]
+    assert copied.jobs is not sched.jobs
+    assert copied.stages == ["s1"]
+    assert copied.stages is not sched.stages
+    assert copied.machines_per_stage == {"s1": ["m1"]}
+    assert copied.machines_per_stage is not sched.machines_per_stage
+    assert copied.machines_per_stage["s1"] is not sched.machines_per_stage["s1"]
+
+
+def test_deepcopy_fully_detaches_metadata_and_internal_state():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=2)
+
+    copied = sched.deepcopy()
+
+    assert copied.jobs == sched.jobs
+    assert copied.jobs is not sched.jobs
+    assert copied.stages == sched.stages
+    assert copied.stages is not sched.stages
+    assert copied.machines_per_stage == sched.machines_per_stage
+    assert copied.machines_per_stage is not sched.machines_per_stage
+    assert copied.machines_per_stage["s1"] is not sched.machines_per_stage["s1"]
+
+    copied_job_2_end = _get_priv(copied, "__stage_2_job_2_end_time")
+    sched_job_2_end = _get_priv(sched, "__stage_2_job_2_end_time")
+    assert copied_job_2_end is not sched_job_2_end
+    assert copied_job_2_end["s1"] is not sched_job_2_end["s1"]
+
+    copied_seq = _get_priv(copied, "__stage_2_mc_2_job_tuple_seq")
+    sched_seq = _get_priv(sched, "__stage_2_mc_2_job_tuple_seq")
+    assert copied_seq is not sched_seq
+    assert copied_seq["s1"] is not sched_seq["s1"]
+    assert copied_seq["s1"]["m1"] is not sched_seq["s1"]["m1"]
+
+    copied.jobs.append("j3")
+    copied.stages.append("s2")
+    copied.machines_per_stage["s1"].append("m2")
+    copied.get_job_sequence("s1", "m1").append((2, 4, "j2"))
+
+    assert sched.jobs == ["j1", "j2"]
+    assert sched.stages == ["s1"]
+    assert sched.machines_per_stage == {"s1": ["m1"]}
+    assert sched.get_job_sequence("s1", "m1") == [(0, 2, "j1")]
 
 
 def test_inserts_into_idle_gap_on_machine():
@@ -295,6 +342,152 @@ def test_dispatch_stage_by_jobs_uses_precedence_priority():
     # 'a' should be scheduled first at its earliest feasible time (1), not pushed to 10.
     assert start_map[("a", "i1", "m1")] == 1
     assert start_map[("b", "i1", "m1")] == 10
+
+
+def test_dispatch_stage_reversed_by_jobs_uses_latest_feasible_slot_before_lct():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "fixed"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "fixed", start_time=8, end_time=10)
+
+    sched.dispatch_stage_reversed_by_jobs(
+        "s1",
+        job_id_seq=["a"],
+        job_2_duration={"a": 3},
+        mc_2_lct={"m1": 8},
+    )
+
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert start_map[("a", "s1", "m1")] == 5
+    assert end_map[("a", "s1", "m1")] == 8
+
+
+def test_dispatch_stage_reversed_by_jobs_uses_latest_interior_gap_before_lct():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "left", "right"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "left", start_time=2, end_time=4)
+    sched.add_ops_times_2_mc("s1", "m1", "right", start_time=8, end_time=10)
+
+    sched.dispatch_stage_reversed_by_jobs(
+        "s1",
+        job_id_seq=["a"],
+        job_2_duration={"a": 3},
+        mc_2_lct={"m1": 8},
+    )
+
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert start_map[("a", "s1", "m1")] == 5
+    assert end_map[("a", "s1", "m1")] == 8
+
+
+def test_dispatch_stage_reversed_by_jobs_respects_job_deadline():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "fixed"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "fixed", start_time=9, end_time=10)
+
+    sched.dispatch_stage_reversed_by_jobs(
+        "s1",
+        job_id_seq=["a"],
+        job_2_duration={"a": 3},
+        mc_2_lct={"m1": 9},
+        job_2_deadline={"a": 7},
+    )
+
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert start_map[("a", "s1", "m1")] == 4
+    assert end_map[("a", "s1", "m1")] == 7
+
+
+def test_dispatch_stage_reversed_by_jobs_uses_next_stage_start_as_upper_bound():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "fixed", "tail"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "fixed", start_time=8, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m2", "a", start_time=6, end_time=9)
+    sched.add_ops_times_2_mc("s2", "m2", "tail", start_time=9, end_time=11)
+
+    sched.dispatch_stage_reversed_by_jobs(
+        "s1",
+        job_id_seq=["a"],
+        job_2_duration={"a": 3},
+        mc_2_lct={"m1": 8},
+    )
+
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert start_map[("a", "s1", "m1")] == 3
+    assert end_map[("a", "s1", "m1")] == 6
+
+
+def test_dispatch_stage_reversed_by_jobs_picks_machine_with_latest_slot():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "x", "y"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "x", start_time=6, end_time=8)
+    sched.add_ops_times_2_mc("s1", "m2", "y", start_time=8, end_time=10)
+
+    sched.dispatch_stage_reversed_by_jobs(
+        "s1",
+        job_id_seq=["a"],
+        job_2_duration={"a": 2},
+        mc_2_lct={"m1": 6, "m2": 8},
+    )
+
+    end_map = sched.get_jik_2_end_time_map()
+    assert end_map[("a", "s1", "m2")] == 8
+
+
+def test_dispatch_stage_reversed_by_jobs_uses_gap_before_first_operation():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "fixed"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "fixed", start_time=5, end_time=7)
+
+    sched.dispatch_stage_reversed_by_jobs(
+        "s1",
+        job_id_seq=["a"],
+        job_2_duration={"a": 2},
+        mc_2_lct={"m1": 5},
+    )
+
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("a", "s1", "m1")] == 3
+
+
+def test_dispatch_stage_reversed_by_jobs_raises_when_no_slot_exists_before_zero():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "fixed"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "fixed", start_time=1, end_time=3)
+
+    with pytest.raises(
+        ValueError, match="Unable to reverse-dispatch job a on stage s1"
+    ):
+        sched.dispatch_stage_reversed_by_jobs(
+            "s1",
+            job_id_seq=["a"],
+            job_2_duration={"a": 2},
+            mc_2_lct={"m1": 2},
+        )
 
 
 @pytest.mark.parametrize("duration", [0, -1])
@@ -509,6 +702,163 @@ def test_make_semi_active_empty_schedule():
     assert sched.makespan == 0
 
 
+def _build_subset_retiming_fixture() -> tuple[
+    HybridFlowshopLiteSchedule, dict[str, dict[str, int]]
+]:
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    # Semi-active baseline:
+    # s1.m1: j1[0,5]
+    # s1.m2: j2[0,5]
+    # s2.m1: j1[5,10], j2[10,15]
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=10, end_time=15)
+
+    return sched, duration
+
+
+def test_make_semi_active_empty_operation_set_matches_full():
+    sched_full = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    sched_empty = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    for sched in (sched_full, sched_empty):
+        sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=5, end_time=10)
+        sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+        sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=10, end_time=15)
+        sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=15, end_time=20)
+
+    sched_full.make_semi_active(duration)
+    sched_empty.make_semi_active(duration, operation_set=set())
+
+    assert (
+        sched_empty.get_jik_2_start_time_map() == sched_full.get_jik_2_start_time_map()
+    )
+    assert sched_empty.get_jik_2_end_time_map() == sched_full.get_jik_2_end_time_map()
+
+
+def test_make_semi_active_subset_keeps_unselected_operations_fixed():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=15, end_time=20)
+
+    sched.make_semi_active(duration, operation_set={("j2", "s1", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 15
+    assert start_map[("j1", "s2", "m1")] == 5
+
+
+def test_make_semi_active_subset_propagates_across_stages():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=10, end_time=15)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=5, end_time=10)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=15, end_time=20)
+
+    sched.make_semi_active(
+        duration,
+        operation_set={("j2", "s1", "m1"), ("j2", "s2", "m1")},
+    )
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 10
+
+
+def test_make_semi_active_subset_respects_fixed_machine_anchor():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    duration = {"s1": {"j1": 5, "j2": 5, "j3": 5}}
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=5)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=8, end_time=13)
+    sched.add_ops_times_2_mc("s1", "m1", "j3", start_time=15, end_time=20)
+
+    sched.make_semi_active(duration, operation_set={("j2", "s1", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m1")] == 5
+    assert start_map[("j3", "s1", "m1")] == 15
+
+
+def test_make_semi_active_subset_with_start_from_stage_leaves_earlier_stage_untouched():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    duration: dict[str, dict[str, int]] = {
+        "s1": {"j1": 5, "j2": 5},
+        "s2": {"j1": 5, "j2": 5},
+    }
+
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=2, end_time=7)
+    sched.add_ops_times_2_mc("s1", "m1", "j2", start_time=12, end_time=17)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=7, end_time=12)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=20, end_time=25)
+
+    sched.make_semi_active(
+        duration,
+        start_from_stage="s2",
+        operation_set={("j2", "s2", "m1")},
+    )
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j1", "s1", "m1")] == 2
+    assert start_map[("j2", "s1", "m1")] == 12
+    assert start_map[("j2", "s2", "m1")] == 17
+
+
 # ============================================================================
 # Tests for make_semi_active() with dummy initial times
 # ============================================================================
@@ -692,6 +1042,106 @@ def test_swap_missing_job_raises():
     # J2 is on S2.M2, but "MISSING" is not scheduled at all.
     with pytest.raises(ValueError, match="not found in stage"):
         sched.swap_two_operations_within_stage("S2", "J1", "MISSING", duration)
+
+
+def _build_suffix_swap_schedule() -> tuple[
+    HybridFlowshopLiteSchedule, dict[str, dict[str, int]]
+]:
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["A", "B", "C", "D", "E"],
+        stages=["S1"],
+        machines_per_stage={"S1": ["M1", "M2"]},
+    )
+    sched.add_ops_times_2_mc("S1", "M1", "A", 0, 2)
+    sched.add_ops_times_2_mc("S1", "M1", "B", 2, 4)
+    sched.add_ops_times_2_mc("S1", "M1", "C", 4, 6)
+    sched.add_ops_times_2_mc("S1", "M2", "D", 0, 2)
+    sched.add_ops_times_2_mc("S1", "M2", "E", 2, 4)
+    duration = {"S1": {"A": 2, "B": 2, "C": 2, "D": 2, "E": 2}}
+    return sched, duration
+
+
+def test_collect_stage_machine_suffix_job_ids_returns_suffix():
+    sched, _duration = _build_suffix_swap_schedule()
+
+    assert sched.collect_stage_machine_suffix_job_ids("S1", "M1", "B") == ["B", "C"]
+
+
+def test_swap_stage_machine_operation_sets_preserves_unselected_order():
+    sched, duration = _build_suffix_swap_schedule()
+
+    sched.swap_stage_machine_operation_sets(
+        "S1",
+        "M1",
+        ["B"],
+        "M2",
+        ["E"],
+        duration,
+        do_make_semi_active=False,
+    )
+
+    assert [job_id for _s, _e, job_id in sched.get_job_sequence("S1", "M1")] == [
+        "A",
+        "E",
+        "C",
+    ]
+    assert [job_id for _s, _e, job_id in sched.get_job_sequence("S1", "M2")] == [
+        "D",
+        "B",
+    ]
+
+
+def test_swap_stage_machine_operation_sets_with_make_semi_active_retimes():
+    sched, duration = _build_suffix_swap_schedule()
+
+    sched.swap_stage_machine_operation_sets(
+        "S1",
+        "M1",
+        ["A", "B"],
+        "M2",
+        ["E"],
+        duration,
+        do_make_semi_active=True,
+    )
+
+    validate_schedule(sched, duration)
+    assert [job_id for _s, _e, job_id in sched.get_job_sequence("S1", "M1")] == [
+        "E",
+        "C",
+    ]
+    assert [job_id for _s, _e, job_id in sched.get_job_sequence("S1", "M2")] == [
+        "D",
+        "A",
+        "B",
+    ]
+
+
+def test_swap_stage_machine_operation_sets_duplicate_job_ids_raise():
+    sched, duration = _build_suffix_swap_schedule()
+
+    with pytest.raises(ValueError, match="Duplicate job IDs"):
+        sched.swap_stage_machine_operation_sets(
+            "S1",
+            "M1",
+            ["B", "B"],
+            "M2",
+            ["E"],
+            duration,
+        )
+
+
+def test_swap_stage_machine_operation_sets_same_machine_raises():
+    sched, duration = _build_suffix_swap_schedule()
+
+    with pytest.raises(ValueError, match="requires two machines"):
+        sched.swap_stage_machine_operation_sets(
+            "S1",
+            "M1",
+            ["B"],
+            "M1",
+            ["C"],
+            duration,
+        )
 
 
 # ============================================================================
@@ -1184,3 +1634,230 @@ def test_get_machine_earliest_start_time_release_t_equals_operation_start():
         sched.get_machine_earliest_start_time("s1", "m1", duration=3, release_t=10)
         == 20
     )
+
+
+def test_as_reversed_reverses_stage_order():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=3)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=1, end_time=4)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=3, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m2", "j2", start_time=4, end_time=7)
+
+    reversed_sched = sched.as_reversed()
+
+    assert list(reversed_sched.stages) == ["s2", "s1"]
+
+
+def test_as_reversed_time_transform_formula_exact():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=3)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=1, end_time=4)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=3, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m2", "j2", start_time=4, end_time=7)
+
+    reversed_sched = sched.as_reversed()
+    rev_start = reversed_sched.get_jik_2_start_time_map()
+    rev_end = reversed_sched.get_jik_2_end_time_map()
+    anchor = sched.makespan
+
+    # as_reversed keeps original stage and machine IDs, only reverses time
+    expected = {}
+    for (
+        job_id,
+        stage_orig,
+        mc_id,
+    ), start_orig in sched.get_jik_2_start_time_map().items():
+        end_orig = sched.get_jik_2_end_time_map()[(job_id, stage_orig, mc_id)]
+        # Stage and machine IDs remain the same; only time is transformed
+        expected[(job_id, stage_orig, mc_id)] = (
+            anchor - end_orig,
+            anchor - start_orig,
+        )
+
+    for op, (exp_start, exp_end) in expected.items():
+        assert rev_start[op] == exp_start
+        assert rev_end[op] == exp_end
+
+
+def test_as_reversed_preserves_machine_and_job():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1", "m2"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=3)
+    sched.add_ops_times_2_mc("s2", "m2", "j1", start_time=3, end_time=6)
+    sched.add_ops_times_2_mc("s1", "m2", "j2", start_time=1, end_time=5)
+    sched.add_ops_times_2_mc("s2", "m1", "j2", start_time=6, end_time=8)
+
+    reversed_sched = sched.as_reversed()
+
+    # as_reversed keeps original stage and machine IDs, only reverses time
+    orig_ops = sched.get_operation_set()
+    rev_ops = reversed_sched.get_operation_set()
+    # Stage and machine IDs remain unchanged
+    assert rev_ops == orig_ops
+
+
+def test_as_reversed_non_inplace():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    sched.add_ops_times_2_mc("s1", "m1", "j1", start_time=0, end_time=2)
+    sched.add_ops_times_2_mc("s2", "m1", "j1", start_time=2, end_time=5)
+    original_start = dict(sched.get_jik_2_start_time_map())
+    original_end = dict(sched.get_jik_2_end_time_map())
+
+    reversed_sched = sched.as_reversed()
+
+    assert reversed_sched is not sched
+    assert sched.get_jik_2_start_time_map() == original_start
+    assert sched.get_jik_2_end_time_map() == original_end
+
+
+def test_as_reversed_empty_schedule():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"], "s3": ["m1"]},
+    )
+
+    reversed_sched = sched.as_reversed()
+
+    assert list(reversed_sched.stages) == ["s3", "s2", "s1"]
+    assert reversed_sched.get_jik_2_start_time_map() == {}
+    assert reversed_sched.get_jik_2_end_time_map() == {}
+    assert reversed_sched.makespan == 0
+
+
+def test_as_reversed_remaps_machine_by_stage_position():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["i0", "i1"],
+        machines_per_stage={
+            "i0": ["i0_0", "i0_1"],
+            "i1": ["i1_0", "i1_1"],
+        },
+    )
+    sched.add_ops_times_2_mc("i0", "i0_1", "j1", start_time=0, end_time=2)
+    sched.add_ops_times_2_mc("i1", "i1_0", "j1", start_time=2, end_time=5)
+
+    reversed_sched = sched.as_reversed()
+    ops = reversed_sched.get_operation_set()
+
+    # as_reversed keeps original stage and machine IDs
+    assert ("j1", "i0", "i0_1") in ops
+    assert ("j1", "i1", "i1_0") in ops
+
+
+# ============================================================================
+# Tests for make_right_justified()
+# ============================================================================
+
+
+def test_make_right_justified_preserves_makespan_and_feasibility():
+    sched, duration = _build_subset_retiming_fixture()
+    original_makespan = sched.makespan
+
+    sched.make_right_justified(duration)
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert sched.makespan == original_makespan
+    assert start_map[("j2", "s1", "m2")] == 5
+
+
+def test_make_right_justified_already_right_justified_is_unchanged():
+    sched, duration = _build_subset_retiming_fixture()
+    sched.make_right_justified(duration)
+    start_map_before = sched.get_jik_2_start_time_map()
+    end_map_before = sched.get_jik_2_end_time_map()
+
+    sched.make_right_justified(duration)
+
+    assert sched.get_jik_2_start_time_map() == start_map_before
+    assert sched.get_jik_2_end_time_map() == end_map_before
+
+
+def test_make_right_justified_multi_machine_expected_positions():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration)
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert start_map[("j1", "s1", "m1")] == 0
+    assert end_map[("j1", "s1", "m1")] == 5
+    assert start_map[("j2", "s1", "m2")] == 5
+    assert end_map[("j2", "s1", "m2")] == 10
+    assert start_map[("j1", "s2", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 10
+
+
+def test_make_right_justified_last_stage_respects_original_makespan():
+    sched, duration = _build_subset_retiming_fixture()
+    original_makespan = sched.makespan
+
+    sched.make_right_justified(duration)
+
+    last_stage = sched.stages[-1]
+    for _mc, _start, end, _job in sched.iter_operations_on_stage(last_stage):
+        assert end <= original_makespan
+    assert sched.makespan == original_makespan
+
+
+def test_make_right_justified_subset_keeps_unselected_operations_fixed():
+    sched, duration = _build_subset_retiming_fixture()
+    start_map_before = sched.get_jik_2_start_time_map()
+
+    sched.make_right_justified(duration, operation_set={("j2", "s1", "m2")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j2", "s1", "m2")] == 5
+    assert start_map[("j1", "s1", "m1")] == start_map_before[("j1", "s1", "m1")]
+    assert start_map[("j1", "s2", "m1")] == start_map_before[("j1", "s2", "m1")]
+    assert start_map[("j2", "s2", "m1")] == start_map_before[("j2", "s2", "m1")]
+
+
+def test_make_right_justified_subset_zero_slack_operation_stays_put():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration, operation_set={("j1", "s1", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j1", "s1", "m1")] == 0
+
+
+def test_make_right_justified_subset_respects_fixed_machine_successor():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration, operation_set={("j1", "s2", "m1")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("j1", "s2", "m1")] == 5
+    assert start_map[("j2", "s2", "m1")] == 10
+
+
+def test_make_right_justified_subset_respects_next_stage_precedence():
+    sched, duration = _build_subset_retiming_fixture()
+
+    sched.make_right_justified(duration, operation_set={("j2", "s1", "m2")})
+
+    validate_schedule(sched, duration)
+    start_map = sched.get_jik_2_start_time_map()
+    end_map = sched.get_jik_2_end_time_map()
+    assert end_map[("j2", "s1", "m2")] == start_map[("j2", "s2", "m1")]

@@ -24,7 +24,7 @@ from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
-MAIN_METADATA_FILENAME = "main_metadata.yaml"
+MAIN_METADATA_FILENAME = "main_metadata_debug.yaml"
 REVERSE_INSTANCE_ORDER = True
 
 
@@ -145,6 +145,7 @@ def run_experiment(
                 "draw_progress_plot",
                 "progress_plot_filename_format",
                 "drop_first_values_percent",
+                "timepoint_summaries",
             }
         )
         base_output_metadata["start_dt"] = e_timer.start_dt

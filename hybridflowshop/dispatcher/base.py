@@ -168,7 +168,7 @@ class BaseDispatcher:
         """Return the job sequence according to Palmer's slope index heuristic.
 
         Returns:
-            list[JobIdType]: Job ID list in Palmer slope order (descending s_i).
+            list[JobIdType]: Job ID list in Palmer slope order.
         """
         # TODO: overlap with hybridflowshop/schedule_lite.py's get_job_2_palmer_index
         jobs = self.job_id_list

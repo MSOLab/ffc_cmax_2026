@@ -10,19 +10,30 @@ from matplotlib.figure import Figure
 
 class GanttPlotter:
     # matplotlib.pyplot variables
-    fig: Figure
-    ax: Axes
+    fig: Figure | None
+    ax: Axes | None
 
     # constants
     cmap_name = "tab20"
     machine_height = 1.0
     bar_height = 0.8
-    bar_alpha = 0.7
-    grid_alpha = 0.5
+    bar_alpha = 0.5
+    grid_alpha = 0.3
     figsize = (12, 8)
 
     def __init__(self):
-        self.fig, self.ax = plt.subplots(figsize=self.figsize)
+        self.fig = None
+        self.ax = None
+
+    def _ensure_figure(self) -> None:
+        if self.fig is None or self.ax is None:
+            self.fig, self.ax = plt.subplots(figsize=self.figsize)
+
+    def close(self) -> None:
+        if self.fig is not None:
+            plt.close(self.fig)
+            self.fig = None
+            self.ax = None
 
     def display_hybrid_flowshop_plot(
         self,
@@ -32,6 +43,7 @@ class GanttPlotter:
         stage_list: Sequence[str] | None = None,
         machine_list_per_stage: Mapping[str, Sequence[str]] | None = None,
         all_job_list: Sequence[str] | None = None,
+        highlight_op_set: set[tuple[str, str]] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):
@@ -42,10 +54,12 @@ class GanttPlotter:
             stage_list=stage_list,
             machine_list_per_stage=machine_list_per_stage,
             all_job_list=all_job_list,
+            highlight_op_set=highlight_op_set,
             force_start=force_start,
             force_end=force_end,
         )
         plt.show()
+        self.close()
 
     def export_hybrid_flowshop_plot(
         self,
@@ -56,27 +70,32 @@ class GanttPlotter:
         stage_list: Sequence[str] | None = None,
         machine_list_per_stage: Mapping[str, Sequence[str]] | None = None,
         all_job_list: Sequence[str] | None = None,
+        highlight_op_set: set[tuple[str, str]] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):
+        self._ensure_figure()
+        assert self.ax is not None
+        assert self.fig is not None
         self.ax.clear()
 
-        self.plot_hybrid_flowshop(
-            start_time_map,
-            end_time_map,
-            job_list=job_list,
-            stage_list=stage_list,
-            machine_list_per_stage=machine_list_per_stage,
-            all_job_list=all_job_list,
-            force_start=force_start,
-            force_end=force_end,
-        )
+        try:
+            self.plot_hybrid_flowshop(
+                start_time_map,
+                end_time_map,
+                job_list=job_list,
+                stage_list=stage_list,
+                machine_list_per_stage=machine_list_per_stage,
+                all_job_list=all_job_list,
+                highlight_op_set=highlight_op_set,
+                force_start=force_start,
+                force_end=force_end,
+            )
 
-        self.fig.savefig(file_path, bbox_inches="tight", dpi=300)
-        logging.info(f"Gantt chart saved to {file_path}")
-
-        plt.close(self.fig)
-        self.fig, self.ax = plt.subplots(figsize=self.figsize)
+            self.fig.savefig(file_path, bbox_inches="tight", dpi=300)
+            logging.debug(f"Gantt chart saved to {file_path}")
+        finally:
+            self.close()
 
     def plot_hybrid_flowshop(
         self,
@@ -86,6 +105,7 @@ class GanttPlotter:
         stage_list: Sequence[str] | None = None,
         machine_list_per_stage: Mapping[str, Sequence[str]] | None = None,
         all_job_list: Sequence[str] | None = None,
+        highlight_op_set: set[tuple[str, str]] | None = None,
         force_start: int | None = None,
         force_end: int | None = None,
     ):
@@ -98,7 +118,13 @@ class GanttPlotter:
             job_list (Sequence[str], optional): List of jobs to include
             stage_list (Sequence[str], optional): List of stages to include
             machine_list_per_stage (Mapping[str, Sequence[str]], optional): stage -> list of machines
+            all_job_list (Sequence[str], optional): List of all jobs for color mapping
+            highlight_op_set (set[tuple[str, str]], optional): Set of (job, stage) to highlight
+            force_start (int, optional): If provided, forces the x-axis to start at this time
+            force_end (int, optional): If provided, forces the x-axis to end at this time
         """
+        self._ensure_figure()
+        assert self.ax is not None
         self.set_x_horizon(
             start_time_map, end_time_map, force_start=force_start, force_end=force_end
         )
@@ -146,6 +172,7 @@ class GanttPlotter:
             job_to_color=job_to_color,
             machine_to_y=machine_to_y,
             job_list=_job_list,
+            highlight_op_set=highlight_op_set,
         )
 
         # Axis formatting
@@ -264,6 +291,7 @@ class GanttPlotter:
         y: float,
         show_label: bool = True,
         show_duration: bool = True,
+        highlight: bool = False,
     ):
         """
         Draw a single operation bar on the Gantt chart.
@@ -276,19 +304,26 @@ class GanttPlotter:
             e_time (int): End time.
             color (tuple): RGBA color.
             y (float): Y-axis position.
-            show_label (bool, optional): Whether to show the job label. Default is True.
-            show_duration (bool, optional): Whether to show the duration. Default is True.
+            show_label (bool, optional): Whether to show the job label. Defaults to True.
+            show_duration (bool, optional): Whether to show the duration. Defaults to True.
+            highlight (bool, optional): Whether to highlight this operation.
+                Highlighted operations have thicker edges. Defaults to False.
         """  # noqa: E501
         duration = e_time - s_time
+
+        edgecolor = "black"
+        linewidth = 3.0 if highlight else 1.0
+        alpha = 1.0 if highlight else self.bar_alpha
 
         self.ax.add_patch(
             patches.Rectangle(
                 (s_time, y),
                 duration,
                 self.bar_height,
-                edgecolor="black",
+                edgecolor=edgecolor,
                 facecolor=color,
-                alpha=self.bar_alpha,
+                alpha=alpha,
+                linewidth=linewidth,
             )
         )
         if show_label:
@@ -319,8 +354,19 @@ class GanttPlotter:
         job_to_color: Mapping[str, tuple[float, float, float, float]],
         machine_to_y: Mapping[tuple[str, str], float],
         job_list: Sequence[str],
+        highlight_op_set: set[tuple[str, str]] | None = None,
     ):
-        """Draw the operation bars and labels on the Gantt chart."""
+        """Draw the operation bars and labels on the Gantt chart.
+
+        Args:
+            start_time_map (Mapping[tuple[str, str, str], int]): (job, stage, machine) -> start time
+            end_time_map (Mapping[tuple[str, str, str], int]): (job, stage, machine) -> end time
+            job_to_color (Mapping[str, tuple[float, float, float, float]]): job -> color
+            machine_to_y (Mapping[tuple[str, str], float]): (stage, machine) -> y-axis position
+            job_list (Sequence[str]): List of jobs to include
+            highlight_op_set (set[tuple[str, str]] | None, optional): Set of (job, stage) to highlight.
+                Defaults to None.
+        """
         for (job, stage, machine), s_time in start_time_map.items():
             if job_list and job not in job_list:
                 continue
@@ -330,6 +376,10 @@ class GanttPlotter:
             e_time = end_time_map[(job, stage, machine)]
             y = machine_to_y[(stage, machine)]
             color = job_to_color[job]
+            is_highlight = (
+                highlight_op_set is not None
+                and (job, stage) in highlight_op_set
+            )
 
             self.draw_operation_bar(
                 job=job,
@@ -339,4 +389,5 @@ class GanttPlotter:
                 e_time=e_time,
                 color=color,
                 y=y,
+                highlight=is_highlight,
             )

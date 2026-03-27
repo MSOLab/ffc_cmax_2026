@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from bisect import bisect_left
 from dataclasses import dataclass
-from itertools import pairwise
 from typing import Mapping
 
 from mbls.cpsat import CustomCpModel
@@ -12,13 +11,18 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
 
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    JobIdType,
+    McIdType,
+    StageIdType,
+)
 
 from .params import Params
 
 
 @dataclass
-class CumulativeVars:
+class OperationVars:
     op_start: dict[tuple[str, str], IntVar]
     """
     (j,i) -> start time variables for each operation in a job.
@@ -34,6 +38,9 @@ class CumulativeVars:
     (j,i) -> interval variables for each operation in a job.
     """
 
+
+@dataclass
+class CumulativeVars(OperationVars):
     makespan: IntVar
     """Makespan variable"""
 
@@ -45,11 +52,18 @@ class BaseModelBuilder:
         horizon: int,
         minimize_sum_ci: bool = False,
         minimize_makespan_plus_sum_other_stages: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
-        params: Params = self._make_params(instance)
-        variables: CumulativeVars = self._make_vars(mdl, params, horizon)
+        params: Params = self.make_params(instance)
+        variables: CumulativeVars = self._make_vars(
+            mdl, params, horizon, tighten_ranges=tighten_ranges
+        )
         self._add_structural_constraints(mdl, params, variables)
+        if link_job_completion:
+            self._add_job_completion_link_constraints(mdl, params, variables)
+        # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(
             mdl,
             params,
@@ -66,20 +80,25 @@ class BaseModelBuilder:
         self,
         instance: HybridFlowshopParameters,
         stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         mdl = CustomCpModel()
-        params: Params = self._make_params(instance)
+        params: Params = self.make_params(instance)
         variables: CumulativeVars = self._make_vars_horizon_per_stage(
-            mdl, params, stage_2_mc_2_horizon
+            mdl, params, stage_2_mc_2_horizon, tighten_ranges=tighten_ranges
         )
         self._add_structural_constraints(mdl, params, variables, stage_2_mc_2_horizon)
+        if link_job_completion:
+            self._add_job_completion_link_constraints(mdl, params, variables)
+        # self._add_inter_stage_structural_constraints(mdl, params, variables)
         self._define_objective(mdl, params, variables)
         mdl.set_num_base_constraints()
 
         return mdl, params, variables
 
     @staticmethod
-    def _make_params(instance: HybridFlowshopParameters) -> Params:
+    def make_params(instance: HybridFlowshopParameters) -> Params:
         j_list = instance.job_id_list
         i_list = instance.stage_id_list
         M_of = instance.stage_2_machines_map
@@ -93,27 +112,70 @@ class BaseModelBuilder:
         )
 
     @staticmethod
-    def _make_vars(mdl: CustomCpModel, params: Params, horizon: int) -> CumulativeVars:
+    def _compute_head(params: Params) -> dict[tuple[str, str], int]:
+        j_i_2_head: dict[tuple[str, str], int] = {}
+        for j in params.j_list:
+            acc = 0
+            for i in params.i_list:
+                j_i_2_head[j, i] = acc
+                acc += params.p[j, i]
+
+        return j_i_2_head
+
+    @staticmethod
+    def _compute_tail(params: Params) -> dict[tuple[str, str], int]:
+        j_i_2_tail: dict[tuple[str, str], int] = {}
+        for j in params.j_list:
+            acc = 0
+            for i in reversed(params.i_list):
+                j_i_2_tail[j, i] = acc
+                acc += params.p[j, i]
+
+        return j_i_2_tail
+
+    @staticmethod
+    def _make_vars(
+        mdl: CustomCpModel, params: Params, horizon: int, tighten_ranges: bool = False
+    ) -> CumulativeVars:
         op_start: dict[tuple[str, str], IntVar] = {}
         op_end: dict[tuple[str, str], IntVar] = {}
         op_intvl: dict[tuple[str, str], IntervalVar] = {}
 
+        if tighten_ranges:
+            j_i_2_head = BaseModelBuilder._compute_head(params)
+            j_i_2_tail = BaseModelBuilder._compute_tail(params)
+        else:
+            j_i_2_head = {(j, i): 0 for j in params.j_list for i in params.i_list}
+            j_i_2_tail = {(j, i): 0 for j in params.j_list for i in params.i_list}
+
         for j in params.j_list:
             for i in params.i_list:
-                start_var = mdl.new_int_var(0, horizon, f"start_{j}_{i}")
-                end_var = mdl.new_int_var(0, horizon, f"end_{j}_{i}")
+                p = params.p[j, i]
+
+                assert j_i_2_head[j, i] <= horizon - j_i_2_tail[j, i] - p
+                assert j_i_2_head[j, i] + p <= horizon - j_i_2_tail[j, i]
+
+                start_var = mdl.new_int_var(
+                    j_i_2_head[j, i], horizon - j_i_2_tail[j, i] - p, f"start_{j}_{i}"
+                )
+                end_var = mdl.new_int_var(
+                    j_i_2_head[j, i] + p, horizon - j_i_2_tail[j, i], f"end_{j}_{i}"
+                )
                 interval_var = mdl.new_interval_var(
-                    start_var,
-                    params.p[j, i],
-                    end_var,
-                    f"interval_{j}_{i}",
+                    start_var, p, end_var, f"interval_{j}_{i}"
                 )
 
                 op_start[(j, i)] = start_var
                 op_end[(j, i)] = end_var
                 op_intvl[(j, i)] = interval_var
 
-        makespan = mdl.new_int_var(0, horizon, "makespan")
+        job_lb = max(sum(params.p[j, i] for i in params.i_list) for j in params.j_list)
+        stage_load_lb = max(
+            math.ceil(sum(params.p[j, i] for j in params.j_list) / len(params.M_of[i]))
+            for i in params.i_list
+        )
+        makespan_lb = max(job_lb, stage_load_lb)
+        makespan = mdl.new_int_var(makespan_lb, horizon, "makespan")
 
         return CumulativeVars(
             op_start=op_start,
@@ -127,6 +189,7 @@ class BaseModelBuilder:
         mdl: CustomCpModel,
         params: Params,
         stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]],
+        tighten_ranges: bool = False,
     ) -> CumulativeVars:
         op_start: dict[tuple[str, str], IntVar] = {}
         op_end: dict[tuple[str, str], IntVar] = {}
@@ -137,12 +200,42 @@ class BaseModelBuilder:
             for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
         }
 
+        # Compute total horizon for tightening calculation
+        total_horizon = sum(
+            params.p[j, i] for j in params.j_list for i in params.i_list
+        )
+
+        if tighten_ranges:
+            j_i_2_head = BaseModelBuilder._compute_head(params)
+            j_i_2_tail = BaseModelBuilder._compute_tail(params)
+        else:
+            j_i_2_head = {(j, i): 0 for j in params.j_list for i in params.i_list}
+            j_i_2_tail = {(j, i): 0 for j in params.j_list for i in params.i_list}
+
         for j in params.j_list:
             for i in params.i_list:
                 stage_horizon = stage_2_horizon[i]
                 p = params.p[j, i]
-                start_var = mdl.new_int_var(0, stage_horizon - p, f"start_{j}_{i}")
-                end_var = mdl.new_int_var(p, stage_horizon, f"end_{j}_{i}")
+
+                # Apply tightening with min() rule for upper bounds
+                if tighten_ranges:
+                    # start upper: min(total_horizon - tail - p, stage_horizon - p)
+                    start_upper = min(
+                        total_horizon - j_i_2_tail[j, i] - p,
+                        stage_horizon - p,
+                    )
+                    # end upper: min(total_horizon - tail, stage_horizon)
+                    end_upper = min(total_horizon - j_i_2_tail[j, i], stage_horizon)
+                else:
+                    start_upper = stage_horizon - p
+                    end_upper = stage_horizon
+
+                start_var = mdl.new_int_var(
+                    j_i_2_head[j, i], start_upper, f"start_{j}_{i}"
+                )
+                end_var = mdl.new_int_var(
+                    j_i_2_head[j, i] + p, end_upper, f"end_{j}_{i}"
+                )
                 interval_var = mdl.new_interval_var(
                     start_var, p, end_var, f"interval_{j}_{i}"
                 )
@@ -161,32 +254,39 @@ class BaseModelBuilder:
         )
 
     @staticmethod
-    def _add_structural_constraints(
+    def _add_precedence_constraints(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+    ) -> None:
+        """Add consecutive-stage precedence constraints for each job."""
+        j_list = params.j_list
+        i_list = params.i_list
+
+        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
+        for j in j_list:
+            for i, next_i in consecutive_stage_pairs:
+                mdl.add(variables.op_end[j, i] <= variables.op_start[j, next_i])
+
+    @staticmethod
+    def _add_base_capacity_constraints(
         mdl: CustomCpModel,
         params: Params,
         variables: CumulativeVars,
         stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]] = {},
     ) -> None:
-        # Alias for readability
-        j_list = params.j_list
+        """Add the default stage-capacity cumulative constraints."""
         i_list = params.i_list
         last_i = i_list[-1]
-
-        # Precedence between consecutive stages for each job
-        consecutive_stage_pairs = list(zip(i_list[:-1], i_list[1:]))
-        for j in j_list:
-            for i, next_i in consecutive_stage_pairs:
-                mdl.add(variables.op_end[j, i] <= variables.op_start[j, next_i])
 
         stage_2_horizon: dict[str, int] = {
             stage: max(mc_2_horizon.values())
             for stage, mc_2_horizon in stage_2_mc_2_horizon.items()
         }
 
-        # Capacity constraints for each stage
         for i in i_list:
-            intervals = [variables.op_intvl[j, i] for j in j_list]
-            demands = [1] * len(j_list)
+            intervals = [variables.op_intvl[j, i] for j in params.j_list]
+            demands = [1] * len(params.j_list)
             # Additional dummy intervals based on stage_2_mc_2_horizon
             if i in stage_2_mc_2_horizon and i != last_i:
                 stage_horizon = stage_2_horizon[i]
@@ -205,6 +305,54 @@ class BaseModelBuilder:
 
             capacity = len(params.M_of[i])
             mdl.add_cumulative(intervals, demands, capacity)
+
+    @staticmethod
+    def _add_structural_constraints(
+        mdl: CustomCpModel,
+        params: Params,
+        variables: CumulativeVars,
+        stage_2_mc_2_horizon: Mapping[str, Mapping[str, int]] = {},
+    ) -> None:
+        """Add precedence and default stage-capacity constraints."""
+        BaseModelBuilder._add_precedence_constraints(mdl, params, variables)
+        BaseModelBuilder._add_base_capacity_constraints(
+            mdl,
+            params,
+            variables,
+            stage_2_mc_2_horizon,
+        )
+
+    @staticmethod
+    def _add_job_completion_link_constraints(
+        mdl: CustomCpModel, params: Params, variables: CumulativeVars
+    ) -> None:
+        j_i_2_tail = BaseModelBuilder._compute_tail(params)
+        j_list = params.j_list
+        i_list = params.i_list
+        last_i = i_list[-1]
+
+        for j in j_list:
+            for i in i_list:
+                mdl.add(
+                    variables.op_end[j, i] + j_i_2_tail[j, i]
+                    <= variables.op_end[j, last_i]
+                )
+
+    # @staticmethod
+    # def _add_inter_stage_structural_constraints(
+    #     mdl: CustomCpModel, params: Params, variables: CumulativeVars
+    # ) -> None:
+    #     for j in params.j_list:
+    #         for a_idx, i in enumerate(params.i_list):
+    #             transfer = 0
+    #             for b_idx in range(a_idx + 1, len(params.i_list)):
+    #                 k = params.i_list[b_idx]
+    #                 if b_idx > a_idx + 1:
+    #                     prev_stage = params.i_list[b_idx - 1]
+    #                     transfer += params.p[j, prev_stage]
+    #                 mdl.add(
+    #                     variables.op_end[j, i] + transfer <= variables.op_start[j, k]
+    #                 )
 
     @staticmethod
     def _define_objective(
@@ -256,9 +404,8 @@ class BaseModelBuilder:
 
         if not minimize_sum_ci and not minimize_makespan_plus_sum_other_stages:
             # Makespan definition
-            mdl.add_max_equality(
-                variables.makespan, [variables.op_end[j, last_i] for j in j_list]
-            )
+            job_completion = [variables.op_end[j, last_i] for j in j_list]
+            mdl.add_max_equality(variables.makespan, job_completion)
             # Set objective to minimize makespan
             mdl.minimize(variables.makespan)
         else:
@@ -319,7 +466,7 @@ class BaseModelBuilder:
     def add_fixed_operation_precedence_constraint(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
+        variables: OperationVars,
         j1: str,
         j2: str,
         i: str,
@@ -345,9 +492,10 @@ class BaseModelBuilder:
     def add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
+        variables: OperationVars,
         current_schedule: HybridFlowshopLiteSchedule,
         profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
     ) -> None:
         """
         Add precedence constraints from a reference dispatch schedule.
@@ -356,10 +504,10 @@ class BaseModelBuilder:
         preserve ordering information observed in ``current_schedule``.
 
         Modes:
-            - ``profile_fix_by_machine=True``: preserve adjacent order per
-              machine sequence at each stage.
+            - ``profile_fix_by_machine=True``: preserve machine-sequence order
+            with a configurable stride per machine at each stage.
             - ``profile_fix_by_machine=False``: use stage-level start/end times
-              to select successor candidates and add a bounded number of arcs.
+            to select successor candidates and add a bounded number of arcs.
 
         Args:
             mdl (CustomCpModel): Target CP-SAT model.
@@ -368,18 +516,30 @@ class BaseModelBuilder:
             current_schedule (HybridFlowshopLiteSchedule): Reference schedule
                 providing start/end times and machine-level sequences.
             profile_fix_by_machine (bool, optional): If True, fix precedence by machine
-                adjacency; otherwise apply stage-level time-based selection.
+                sequence; otherwise apply stage-level time-based selection.
                 Defaults to False.
+            machine_precedence_stride (int, optional): Gap between predecessor and
+                successor positions when ``profile_fix_by_machine=True``.
+                - 1: adjacent precedence (default), e.g. 1->2->3->4->5
+                - 2: every-other precedence, e.g. 1->3->5 and 2->4
+                Ignored when ``profile_fix_by_machine=False``.
+                Defaults to 1.
         """
+        if machine_precedence_stride < 1:
+            raise ValueError("machine_precedence_stride must be >= 1")
+
         start_time_map = current_schedule.get_jik_2_start_time_map()
         end_time_map = current_schedule.get_jik_2_end_time_map()
+
         for i in params.i_list:
             if profile_fix_by_machine:
                 for m in params.M_of[i]:
                     job_tuple_seq = current_schedule.get_job_sequence(i, m)
-                    for job_tuple in pairwise(job_tuple_seq):
-                        j1 = job_tuple[0][2]
-                        j2 = job_tuple[1][2]
+                    seq_len = len(job_tuple_seq)
+
+                    for idx in range(seq_len - machine_precedence_stride):
+                        j1 = job_tuple_seq[idx][2]
+                        j2 = job_tuple_seq[idx + machine_precedence_stride][2]
                         BaseModelBuilder.add_fixed_operation_precedence_constraint(
                             mdl, params, variables, j1, j2, i
                         )
@@ -422,21 +582,28 @@ class BaseModelBuilder:
                     ),
                 )
 
-                # 인덱스 기반 탐색으로 변경
+                # Index-based selection of precedence arcs:
+                # for each job j1 in end-time order
                 for idx, j1 in enumerate(sorted_by_end):
                     j1_end_time = j_2_end_time_map.get(j1, float("inf"))
                     max_candidates = min(
                         len(params.M_of[i]), len(sorted_by_end) - idx - 1
                     )
 
-                    # 이진 탐색으로 j1_end_time 이후 시작하는 첫 job 찾기
+                    # Find the position in the start-time sorted list where jobs start
+                    # after j1 ends; use bisect_left to find the insertion point
+                    # for j1_end_time in the sorted_by_start list
                     start_idx = bisect_left(
                         sorted_by_start,
                         j1_end_time,
                         key=lambda j: j_2_start_time_map.get(j, float("inf")),
                     )
 
-                    j2_list = sorted_by_start[start_idx : start_idx + max_candidates]
+                    # Add precedence constraints from j1 to a bounded number
+                    # of successor candidates in start-time order
+                    j2_list: list[JobIdType] = sorted_by_start[
+                        start_idx : start_idx + max_candidates
+                    ]
                     for j2 in j2_list:
                         BaseModelBuilder.add_fixed_operation_precedence_constraint(
                             mdl, params, variables, j1, j2, i
@@ -445,8 +612,8 @@ class BaseModelBuilder:
     @staticmethod
     def add_start_time_freezed_operation_constraints(
         mdl: CustomCpModel,
-        variables: CumulativeVars,
-        start_time_map: dict[tuple[str, str, str], int],
+        variables: OperationVars,
+        start_time_map: dict[tuple[JobIdType, StageIdType, McIdType], int],
     ) -> None:
         for (j, i, k), s_time in start_time_map.items():
             mdl.add(variables.op_start[j, i] == s_time)
@@ -457,14 +624,14 @@ class BaseModelBuilder:
     def apply_start_hints_from_start_time_map(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
-        start_time_map: dict[tuple[str, str, str], int],
+        variables: OperationVars,
+        start_time_map: dict[tuple[JobIdType, StageIdType, McIdType], int],
         ignore_integrity_check: bool = True,
     ) -> None:
         """Applies start time hints to the model from a given start time map.
 
         Args:
-            start_time_map (dict[tuple[str, str, str], int]): A mapping from (job_id, stage_id, machine_id) to start time.
+            start_time_map (dict[tuple[JobIdType, StageIdType, McIdType], int]): A mapping from (job_id, stage_id, machine_id) to start time.
         """
         for (j, i, _), s_time in start_time_map.items():
             if not ignore_integrity_check:
@@ -476,14 +643,14 @@ class BaseModelBuilder:
     def apply_end_hints_from_end_time_map(
         mdl: CustomCpModel,
         params: Params,
-        variables: CumulativeVars,
-        end_time_map: dict[tuple[str, str, str], int],
+        variables: OperationVars,
+        end_time_map: dict[tuple[JobIdType, StageIdType, McIdType], int],
         ignore_integrity_check: bool = True,
     ) -> None:
         """Applies end time hints to the model from a given end time map.
 
         Args:
-            end_time_map (dict[tuple[str, str, str], int]): A mapping from (job_id, stage_id, machine_id) to end time.
+            end_time_map (dict[tuple[JobIdType, StageIdType, McIdType], int]): A mapping from (job_id, stage_id, machine_id) to end time.
         """
         for (j, i, _), e_time in end_time_map.items():
             if not ignore_integrity_check:

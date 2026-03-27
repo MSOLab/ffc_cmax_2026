@@ -1,12 +1,18 @@
 import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Any
 
 from mbls.cpsat import ObjValueBoundStore
 from mbls.painter import ObjValueBoundPlotter
 from routix.io.path import extract_prefix_from_filename
+from routix.io.yaml import load_yaml
 
-from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
+from hybridflowshop.io_solution import (
+    get_end_time_dict,
+    get_highlight_op_set,
+    get_start_time_dict,
+)
 from hybridflowshop.painter.gantt import GanttPlotter
 
 
@@ -83,8 +89,13 @@ def _process_solution_file(
 
     start_time_map = get_start_time_dict(file_path, encoding=encoding)
     end_time_map = get_end_time_dict(file_path, encoding=encoding)
+    highlight_op_set = get_highlight_op_set(file_path, encoding=encoding)
     GanttPlotter().export_hybrid_flowshop_plot(
-        output_path, start_time_map, end_time_map, job_list=all_job_id_list
+        output_path,
+        start_time_map,
+        end_time_map,
+        job_list=all_job_id_list,
+        highlight_op_set=highlight_op_set,
     )
 
 
@@ -155,4 +166,106 @@ def _process_progress_log_file(
         label_y_offset=2.0,
         legend_loc="lower right",
         show_markers=False,
+    )
+    _draw_pw_cp_subproblem_progress_plots(
+        file_path=file_path,
+        base_output_path=output_path,
+        encoding=encoding,
+    )
+
+
+def _draw_pw_cp_subproblem_progress_plots(
+    file_path: Path,
+    base_output_path: Path,
+    encoding: str,
+) -> None:
+    content = load_yaml(file_path, encoding=encoding)
+    if not isinstance(content, dict):
+        return
+
+    metadata = content.get("pw_cp_metadata")
+    if not isinstance(metadata, dict):
+        return
+
+    cp_sat_subproblems = metadata.get("cp_sat_subproblems")
+    if not isinstance(cp_sat_subproblems, list):
+        return
+
+    for subproblem in cp_sat_subproblems:
+        if not isinstance(subproblem, dict):
+            continue
+
+        obj_value_records = _normalize_time_value_records(
+            subproblem.get("obj_value_records")
+        )
+        obj_bound_records = _normalize_time_value_records(
+            subproblem.get("obj_bound_records")
+        )
+        if not obj_value_records and not obj_bound_records:
+            continue
+
+        store = ObjValueBoundStore[float]()
+        store.obj_value_series.name = "Objective Value"
+        store.obj_bound_series.name = "Objective Bound"
+        for timestamp, value in obj_value_records:
+            store.add_obj_value(timestamp, value, is_maximize=None)
+        for timestamp, value in obj_bound_records:
+            store.add_obj_bound(timestamp, value, is_maximize=None)
+
+        batch_idx = _safe_int(subproblem.get("batch_idx"), default=0)
+        subproblem_idx = _safe_int(subproblem.get("subproblem_idx"), default=0)
+        objective_name = str(subproblem.get("objective_name", "objective"))
+        status = str(subproblem.get("status", "UNKNOWN"))
+        output_path = _build_pw_cp_progress_output_path(
+            base_output_path=base_output_path,
+            batch_idx=batch_idx,
+            subproblem_idx=subproblem_idx,
+        )
+
+        ObjValueBoundPlotter.plot(
+            store,
+            output_path,
+            drop_first_values_percent=0.0,
+            label_y_offset=2.0,
+            legend_loc="lower right",
+            show_markers=False,
+            title=(
+                f"PW-CP Batch {batch_idx + 1} Subproblem {subproblem_idx} "
+                f"({objective_name}, {status})"
+            ),
+            obj_value_label=f"{objective_name} value",
+            obj_bound_label=f"{objective_name} bound",
+        )
+
+
+def _normalize_time_value_records(records: Any) -> list[tuple[float, float]]:
+    if not isinstance(records, list):
+        return []
+
+    normalized: list[tuple[float, float]] = []
+    for entry in records:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            continue
+        try:
+            normalized.append((float(entry[0]), float(entry[1])))
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_pw_cp_progress_output_path(
+    base_output_path: Path,
+    batch_idx: int,
+    subproblem_idx: int,
+) -> Path:
+    return base_output_path.with_name(
+        f"{base_output_path.stem}_batch_{batch_idx + 1:03d}_subproblem_{subproblem_idx:03d}"
+        f"{base_output_path.suffix}"
     )

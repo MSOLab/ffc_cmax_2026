@@ -1,0 +1,2 @@
+- use `uv run python`, not `python` / `python3`
+- use `uv run pytest`, not `python -m pytest`

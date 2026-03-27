@@ -4,7 +4,6 @@ import pytest
 
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
-
 # =============================================================================
 # Tests for remove_operations (copied from test_schedule_lite.py)
 # =============================================================================

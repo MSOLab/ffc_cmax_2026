@@ -20,6 +20,8 @@ class ReactiveLooper:
     """List of subroutine names to be called in each iteration."""
     reactive_param_tuner_dict: dict[str, ReactiveParamTuner]
     """Parameter tuner for the reactive looper."""
+    size_param_name_by_subroutine: dict[str, str | None]
+    """Primary neighborhood-size parameter name for each subroutine."""
     stopping_criteria: LocalStoppingCriteria
     """(Local) Stopping criteria for the reactive looper."""
 
@@ -45,6 +47,7 @@ class ReactiveLooper:
         self.ctrlr = ctrlr
 
         self.subroutine_names = []
+        self.size_param_name_by_subroutine = {}
         opening_kwargs_list = []
         for subroutine_data in routine_data:
             if "method" not in subroutine_data:
@@ -64,13 +67,21 @@ class ReactiveLooper:
             self.subroutine_names, opening_kwargs_list
         ):
             tuner_param_dict = {}
-            tuner_param_dict_keys = {"rho", "computational_time"}
+            size_param_name = None
+            for candidate_key in ("job_count", "rho"):
+                if candidate_key in subroutine_opening_kwargs:
+                    size_param_name = candidate_key
+                    break
+            tuner_param_dict_keys = ["computational_time"]
+            if size_param_name is not None:
+                tuner_param_dict_keys.append(size_param_name)
             for key in tuner_param_dict_keys:
                 if key not in reactive_param_tuner_dict:
                     raise ValueError(
                         f"Reactive parameter tuner dict must contain '{key}'."
                     )
                 tuner_param_dict[key] = TunerParams(**reactive_param_tuner_dict[key])
+            self.size_param_name_by_subroutine[subroutine_name] = size_param_name
             self.reactive_param_tuner_dict[subroutine_name] = ReactiveParamTuner(
                 method=getattr(ctrlr, subroutine_name),
                 opening_kwargs=subroutine_opening_kwargs,
@@ -82,6 +93,9 @@ class ReactiveLooper:
             )
 
         self.stopping_criteria = LocalStoppingCriteria(stopping_criteria)
+
+    def _get_size_param_name(self, subroutine_name: str) -> str | None:
+        return self.size_param_name_by_subroutine.get(subroutine_name)
 
     # @classmethod
     # def from_param_dict(
@@ -227,6 +241,7 @@ class ReactiveLooper:
         self, subroutine_name: str, report_by_last_subroutine: HfsCpsatSolverReport
     ) -> None:
         tuner = self.reactive_param_tuner_dict[subroutine_name]
+        size_param_name = self._get_size_param_name(subroutine_name)
 
         if report_by_last_subroutine.status == CpsatStatus.OPTIMAL:
             if report_by_last_subroutine.obj_value is None:
@@ -242,8 +257,8 @@ class ReactiveLooper:
             else:
                 logging.info("Last solution was optimal & not improved.")
                 self.no_improvement_step_series_lth += 1
-                # If not improved despite enough time, increase rho
-                tuner.increment("rho")
+                if size_param_name is not None:
+                    tuner.increment(size_param_name)
         else:
             if report_by_last_subroutine.is_feasible:
                 if report_by_last_subroutine.obj_value is None:
@@ -263,10 +278,9 @@ class ReactiveLooper:
                         # If not improved but not enough time, increase time limit
                         # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                         tuner.increment("computational_time")
-                    else:
-                        # If not improved despite maximum time, increase rho
-                        # If rho_hits_ub in stopping condition, run method will exclude the subroutine
-                        tuner.increment("rho")
+                    elif size_param_name is not None:
+                        # If not improved despite maximum time, increase neighborhood size
+                        tuner.increment(size_param_name)
 
             else:
                 logging.info("Last solution was timeout & not improved.")
@@ -275,10 +289,9 @@ class ReactiveLooper:
                     # If no solution but not enough time, increase time limit
                     # If tl_hits_ub in stopping condition, run method will exclude the subroutine
                     tuner.increment("computational_time")
-                else:
-                    # If not improved despite maximum time, increase rho
-                    # If rho_hits_ub in stopping condition, run method will exclude the subroutine
-                    tuner.increment("rho")
+                elif size_param_name is not None:
+                    # If not improved despite maximum time, increase neighborhood size
+                    tuner.increment(size_param_name)
 
     def initialize_states(self) -> None:
         self.obj_value_before_step = self.ctrlr.solution_manager.best_obj_value
@@ -297,14 +310,18 @@ class ReactiveLooper:
                 self._call_subroutine(subroutine_name)
 
             tuner = self.reactive_param_tuner_dict[subroutine_name]
-            if self.stopping_criteria.rho_hits_ub and tuner.current_value_hits_ub(
-                "rho"
+            size_param_name = self._get_size_param_name(subroutine_name)
+            if (
+                size_param_name is not None
+                and self.stopping_criteria.rho_hits_ub
+                and tuner.current_value_hits_ub(size_param_name)
             ):
-                rho = tuner.get_current_value("rho")
-                rho_ub = tuner._tuner_param_dict["rho"].max
+                size_param_value = tuner.get_current_value(size_param_name)
+                size_param_ub = tuner._tuner_param_dict[size_param_name].max
                 logging.info(
                     f"Subroutine '{subroutine_name}' is excluded in the next loop: "
-                    f"rho_hits_ub (value={rho} >= {rho_ub}=criteria)"
+                    f"{size_param_name}_hits_ub "
+                    f"(value={size_param_value} >= {size_param_ub}=criteria)"
                 )
                 excluded_subroutines.add(subroutine_name)
             if self.stopping_criteria.tl_hits_ub and tuner.current_value_hits_ub(

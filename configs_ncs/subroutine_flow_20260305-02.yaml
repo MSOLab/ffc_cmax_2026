@@ -1,0 +1,5 @@
+- method: solve_base_cp_model
+  computational_time: null
+  solver_thread_cnt: 8
+  cp_model_probing_level: 3
+  log_search_progress: true
