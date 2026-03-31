@@ -2413,6 +2413,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         batch_size: int | None = None,
         batch_size_ratio: float | None = None,
+        step_size: int = 1,  # Sliding window: step size for window movement
+        unfixed_batch_count: int = 1,  # Sliding window: unfixed batch count
         lr_profile_fixed_batch_count: int = 0,
         left_profile_fixed_batch_count: int = 0,
         right_profile_fixed_batch_count: int = 0,
@@ -2448,6 +2450,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 1, int(round(self.instance.job_count * batch_size_ratio))
             )
 
+        if lr_profile_fixed_batch_count > 0:
+            # Override
+            _left_profile_fixed_batch_count = lr_profile_fixed_batch_count
+            _right_profile_fixed_batch_count = lr_profile_fixed_batch_count
+        else:
+            if left_profile_fixed_batch_count < 0:
+                raise ValueError("left_profile_fixed_batch_count must be >= 0")
+            if right_profile_fixed_batch_count < 0:
+                raise ValueError("right_profile_fixed_batch_count must be >= 0")
+            _left_profile_fixed_batch_count = left_profile_fixed_batch_count
+            _right_profile_fixed_batch_count = right_profile_fixed_batch_count
+
         if (
             non_time_fixed_op_time_limit_multiplier is not None
             and non_time_fixed_op_time_limit_multiplier <= 0
@@ -2467,9 +2481,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.instance,
             self.stage_2_job_2_p_dict,
             batch_size=resolved_batch_size,
-            lr_profile_fixed_batch_count=lr_profile_fixed_batch_count,
-            left_profile_fixed_batch_count=left_profile_fixed_batch_count,
-            right_profile_fixed_batch_count=right_profile_fixed_batch_count,
+            step_size=step_size,
+            unfixed_batch_count=unfixed_batch_count,
+            left_profile_fixed_batch_count=_left_profile_fixed_batch_count,
+            right_profile_fixed_batch_count=_right_profile_fixed_batch_count,
             enable_promotion_profile_fixed=enable_promotion_profile_fixed,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,

@@ -424,6 +424,7 @@ def test_run_applies_promoted_partition_to_subproblem_spec(monkeypatch, tmp_path
                 "s2": {"j1": 3, "j2": 3, "j3": 3, "j4": 3},
             },
             batch_size=1,
+            unfixed_batch_count=1,
             left_profile_fixed_batch_count=1,
             enable_promotion_profile_fixed=True,
             max_time_per_batch=1.0,
