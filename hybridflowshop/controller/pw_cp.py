@@ -335,10 +335,10 @@ class PwCpConstructor:
                     force_start=None,
                     force_end=None,
                 )
-            initial_batches = self._build_stage_batches(
+            initial_batches = self.build_stage_2_batch_list(
                 ref_schedule, batch_size=batch_size
             )
-            max_batch_cnt = self._validate_and_get_batch_count(initial_batches)
+            max_batch_cnt = self.validate_and_get_batch_count(initial_batches)
 
             # Main iteration loop with sliding window
             # Window moves by step_size each iteration
@@ -354,10 +354,10 @@ class PwCpConstructor:
                     unfixed_batch_start_idx + unfixed_batch_count,
                 )
                 st = self._require_state()
-                stage_2_batch_list = self._build_stage_batches(
+                stage_2_batch_list = self.build_stage_2_batch_list(
                     st.incumbent, batch_size=batch_size
                 )
-                current_max_batch_cnt = self._validate_and_get_batch_count(
+                current_max_batch_cnt = self.validate_and_get_batch_count(
                     stage_2_batch_list
                 )
                 if current_max_batch_cnt != max_batch_cnt:
@@ -450,7 +450,7 @@ class PwCpConstructor:
         finally:
             self._st = None
 
-    def _build_stage_batches(
+    def build_stage_2_batch_list(
         self,
         schedule: HybridFlowshopLiteSchedule,
         batch_size: int,
@@ -1151,7 +1151,7 @@ class PwCpConstructor:
             )
         )
 
-    def _validate_and_get_batch_count(
+    def validate_and_get_batch_count(
         self, stage_2_batch_list: dict[StageIdType, list[tuple[JobMcType, ...]]]
     ) -> int:
         batch_counts: dict[StageIdType, int] = {

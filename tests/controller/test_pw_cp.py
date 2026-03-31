@@ -148,7 +148,7 @@ def test_build_stage_batches_is_deterministic(tmp_path):
     ctx = FakePwCpContext(tmp_path)
     ctor = PwCpConstructor(ctx)
 
-    batches = ctor._build_stage_batches(_make_schedule(), batch_size=2)
+    batches = ctor.build_stage_2_batch_list(_make_schedule(), batch_size=2)
 
     assert batches == {
         "s1": [

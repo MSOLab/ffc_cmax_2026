@@ -4,7 +4,7 @@ import random
 from collections import Counter, deque
 from typing import Callable, Mapping, Sequence
 
-from routix import ElapsedTimer
+from routix import DynamicDataObject, ElapsedTimer
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
     HybridFlowshopParameters,
     reverse_stages,
@@ -2408,6 +2408,172 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if draw_gantt:
                 self.draw_incumbent_gantt()
 
+    def _resolve_pw_cp_batch_size(
+        self,
+        batch_size: int | None = None,
+        batch_size_ratio: float | None = None,
+    ) -> int:
+        resolved_batch_size = 1
+        if batch_size is not None:
+            resolved_batch_size = max(1, batch_size)
+            if batch_size_ratio is not None:
+                logging.info(
+                    "Ignoring batch_size_ratio=%s because explicit batch_size=%s was provided.",
+                    batch_size_ratio,
+                    batch_size,
+                )
+        elif batch_size_ratio is not None:
+            resolved_batch_size = max(
+                1, int(round(self.instance.job_count * batch_size_ratio))
+            )
+        return resolved_batch_size
+
+    def _get_pw_cp_batch_count(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        batch_size: int,
+    ) -> int:
+        constructor = PwCpConstructor(self)
+        stage_2_batch_list = constructor.build_stage_2_batch_list(
+            schedule, batch_size=batch_size
+        )
+        return constructor.validate_and_get_batch_count(stage_2_batch_list)
+
+    def incremental_pw_cp(
+        self,
+        solver_thread_cnt: int,
+        batch_size: int | None = None,
+        batch_size_ratio: float | None = None,
+        step_size: int = 1,
+        unfixed_batch_count_min: int = 1,
+        unfixed_batch_count_max: int = 1,
+        increment_unfixed_batch_count_flag: str = "always",
+        lr_profile_fixed_batch_count: int = 0,
+        left_profile_fixed_batch_count: int = 0,
+        right_profile_fixed_batch_count: int = 0,
+        enable_promotion_profile_fixed: bool = False,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        non_time_fixed_op_time_limit_multiplier: float | None = None,
+        cp_tl_c_multiplier: float | None = None,
+        max_time_per_batch: float | None = None,
+        use_lns_only: bool = False,
+        debug_export: bool = False,
+        tighten_ranges: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        if unfixed_batch_count_min < 1:
+            raise ValueError("unfixed_batch_count_min must be >= 1")
+        if unfixed_batch_count_max < unfixed_batch_count_min:
+            raise ValueError(
+                "unfixed_batch_count_max must be >= unfixed_batch_count_min"
+            )
+        if increment_unfixed_batch_count_flag not in {"always", "if_no_improvement"}:
+            raise ValueError(
+                "increment_unfixed_batch_count_flag must be one of "
+                "{'always', 'if_no_improvement'}"
+            )
+
+        ref_schedule = self.solution_manager.get_incumbent()
+        if ref_schedule is None:
+            raise ValueError("No incumbent solution available for incremental PW-CP.")
+
+        resolved_batch_size = self._resolve_pw_cp_batch_size(
+            batch_size=batch_size,
+            batch_size_ratio=batch_size_ratio,
+        )
+        actual_batch_count = self._get_pw_cp_batch_count(
+            ref_schedule,
+            batch_size=resolved_batch_size,
+        )
+        if unfixed_batch_count_min > actual_batch_count:
+            raise ValueError(
+                "unfixed_batch_count_min exceeds the available PW-CP batch count: "
+                f"min={unfixed_batch_count_min}, available={actual_batch_count}"
+            )
+
+        effective_unfixed_batch_count_max = min(
+            unfixed_batch_count_max, actual_batch_count
+        )
+        if effective_unfixed_batch_count_max < unfixed_batch_count_max:
+            logging.info(
+                "Clamping unfixed_batch_count_max from %d to %d based on available PW-CP batches.",
+                unfixed_batch_count_max,
+                effective_unfixed_batch_count_max,
+            )
+
+        base_pw_cp_kwargs = {
+            "solver_thread_cnt": solver_thread_cnt,
+            "batch_size": batch_size,
+            "batch_size_ratio": batch_size_ratio,
+            "step_size": step_size,
+            "lr_profile_fixed_batch_count": lr_profile_fixed_batch_count,
+            "left_profile_fixed_batch_count": left_profile_fixed_batch_count,
+            "right_profile_fixed_batch_count": right_profile_fixed_batch_count,
+            "enable_promotion_profile_fixed": enable_promotion_profile_fixed,
+            "profile_fix_by_machine": profile_fix_by_machine,
+            "machine_precedence_stride": machine_precedence_stride,
+            "non_time_fixed_op_time_limit_multiplier": non_time_fixed_op_time_limit_multiplier,
+            "cp_tl_c_multiplier": cp_tl_c_multiplier,
+            "max_time_per_batch": max_time_per_batch,
+            "use_lns_only": use_lns_only,
+            "debug_export": debug_export,
+            "tighten_ranges": tighten_ranges,
+            "error_if_infeasible": error_if_infeasible,
+            "draw_gantt": draw_gantt,
+        }
+
+        logging.info(
+            "Incremental PW-CP starts: policy=%s, unfixed_batch_count=[%d, %d], "
+            "resolved_batch_size=%d, actual_batch_count=%d.",
+            increment_unfixed_batch_count_flag,
+            unfixed_batch_count_min,
+            effective_unfixed_batch_count_max,
+            resolved_batch_size,
+            actual_batch_count,
+        )
+
+        for unfixed_batch_count in range(
+            unfixed_batch_count_min,
+            effective_unfixed_batch_count_max + 1,
+        ):
+            if self.is_stopping_condition():
+                logging.info(
+                    "Stopping condition met before incremental PW-CP count=%d.",
+                    unfixed_batch_count,
+                )
+                break
+
+            current_pw_cp_kwargs = {
+                **base_pw_cp_kwargs,
+                "unfixed_batch_count": unfixed_batch_count,
+            }
+            context_name = f"unfixed_batch_count_{unfixed_batch_count:03d}"
+
+            with self.temporarily_extended_context(context_name):
+                if increment_unfixed_batch_count_flag == "if_no_improvement":
+                    logging.info(
+                        "Incremental PW-CP repeats count=%d until the first non-improving pass.",
+                        unfixed_batch_count,
+                    )
+                    self.repeat_while_improvement(
+                        routine_data=DynamicDataObject.from_obj(
+                            {
+                                "method": "pw_cp",
+                                **current_pw_cp_kwargs,
+                            }
+                        ),
+                        n_repeats=None,
+                        max_no_improve=0,
+                    )
+                else:
+                    logging.info(
+                        "Incremental PW-CP runs one pass at count=%d.",
+                        unfixed_batch_count,
+                    )
+                    self.pw_cp(**current_pw_cp_kwargs)
+
     def pw_cp(
         self,
         solver_thread_cnt: int,
@@ -2436,19 +2602,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if ref_schedule is None:
             raise ValueError("No incumbent solution available for PW-CP.")
 
-        resolved_batch_size = 1
-        if batch_size is not None:
-            resolved_batch_size = max(1, batch_size)
-            if batch_size_ratio is not None:
-                logging.info(
-                    "Ignoring batch_size_ratio=%s because explicit batch_size=%s was provided.",
-                    batch_size_ratio,
-                    batch_size,
-                )
-        elif batch_size_ratio is not None:
-            resolved_batch_size = max(
-                1, int(round(self.instance.job_count * batch_size_ratio))
-            )
+        resolved_batch_size = self._resolve_pw_cp_batch_size(
+            batch_size=batch_size,
+            batch_size_ratio=batch_size_ratio,
+        )
 
         if lr_profile_fixed_batch_count > 0:
             # Override
