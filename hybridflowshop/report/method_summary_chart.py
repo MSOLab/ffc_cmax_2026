@@ -73,6 +73,10 @@ def export_method_rpdf_scatter_svg(
             ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
             ax.grid(True, linestyle="--", alpha=0.4)
 
+            # Set both axes origin to 0
+            ax.set_xlim(left=0)
+            ax.set_ylim(bottom=0)
+
             fig.savefig(output_path, format="svg", bbox_inches="tight")
         finally:
             plt.close(fig)
