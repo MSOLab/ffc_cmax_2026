@@ -16,7 +16,10 @@ from hfs_config import BaselineColumnMapping
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.constants import INPUT_TIMELIMIT_COLUMN
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
-from hybridflowshop.report import export_method_rpdf_scatter_svg
+from hybridflowshop.report import (
+    export_method_rpdf_scatter_html,
+    export_method_rpdf_scatter_svg,
+)
 from scripts.process_logs import create_method_end_time_and_obj_value_summary
 
 
@@ -82,7 +85,9 @@ class HfsMultiInstanceRunner(
         self._inject_resume_data_into_runners()
 
     def set_baseline_df(
-        self, baseline_df: pd.DataFrame, column_mapping: BaselineColumnMapping
+        self,
+        baseline_df: pd.DataFrame,
+        column_mapping: BaselineColumnMapping,
     ) -> None:
         instance_col = column_mapping.instance
         obj_val_col = column_mapping.obj_val
@@ -567,6 +572,30 @@ class HfsMultiInstanceRunner(
         except Exception as e:
             logging.error(
                 f"Failed to export method RPD scatter SVG to {chart_output_path}: {e}",
+                exc_info=True,
+            )
+
+        # 5b. Generate HTML chart with interactive filters
+        html_output_path = (
+            self.working_dir / "summary_method_rpdf_and_norm_time_scatter.html"
+        )
+        try:
+            html_created = export_method_rpdf_scatter_html(
+                metrics_long_df=metrics_long_df,
+                baseline_df=self.baseline_df,
+                output_path=html_output_path,
+                baseline_instance_col=instance_col,
+                baseline_job_cnt_col=job_cnt_col,
+                baseline_stage_cnt_col=stage_cnt_col,
+            )
+            if not html_created:
+                logging.warning(
+                    "Skipped method RPD scatter HTML generation: "
+                    "no valid merged data."
+                )
+        except Exception as e:
+            logging.error(
+                f"Failed to export method RPD scatter HTML to {html_output_path}: {e}",
                 exc_info=True,
             )
 
