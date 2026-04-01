@@ -16,6 +16,7 @@ from hfs_config import BaselineColumnMapping
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.constants import INPUT_TIMELIMIT_COLUMN
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
+from hybridflowshop.report import export_method_rpdf_scatter_svg
 from scripts.process_logs import create_method_end_time_and_obj_value_summary
 
 
@@ -549,6 +550,25 @@ class HfsMultiInstanceRunner(
         )
         metrics_long_df.to_csv(output_long_path, index=False)
         logging.info(f"Metrics summary (long) saved to {output_long_path}")
+
+        chart_output_path = (
+            self.working_dir / "summary_method_rpdf_and_norm_time_scatter.svg"
+        )
+        try:
+            chart_created = export_method_rpdf_scatter_svg(
+                metrics_long_df=metrics_long_df,
+                output_path=chart_output_path,
+            )
+            if not chart_created:
+                logging.warning(
+                    "Skipped method RPD scatter SVG generation: "
+                    "no valid aggregated points."
+                )
+        except Exception as e:
+            logging.error(
+                f"Failed to export method RPD scatter SVG to {chart_output_path}: {e}",
+                exc_info=True,
+            )
 
         # 6. Create Wide format DataFrame
         wide_rows = []
