@@ -16,6 +16,7 @@ from xlsxwriter.worksheet import Worksheet
 from hfs_config import BaselineColumnMapping
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
+from hybridflowshop.report import export_multi_scenario_method_rpdf_comparison_html
 from output_filenames import OutputFilenames
 
 RPDF_PREFIX = "gap_"
@@ -129,6 +130,7 @@ class HfsMultiScenarioRunner(
             info_df=info_df,
             baseline_df=self.baseline_df,
         )
+        self._create_method_rpdf_comparison_html()
 
         # Additional timepoint reports (labels follow configured timepoint_summaries)
         for label in self._resolve_timepoint_labels():
@@ -148,6 +150,59 @@ class HfsMultiScenarioRunner(
                 raw_summary_df=raw_summary_timepoint_df,
                 info_df=info_df,
                 baseline_df=self.baseline_df,
+            )
+
+    def _create_method_rpdf_comparison_html(self) -> None:
+        scenario_metrics: list[tuple[str, pd.DataFrame]] = []
+
+        for i, runner in enumerate(self.runners):
+            summary_path = (
+                runner.working_dir / "summary_method_rpdf_and_norm_time_long.csv"
+            )
+            if not summary_path.exists():
+                logging.warning(
+                    "Method RPD summary file not found for scenario %d at %s",
+                    i + 1,
+                    summary_path,
+                )
+                continue
+
+            try:
+                metrics_long_df = pd.read_csv(summary_path)
+            except Exception as e:
+                logging.error(
+                    f"Failed to load method RPD summary from {summary_path}: {e}",
+                    exc_info=True,
+                )
+                continue
+
+            scenario_name = self.scenario_configs[i].get(
+                "output_subdir", f"scenario_{i + 1}"
+            )
+            scenario_label = Path(str(scenario_name)).name
+            scenario_metrics.append((scenario_label, metrics_long_df))
+
+        if not scenario_metrics:
+            logging.warning(
+                "No valid scenario method RPD summaries found for top-level HTML comparison."
+            )
+            return
+
+        output_path = self.output_dir / "multi_scenario_subroutine_flow_comparison.html"
+        try:
+            created = export_multi_scenario_method_rpdf_comparison_html(
+                scenario_metrics=scenario_metrics,
+                output_path=output_path,
+            )
+            if not created:
+                logging.warning(
+                    "Skipped top-level multi-scenario method comparison HTML generation: "
+                    "no valid aggregated traces."
+                )
+        except Exception as e:
+            logging.error(
+                f"Failed to export top-level multi-scenario method comparison HTML to {output_path}: {e}",
+                exc_info=True,
             )
 
     def _resolve_timepoint_labels(self) -> list[str]:

@@ -12,6 +12,11 @@ def _write_summary(path: Path, rows: list[dict]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
+def _write_method_rpdf_summary(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
 def test_post_run_process_generates_configured_25p_outputs(tmp_path: Path):
     scenario_1 = tmp_path / "ff2020" / "s1"
     scenario_2 = tmp_path / "ff2020" / "s2"
@@ -102,6 +107,121 @@ def test_post_run_process_generates_configured_25p_outputs(tmp_path: Path):
     assert len(all_25_df) == 4
     assert "scenario" in all_df.columns
     assert "scenario" in all_25_df.columns
+
+
+def test_post_run_process_creates_top_level_method_comparison_html(tmp_path: Path):
+    scenario_1 = tmp_path / "ff2020" / "s1"
+    scenario_2 = tmp_path / "ff2020" / "s2"
+
+    base_rows = [
+        {
+            SubroutineReportStatisticsKeys.INSTANCE_NAME: "1",
+            SubroutineReportStatisticsKeys.BEST_OBJ: 1000.0,
+            SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME: 200.0,
+        }
+    ]
+    method_rows_s1 = [
+        {
+            "instance_id": "1",
+            "subroutine_name": "initialize",
+            "norm_time": 0.10,
+            "rpd_f": 0.08,
+            "rpd_v": 0.09,
+        },
+        {
+            "instance_id": "1",
+            "subroutine_name": "repeat",
+            "norm_time": 0.30,
+            "rpd_f": 0.04,
+            "rpd_v": 0.05,
+        },
+    ]
+    method_rows_s2 = [
+        {
+            "instance_id": "1",
+            "subroutine_name": "initialize",
+            "norm_time": 0.12,
+            "rpd_f": 0.07,
+            "rpd_v": 0.08,
+        },
+        {
+            "instance_id": "1",
+            "subroutine_name": "repeat",
+            "norm_time": 0.40,
+            "rpd_f": 0.02,
+            "rpd_v": 0.03,
+        },
+    ]
+
+    _write_summary(scenario_1 / "multi_instance_summary.csv", base_rows)
+    _write_summary(scenario_2 / "multi_instance_summary.csv", base_rows)
+    _write_method_rpdf_summary(
+        scenario_1 / "summary_method_rpdf_and_norm_time_long.csv", method_rows_s1
+    )
+    _write_method_rpdf_summary(
+        scenario_2 / "summary_method_rpdf_and_norm_time_long.csv", method_rows_s2
+    )
+
+    runner = HfsMultiScenarioRunner.__new__(HfsMultiScenarioRunner)
+    runner.runners = [
+        SimpleNamespace(working_dir=scenario_1),
+        SimpleNamespace(working_dir=scenario_2),
+    ]
+    runner.scenario_configs = [
+        {"output_subdir": "ff2020/s1", "description": "scenario 1"},
+        {"output_subdir": "ff2020/s2", "description": "scenario 2"},
+    ]
+    runner.output_dir = tmp_path
+    runner.baseline_df = pd.DataFrame()
+    runner.base_output_metadata = {}
+
+    runner.post_run_process()
+
+    html_path = tmp_path / "multi_scenario_subroutine_flow_comparison.html"
+    assert html_path.exists()
+    content = html_path.read_text(encoding="utf-8")
+    assert "Subroutine Flow Comparison" in content
+    assert "s1" in content
+    assert "s2" in content
+    assert "initialize" in content
+    assert "repeat" in content
+    assert "range: [0, payload.x_max]" in content
+    assert "range: [0, payload.y_max]" in content
+
+
+def test_post_run_process_skips_top_level_method_comparison_when_method_summaries_missing(
+    tmp_path: Path,
+):
+    scenario_1 = tmp_path / "ff2020" / "s1"
+    scenario_2 = tmp_path / "ff2020" / "s2"
+
+    base_rows = [
+        {
+            SubroutineReportStatisticsKeys.INSTANCE_NAME: "1",
+            SubroutineReportStatisticsKeys.BEST_OBJ: 1000.0,
+            SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME: 200.0,
+        }
+    ]
+
+    _write_summary(scenario_1 / "multi_instance_summary.csv", base_rows)
+    _write_summary(scenario_2 / "multi_instance_summary.csv", base_rows)
+
+    runner = HfsMultiScenarioRunner.__new__(HfsMultiScenarioRunner)
+    runner.runners = [
+        SimpleNamespace(working_dir=scenario_1),
+        SimpleNamespace(working_dir=scenario_2),
+    ]
+    runner.scenario_configs = [
+        {"output_subdir": "ff2020/s1", "description": "scenario 1"},
+        {"output_subdir": "ff2020/s2", "description": "scenario 2"},
+    ]
+    runner.output_dir = tmp_path
+    runner.baseline_df = pd.DataFrame()
+    runner.base_output_metadata = {}
+
+    runner.post_run_process()
+
+    assert not (tmp_path / "multi_scenario_subroutine_flow_comparison.html").exists()
 
 
 def test_post_run_process_skips_25p_report_when_25p_summary_missing(tmp_path: Path):
