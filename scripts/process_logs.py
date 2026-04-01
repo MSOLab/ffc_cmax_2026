@@ -129,7 +129,81 @@ def get_methods_from_flow(scenario_dir: Path) -> list[tuple[str, str]]:
     return []
 
 
-def process_instance(instance_dir: Path, methods_list: list[tuple[str, str]]):
+def _build_instance_method_rows(
+    methods_list: list[tuple[str, str]],
+    method_end_times: dict[str, float],
+    obj_data: dict,
+    obj_notes: dict,
+    record_all_subroutines: bool = False,
+) -> list[dict]:
+    note_values = list(obj_notes.values())
+    method_has_note = {
+        method_prefix: any(note.startswith(method_prefix) for note in note_values)
+        for method_prefix, _ in methods_list
+    }
+
+    rows = []
+    current_obj_value = None
+
+    for i, (method_prefix, method_name) in enumerate(methods_list):
+        end_sec = method_end_times.get(method_prefix)
+        in_notes = method_has_note[method_prefix]
+
+        if in_notes:
+            obj_val = get_obj_value_for_method(
+                method_prefix, method_name, obj_data, obj_notes, current_obj_value
+            )
+            final_end_sec = end_sec
+            final_obj_val = obj_val
+            effective_obj_value = obj_val
+        else:
+            successor_in_notes = any(
+                method_has_note[succ_prefix] for succ_prefix, _ in methods_list[i + 1 :]
+            )
+
+            final_end_sec = end_sec
+            if not successor_in_notes:
+                final_obj_val = None
+            else:
+                final_obj_val = current_obj_value
+            effective_obj_value = current_obj_value
+
+        if not _is_missing_obj_value(effective_obj_value):
+            current_obj_value = effective_obj_value
+
+        rows.append(
+            {
+                "method_prefix": method_prefix,
+                "method_name": method_name,
+                "method_end_sec": final_end_sec,
+                "objective_value": final_obj_val,
+                "executed": end_sec is not None,
+                "effective_obj_value": current_obj_value,
+            }
+        )
+
+    if record_all_subroutines:
+        executed_indices = [idx for idx, row in enumerate(rows) if row["executed"]]
+        if executed_indices:
+            last_executed_idx = executed_indices[-1]
+            fill_end_sec = rows[last_executed_idx]["method_end_sec"]
+            fill_obj_val = rows[last_executed_idx]["effective_obj_value"]
+
+            for idx in range(last_executed_idx + 1, len(rows)):
+                if rows[idx]["executed"]:
+                    continue
+                rows[idx]["method_end_sec"] = fill_end_sec
+                rows[idx]["objective_value"] = fill_obj_val
+
+    return rows
+
+
+def process_instance(
+    instance_dir: Path,
+    methods_list: list[tuple[str, str]],
+    record_all_subroutines: bool = False,
+    omitted_subroutines: set[str] | None = None,
+):
     instance_id = instance_dir.name
 
     log_path = instance_dir / DEFAULT_CONTROLLER_LOG_NAME
@@ -158,46 +232,28 @@ def process_instance(instance_dir: Path, methods_list: list[tuple[str, str]]):
     obj_data = obj_content.get("data", {})
     obj_notes = obj_content.get("notes", {})
 
-    csv_rows = []
-    current_obj_value = None
+    omitted = omitted_subroutines or set()
+    rows = _build_instance_method_rows(
+        methods_list=methods_list,
+        method_end_times=method_end_times,
+        obj_data=obj_data,
+        obj_notes=obj_notes,
+        record_all_subroutines=record_all_subroutines,
+    )
+    csv_rows = [
+        {
+            "method_name": row["method_name"],
+            "method_end_sec": row["method_end_sec"],
+            "objective_value": row["objective_value"],
+        }
+        for row in rows
+        if row["method_name"] not in omitted
+    ]
 
-    for i, (method_prefix, method_name) in enumerate(methods_list):
-        end_sec = method_end_times.get(method_prefix)
-        in_notes = any(note.startswith(method_prefix) for note in obj_notes.values())
-
-        if in_notes:
-            obj_val = get_obj_value_for_method(
-                method_prefix, method_name, obj_data, obj_notes, current_obj_value
-            )
-            final_end_sec = end_sec
-            final_obj_val = obj_val
-        else:
-            successor_in_notes = False
-            for j in range(i + 1, len(methods_list)):
-                succ_prefix, _ = methods_list[j]
-                if any(note.startswith(succ_prefix) for note in obj_notes.values()):
-                    successor_in_notes = True
-                    break
-
-            if not successor_in_notes:
-                final_end_sec = end_sec  # Keep end_sec if it was recorded
-                final_obj_val = None
-            else:
-                final_end_sec = end_sec
-                final_obj_val = current_obj_value
-
-        if not _is_missing_obj_value(final_obj_val):
-            current_obj_value = final_obj_val
-
-        csv_rows.append(
-            {
-                "method_name": method_name,
-                "method_end_sec": final_end_sec,
-                "objective_value": final_obj_val,
-            }
-        )
-
-    df = pd.DataFrame(csv_rows)
+    df = pd.DataFrame(
+        csv_rows,
+        columns=["method_name", "method_end_sec", "objective_value"],
+    )
     df.to_csv(instance_dir / "method_end_time_and_obj_value.csv", index=False)
     return df
 
@@ -209,6 +265,8 @@ def create_method_end_time_and_obj_value_summary(
     baseline_job_cnt_col: str = "n",
     baseline_stage_cnt_col: str = "s",
     baseline_obj_val_col: str = "UB",
+    record_all_subroutines: bool = False,
+    omitted_subroutines: set[str] | None = None,
 ) -> pd.DataFrame | None:
     if not scenario_dir.exists():
         logging.warning(f"Scenario directory {scenario_dir} does not exist.")
@@ -220,6 +278,12 @@ def create_method_end_time_and_obj_value_summary(
     if not methods_list:
         logging.warning("No methods found in flow. Skipping summary generation.")
         return
+    omitted = omitted_subroutines or set()
+    output_methods_list = [
+        (method_prefix, method_name)
+        for method_prefix, method_name in methods_list
+        if method_name not in omitted
+    ]
 
     # Build reference dict for instance metadata
     ref_job_cnt_dict = {}
@@ -242,7 +306,12 @@ def create_method_end_time_and_obj_value_summary(
 
     for instance_dir in instance_dirs:
         try:
-            df = process_instance(instance_dir, methods_list)
+            df = process_instance(
+                instance_dir,
+                methods_list,
+                record_all_subroutines=record_all_subroutines,
+                omitted_subroutines=omitted_subroutines,
+            )
 
             instance_id = int(instance_dir.name)
             instance_name = str(instance_id)
@@ -327,7 +396,7 @@ def create_method_end_time_and_obj_value_summary(
         wide_df = pd.DataFrame(wide_rows)
         # Order columns: instance_id, job_cnt, stage_cnt, ref_obj_value, then method columns
         wide_cols = ["instance_id", "job_cnt", "stage_cnt", "ref_obj_value"]
-        for _, m_name in methods_list:
+        for _, m_name in output_methods_list:
             wide_cols.append(f"{m_name}_end_time")
             wide_cols.append(f"{m_name}_obj_value")
         existing_wide_cols = [c for c in wide_cols if c in wide_df.columns]

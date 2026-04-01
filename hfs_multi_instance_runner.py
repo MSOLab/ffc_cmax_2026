@@ -135,6 +135,11 @@ class HfsMultiInstanceRunner(
                 baseline_job_cnt_col=getattr(self, "baseline_job_cnt_col", "n"),
                 baseline_stage_cnt_col=getattr(self, "baseline_stage_cnt_col", "s"),
                 baseline_obj_val_col=getattr(self, "baseline_obj_val_col", "UB"),
+                record_all_subroutines=True,
+                omitted_subroutines={
+                    "set_random_seed",
+                    "set_cp_model_as_base_cp_model",
+                },
             )
             if method_end_time_obj_val_df is not None:
                 # Create (end time / timelimit, rpd) summary
