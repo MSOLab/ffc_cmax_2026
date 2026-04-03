@@ -254,6 +254,10 @@ def from_job_sequence_get_schedule_mixed(
                 )
                 completed_job_set.add(job_id)
         if draw_gantt_per_step:
+            if get_file_path_for_subroutine is None:
+                raise ValueError(
+                    "get_file_path_for_subroutine must be provided if draw_gantt_per_step is True"
+                )
             output_path: Path = get_file_path_for_subroutine(
                 f"{stage_id}_after_job_by_stages.png"
             )
@@ -293,6 +297,10 @@ def from_job_sequence_get_schedule_mixed(
                     job_2_release=_job_2_release,
                 )
             if draw_gantt_per_step:
+                if get_file_path_for_subroutine is None:
+                    raise ValueError(
+                        "get_file_path_for_subroutine must be provided if draw_gantt_per_step is True"
+                    )
                 output_path = get_file_path_for_subroutine(
                     f"{stage_id}_after_stage_by_jobs.png"
                 )
