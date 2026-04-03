@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from .shared import ModelStrengtheningOptions, TwoBucketInstance
+from .shared import BucketModelVars, ModelStrengtheningOptions, TwoBucketInstance
 
 
 def compute_upstream_totals(instance: TwoBucketInstance) -> dict[tuple[int, int], int]:
@@ -12,17 +12,23 @@ def compute_upstream_totals(instance: TwoBucketInstance) -> dict[tuple[int, int]
         running_total = 0
         for stage_idx in range(1, instance.stage_count + 1):
             upstream[stage_idx, job_idx] = running_total
-            running_total += instance.processing_times_by_stage[stage_idx - 1][job_idx - 1]
+            running_total += instance.processing_times_by_stage[stage_idx - 1][
+                job_idx - 1
+            ]
     return upstream
 
 
-def compute_downstream_totals(instance: TwoBucketInstance) -> dict[tuple[int, int], int]:
+def compute_downstream_totals(
+    instance: TwoBucketInstance,
+) -> dict[tuple[int, int], int]:
     downstream: dict[tuple[int, int], int] = {}
     for job_idx in range(1, instance.job_count + 1):
         running_total = 0
         for stage_idx in range(instance.stage_count, 0, -1):
             downstream[stage_idx, job_idx] = running_total
-            running_total += instance.processing_times_by_stage[stage_idx - 1][job_idx - 1]
+            running_total += instance.processing_times_by_stage[stage_idx - 1][
+                job_idx - 1
+            ]
     return downstream
 
 
@@ -33,7 +39,7 @@ def build_two_bucket_model(
     bucket_count: int,
     delta: int,
     strengthening: ModelStrengtheningOptions,
-) -> tuple[Any, Any]:
+) -> tuple[Any, BucketModelVars]:
     model = gp.Model(name=f"bucket_lb_{instance.ins_name}_T{bucket_count}")
 
     stage_index = range(1, instance.stage_count + 1)
@@ -88,8 +94,12 @@ def build_two_bucket_model(
         max(stage_cut_rhs[i] / machine_count[i] for i in stage_index),
     )
 
-    a = model.addVars(stage_index, job_index, bucket_index, vtype=grb.BINARY, name="a")
-    b = model.addVars(stage_index, job_index, bucket_index, vtype=grb.BINARY, name="b")
+    a = model.addVars(
+        stage_index, job_index, bucket_index, vtype=grb.CONTINUOUS, name="a"
+    )
+    b = model.addVars(
+        stage_index, job_index, bucket_index, vtype=grb.CONTINUOUS, name="b"
+    )
     c = model.addVars(
         stage_index,
         job_index,
@@ -107,7 +117,7 @@ def build_two_bucket_model(
         vtype=grb.CONTINUOUS,
         name="x",
     )
-    z = model.addVar(lb=0.0, ub=float(delta), vtype=grb.INTEGER, name="z")
+    z = model.addVar(lb=0.0, ub=float(delta), vtype=grb.CONTINUOUS, name="z")
 
     model.setObjective(z, grb.MINIMIZE)
 
@@ -215,7 +225,8 @@ def build_two_bucket_model(
     if bucket_count >= 2:
         model.addConstrs(
             (
-                gp.quicksum(a[i, j, t] - c[i, j, t] for j in job_index) <= machine_count[i]
+                gp.quicksum(a[i, j, t] - c[i, j, t] for j in job_index)
+                <= machine_count[i]
                 for i in stage_index
                 for t in range(1, bucket_count)
             ),
@@ -365,9 +376,7 @@ def build_two_bucket_model(
             (
                 upstream_total[i, j] * a[i, j, t]
                 <= gp.quicksum(
-                    x[k, j, tau]
-                    for k in range(1, i)
-                    for tau in range(1, t + 1)
+                    x[k, j, tau] for k in range(1, i) for tau in range(1, t + 1)
                 )
                 for i in range(2, instance.stage_count + 1)
                 for j in job_index
@@ -427,4 +436,4 @@ def build_two_bucket_model(
             (bucket_count - 1) * delta + z >= global_lb_s, name="rq_global_cut"
         )
 
-    return model, z
+    return model, BucketModelVars(a=a, b=b, c=c, x=x, z=z)

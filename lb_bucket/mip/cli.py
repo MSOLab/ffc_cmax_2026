@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 
 from .shared import (
-    DEFAULT_DELTA,
     DEFAULT_INPUT_DIR,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SUMMARY_CSV,
@@ -39,17 +38,44 @@ def parse_args() -> argparse.Namespace:
         help="Directory where search traces and the result CSV will be written.",
     )
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume from an existing output directory by keeping the current result CSV "
+            "and skipping instances that already have a result row."
+        ),
+    )
+    parser.add_argument(
         "--instances",
         type=int,
         nargs="*",
         help="Optional explicit list of instance ids. If omitted, use all rows in summary-csv.",
     )
     parser.add_argument(
+        "--solution-root",
+        type=Path,
+        default=None,
+        help=(
+            "Optional root directory for persisted incumbent solution YAML files. "
+            "If omitted, infer the instance results directory from --summary-csv."
+        ),
+    )
+    parser.add_argument(
         "--delta",
         type=int,
-        default=DEFAULT_DELTA,
+        default=None,
         help=(
-            "Bucket length. This two-bucket implementation is valid when delta > max p_ij."
+            "Optional fixed bucket length override. If omitted, choose delta per instance "
+            "from the summary LB/UB so that they stay in the same bucket."
+        ),
+    )
+    parser.add_argument(
+        "--delta-pmax-plus-one",
+        action="store_true",
+        help=(
+            "Set delta separately for each instance to max processing time + 1. "
+            "If omitted, the script uses --delta when provided, otherwise the existing "
+            "LB/UB-based automatic delta rule."
         ),
     )
     parser.add_argument(
@@ -73,7 +99,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional absolute cap for the search. If omitted, ceil(bestObj/delta) from the "
-            "summary is used whenever available."
+            "summary is used whenever available. This is used only when --delta is fixed."
+        ),
+    )
+    parser.add_argument(
+        "--same-bucket-threshold",
+        type=int,
+        default=10,
+        help=(
+            "Maximum candidate bucket count for the automatic delta selection based on "
+            "input LB/UB. If LB and UB are still in the same bucket at this threshold, "
+            "the threshold is used as the final bucket count."
         ),
     )
     parser.add_argument(
@@ -97,6 +133,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Optional directory for per-model Gurobi log files. "
             "If omitted, only console logging is used."
+        ),
+    )
+    parser.add_argument(
+        "--disable-ub-warm-start",
+        action="store_true",
+        help=(
+            "Disable loading the persisted incumbent UB schedule and passing it to Gurobi "
+            "as a MIP start."
         ),
     )
     parser.add_argument(

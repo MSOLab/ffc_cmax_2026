@@ -130,5 +130,55 @@ def resolve_search_upper_t(
     return ub_cap
 
 
+def _share_last_bucket_with_real_partition(lb: int, ub: int, bucket_count: int) -> bool:
+    return lb * bucket_count > ub * (bucket_count - 1)
+
+
+def _share_same_integer_bucket(lb: int, ub: int, delta: int) -> bool:
+    return math.ceil(lb / delta) == math.ceil(ub / delta)
+
+
+def compute_auto_bucket_configuration(
+    record: SummaryBoundRecord,
+    same_bucket_threshold: int,
+) -> tuple[int, int]:
+    if record.input_ub is None:
+        raise ValueError(
+            f"Instance {record.ins_name} is missing bestObj/input UB, which is required "
+            "for automatic bucket-size selection."
+        )
+    if same_bucket_threshold < 1:
+        raise ValueError(
+            f"same_bucket_threshold must be at least 1. Received {same_bucket_threshold}."
+        )
+
+    chosen_bucket_count = same_bucket_threshold
+    for bucket_count in range(1, same_bucket_threshold + 1):
+        if not _share_last_bucket_with_real_partition(
+            record.input_lb, record.input_ub, bucket_count
+        ):
+            chosen_bucket_count = bucket_count - 1
+            break
+
+    chosen_bucket_count = max(1, chosen_bucket_count)
+    delta = math.ceil(record.input_ub / chosen_bucket_count)
+
+    while chosen_bucket_count > 1 and not _share_same_integer_bucket(
+        record.input_lb, record.input_ub, delta
+    ):
+        chosen_bucket_count -= 1
+        delta = math.ceil(record.input_ub / chosen_bucket_count)
+
+    return chosen_bucket_count, delta
+
+
+def resolve_time_limit_sec(
+    instance: TwoBucketInstance, cli_time_limit_sec: float | None
+) -> float:
+    if cli_time_limit_sec is not None:
+        return cli_time_limit_sec
+    return instance.stage_count * instance.job_count * 0.1
+
+
 def get_max_processing_time(instance: TwoBucketInstance) -> int:
     return max(max(stage_times) for stage_times in instance.processing_times_by_stage)

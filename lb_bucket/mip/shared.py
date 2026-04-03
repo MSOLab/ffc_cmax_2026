@@ -39,12 +39,22 @@ class TwoBucketInstance:
 
 
 @dataclass(frozen=True)
+class BucketModelVars:
+    a: Any
+    b: Any
+    c: Any
+    x: Any
+    z: Any
+
+
+@dataclass(frozen=True)
 class SearchTraceRow:
     ins_name: str
     bucket_count: int
     status: str
     runtime_sec: float
     objective_value: float | None
+    objective_bound: float | None
     solution_count: int
 
 
@@ -61,10 +71,12 @@ class BucketSearchResult:
     search_upper_t: int | None
     first_feasible_t: int | None
     z_star: float | None
+    z_lower_bound_used: float | None
     bucket_indexed_lb: float | None
     certified_final_lb: float
     search_certified: bool
     searched_bucket_count: int
+    time_limit_sec_used: float
     total_runtime_sec: float
     termination_reason: str
 
