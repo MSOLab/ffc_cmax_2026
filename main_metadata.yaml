@@ -1570,22 +1570,43 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-05.yaml"
   #   output_dir: "ff2020/20260331-05"
   #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(5%,unfixed=2~7,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true))"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-06.yaml"
+  #   output_dir: "ff2020/20260331-06"
+  #   description: "LB -> Dispatch -> incremental PW-CP(5%,unfixed=2~7,always,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2))) -> base CP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-07.yaml"
+  #   output_dir: "ff2020/20260331-07"
+  #   description: "LB -> Dispatch -> incremental PW-CP(5%,unfixed=2~7,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2))) -> base CP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-08.yaml"
+  #   output_dir: "ff2020/20260331-08"
+  #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(5%,unfixed=2~7,always,unfixed*0.01,pf=1,promotion_pf=true)) -> base CP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-09.yaml"
+  #   output_dir: "ff2020/20260331-09"
+  #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(5%,unfixed=2~7,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true)) -> base CP"
+
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-06.yaml"
-    output_dir: "ff2020/20260331-06"
-    description: "LB -> Dispatch -> incremental PW-CP(5%,unfixed=2~7,always,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2))) -> base CP"
+    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-01.yaml"
+    output_dir: "ff2020/20260403-01"
+    description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true)"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-07.yaml"
-    output_dir: "ff2020/20260331-07"
-    description: "LB -> Dispatch -> incremental PW-CP(5%,unfixed=2~7,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2))) -> base CP"
+    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-02.yaml"
+    output_dir: "ff2020/20260403-02"
+    description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2)))"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-08.yaml"
-    output_dir: "ff2020/20260331-08"
-    description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(5%,unfixed=2~7,always,unfixed*0.01,pf=1,promotion_pf=true)) -> base CP"
+    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-03.yaml"
+    output_dir: "ff2020/20260403-03"
+    description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2)))"
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260331/subroutine_flow_20260331-09.yaml"
-    output_dir: "ff2020/20260331-09"
-    description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(5%,unfixed=2~7,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true)) -> base CP"
+    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-04.yaml"
+    output_dir: "ff2020/20260403-04"
+    description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true))"
+  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-05.yaml"
+    output_dir: "ff2020/20260403-05"
+    description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true))"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -1596,7 +1617,7 @@ result_dir_name: "results"
 instance_worker_cnt: 12
 
 # Analysis and plotting options
-draw_gantt: true
+draw_gantt: false
 painter_thread_cnt: 8
 result_gantt_filename_format: "{}_result_gantt.png"
 draw_progress_plot: true
@@ -1604,7 +1625,7 @@ progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
 # analysis_dir_path: "$HFS_RESULT_DIR/calop4/20260304/20260304T135956_984566"
-analysis_timestamp: "20260324T205559_877608"
+# analysis_timestamp: "20260324T205559_877608"
 # resume_dir_path: resources/pra_prev_calc/20250906T212736_116407
 
 # Optional timepoint summary definitions for post-process outputs.
