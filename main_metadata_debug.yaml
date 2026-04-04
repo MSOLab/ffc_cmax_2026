@@ -10,6 +10,8 @@ input_dir: "resources/ff2020small"
 # input_dir: "resources/ff2020big"
 benchmark_idx_list:
   - 5
+  - 10
+  - 15
 # first: 1
 # last: 240
 benchmark_filename_format: "{}.txt"

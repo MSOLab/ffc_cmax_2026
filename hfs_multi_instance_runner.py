@@ -18,8 +18,10 @@ from hybridflowshop.report import (
     export_method_rpdf_scatter_html,
     export_method_rpdf_scatter_svg,
 )
+from hybridflowshop.report.log_processor import (
+    create_method_end_time_and_obj_value_summary,
+)
 from hybridflowshop.resume import ResumeValidator
-from scripts.process_logs import create_method_end_time_and_obj_value_summary
 
 
 class HfsMultiInstanceRunner(
@@ -587,8 +589,7 @@ class HfsMultiInstanceRunner(
             )
             if not html_created:
                 logging.warning(
-                    "Skipped method RPD scatter HTML generation: "
-                    "no valid merged data."
+                    "Skipped method RPD scatter HTML generation: no valid merged data."
                 )
         except Exception as e:
             logging.error(
