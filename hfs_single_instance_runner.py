@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 import traceback
 from pathlib import Path
@@ -278,6 +279,7 @@ class HfsSingleInstanceRunner(
         self.save_summary(encoding=encoding)
         self.save_solution(encoding=encoding)
         self.save_obj_value_bound_store(encoding=encoding)
+        self.save_subroutine_progression_json()
 
     def save_summary(self, encoding: str = "utf-8") -> None:
         stats = HfsSubroutineReportStatistics(
@@ -309,6 +311,12 @@ class HfsSingleInstanceRunner(
 
     def save_obj_value_bound_store(self, encoding: str = "utf-8") -> None:
         self.ctrlr.obj_store.save_yaml(self.obj_log_path, encoding=encoding)
+
+    def save_subroutine_progression_json(self) -> None:
+        progression_data = self.ctrlr.get_progression_data()
+        output_path = self.result_dir / "subroutine_progression.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(progression_data, f, indent=2, default=str)
 
     def from_files_save_analysis(self, encoding: str = "utf-8") -> None:
         if self.output_metadata.get("draw_gantt", False):

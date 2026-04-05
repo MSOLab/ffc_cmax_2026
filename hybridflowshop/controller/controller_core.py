@@ -85,6 +85,15 @@ class HybridFlowShopCpLnsControllerCore(
         self.stage_2_job_2_p_dict = self.instance.stage_2_job_2_p_map
         """Stage name -> job name -> processing time map"""
 
+        self._subroutine_call_progress_map: dict[str, list[dict]] = {}
+        self._subroutine_call_meta_list: list[dict] = []
+        self._combined_progress_list: list[dict] = []
+        self._subroutine_end_marker_list: list[dict] = []
+        self._active_call_index: int | None = None
+        self._active_subroutine_name: str | None = None
+        self._active_call_global_start: float | None = None
+        self._call_counter: int = 0
+
         logging.info(
             f"Start solving {self.instance.name} using CP model class:"
             f" {self.cp_model_class.__module__}.{self.cp_model_class.__name__}",
@@ -295,6 +304,119 @@ class HybridFlowShopCpLnsControllerCore(
 
     # End visualization
 
+    # Start subroutine progression recorder
+
+    def _start_subroutine_call(self, subroutine_name: str) -> None:
+        self._call_counter += 1
+        call_index = self._call_counter
+        prefixed_name = f"{call_index}-{subroutine_name}"
+        global_start = self.timer.elapsed_sec
+
+        self._active_call_index = call_index
+        self._active_subroutine_name = subroutine_name
+        self._active_call_global_start = global_start
+
+        self._subroutine_call_progress_map[prefixed_name] = []
+        self._subroutine_call_meta_list.append(
+            {
+                "call_index": call_index,
+                "subroutine_name": subroutine_name,
+                "prefixed_subroutine_name": prefixed_name,
+                "global_start_sec": global_start,
+            }
+        )
+
+    def _end_subroutine_call(self, subroutine_name: str) -> None:
+        if self._active_call_index is None:
+            return
+        call_index = self._active_call_index
+        prefixed_name = f"{call_index}-{subroutine_name}"
+        global_end = self.timer.elapsed_sec
+
+        self._subroutine_end_marker_list.append(
+            {
+                "global_end_sec": global_end,
+                "call_index": call_index,
+                "prefixed_subroutine_name": prefixed_name,
+                "subroutine_name": subroutine_name,
+            }
+        )
+
+        for meta in self._subroutine_call_meta_list:
+            if meta["call_index"] == call_index:
+                meta["global_end_sec"] = global_end
+                meta["elapsed_sec"] = global_end - meta["global_start_sec"]
+                break
+
+        self._active_call_index = None
+        self._active_subroutine_name = None
+        self._active_call_global_start = None
+
+    def _record_objective_point(self, global_sec: float, obj_value: float) -> None:
+        if self._active_call_index is None:
+            return
+        call_index = self._active_call_index
+        subroutine_name = self._active_subroutine_name or "unknown"
+        prefixed_name = f"{call_index}-{subroutine_name}"
+        global_start = self._active_call_global_start or global_sec
+        local_sec = global_sec - global_start
+
+        point = {
+            "global_sec": global_sec,
+            "obj_value": obj_value,
+            "call_index": call_index,
+            "prefixed_subroutine_name": prefixed_name,
+            "local_sec": local_sec,
+        }
+
+        self._subroutine_call_progress_map.setdefault(prefixed_name, []).append(point)
+        self._combined_progress_list.append(point)
+
+    def get_progression_data(self) -> dict:
+        subroutine_calls = []
+        for meta in self._subroutine_call_meta_list:
+            prefixed_name = meta["prefixed_subroutine_name"]
+            local_list = self._subroutine_call_progress_map.get(prefixed_name, [])
+            subroutine_calls.append(
+                {
+                    "call_index": meta["call_index"],
+                    "subroutine_name": meta["subroutine_name"],
+                    "prefixed_subroutine_name": prefixed_name,
+                    "global_start_sec": meta["global_start_sec"],
+                    "global_end_sec": meta.get("global_end_sec"),
+                    "elapsed_sec": meta.get("elapsed_sec"),
+                    "local_progress_list": local_list,
+                }
+            )
+
+        subroutine_calls.sort(key=lambda x: x["call_index"])
+
+        return {
+            "artifact_version": 1,
+            "instance_id": self.instance.name,
+            "timelimit_sec": getattr(self.stopping_criteria, "timelimit", None),
+            "subroutine_calls": subroutine_calls,
+            "combined_progress_list": self._combined_progress_list,
+            "subroutine_end_marker_list": self._subroutine_end_marker_list,
+        }
+
+    # End subroutine progression recorder
+
+    def add_obj_value_log(
+        self, elapsed: float, value: float, is_maximize: bool | None = None
+    ) -> None:
+        super().add_obj_value_log(elapsed, value, is_maximize)
+        self._record_objective_point(elapsed, value)
+
+    def extend_obj_value_log(
+        self,
+        value_log: Sequence[tuple[float, float]],
+        is_maximize: bool | None = None,
+    ) -> None:
+        super().extend_obj_value_log(value_log, is_maximize)
+        for elapsed_time, obj_value in value_log:
+            self._record_objective_point(elapsed_time, obj_value)
+
     def run(self, flow_resume_idx: int = -1) -> None:
         """Overrides the run method to execute the subroutine flow.
 
@@ -305,13 +427,13 @@ class HybridFlowShopCpLnsControllerCore(
             self._subroutine_flow, (str, bytes)
         ):
             for idx, subroutine_data in enumerate(self._subroutine_flow):
+                method_name = subroutine_data.get("method", "")
                 if idx < flow_resume_idx:
-                    if (
-                        subroutine_data.get("method", "")
-                        in self.method_names_to_run_before_resume
-                    ):
+                    if method_name in self.method_names_to_run_before_resume:
                         e_timer = ElapsedTimer()
+                        self._start_subroutine_call(method_name)
                         self._run_flow(subroutine_data)
+                        self._end_subroutine_call(method_name)
                         virtual_dt = datetime.datetime.now() - datetime.timedelta(
                             seconds=e_timer.elapsed_sec
                         )
@@ -319,12 +441,20 @@ class HybridFlowShopCpLnsControllerCore(
                     else:
                         self._run_flow(subroutine_data, skip_method_call=True)
                 else:
+                    self._start_subroutine_call(method_name)
                     self._run_flow(subroutine_data)
+                    self._end_subroutine_call(method_name)
         else:
             logging.warning(
                 "Subroutine flow is not a sequence; running as a single step."
             )
+            if isinstance(self._subroutine_flow, dict):
+                method_name = self._subroutine_flow.get("method", "unknown")
+            else:
+                method_name = "unknown"
+            self._start_subroutine_call(method_name)
             self._run_flow(self._subroutine_flow)
+            self._end_subroutine_call(method_name)
         self.post_run_process()
 
     # Start post-run process

@@ -21,6 +21,9 @@ from hybridflowshop.report import (
 from hybridflowshop.report.log_processor import (
     create_method_end_time_and_obj_value_summary,
 )
+from hybridflowshop.report.method_progression_report import (
+    aggregate_scenario_progression,
+)
 from hybridflowshop.resume import ResumeValidator
 
 
@@ -152,6 +155,30 @@ class HfsMultiInstanceRunner(
         except Exception as e:
             logging.error(f"Error processing logs for {self.working_dir}: {e}")
         logging.info("Log Processing Complete.")
+
+        # Aggregate progression data from per-instance JSON files
+        logging.info(f"Aggregating subroutine progression data in: {self.working_dir}")
+        try:
+            progression_data = aggregate_scenario_progression(
+                self.working_dir,
+                baseline_df=getattr(self, "baseline_df", None),
+                baseline_instance_col=getattr(
+                    self, "baseline_instance_col", "Instance"
+                ),
+                baseline_obj_val_col=getattr(self, "baseline_obj_val_col", "UB"),
+                omitted_subroutines={
+                    "set_random_seed",
+                    "set_cp_model_as_base_cp_model",
+                },
+            )
+            if progression_data:
+                logging.info("Subroutine progression aggregation complete.")
+            else:
+                logging.warning("No progression data found for aggregation.")
+        except Exception as e:
+            logging.error(
+                f"Error aggregating progression data for {self.working_dir}: {e}"
+            )
 
         # Aggregate results from self.results (populated by append_result() during run())
         logging.info(f"Aggregating instance summaries in: {self.working_dir}")
