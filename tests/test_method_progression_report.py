@@ -134,6 +134,27 @@ def test_build_progression_points_without_ref_obj(tmp_path: Path) -> None:
     assert df["rpd_f"].isna().all()
 
 
+def test_build_progression_points_preserves_duplicate_values() -> None:
+    data = _make_sample_progression_data()
+    data["subroutine_calls"][1]["local_progress_list"].insert(
+        1,
+        {
+            "local_sec": 5.0,
+            "obj_value": 110.0,
+            "global_sec": 10.0,
+            "call_index": 2,
+            "prefixed_subroutine_name": "2-repeat_while_improvement",
+        },
+    )
+
+    df = build_progression_points(data, ref_obj_value=100.0)
+
+    repeat_df = df[df["prefixed_subroutine_name"] == "2-repeat_while_improvement"]
+    assert len(repeat_df) == 4
+    assert repeat_df["obj_value"].tolist() == [110.0, 110.0, 105.0, 100.0]
+    assert repeat_df["local_sec"].tolist() == [0.0, 5.0, 10.0, 20.0]
+
+
 def test_build_progression_points_empty_data() -> None:
     data = {
         "artifact_version": 1,

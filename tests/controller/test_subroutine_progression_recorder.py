@@ -93,6 +93,160 @@ class TestSubroutineProgressionRecorder:
         assert point["local_sec"] == 2.0
         assert len(controller._combined_progress_list) == 1
 
+    def test_record_objective_point_skips_equal_value_in_same_call(self) -> None:
+        controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
+        controller._active_call_index = 2
+        controller._active_subroutine_name = "repeat"
+        controller._active_call_global_start = 10.0
+        controller._subroutine_call_progress_map = {
+            "2-repeat": [
+                {
+                    "global_sec": 12.0,
+                    "obj_value": 95.0,
+                    "call_index": 2,
+                    "prefixed_subroutine_name": "2-repeat",
+                    "local_sec": 2.0,
+                }
+            ]
+        }
+        controller._combined_progress_list = list(
+            controller._subroutine_call_progress_map["2-repeat"]
+        )
+
+        HybridFlowShopCpLnsControllerCore._record_objective_point(
+            controller, 13.0, 95.0, is_maximize=False
+        )
+
+        assert len(controller._subroutine_call_progress_map["2-repeat"]) == 1
+        assert len(controller._combined_progress_list) == 1
+
+    def test_record_objective_point_skips_worse_value_for_minimize(self) -> None:
+        controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
+        controller._active_call_index = 2
+        controller._active_subroutine_name = "repeat"
+        controller._active_call_global_start = 10.0
+        controller._subroutine_call_progress_map = {
+            "2-repeat": [
+                {
+                    "global_sec": 12.0,
+                    "obj_value": 95.0,
+                    "call_index": 2,
+                    "prefixed_subroutine_name": "2-repeat",
+                    "local_sec": 2.0,
+                }
+            ]
+        }
+        controller._combined_progress_list = list(
+            controller._subroutine_call_progress_map["2-repeat"]
+        )
+
+        HybridFlowShopCpLnsControllerCore._record_objective_point(
+            controller, 13.0, 96.0, is_maximize=False
+        )
+
+        assert len(controller._subroutine_call_progress_map["2-repeat"]) == 1
+        assert len(controller._combined_progress_list) == 1
+
+    def test_record_objective_point_adds_strict_improvement_for_minimize(self) -> None:
+        controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
+        controller._active_call_index = 2
+        controller._active_subroutine_name = "repeat"
+        controller._active_call_global_start = 10.0
+        controller._subroutine_call_progress_map = {
+            "2-repeat": [
+                {
+                    "global_sec": 12.0,
+                    "obj_value": 95.0,
+                    "call_index": 2,
+                    "prefixed_subroutine_name": "2-repeat",
+                    "local_sec": 2.0,
+                }
+            ]
+        }
+        controller._combined_progress_list = list(
+            controller._subroutine_call_progress_map["2-repeat"]
+        )
+
+        HybridFlowShopCpLnsControllerCore._record_objective_point(
+            controller, 14.0, 94.0, is_maximize=False
+        )
+
+        assert len(controller._subroutine_call_progress_map["2-repeat"]) == 2
+        point = controller._subroutine_call_progress_map["2-repeat"][-1]
+        assert point["global_sec"] == 14.0
+        assert point["obj_value"] == 94.0
+        assert point["local_sec"] == 4.0
+        assert len(controller._combined_progress_list) == 2
+
+    def test_record_objective_point_treats_new_call_first_point_as_recordable(self) -> None:
+        controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
+        controller._active_call_index = 3
+        controller._active_subroutine_name = "repeat"
+        controller._active_call_global_start = 20.0
+        controller._subroutine_call_progress_map = {
+            "2-repeat": [
+                {
+                    "global_sec": 14.0,
+                    "obj_value": 94.0,
+                    "call_index": 2,
+                    "prefixed_subroutine_name": "2-repeat",
+                    "local_sec": 4.0,
+                }
+            ],
+            "3-repeat": [],
+        }
+        controller._combined_progress_list = [
+            {
+                "global_sec": 14.0,
+                "obj_value": 94.0,
+                "call_index": 2,
+                "prefixed_subroutine_name": "2-repeat",
+                "local_sec": 4.0,
+            }
+        ]
+
+        HybridFlowShopCpLnsControllerCore._record_objective_point(
+            controller, 20.0, 94.0, is_maximize=False
+        )
+
+        assert len(controller._subroutine_call_progress_map["3-repeat"]) == 1
+        point = controller._subroutine_call_progress_map["3-repeat"][0]
+        assert point["global_sec"] == 20.0
+        assert point["obj_value"] == 94.0
+        assert point["local_sec"] == 0.0
+        assert len(controller._combined_progress_list) == 2
+
+    def test_record_objective_point_adds_strict_improvement_for_maximize(self) -> None:
+        controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
+        controller._active_call_index = 2
+        controller._active_subroutine_name = "repeat"
+        controller._active_call_global_start = 10.0
+        controller._subroutine_call_progress_map = {
+            "2-repeat": [
+                {
+                    "global_sec": 12.0,
+                    "obj_value": 95.0,
+                    "call_index": 2,
+                    "prefixed_subroutine_name": "2-repeat",
+                    "local_sec": 2.0,
+                }
+            ]
+        }
+        controller._combined_progress_list = list(
+            controller._subroutine_call_progress_map["2-repeat"]
+        )
+
+        HybridFlowShopCpLnsControllerCore._record_objective_point(
+            controller, 13.0, 96.0, is_maximize=True
+        )
+
+        assert len(controller._subroutine_call_progress_map["2-repeat"]) == 2
+        point = controller._subroutine_call_progress_map["2-repeat"][-1]
+        assert point["global_sec"] == 13.0
+        assert point["obj_value"] == 96.0
+        assert point["local_sec"] == 3.0
+        assert len(controller._combined_progress_list) == 2
+
     def test_record_objective_point_ignores_when_no_active_call(self) -> None:
         controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
         controller._active_call_index = None

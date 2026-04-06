@@ -352,7 +352,12 @@ class HybridFlowShopCpLnsControllerCore(
         self._active_subroutine_name = None
         self._active_call_global_start = None
 
-    def _record_objective_point(self, global_sec: float, obj_value: float) -> None:
+    def _record_objective_point(
+        self,
+        global_sec: float,
+        obj_value: float,
+        is_maximize: bool | None = None,
+    ) -> None:
         if self._active_call_index is None:
             return
         call_index = self._active_call_index
@@ -360,6 +365,24 @@ class HybridFlowShopCpLnsControllerCore(
         prefixed_name = f"{call_index}-{subroutine_name}"
         global_start = self._active_call_global_start or global_sec
         local_sec = global_sec - global_start
+        recorded_points = self._subroutine_call_progress_map.setdefault(prefixed_name, [])
+
+        if recorded_points:
+            last_obj_value = recorded_points[-1]["obj_value"]
+            if is_maximize is None:
+                cp_model = getattr(self, "cp_model", None)
+                if cp_model is not None and hasattr(cp_model, "is_maximize"):
+                    is_maximize = cp_model.is_maximize()
+                else:
+                    is_maximize = False
+
+            is_improved = (
+                float_a_stl_b(last_obj_value, obj_value)
+                if is_maximize
+                else float_a_stl_b(obj_value, last_obj_value)
+            )
+            if not is_improved:
+                return
 
         point = {
             "global_sec": global_sec,
@@ -369,7 +392,7 @@ class HybridFlowShopCpLnsControllerCore(
             "local_sec": local_sec,
         }
 
-        self._subroutine_call_progress_map.setdefault(prefixed_name, []).append(point)
+        recorded_points.append(point)
         self._combined_progress_list.append(point)
 
     def get_progression_data(self) -> dict:
@@ -406,7 +429,7 @@ class HybridFlowShopCpLnsControllerCore(
         self, elapsed: float, value: float, is_maximize: bool | None = None
     ) -> None:
         super().add_obj_value_log(elapsed, value, is_maximize)
-        self._record_objective_point(elapsed, value)
+        self._record_objective_point(elapsed, value, is_maximize)
 
     def extend_obj_value_log(
         self,
@@ -415,7 +438,7 @@ class HybridFlowShopCpLnsControllerCore(
     ) -> None:
         super().extend_obj_value_log(value_log, is_maximize)
         for elapsed_time, obj_value in value_log:
-            self._record_objective_point(elapsed_time, obj_value)
+            self._record_objective_point(elapsed_time, obj_value, is_maximize)
 
     def run(self, flow_resume_idx: int = -1) -> None:
         """Overrides the run method to execute the subroutine flow.
