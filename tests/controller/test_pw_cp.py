@@ -12,8 +12,6 @@ from hybridflowshop.controller.pw_cp import (
     PwCpRunState,
     PwCpSubproblemSpec,
 )
-from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
-from hybridflowshop.cpsat_model_2.pw_cp import PwCpVars, create_pw_cp_schedule
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 from tests.test_dispatch_stage_by_machines import create_hfs_instance
 
@@ -428,3 +426,68 @@ def test_run_applies_promoted_partition_to_subproblem_spec(monkeypatch, tmp_path
             enable_promotion_profile_fixed=True,
             max_time_per_batch=1.0,
         )
+
+
+def test_run_records_only_accepted_incumbent_improvements(monkeypatch, tmp_path):
+    ctx = FakePwCpContext(tmp_path)
+    ctor = PwCpConstructor(ctx)
+    incumbent = _make_multi_stage_schedule()
+
+    dummy_batches = {
+        "s1": [(("j1", "m1"),), (("j2", "m2"),), (("j3", "m1"),), (("j4", "m2"),)],
+        "s2": [(("j1", "m3"),), (("j2", "m4"),), (("j3", "m3"),), (("j4", "m4"),)],
+    }
+    monkeypatch.setattr(ctor, "build_stage_2_batch_list", lambda *args, **kwargs: dummy_batches)
+    monkeypatch.setattr(
+        ctor,
+        "_build_batch_spec",
+        lambda *, incumbent, stage_2_partition, stage_2_job_2_p_dict, batch_idx: SimpleNamespace(
+            non_time_fixed_op_count=1,
+            batch_idx=batch_idx,
+        ),
+    )
+    monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", lambda **kwargs: object())
+    accepted_outcomes = iter(
+        [
+            (SimpleNamespace(makespan=9), True),
+            (SimpleNamespace(makespan=9), False),
+            (SimpleNamespace(makespan=8), True),
+            (SimpleNamespace(makespan=8), False),
+        ]
+    )
+
+    def fake_accept_candidate_or_repair_incumbent(**kwargs):
+        return next(accepted_outcomes)
+
+    monkeypatch.setattr(
+        ctor,
+        "_accept_candidate_or_repair_incumbent",
+        fake_accept_candidate_or_repair_incumbent,
+    )
+
+    instance = _make_instance(
+        ["s1", "s2"],
+        {"s1": ["m1", "m2"], "s2": ["m3", "m4"]},
+        {
+            "j1": {"s1": 2, "s2": 3},
+            "j2": {"s1": 3, "s2": 3},
+            "j3": {"s1": 2, "s2": 3},
+            "j4": {"s1": 2, "s2": 3},
+        },
+    )
+
+    result = ctor.run(
+        incumbent,
+        instance,
+        {
+            "s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2},
+            "s2": {"j1": 3, "j2": 3, "j3": 3, "j4": 3},
+        },
+        batch_size=1,
+        max_time_per_batch=1.0,
+    )
+
+    assert [value for _, value in result.sub_obj_store.obj_value_series.items()] == [
+        9,
+        8,
+    ]

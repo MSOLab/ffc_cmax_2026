@@ -1,6 +1,7 @@
 import datetime
 import logging
 import math
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -12,7 +13,6 @@ from mbls.cpsat import (
     ObjectiveBoundRecorder,
     ObjectiveValueRecorder,
 )
-from mbls.cpsat.callbacks import ValueBoundPair
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
 from routix.util.comparison import float_a_leq_b, float_a_stl_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -26,7 +26,7 @@ from hybridflowshop.cpsat_model_2.cumulative import (
     OperationVars,
 )
 from hybridflowshop.cpsat_model_2.params import Params
-from hybridflowshop.report import HfsCpsatSolverReport
+from hybridflowshop.report import HfsCpsatSolverReport, HfsSubroutineReport
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from ..painter.gantt import GanttPlotter
@@ -89,6 +89,7 @@ class HybridFlowShopCpLnsControllerCore(
         self._subroutine_call_meta_list: list[dict] = []
         self._combined_progress_list: list[dict] = []
         self._subroutine_end_marker_list: list[dict] = []
+        self._method_context_meta_map: dict[str, dict[str, Any]] = {}
         self._active_call_index: int | None = None
         self._active_subroutine_name: str | None = None
         self._active_call_global_start: float | None = None
@@ -250,6 +251,32 @@ class HybridFlowShopCpLnsControllerCore(
 
     # End stopping condition
 
+    # Start report creation
+
+    def _make_subroutine_report(
+        self,
+        elapsed_time: float,
+        obj_value: float | None,
+        obj_bound: float | None,
+        is_init: bool,
+        subroutine_name: str = "",
+        progress_obj_value_records: Sequence[tuple[float, float]] = (),
+        progress_time_basis: str = "local",
+    ) -> HfsSubroutineReport:
+        call_context = self._get_call_context_of_current_method()
+        return HfsSubroutineReport(
+            elapsed_time=elapsed_time,
+            obj_value=obj_value,
+            obj_bound=obj_bound,
+            is_init=is_init,
+            subroutine_name=subroutine_name,
+            call_context=call_context,
+            progress_obj_value_records=tuple(progress_obj_value_records),
+            progress_time_basis=progress_time_basis,
+        )
+
+    # End report creation
+
     # Start visualization
 
     def draw_gantt(
@@ -306,6 +333,89 @@ class HybridFlowShopCpLnsControllerCore(
 
     # Start subroutine progression recorder
 
+    def _record_method_context_start(self, call_context: str) -> None:
+        self._method_context_meta_map.setdefault(
+            call_context,
+            {
+                "call_context": call_context,
+                "global_start_sec": self.timer.elapsed_sec,
+            },
+        )
+
+    def _record_method_context_end(self, call_context: str) -> None:
+        meta = self._method_context_meta_map.setdefault(
+            call_context,
+            {"call_context": call_context},
+        )
+        global_end = self.timer.elapsed_sec
+        meta["global_end_sec"] = global_end
+        global_start = meta.get("global_start_sec")
+        if global_start is not None:
+            meta["elapsed_sec"] = global_end - global_start
+
+    def _get_context_start_sec(self, call_context: str) -> float | None:
+        meta = self._method_context_meta_map.get(call_context)
+        if meta is not None:
+            global_start = meta.get("global_start_sec")
+            if isinstance(global_start, (float, int)):
+                return float(global_start)
+
+        for subroutine_meta in self._subroutine_call_meta_list:
+            if subroutine_meta["prefixed_subroutine_name"] == call_context:
+                return float(subroutine_meta["global_start_sec"])
+        return None
+
+    @staticmethod
+    def _get_call_context_depth(call_context: str) -> int:
+        if not call_context or call_context == "ROOT":
+            return 0
+        return len(call_context.split("."))
+
+    def _build_progress_point_list(
+        self,
+        progress_records: Sequence[tuple[float, float]],
+        *,
+        call_index: int,
+        prefixed_name: str,
+        global_start_sec: float,
+        progress_time_basis: str = "local",
+    ) -> list[dict]:
+        progress_list: list[dict] = []
+        for timestamp, obj_value in progress_records:
+            if progress_time_basis == "global":
+                global_sec = timestamp
+                local_sec = timestamp - global_start_sec
+            else:
+                global_sec = global_start_sec + timestamp
+                local_sec = timestamp
+
+            progress_list.append(
+                {
+                    "global_sec": global_sec,
+                    "obj_value": obj_value,
+                    "call_index": call_index,
+                    "prefixed_subroutine_name": prefixed_name,
+                    "local_sec": local_sec,
+                }
+            )
+        return progress_list
+
+    @staticmethod
+    def _build_combined_progress_list(subroutine_calls: Sequence[dict]) -> list[dict]:
+        combined_progress_list: list[dict] = []
+        for call in subroutine_calls:
+            for point in call.get("local_progress_list", []):
+                combined_progress_list.append(dict(point))
+
+        combined_progress_list.sort(
+            key=lambda point: (
+                point.get("global_sec", math.inf),
+                point.get("call_index", math.inf),
+                point.get("local_sec", math.inf),
+            )
+        )
+        return combined_progress_list
+
     def _start_subroutine_call(self, subroutine_name: str) -> None:
         self._call_counter += 1
         call_index = self._call_counter
@@ -352,6 +462,56 @@ class HybridFlowShopCpLnsControllerCore(
         self._active_subroutine_name = None
         self._active_call_global_start = None
 
+    def _call_method(self, method_name: str, **kwargs: dict[str, Any]):
+        if not hasattr(self, method_name):
+            raise AttributeError(
+                f"{self.__class__.__name__} has no attribute {method_name}"
+            )
+
+        self._method_context_mgr.push(method_name)
+        call_context = self._get_call_context_of_current_method()
+        self._record_method_context_start(call_context)
+
+        start_sec = self.timer.elapsed_sec
+        self.method_call_counts[method_name] += 1
+
+        log_entry: dict[str, Any] = {
+            "method": method_name,
+            "call_context": call_context,
+            "start_sec": start_sec,
+            "kwargs": kwargs,
+        }
+        try:
+            getattr(self, method_name)(**kwargs)
+        except Exception as e:
+            end_sec = self.timer.elapsed_sec
+            elapsed_sec = end_sec - start_sec
+            log_entry["elapsed_sec"] = elapsed_sec
+            log_entry["error"] = str(e)
+            logging.error(str(log_entry))
+            self._record_method_context_end(call_context)
+            self._method_context_mgr.pop()
+            raise e
+
+        end_sec = self.timer.elapsed_sec
+        elapsed_sec = end_sec - start_sec
+        log_entry["elapsed_sec"] = elapsed_sec
+        logging.info(str(log_entry))
+
+        self._record_method_context_end(call_context)
+        self._method_context_mgr.pop()
+
+    @contextmanager
+    def temporarily_extended_context(self, appended_name: str):
+        self._method_context_mgr.push(appended_name)
+        call_context = self._get_call_context_of_current_method()
+        self._record_method_context_start(call_context)
+        try:
+            yield
+        finally:
+            self._record_method_context_end(call_context)
+            self._method_context_mgr.pop()
+
     def _record_objective_point(
         self,
         global_sec: float,
@@ -397,14 +557,142 @@ class HybridFlowShopCpLnsControllerCore(
         recorded_points.append(point)
         self._combined_progress_list.append(point)
 
+    def _get_report_for_call(self, prefixed_name: str) -> dict | None:
+        """Get the subroutine report from solution_manager.history by call context.
+
+        Args:
+            prefixed_name: The prefixed subroutine name (e.g., "4-pw_cp")
+
+        Returns:
+            The report dict if found, None otherwise
+        """
+        for record in self.solution_manager.history:
+            report = getattr(record, "report", None)
+            if report is None:
+                continue
+            # Check if report has call_context attribute and it matches
+            call_context = getattr(report, "call_context", None)
+            if call_context == prefixed_name:
+                # Convert report to dict format for consistent access
+                return {
+                    "progress_obj_value_records": getattr(
+                        report, "progress_obj_value_records", ()
+                    ),
+                    "progress_time_basis": getattr(
+                        report, "progress_time_basis", "local"
+                    ),
+                }
+        return None
+
+    def _collect_nested_reports(
+        self, parent_prefixed_name: str, parent_call_index: int
+    ) -> list[tuple[float, float]]:
+        """Collect progress records from nested subroutine calls within a parent call.
+
+        This handles cases like:
+        - incremental_pw_cp -> multiple unfixed_batch_count_* calls -> pw_cp calls
+        - repeat_while_improvement -> multiple reps_* calls
+
+        Args:
+            parent_prefixed_name: Parent's prefixed name (e.g., "2-incremental_pw_cp")
+            parent_call_index: Parent's call index in the meta list
+
+        Returns:
+            Combined list of (local_sec, obj_value) tuples from nested calls,
+            sorted by local time
+        """
+        # Find parent meta
+        parent_meta = None
+
+        for i, meta in enumerate(self._subroutine_call_meta_list):
+            if meta["call_index"] == parent_call_index:
+                parent_meta = meta
+                break
+
+        if not parent_meta:
+            return []
+
+        parent_start = float(parent_meta["global_start_sec"])
+        nested_prefix = f"{parent_prefixed_name}."
+
+        # Collect reports whose global_start falls within this parent's range
+        progress_records = []
+        for record in self.solution_manager.history:
+            report = getattr(record, "report", None)
+            if report is None:
+                continue
+
+            call_context = getattr(report, "call_context", None)
+            if call_context is None:
+                continue
+
+            if not isinstance(call_context, str):
+                continue
+
+            if not call_context.startswith(nested_prefix):
+                continue
+
+            parent_depth = self._get_call_context_depth(parent_prefixed_name)
+            call_context_depth = self._get_call_context_depth(call_context)
+            if call_context_depth <= parent_depth:
+                continue
+
+            nested_records = getattr(report, "progress_obj_value_records", ())
+            if nested_records:
+                nested_global_start = self._get_context_start_sec(call_context)
+                if nested_global_start is not None:
+                    progress_time_basis = getattr(
+                        report, "progress_time_basis", "local"
+                    )
+                    for local_time, obj_value in nested_records:
+                        if progress_time_basis == "global":
+                            global_time = local_time
+                        else:
+                            global_time = nested_global_start + local_time
+                        parent_relative_time = global_time - parent_start
+                        progress_records.append((parent_relative_time, obj_value))
+
+        return sorted(progress_records, key=lambda x: x[0])
+
     def get_progression_data(self) -> dict:
         subroutine_calls = []
         for meta in self._subroutine_call_meta_list:
             prefixed_name = meta["prefixed_subroutine_name"]
-            local_list = self._subroutine_call_progress_map.get(prefixed_name, [])
+            call_index = meta["call_index"]
+
+            # First, try direct report match
+            report_data = self._get_report_for_call(prefixed_name)
+
+            # If no direct report or it's a container-like subroutine, collect nested
+            local_list = []
+            if report_data and report_data["progress_obj_value_records"]:
+                # Has its own progress records
+                local_list = self._build_progress_point_list(
+                    report_data["progress_obj_value_records"],
+                    call_index=call_index,
+                    prefixed_name=prefixed_name,
+                    global_start_sec=float(meta["global_start_sec"]),
+                    progress_time_basis=report_data["progress_time_basis"],
+                )
+            else:
+                # Try to collect from nested calls
+                nested_records = self._collect_nested_reports(prefixed_name, call_index)
+                if nested_records:
+                    local_list = self._build_progress_point_list(
+                        nested_records,
+                        call_index=call_index,
+                        prefixed_name=prefixed_name,
+                        global_start_sec=float(meta["global_start_sec"]),
+                    )
+                else:
+                    # Fallback to existing map
+                    local_list = self._subroutine_call_progress_map.get(
+                        prefixed_name, []
+                    )
+
             subroutine_calls.append(
                 {
-                    "call_index": meta["call_index"],
+                    "call_index": call_index,
                     "subroutine_name": meta["subroutine_name"],
                     "prefixed_subroutine_name": prefixed_name,
                     "global_start_sec": meta["global_start_sec"],
@@ -421,7 +709,9 @@ class HybridFlowShopCpLnsControllerCore(
             "instance_id": self.instance.name,
             "timelimit_sec": getattr(self.stopping_criteria, "timelimit", None),
             "subroutine_calls": subroutine_calls,
-            "combined_progress_list": self._combined_progress_list,
+            "combined_progress_list": self._build_combined_progress_list(
+                subroutine_calls
+            ),
             "subroutine_end_marker_list": self._subroutine_end_marker_list,
         }
 

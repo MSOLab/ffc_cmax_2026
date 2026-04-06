@@ -1,6 +1,22 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from hybridflowshop.controller.controller_core import HybridFlowShopCpLnsControllerCore
+
+
+def _make_progression_controller() -> HybridFlowShopCpLnsControllerCore:
+    controller = HybridFlowShopCpLnsControllerCore.__new__(
+        HybridFlowShopCpLnsControllerCore
+    )
+    controller._subroutine_call_progress_map = {}
+    controller._subroutine_call_meta_list = []
+    controller._combined_progress_list = []
+    controller._subroutine_end_marker_list = []
+    controller._method_context_meta_map = {}
+    controller.solution_manager = SimpleNamespace(history=[])
+    controller.instance = SimpleNamespace(name="test_instance")
+    controller.stopping_criteria = SimpleNamespace(timelimit=50.0)
+    return controller
 
 
 class TestSubroutineProgressionRecorder:
@@ -260,7 +276,7 @@ class TestSubroutineProgressionRecorder:
         assert len(controller._combined_progress_list) == 0
 
     def test_get_progression_data_returns_expected_structure(self) -> None:
-        controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
+        controller = _make_progression_controller()
         controller._subroutine_call_progress_map = {
             "1-init": [
                 {
@@ -329,10 +345,6 @@ class TestSubroutineProgressionRecorder:
                 "subroutine_name": "repeat",
             },
         ]
-        controller.instance = MagicMock()
-        controller.instance.name = "test_instance"
-        controller.stopping_criteria = MagicMock()
-        controller.stopping_criteria.timelimit = 50.0
 
         data = HybridFlowShopCpLnsControllerCore.get_progression_data(controller)
 
@@ -349,3 +361,144 @@ class TestSubroutineProgressionRecorder:
         assert data["subroutine_calls"][1]["call_index"] == 2
         assert data["subroutine_calls"][1]["global_start_sec"] == 3.0
         assert data["subroutine_calls"][1]["elapsed_sec"] == 4.0
+
+    def test_get_progression_data_collects_nested_incremental_pw_cp_reports(self) -> None:
+        controller = _make_progression_controller()
+        controller._subroutine_call_meta_list = [
+            {
+                "call_index": 1,
+                "subroutine_name": "incremental_pw_cp",
+                "prefixed_subroutine_name": "1-incremental_pw_cp",
+                "global_start_sec": 10.0,
+                "global_end_sec": 11.0,
+                "elapsed_sec": 1.0,
+            }
+        ]
+        controller._subroutine_end_marker_list = [
+            {
+                "global_end_sec": 11.0,
+                "call_index": 1,
+                "prefixed_subroutine_name": "1-incremental_pw_cp",
+                "subroutine_name": "incremental_pw_cp",
+            }
+        ]
+        controller._method_context_meta_map = {
+            "1-incremental_pw_cp.1-unfixed_batch_count_002": {
+                "global_start_sec": 10.2
+            },
+            "1-incremental_pw_cp.2-unfixed_batch_count_003": {
+                "global_start_sec": 10.7
+            },
+        }
+        controller.solution_manager.history = [
+            SimpleNamespace(
+                report=SimpleNamespace(
+                    call_context="1-incremental_pw_cp.1-unfixed_batch_count_002",
+                    progress_obj_value_records=((0.01, 982.0), (0.22, 980.0)),
+                    progress_time_basis="local",
+                )
+            ),
+            SimpleNamespace(
+                report=SimpleNamespace(
+                    call_context="1-incremental_pw_cp.2-unfixed_batch_count_003",
+                    progress_obj_value_records=(
+                        (0.05, 978.0),
+                        (0.08, 977.0),
+                        (0.15, 976.0),
+                    ),
+                    progress_time_basis="local",
+                )
+            ),
+        ]
+
+        data = HybridFlowShopCpLnsControllerCore.get_progression_data(controller)
+
+        incremental_call = data["subroutine_calls"][0]
+        assert [p["obj_value"] for p in incremental_call["local_progress_list"]] == [
+            982.0,
+            980.0,
+            978.0,
+            977.0,
+            976.0,
+        ]
+        assert [p["obj_value"] for p in data["combined_progress_list"]] == [
+            982.0,
+            980.0,
+            978.0,
+            977.0,
+            976.0,
+        ]
+        assert [round(p["global_sec"], 2) for p in incremental_call["local_progress_list"]] == [
+            10.21,
+            10.42,
+            10.75,
+            10.78,
+            10.85,
+        ]
+
+    def test_get_progression_data_collects_nested_repeat_reports(self) -> None:
+        controller = _make_progression_controller()
+        controller._subroutine_call_meta_list = [
+            {
+                "call_index": 1,
+                "subroutine_name": "repeat_while_improvement",
+                "prefixed_subroutine_name": "1-repeat_while_improvement",
+                "global_start_sec": 5.0,
+                "global_end_sec": 7.0,
+                "elapsed_sec": 2.0,
+            }
+        ]
+        controller._subroutine_end_marker_list = [
+            {
+                "global_end_sec": 7.0,
+                "call_index": 1,
+                "prefixed_subroutine_name": "1-repeat_while_improvement",
+                "subroutine_name": "repeat_while_improvement",
+            }
+        ]
+        controller._method_context_meta_map = {
+            "1-repeat_while_improvement.1-reps_001.1-pw_cp": {
+                "global_start_sec": 5.25
+            },
+            "1-repeat_while_improvement.2-reps_002.1-pw_cp": {
+                "global_start_sec": 6.05
+            },
+        }
+        controller.solution_manager.history = [
+            SimpleNamespace(
+                report=SimpleNamespace(
+                    call_context="1-repeat_while_improvement.1-reps_001.1-pw_cp",
+                    progress_obj_value_records=((0.1, 98.0), (0.3, 95.0)),
+                    progress_time_basis="local",
+                )
+            ),
+            SimpleNamespace(
+                report=SimpleNamespace(
+                    call_context="1-repeat_while_improvement.2-reps_002.1-pw_cp",
+                    progress_obj_value_records=((0.2, 94.0), (0.4, 93.0)),
+                    progress_time_basis="local",
+                )
+            ),
+        ]
+
+        data = HybridFlowShopCpLnsControllerCore.get_progression_data(controller)
+
+        repeat_call = data["subroutine_calls"][0]
+        assert [p["obj_value"] for p in repeat_call["local_progress_list"]] == [
+            98.0,
+            95.0,
+            94.0,
+            93.0,
+        ]
+        assert [round(p["local_sec"], 2) for p in repeat_call["local_progress_list"]] == [
+            0.35,
+            0.55,
+            1.25,
+            1.45,
+        ]
+        assert [p["obj_value"] for p in data["combined_progress_list"]] == [
+            98.0,
+            95.0,
+            94.0,
+            93.0,
+        ]

@@ -305,12 +305,6 @@ class PwCpConstructor:
 
         sub_obj_store = ObjValueBoundStore[int]()
         sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
-        sub_obj_store.add_obj_value(0.0, int(ref_schedule.makespan), None)
-        sub_obj_store.add_last_timestamp_note(
-            "initial_schedule",
-            obj_value_is_valid=True,
-            obj_bound_is_valid=False,
-        )
 
         self._st = PwCpRunState(
             timer=timer,
@@ -427,12 +421,17 @@ class PwCpConstructor:
                     self._save_solution_dict(spec, st.incumbent, accepted=accepted)
 
                 ts = st.timer.elapsed_sec
-                st.sub_obj_store.add_obj_value(ts, int(st.incumbent.makespan), None)
-                st.sub_obj_store.add_last_timestamp_note(
-                    f"batch_start={unfixed_batch_start_idx}",
-                    obj_value_is_valid=True,
-                    obj_bound_is_valid=False,
-                )
+                if accepted:
+                    st.sub_obj_store.add_obj_value(
+                        ts,
+                        int(st.incumbent.makespan),
+                        is_maximize=False,
+                    )
+                    st.sub_obj_store.add_last_timestamp_note(
+                        f"batch_start={unfixed_batch_start_idx}",
+                        obj_value_is_valid=True,
+                        obj_bound_is_valid=False,
+                    )
 
             if error_if_infeasible:
                 self.ctx.check_feasibility(

@@ -1587,26 +1587,39 @@ dicts_of_i_o_data_path:
   #   output_dir: "ff2020/20260331-09"
   #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(5%,unfixed=2~7,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true)) -> base CP"
 
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-01.yaml"
+  #   output_dir: "ff2020/20260403-01"
+  #   description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true)"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-02.yaml"
+  #   output_dir: "ff2020/20260403-02"
+  #   description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2)))"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-03.yaml"
+  #   output_dir: "ff2020/20260403-03"
+  #   description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2)))"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-04.yaml"
+  #   output_dir: "ff2020/20260403-04"
+  #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true))"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-05.yaml"
+  #   output_dir: "ff2020/20260403-05"
+  #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true))"
+
   - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-01.yaml"
-    output_dir: "ff2020/20260403-01"
-    description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true)"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-02.yaml"
-    output_dir: "ff2020/20260403-02"
-    description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2)))"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-03.yaml"
-    output_dir: "ff2020/20260403-03"
-    description: "LB -> Dispatch -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true) -> repeat(PFNS(mc(2)))"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-04.yaml"
-    output_dir: "ff2020/20260403-04"
-    description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,always,unfixed*0.01,pf=1,promotion_pf=true))"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260403/subroutine_flow_20260403-05.yaml"
-    output_dir: "ff2020/20260403-05"
-    description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=1,promotion_pf=true))"
+    subroutine_flow_rel_path: "configs_ncs/20260406/subroutine_flow_20260406-01.yaml"
+    output_dir: "ff2020/20260406-01"
+    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> NEH-CP -> base CP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260406/subroutine_flow_20260406-02.yaml"
+  #   output_dir: "ff2020/20260406-02"
+  #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=2,promotion_pf=true))"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260406/subroutine_flow_20260406-03.yaml"
+  #   output_dir: "ff2020/20260406-03"
+  #   description: "LB -> Dispatch -> repeat(PFNS(mc(2)) -> critical_job_ns(1,critical_adjacency,mc(2)) -> incremental PW-CP(2.5%,unfixed=4~20,if_no_improvement,unfixed*0.01,pf=4,promotion_pf=true))"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -1630,10 +1643,10 @@ drop_first_values_percent: 0.0
 
 # Optional timepoint summary definitions for post-process outputs.
 # If omitted, defaults are used: 10p, 25p, 50p, 100s(with exclude_if_timelimit_lt=100).
-timepoint_summaries:
-  - label: "25p"
-    mode: "timelimit_ratio"
-    value: 0.25
+# timepoint_summaries:
+#   - label: "25p"
+#     mode: "timelimit_ratio"
+#     value: 0.25
   # - label: "100s"
   #   mode: "absolute_sec"
   #   value: 100

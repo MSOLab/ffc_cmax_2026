@@ -22,7 +22,6 @@ from hybridflowshop.dispatcher import (
     StageDispatcher,
 )
 from hybridflowshop.dispatcher.utils import from_job_sequence_get_schedule_mixed
-from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
     JobIdType,
@@ -37,28 +36,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     """
     Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
     """
-
-    def _make_subroutine_report(
-        self,
-        elapsed_time: float,
-        obj_value: float | None,
-        obj_bound: float | None,
-        is_init: bool,
-        subroutine_name: str = "",
-        progress_obj_value_records: Sequence[tuple[float, float]] = (),
-        progress_time_basis: str = "local",
-    ) -> HfsSubroutineReport:
-        call_context = self._get_call_context_of_current_method()
-        return HfsSubroutineReport(
-            elapsed_time=elapsed_time,
-            obj_value=obj_value,
-            obj_bound=obj_bound,
-            is_init=is_init,
-            subroutine_name=subroutine_name,
-            call_context=call_context,
-            progress_obj_value_records=tuple(progress_obj_value_records),
-            progress_time_basis=progress_time_basis,
-        )
 
     # Override
 
