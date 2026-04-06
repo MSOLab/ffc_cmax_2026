@@ -43,7 +43,7 @@
       unfixed_batch_count_max: 20
       increment_unfixed_batch_count_flag: if_no_improvement
       non_time_fixed_op_time_limit_multiplier: 0.01
-      lr_profile_fixed_batch_count: 2
+      lr_profile_fixed_batch_count: 4
       enable_promotion_profile_fixed: true
       solver_thread_cnt: 8
       use_lns_only: false
