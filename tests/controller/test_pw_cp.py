@@ -185,7 +185,6 @@ def test_build_slack_batch_spec_creates_right_justified_window_map(tmp_path):
         stage_2_partition=stage_2_partition,
         stage_2_job_2_p_dict={"s1": {"j1": 2, "j2": 3, "j3": 2, "j4": 2}},
         batch_idx=0,
-        max_batch_cnt=2,
     )
 
     assert spec.stage_2_mc_2_window == {"s1": {"m1": (0, 5), "m2": (0, 5)}}
