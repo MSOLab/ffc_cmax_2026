@@ -44,6 +44,7 @@ class BucketModelVars:
     b: Any
     c: Any
     x: Any
+    u: Any
     z: Any
 
 
@@ -53,8 +54,10 @@ class SearchTraceRow:
     bucket_count: int
     status: str
     runtime_sec: float
-    objective_value: float | None
-    objective_bound: float | None
+    objective_ub: float | None
+    objective_lb: float | None
+    horizon_ub: float | None
+    horizon_lb: float | None
     solution_count: int
 
 
@@ -70,6 +73,10 @@ class BucketSearchResult:
     t0: int
     search_upper_t: int | None
     first_feasible_t: int | None
+    objective_ub: float | None
+    objective_lb: float | None
+    horizon_ub: float | None
+    horizon_lb: float | None
     z_star: float | None
     z_lower_bound_used: float | None
     bucket_indexed_lb: float | None
@@ -79,6 +86,28 @@ class BucketSearchResult:
     time_limit_sec_used: float
     total_runtime_sec: float
     termination_reason: str
+
+
+@dataclass(frozen=True)
+class ProgressTraceRow:
+    ins_name: str
+    event: str
+    runtime_sec: float
+    objective_ub: float | None
+    objective_lb: float | None
+    horizon_ub: float | None
+    horizon_lb: float | None
+    barrier_primal_obj: float | None
+    barrier_dual_obj: float | None
+    barrier_horizon_primal: float | None
+    barrier_horizon_dual: float | None
+    primal_inf: float | None
+    dual_inf: float | None
+    complementarity: float | None
+    node_count: float | None
+    solution_count: int | None
+    barrier_iter: int | None
+    simplex_iter: float | None
 
 
 @dataclass(frozen=True)
@@ -96,6 +125,30 @@ class ModelStrengtheningOptions:
             f"valid_ii={self.valid_ineq_ii}, "
             f"valid_iii={self.valid_ineq_iii}, "
             f"valid_iv={self.valid_ineq_iv}"
+        )
+
+
+@dataclass(frozen=True)
+class VariableTypeOptions:
+    binary_job_count: int | None
+    binary_job_seed: int
+
+    def describe(self, *, selected_binary_job_ids: tuple[int, ...] | None = None) -> str:
+        if self.binary_job_count is None:
+            return "a/b type policy=all_continuous"
+        if self.binary_job_count == 0:
+            return "a/b type policy=all_continuous"
+        if selected_binary_job_ids is None:
+            return (
+                f"a/b type policy=random_partial_binary, "
+                f"binary_job_count={self.binary_job_count}, "
+                f"binary_job_seed={self.binary_job_seed}"
+            )
+        return (
+            f"a/b type policy=random_partial_binary, "
+            f"binary_job_count={self.binary_job_count}, "
+            f"binary_job_seed={self.binary_job_seed}, "
+            f"selected_binary_jobs={list(selected_binary_job_ids)}"
         )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import math
+import random
 from pathlib import Path
 
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -117,6 +118,27 @@ def compute_initial_bucket_count(
     return max(1, math.ceil(input_lb / delta), stage_lower_bound, job_lower_bound)
 
 
+def compute_range_bucket_bounds(
+    input_lb: int,
+    input_ub: int,
+    delta: int,
+) -> tuple[int, int]:
+    if delta <= 0:
+        raise ValueError(f"delta must be positive. Received delta={delta}.")
+    if input_lb <= 0:
+        raise ValueError(f"input_lb must be positive. Received input_lb={input_lb}.")
+    if input_ub < input_lb:
+        raise ValueError(
+            f"input_ub must be at least input_lb. Received input_lb={input_lb}, "
+            f"input_ub={input_ub}."
+        )
+    t_lower = max(0, math.ceil(input_lb / delta) - 1)
+    t_upper = math.ceil(input_ub / delta)
+    if t_upper < t_lower + 1:
+        t_upper = t_lower + 1
+    return t_lower, t_upper
+
+
 def resolve_search_upper_t(
     record: SummaryBoundRecord,
     delta: int,
@@ -182,3 +204,19 @@ def resolve_time_limit_sec(
 
 def get_max_processing_time(instance: TwoBucketInstance) -> int:
     return max(max(stage_times) for stage_times in instance.processing_times_by_stage)
+
+
+def select_binary_job_ids(
+    instance: TwoBucketInstance,
+    binary_job_count: int | None,
+    binary_job_seed: int,
+) -> tuple[int, ...]:
+    all_job_ids = tuple(range(1, instance.job_count + 1))
+    if binary_job_count is None or binary_job_count <= 0:
+        return tuple()
+    if binary_job_count >= instance.job_count:
+        return all_job_ids
+
+    rng = random.Random(f"{binary_job_seed}:{instance.ins_name}")
+    selected_job_ids = sorted(rng.sample(all_job_ids, k=binary_job_count))
+    return tuple(selected_job_ids)

@@ -8,6 +8,7 @@ from .shared import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_SUMMARY_CSV,
     ModelStrengtheningOptions,
+    VariableTypeOptions,
 )
 
 
@@ -144,6 +145,22 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--binary-job-count",
+        type=int,
+        default=None,
+        help=(
+            "Optional number of jobs whose a/b variables remain binary. "
+            "If omitted, all jobs use continuous a/b. If set to 0, all jobs use continuous a/b. "
+            "When set between 1 and jobCount-1, the jobs are sampled randomly per instance."
+        ),
+    )
+    parser.add_argument(
+        "--binary-job-seed",
+        type=int,
+        default=0,
+        help="Seed for per-instance random sampling of binary jobs when --binary-job-count is used.",
+    )
+    parser.add_argument(
         "--base-model-only",
         action="store_true",
         help=(
@@ -154,7 +171,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--disable-cumulative-precedence",
         action="store_true",
-        help="Disable the cumulative precedence strengthening.",
+        help="Legacy flag kept for compatibility; ignored by the current range-based formulation.",
     )
     parser.add_argument(
         "--disable-valid-ineq-i",
@@ -189,9 +206,20 @@ def resolve_strengthening_options(args: argparse.Namespace) -> ModelStrengthenin
             valid_ineq_iv=False,
         )
     return ModelStrengtheningOptions(
-        cumulative_precedence=not args.disable_cumulative_precedence,
+        cumulative_precedence=False,
         valid_ineq_i=not args.disable_valid_ineq_i,
         valid_ineq_ii=not args.disable_valid_ineq_ii,
         valid_ineq_iii=not args.disable_valid_ineq_iii,
         valid_ineq_iv=not args.disable_valid_ineq_iv,
+    )
+
+
+def resolve_variable_type_options(args: argparse.Namespace) -> VariableTypeOptions:
+    if args.binary_job_count is not None and args.binary_job_count < 0:
+        raise ValueError(
+            f"--binary-job-count must be nonnegative. Received {args.binary_job_count}."
+        )
+    return VariableTypeOptions(
+        binary_job_count=args.binary_job_count,
+        binary_job_seed=args.binary_job_seed,
     )

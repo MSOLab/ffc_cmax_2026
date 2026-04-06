@@ -5,18 +5,20 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .cli import parse_args, resolve_strengthening_options
+from .cli import parse_args, resolve_strengthening_options, resolve_variable_type_options
 from .data import (
     compute_auto_bucket_configuration,
+    compute_range_bucket_bounds,
     get_max_processing_time,
     load_ff2020_instance,
     load_summary_records,
-    resolve_search_upper_t,
     resolve_time_limit_sec,
     select_summary_records,
+    select_binary_job_ids,
 )
 from .search import run_bucket_search_for_instance
 from .shared import import_gurobi, log_progress
+from .solution_io import write_solution_payload
 from .warm_start import load_ub_schedule, resolve_solution_path
 
 
@@ -71,6 +73,7 @@ def main() -> None:
     summary_records = load_summary_records(args.summary_csv)
     selected_records = select_summary_records(summary_records, args.instances)
     strengthening = resolve_strengthening_options(args)
+    variable_types = resolve_variable_type_options(args)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     log_progress(
@@ -78,6 +81,7 @@ def main() -> None:
         f"Output directory: {args.output_dir}"
     )
     log_progress(f"Model strengthening options: {strengthening.describe()}")
+    log_progress(f"Variable type options: {variable_types.describe()}")
 
     result_path = args.output_dir / "bucket_lb_results.csv"
     completed_instance_names: set[str] = set()
@@ -123,24 +127,22 @@ def main() -> None:
                     "continuing without warm start."
                 )
         max_processing_time = get_max_processing_time(instance)
+        binary_job_ids = select_binary_job_ids(
+            instance,
+            variable_types.binary_job_count,
+            variable_types.binary_job_seed,
+        )
         if args.delta_pmax_plus_one:
             configured_bucket_count = None
             instance_delta = max_processing_time + 1
-            search_upper_t = resolve_search_upper_t(
-                record, instance_delta, args.max_bucket_count
-            )
         elif args.delta is None:
             configured_bucket_count, instance_delta = compute_auto_bucket_configuration(
                 record, args.same_bucket_threshold
             )
             instance_delta = max(instance_delta, max_processing_time + 1)
-            search_upper_t = configured_bucket_count
         else:
             configured_bucket_count = None
             instance_delta = args.delta
-            search_upper_t = resolve_search_upper_t(
-                record, instance_delta, args.max_bucket_count
-            )
 
         if instance_delta <= max_processing_time:
             raise ValueError(
@@ -148,6 +150,21 @@ def main() -> None:
                 f"but this two-bucket implementation requires delta > max p_ij. "
                 f"Received delta={instance_delta}."
             )
+        if record.input_ub is None:
+            raise ValueError(
+                f"Instance {record.ins_name} is missing bestObj/input UB, which is required "
+                "by the current range-based formulation."
+            )
+        _t_lower, natural_t_upper = compute_range_bucket_bounds(
+            record.input_lb, record.input_ub, instance_delta
+        )
+        if args.max_bucket_count is not None and args.max_bucket_count != natural_t_upper:
+            raise ValueError(
+                f"The updated range-based formulation requires T_U=ceil(UB/delta)="
+                f"{natural_t_upper}, so --max-bucket-count={args.max_bucket_count} "
+                "is not compatible."
+            )
+        search_upper_t = natural_t_upper
         if record.job_count is not None and record.job_count != instance.job_count:
             raise ValueError(
                 f"Summary jobCount={record.job_count} but instance {record.ins_name} "
@@ -164,9 +181,10 @@ def main() -> None:
             f"Instance {record.ins_name} configuration: delta={instance_delta}, "
             f"search_upper_T={search_upper_t}, auto_bucket_count={configured_bucket_count}, "
             f"delta_pmax_plus_one={args.delta_pmax_plus_one}, "
-            f"time_limit_sec={instance_time_limit_sec:.2f}"
+            f"time_limit_sec={instance_time_limit_sec:.2f}, "
+            f"binary_job_count_selected={len(binary_job_ids)}"
         )
-        result, trace_rows = run_bucket_search_for_instance(
+        result, trace_rows, progress_rows, solution_payload = run_bucket_search_for_instance(
             gp,
             grb,
             instance,
@@ -179,14 +197,34 @@ def main() -> None:
             log_dir=args.log_dir,
             search_upper_t=search_upper_t,
             strengthening=strengthening,
+            variable_types=variable_types,
+            binary_job_ids=binary_job_ids,
             time_limit_sec_used=instance_time_limit_sec,
             ub_schedule=ub_schedule,
         )
         append_csv_row(result_path, asdict(result))
         log_progress(f"Appended result row for instance {record.ins_name} to {result_path}")
 
+        if solution_payload is not None:
+            write_solution_payload(args.output_dir, solution_payload)
+            log_progress(
+                f"Wrote solution files for instance {record.ins_name} to "
+                f"{args.output_dir / 'solutions' / record.ins_name}"
+            )
+        else:
+            log_progress(
+                f"No solution payload was available for instance {record.ins_name}; "
+                "skipped solution export."
+            )
+
         trace_path = args.output_dir / f"{record.ins_name}_search_trace.csv"
         write_csv_rows(trace_path, [asdict(trace_row) for trace_row in trace_rows])
         log_progress(f"Wrote trace CSV for instance {record.ins_name} to {trace_path}")
+
+        progress_path = args.output_dir / f"{record.ins_name}_progress_trace.csv"
+        write_csv_rows(progress_path, [asdict(progress_row) for progress_row in progress_rows])
+        log_progress(
+            f"Wrote progress CSV for instance {record.ins_name} to {progress_path}"
+        )
 
     log_progress(f"Finished all instances. Result CSV: {result_path}")

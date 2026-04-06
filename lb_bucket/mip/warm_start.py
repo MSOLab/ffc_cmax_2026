@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
 
+from .data import compute_range_bucket_bounds
 from .shared import BucketModelVars, TwoBucketInstance
 
 
@@ -19,11 +19,12 @@ class ParsedUbSchedule:
 
 @dataclass(frozen=True)
 class BucketWarmStart:
-    z_value: int
     a_values: dict[tuple[int, int, int], int]
     b_values: dict[tuple[int, int, int], int]
     c_values: dict[tuple[int, int, int], float]
     x_values: dict[tuple[int, int, int], float]
+    u_values: dict[int, int]
+    z_values: dict[int, float]
 
 
 def resolve_solution_path(
@@ -121,30 +122,32 @@ def load_ub_schedule(
 def build_bucket_warm_start(
     instance: TwoBucketInstance,
     ub_schedule: ParsedUbSchedule,
-    bucket_count: int,
+    input_lb: int,
+    input_ub: int,
     delta: int,
 ) -> BucketWarmStart | None:
-    if ub_schedule.makespan > bucket_count * delta:
+    t_lower, t_upper = compute_range_bucket_bounds(input_lb, input_ub, delta)
+    if ub_schedule.makespan > t_upper * delta:
         return None
 
     a_values: dict[tuple[int, int, int], int] = {}
     b_values: dict[tuple[int, int, int], int] = {}
     c_values: dict[tuple[int, int, int], float] = {}
     x_values: dict[tuple[int, int, int], float] = {}
-    last_bucket_job_load = {job_idx: 0.0 for job_idx in range(1, instance.job_count + 1)}
-    last_bucket_stage_load = {
-        stage_idx: 0.0 for stage_idx in range(1, instance.stage_count + 1)
-    }
+    u_values = {bucket_idx: 0 for bucket_idx in range(t_lower + 1, t_upper + 1)}
+    z_values = {bucket_idx: 0.0 for bucket_idx in range(t_lower + 1, t_upper + 1)}
 
+    last_occupied_bucket = 0
     for (stage_idx, job_idx), (start_time, end_time) in ub_schedule.operation_intervals.items():
         start_bucket = start_time // delta + 1
         end_bucket = (end_time - 1) // delta + 1
-        if end_bucket > bucket_count:
+        if end_bucket > t_upper:
             raise ValueError(
                 f"Warm-start schedule for instance {instance.ins_name} reaches bucket "
-                f"{end_bucket}, beyond T={bucket_count}."
+                f"{end_bucket}, beyond T_U={t_upper}."
             )
 
+        last_occupied_bucket = max(last_occupied_bucket, end_bucket)
         a_values[stage_idx, job_idx, start_bucket] = 1
         b_values[stage_idx, job_idx, end_bucket] = 1
         if start_bucket == end_bucket:
@@ -156,31 +159,34 @@ def build_bucket_warm_start(
             overlap = max(0, min(end_time, bucket_end) - max(start_time, bucket_start))
             if overlap > 0:
                 x_values[stage_idx, job_idx, bucket_idx] = float(overlap)
-                if bucket_idx == bucket_count:
-                    last_bucket_job_load[job_idx] += overlap
-                    last_bucket_stage_load[stage_idx] += overlap
 
-    max_job_load = max(last_bucket_job_load.values(), default=0.0)
-    max_stage_average_load = max(
-        (
-            last_bucket_stage_load[stage_idx]
-            / instance.machine_count_per_stage[stage_idx - 1]
+    first_range_bucket = t_lower + 1
+    upper_residual = input_ub - (t_upper - 1) * delta
+    for bucket_idx in range(first_range_bucket, t_upper + 1):
+        if bucket_idx <= last_occupied_bucket:
+            u_values[bucket_idx] = 1
+            if bucket_idx < last_occupied_bucket:
+                z_values[bucket_idx] = float(delta)
+            else:
+                z_values[bucket_idx] = float(
+                    ub_schedule.makespan - (bucket_idx - 1) * delta
+                )
+
+    if first_range_bucket in z_values:
+        z_values[first_range_bucket] = max(
+            z_values[first_range_bucket],
+            float(input_lb - t_lower * delta),
         )
-        for stage_idx in range(1, instance.stage_count + 1)
-    )
-    z_value = math.ceil(max(max_job_load, max_stage_average_load))
-    if z_value > delta:
-        raise ValueError(
-            f"Warm-start schedule for instance {instance.ins_name} requires z={z_value}, "
-            f"which exceeds delta={delta}."
-        )
+    if t_upper in z_values:
+        z_values[t_upper] = min(z_values[t_upper], float(upper_residual))
 
     return BucketWarmStart(
-        z_value=z_value,
         a_values=a_values,
         b_values=b_values,
         c_values=c_values,
         x_values=x_values,
+        u_values=u_values,
+        z_values=z_values,
     )
 
 
@@ -196,16 +202,29 @@ def apply_bucket_warm_start(
         var.Start = 0.0
     for var in model_vars.x.values():
         var.Start = 0.0
-    model_vars.z.Start = float(warm_start.z_value)
+    for var in model_vars.u.values():
+        var.Start = 0.0
+    for var in model_vars.z.values():
+        var.Start = 0.0
 
     for key, value in warm_start.a_values.items():
-        model_vars.a[key].Start = float(value)
+        if key in model_vars.a:
+            model_vars.a[key].Start = float(value)
     for key, value in warm_start.b_values.items():
-        model_vars.b[key].Start = float(value)
+        if key in model_vars.b:
+            model_vars.b[key].Start = float(value)
     for key, value in warm_start.c_values.items():
-        model_vars.c[key].Start = float(value)
+        if key in model_vars.c:
+            model_vars.c[key].Start = float(value)
     for key, value in warm_start.x_values.items():
-        model_vars.x[key].Start = float(value)
+        if key in model_vars.x:
+            model_vars.x[key].Start = float(value)
+    for key, value in warm_start.u_values.items():
+        if key in model_vars.u:
+            model_vars.u[key].Start = float(value)
+    for key, value in warm_start.z_values.items():
+        if key in model_vars.z:
+            model_vars.z[key].Start = float(value)
 
 
 def _parse_zero_based_suffix(label: Any, prefix: str) -> int:
