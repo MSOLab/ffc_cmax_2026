@@ -38,6 +38,28 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
     """
 
+    def _make_subroutine_report(
+        self,
+        elapsed_time: float,
+        obj_value: float | None,
+        obj_bound: float | None,
+        is_init: bool,
+        subroutine_name: str = "",
+        progress_obj_value_records: Sequence[tuple[float, float]] = (),
+        progress_time_basis: str = "local",
+    ) -> HfsSubroutineReport:
+        call_context = self._get_call_context_of_current_method()
+        return HfsSubroutineReport(
+            elapsed_time=elapsed_time,
+            obj_value=obj_value,
+            obj_bound=obj_bound,
+            is_init=is_init,
+            subroutine_name=subroutine_name,
+            call_context=call_context,
+            progress_obj_value_records=tuple(progress_obj_value_records),
+            progress_time_basis=progress_time_basis,
+        )
+
     # Override
 
     def set_cp_model_as_base_cp_model(
@@ -292,11 +314,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 swapped_obj_value = swapped_schedule.makespan
                 if swapped_obj_value <= ref_obj_value:
                     # Add to solution manager
-                    report = HfsSubroutineReport(
+                    report = self._make_subroutine_report(
                         elapsed_time=swap_timer.elapsed_sec,
                         obj_value=float(swapped_obj_value),
                         obj_bound=None,
                         is_init=False,
+                        subroutine_name="_fix_profile_solve_reset",
+                        progress_obj_value_records=[
+                            (swap_timer.elapsed_sec, float(swapped_obj_value))
+                        ],
                     )
                     self.solution_manager.register(report, swapped_schedule)
                     # If two operations does not overlap,
@@ -1497,11 +1523,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
 
         # Create report and register
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=None,
             obj_bound=obj_bound,
             is_init=True,
+            subroutine_name="apply_shdlb",
         )
         self.solution_manager.register(report, None)
 
@@ -1526,11 +1553,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_dj_cds",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1575,11 +1604,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_dj_gupta",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1624,11 +1655,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_dj_palmer",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1673,11 +1706,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_ds_cds",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1722,11 +1757,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_ds_gupta",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1771,11 +1808,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_ds_palmer",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1820,11 +1859,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_dm_cds",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1885,11 +1926,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_dm_gupta",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -1950,11 +1993,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_dm_palmer",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -2023,11 +2068,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_best_of_dispatches",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -2083,11 +2130,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(schedule.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="generate_from_dispatches",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -2113,7 +2162,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         }
         for k, stage_id in enumerate(self.instance.stage_id_list):
             job_sequences.add(tuple(self.get_cds_sequence(k + 1)))
-            job_sequences.add(tuple(self.get_bnd_sequence(stage_id)))
+            # job_sequences.add(tuple(self.get_bnd_sequence(stage_id)))
 
         # Subroutine states
         best_makespan = float("inf")
@@ -2384,11 +2433,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
 
         # Create report for the final solution and register it
-        final_report = HfsSubroutineReport(
+        final_report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=False,
+            subroutine_name="neh_cp",
+            progress_obj_value_records=result.sub_obj_store.obj_value_series.items(),
         )
         was_updated: bool = self.solution_manager.register(
             final_report, result.schedule
@@ -2658,11 +2709,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if debug_export and result.sub_obj_store:
             result.save_yaml(self.get_file_path_for_subroutine("_obj_log.yaml"))
 
-        final_report = HfsSubroutineReport(
+        final_report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=False,
+            subroutine_name="pw_cp",
+            progress_obj_value_records=result.sub_obj_store.obj_value_series.items(),
         )
         was_updated: bool = self.solution_manager.register(
             final_report, result.schedule
@@ -2755,11 +2808,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         obj_value: int | float = result.last_obj_value
         obj_value_records = result.sub_obj_store.obj_value_series.items()
 
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="prts",
+            progress_obj_value_records=obj_value_records,
         )
 
         # Register report & solution
@@ -2770,10 +2825,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         _last_timestamp_note = self._get_call_context_of_current_method()
 
         self.extend_obj_value_log(obj_value_records, is_maximize=False)
-        obj_value: float | None = self.obj_store.get_last_obj_value()
+        last_logged_obj_value = self.obj_store.get_last_obj_value()
         obj_value_is_valid = False
-        if obj_value is not None:
-            self.add_obj_value_log(log_time, obj_value, is_maximize=None)
+        if last_logged_obj_value is not None:
+            self.add_obj_value_log(log_time, last_logged_obj_value, is_maximize=None)
             obj_value_is_valid = True
 
         obj_bound = self.obj_store.get_last_obj_bound()
@@ -2828,11 +2883,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         complete_makespan = schedule.makespan
         logging.info(f"Bottleneck parallel MC: full_schedule_obj={complete_makespan}")
 
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=complete_makespan,
             obj_bound=None,
             is_init=True,
+            subroutine_name="bn2d_single_stage",
+            progress_obj_value_records=[
+                (sub_timer.elapsed_sec, float(complete_makespan))
+            ],
         )
         self.solution_manager.register(report, schedule)
 
@@ -2878,11 +2937,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
         best_obj = schedule.makespan
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
+            subroutine_name="bn2d_all_stages",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, schedule)
 
@@ -2992,11 +3053,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             f"CDS sequence: makespan={best_obj} at k={k}, CDS stage={stage_id}"
         )
 
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
+            subroutine_name="get_sample_schedule_by_cds",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, dispatched_schedule)
 
@@ -3037,11 +3100,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.check_feasibility(best_sch.get_jik_2_start_time_map())
 
         best_obj = best_sch.makespan
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_schedule_by_cds",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, best_sch)
 
@@ -3128,11 +3193,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.check_feasibility(best_sch.get_jik_2_start_time_map())
 
         best_obj = best_sch.makespan
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_schedule_by_gupta",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, best_sch)
 
@@ -3219,11 +3286,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.check_feasibility(best_sch.get_jik_2_start_time_map())
 
         best_obj = best_sch.makespan
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_schedule_by_palmer",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, best_sch)
 
@@ -3307,11 +3376,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if error_if_infeasible:
             self.check_feasibility(best_sch.get_jik_2_start_time_map())
         best_obj = best_sch.makespan
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_best_of_mixed_dispatches",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, best_sch)
 
@@ -3489,11 +3560,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.check_feasibility(best_sch.get_jik_2_start_time_map())
 
         best_obj = best_sch.makespan
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=best_obj,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_best_of_selected_dispatches",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, best_sch)
 
@@ -3550,11 +3623,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(best_sch.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_job_sequence_from_stage_aggregated_problem",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, best_sch)
 
@@ -3738,11 +3813,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         # Create report and register the new solution
         obj_value = float(best_sch.makespan)
-        report = HfsSubroutineReport(
+        report = self._make_subroutine_report(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=obj_value,
             obj_bound=None,
             is_init=True,
+            subroutine_name="initialize_by_job_sequence_from_stage_aggregated_problem",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
         )
         was_updated = self.solution_manager.register(report, best_sch)
 
