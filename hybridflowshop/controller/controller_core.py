@@ -365,7 +365,9 @@ class HybridFlowShopCpLnsControllerCore(
         prefixed_name = f"{call_index}-{subroutine_name}"
         global_start = self._active_call_global_start or global_sec
         local_sec = global_sec - global_start
-        recorded_points = self._subroutine_call_progress_map.setdefault(prefixed_name, [])
+        recorded_points = self._subroutine_call_progress_map.setdefault(
+            prefixed_name, []
+        )
 
         if recorded_points:
             last_obj_value = recorded_points[-1]["obj_value"]
@@ -567,8 +569,10 @@ class HybridFlowShopCpLnsControllerCore(
         log_level_obj_bound: int = logging.INFO,
         last_timestamp_note: Any | None = None,
     ) -> CpsatSolverReport:
+        start_time = self.timer.elapsed_sec
         if e_timer is None:
-            e_timer = self.timer
+            # If no external timer is provided, create a new ElapsedTimer for this solve call.
+            e_timer = ElapsedTimer()
 
         solve_cfg = SolveConfig(
             log_search_progress=log_search_progress,
@@ -635,34 +639,29 @@ class HybridFlowShopCpLnsControllerCore(
 
         # Store the objective value and bound logs
 
-        def get_obj_value_records() -> list[tuple[float, float]]:
-            """Returns the recorded objective values and elapsed times.
-
-            Returns:
-                list[tuple[float, float]]: A list of tuples containing (elapsed time, objective value).
-            """
-            return_list: list[tuple[float, float]] = []
-            list_by_value_recorder: list[tuple[float, ValueBoundPair]] = (
-                obj_value_recorder.entries
-            )
-            for entry in list_by_value_recorder:
-                return_list.append((entry[0], entry[1].value))
-            return return_list
-
-        obj_value_records = get_obj_value_records()
+        obj_value_records: list[tuple[float, float]] = []
+        for entry in obj_value_recorder.entries:
+            obj_value_records.append((entry[0], entry[1].value))
         if cpsat_status.is_feasible:
             obj_value_records.append((last_timestamp, obj_value))
+
         if obj_value_is_valid:
+            old_obj_value_records = [
+                (start_time + timestamp, value)
+                for timestamp, value in obj_value_records
+            ]
             self.extend_obj_value_log(
-                obj_value_records, is_maximize=self.cp_model.is_maximize()
+                old_obj_value_records, is_maximize=self.cp_model.is_maximize()
             )
             # Record value for the last timestamp if it is the same as the last value
             # and is not recorded for the last timestamp
             if (
                 obj_value == self.obj_store.get_last_obj_value()
-                and (last_timestamp, obj_value) not in obj_value_records
+                and (start_time + last_timestamp, obj_value) not in obj_value_records
             ):
-                self.add_obj_value_log(last_timestamp, obj_value, is_maximize=None)
+                self.add_obj_value_log(
+                    start_time + last_timestamp, obj_value, is_maximize=None
+                )
 
         def get_obj_bound_records() -> list[tuple[float, float]]:
             """Returns the recorded objective bounds and elapsed times.
@@ -670,48 +669,44 @@ class HybridFlowShopCpLnsControllerCore(
             Returns:
                 list[tuple[float, float]]: A list of tuples containing (elapsed time, objective bound).
             """
-            timestamp_list = []
             timestamp_2_bound_map: dict[float, float] = {}
 
-            list_by_bound_recorder: list[tuple[float, float]] = (
-                obj_bound_recorder.elapsed_time_and_bound
-            )
-            for b_entry in list_by_bound_recorder:
+            for b_entry in obj_bound_recorder.elapsed_time_and_bound:
                 timestamp = b_entry[0]
                 bound = b_entry[1]
-                if timestamp not in timestamp_list:
-                    timestamp_list.append(timestamp)
-                timestamp_2_bound_map[timestamp] = bound
-
-            list_by_value_recorder: list[tuple[float, ValueBoundPair]] = (
-                obj_value_recorder.entries
-            )
-            for v_entry in list_by_value_recorder:
-                timestamp = v_entry[0]
-                bound = v_entry[1].bound
-                if timestamp not in timestamp_list:
-                    timestamp_list.append(timestamp)
                 if timestamp not in timestamp_2_bound_map:
                     timestamp_2_bound_map[timestamp] = bound
 
-            timestamp_list.sort()
+            for v_entry in obj_value_recorder.entries:
+                timestamp = v_entry[0]
+                bound = v_entry[1].bound
+                if timestamp not in timestamp_2_bound_map:
+                    timestamp_2_bound_map[timestamp] = bound
+
             return [
                 (timestamp, timestamp_2_bound_map[timestamp])
-                for timestamp in timestamp_list
+                for timestamp in sorted(timestamp_2_bound_map.keys())
             ]
 
         obj_bound_records = get_obj_bound_records()
         if cpsat_status.is_feasible:
             obj_bound_records.append((last_timestamp, obj_bound))
+
         if obj_bound_is_valid:
-            self.extend_obj_bound_log(obj_bound_records, is_maximize=False)
+            old_obj_bound_records = [
+                (start_time + timestamp, bound)
+                for timestamp, bound in obj_bound_records
+            ]
+            self.extend_obj_bound_log(old_obj_bound_records, is_maximize=None)
             # Record bound for the last timestamp if it is the same as the last bound
             # and is not recorded for the last timestamp
             if (
                 obj_bound == self.obj_store.get_last_obj_bound()
-                and (last_timestamp, obj_bound) not in obj_bound_records
+                and (start_time + last_timestamp, obj_bound) not in obj_bound_records
             ):
-                self.add_obj_bound_log(last_timestamp, obj_bound, is_maximize=None)
+                self.add_obj_bound_log(
+                    start_time + last_timestamp, obj_bound, is_maximize=None
+                )
 
         _last_timestamp_note = (
             last_timestamp_note or self._get_call_context_of_current_method()
@@ -926,12 +921,20 @@ class HybridFlowShopCpLnsControllerCore(
             interleave_search=interleave_search,
             use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
-            log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
+            e_timer=sub_timer,
             log_search_progress=log_search_progress,
+            log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
         )
 
         hfs_solver_report = HfsCpsatSolverReport.from_other(
             solver_report, is_init=is_initial_solution
+        )
+
+        subroutine_name = self._method_context_mgr.peek()
+        call_context = self._get_call_context_of_current_method()
+        hfs_solver_report = hfs_solver_report.copy(
+            subroutine_name=subroutine_name,
+            call_context=call_context,
         )
 
         # If the objective value or bound is not valid, use the best known values.
