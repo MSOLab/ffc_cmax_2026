@@ -22,6 +22,7 @@ from hybridflowshop.report.log_processor import (
     create_method_end_time_and_obj_value_summary,
 )
 from hybridflowshop.report.method_progression_report import (
+    aggregate_scenario_endpoint_metrics_from_json,
     aggregate_scenario_progression,
 )
 from hybridflowshop.resume import ResumeValidator
@@ -606,8 +607,31 @@ class HfsMultiInstanceRunner(
             self.working_dir / "summary_method_rpdf_and_norm_time_scatter.html"
         )
         try:
+            html_metrics_long_df = aggregate_scenario_endpoint_metrics_from_json(
+                self.working_dir,
+                baseline_df=self.baseline_df,
+                baseline_instance_col=instance_col,
+                baseline_obj_val_col=obj_val_col,
+                record_all_subroutines=True,
+                omitted_subroutines={
+                    "set_random_seed",
+                    "set_cp_model_as_base_cp_model",
+                },
+            )
+            has_valid_json_metrics = (
+                not html_metrics_long_df.empty
+                and {"norm_time", "rpd_f"}.issubset(html_metrics_long_df.columns)
+                and not html_metrics_long_df.dropna(subset=["norm_time", "rpd_f"]).empty
+            )
+            if not has_valid_json_metrics:
+                logging.info(
+                    "No JSON endpoint metrics available for HTML chart; "
+                    "falling back to CSV-derived metrics."
+                )
+                html_metrics_long_df = metrics_long_df
+
             html_created = export_method_rpdf_scatter_html(
-                metrics_long_df=metrics_long_df,
+                metrics_long_df=html_metrics_long_df,
                 baseline_df=self.baseline_df,
                 output_path=html_output_path,
                 baseline_instance_col=instance_col,

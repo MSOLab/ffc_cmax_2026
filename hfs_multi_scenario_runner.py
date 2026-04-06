@@ -18,7 +18,7 @@ from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.report import export_multi_scenario_method_rpdf_comparison_html
 from hybridflowshop.report.method_progression_report import (
-    aggregate_scenario_progression,
+    aggregate_scenario_endpoint_metrics_from_json,
 )
 from output_filenames import OutputFilenames
 
@@ -197,22 +197,24 @@ class HfsMultiScenarioRunner(
     def _load_scenario_metrics_from_json_or_csv(
         self, working_dir: Path, scenario_index: int
     ) -> pd.DataFrame | None:
-        progression_data = aggregate_scenario_progression(
+        metrics_long_df = aggregate_scenario_endpoint_metrics_from_json(
             working_dir,
             baseline_df=getattr(self, "baseline_df", None),
             baseline_instance_col=getattr(self, "baseline_instance_col", "Instance"),
             baseline_obj_val_col=getattr(self, "baseline_obj_val_col", "UB"),
+            record_all_subroutines=True,
             omitted_subroutines={
                 "set_random_seed",
                 "set_cp_model_as_base_cp_model",
             },
         )
-        if progression_data and "mean_points" in progression_data:
-            mean_points = progression_data["mean_points"]
-            if not mean_points.empty:
-                return mean_points.rename(
-                    columns={"mean_norm_time": "norm_time", "mean_rpd_f": "rpd_f"}
-                )
+        has_valid_json_metrics = (
+            not metrics_long_df.empty
+            and {"norm_time", "rpd_f"}.issubset(metrics_long_df.columns)
+            and not metrics_long_df.dropna(subset=["norm_time", "rpd_f"]).empty
+        )
+        if has_valid_json_metrics:
+            return metrics_long_df
 
         summary_path = working_dir / "summary_method_rpdf_and_norm_time_long.csv"
         if not summary_path.exists():

@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import yaml
 from routix.constants import SubroutineReportStatisticsKeys
 
 from hfs_multi_scenario_runner import HfsMultiScenarioRunner
@@ -15,6 +17,18 @@ def _write_summary(path: Path, rows: list[dict]) -> None:
 def _write_method_rpdf_summary(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def _write_subroutine_flow(path: Path, method_names: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump([{"method": name} for name in method_names], f)
+
+
+def _write_progression_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
 
 
 def test_post_run_process_generates_configured_25p_outputs(tmp_path: Path):
@@ -187,6 +201,129 @@ def test_post_run_process_creates_top_level_method_comparison_html(tmp_path: Pat
     assert "repeat" in content
     assert "range: [0, payload.x_max]" in content
     assert "range: [0, payload.y_max]" in content
+
+
+def test_post_run_process_uses_json_endpoint_metrics_for_top_level_comparison(
+    tmp_path: Path,
+):
+    scenario_1 = tmp_path / "ff2020" / "s1"
+    scenario_2 = tmp_path / "ff2020" / "s2"
+
+    base_rows = [
+        {
+            SubroutineReportStatisticsKeys.INSTANCE_NAME: "1",
+            SubroutineReportStatisticsKeys.BEST_OBJ: 1000.0,
+            SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME: 200.0,
+        }
+    ]
+    progression_s1 = {
+        "artifact_version": 1,
+        "instance_id": "1",
+        "timelimit_sec": 50.0,
+        "subroutine_calls": [
+            {
+                "call_index": 1,
+                "subroutine_name": "initialize",
+                "prefixed_subroutine_name": "1-initialize",
+                "global_start_sec": 0.0,
+                "global_end_sec": 5.0,
+                "elapsed_sec": 5.0,
+                "local_progress_list": [
+                    {"local_sec": 0.0, "global_sec": 0.0, "obj_value": 120.0},
+                    {"local_sec": 5.0, "global_sec": 5.0, "obj_value": 110.0},
+                ],
+            },
+            {
+                "call_index": 2,
+                "subroutine_name": "repeat",
+                "prefixed_subroutine_name": "2-repeat",
+                "global_start_sec": 5.0,
+                "global_end_sec": 20.0,
+                "elapsed_sec": 15.0,
+                "local_progress_list": [
+                    {"local_sec": 0.0, "global_sec": 5.0, "obj_value": 110.0},
+                    {"local_sec": 15.0, "global_sec": 20.0, "obj_value": 100.0},
+                ],
+            },
+        ],
+        "combined_progress_list": [],
+        "subroutine_end_marker_list": [],
+    }
+    progression_s2 = {
+        "artifact_version": 1,
+        "instance_id": "1",
+        "timelimit_sec": 50.0,
+        "subroutine_calls": [
+            {
+                "call_index": 1,
+                "subroutine_name": "initialize",
+                "prefixed_subroutine_name": "1-initialize",
+                "global_start_sec": 0.0,
+                "global_end_sec": 6.0,
+                "elapsed_sec": 6.0,
+                "local_progress_list": [
+                    {"local_sec": 0.0, "global_sec": 0.0, "obj_value": 118.0},
+                    {"local_sec": 6.0, "global_sec": 6.0, "obj_value": 108.0},
+                ],
+            },
+            {
+                "call_index": 2,
+                "subroutine_name": "repeat",
+                "prefixed_subroutine_name": "2-repeat",
+                "global_start_sec": 6.0,
+                "global_end_sec": 24.0,
+                "elapsed_sec": 18.0,
+                "local_progress_list": [
+                    {"local_sec": 0.0, "global_sec": 6.0, "obj_value": 108.0},
+                    {"local_sec": 18.0, "global_sec": 24.0, "obj_value": 102.0},
+                ],
+            },
+        ],
+        "combined_progress_list": [],
+        "subroutine_end_marker_list": [],
+    }
+
+    _write_summary(scenario_1 / "multi_instance_summary.csv", base_rows)
+    _write_summary(scenario_2 / "multi_instance_summary.csv", base_rows)
+    _write_subroutine_flow(
+        scenario_1 / "subroutine_flow.yaml", ["initialize", "repeat", "finalize"]
+    )
+    _write_subroutine_flow(
+        scenario_2 / "subroutine_flow.yaml", ["initialize", "repeat", "finalize"]
+    )
+    _write_progression_json(
+        scenario_1 / "1" / "results" / "subroutine_progression.json", progression_s1
+    )
+    _write_progression_json(
+        scenario_2 / "1" / "results" / "subroutine_progression.json", progression_s2
+    )
+
+    runner = HfsMultiScenarioRunner.__new__(HfsMultiScenarioRunner)
+    runner.runners = [
+        SimpleNamespace(working_dir=scenario_1),
+        SimpleNamespace(working_dir=scenario_2),
+    ]
+    runner.scenario_configs = [
+        {"output_subdir": "ff2020/s1", "description": "scenario 1"},
+        {"output_subdir": "ff2020/s2", "description": "scenario 2"},
+    ]
+    runner.output_dir = tmp_path
+    runner.baseline_df = pd.DataFrame([{"Instance": "1", "UB": 100.0}])
+    runner.baseline_instance_col = "Instance"
+    runner.baseline_obj_val_col = "UB"
+    runner.base_output_metadata = {}
+
+    runner.post_run_process()
+
+    html_path = tmp_path / "multi_scenario_subroutine_flow_comparison.html"
+    assert html_path.exists()
+    content = html_path.read_text(encoding="utf-8")
+    assert "Subroutine Flow Comparison" in content
+    assert "s1" in content
+    assert "s2" in content
+    assert "initialize" in content
+    assert "repeat" in content
+    assert "finalize" in content
 
 
 def test_post_run_process_skips_top_level_method_comparison_when_method_summaries_missing(

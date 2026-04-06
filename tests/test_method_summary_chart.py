@@ -7,8 +7,8 @@ import pytest
 import hfs_multi_instance_runner as multi_runner_module
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hybridflowshop.report.method_summary_chart import (
-    _build_method_rpdf_scatter_df,
     _build_html_payload,
+    _build_method_rpdf_scatter_df,
     _load_and_merge_for_html,
     export_method_rpdf_scatter_html,
     export_method_rpdf_scatter_svg,
@@ -243,8 +243,18 @@ def test_load_and_merge_for_html_drops_unmatched_rows_without_failing(
 ) -> None:
     metrics_df = pd.DataFrame(
         [
-            {"instance_id": "1", "subroutine_name": "init", "norm_time": 0.1, "rpd_f": 0.02},
-            {"instance_id": "999", "subroutine_name": "repeat", "norm_time": 0.2, "rpd_f": 0.01},
+            {
+                "instance_id": "1",
+                "subroutine_name": "init",
+                "norm_time": 0.1,
+                "rpd_f": 0.02,
+            },
+            {
+                "instance_id": "999",
+                "subroutine_name": "repeat",
+                "norm_time": 0.2,
+                "rpd_f": 0.01,
+            },
         ]
     )
     baseline_df = pd.DataFrame([{"Instance": 1, "n": 20, "s": 5}])
@@ -265,9 +275,30 @@ def test_load_and_merge_for_html_drops_unmatched_rows_without_failing(
 def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:
     merged_df = pd.DataFrame(
         [
-            {"instance_id": "1", "subroutine_name": "init", "norm_time": 0.10, "rpd_f": 0.03, "job_cnt": 20, "stage_cnt": 5},
-            {"instance_id": "2", "subroutine_name": "init", "norm_time": 0.20, "rpd_f": 0.05, "job_cnt": 20, "stage_cnt": 5},
-            {"instance_id": "1", "subroutine_name": "repeat", "norm_time": 0.30, "rpd_f": 0.01, "job_cnt": 20, "stage_cnt": 5},
+            {
+                "instance_id": "1",
+                "subroutine_name": "init",
+                "norm_time": 0.10,
+                "rpd_f": 0.03,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "2",
+                "subroutine_name": "init",
+                "norm_time": 0.20,
+                "rpd_f": 0.05,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.30,
+                "rpd_f": 0.01,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
         ]
     )
 
@@ -354,9 +385,7 @@ def test_export_method_rpdf_scatter_html_returns_false_when_no_rows_survive_merg
     assert not output_path.exists()
 
 
-def test_create_rpd_summary_invokes_html_export(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_create_rpd_summary_invokes_html_export(tmp_path: Path, monkeypatch) -> None:
     runner = _make_runner(tmp_path)
     _write_method_summary_csv(tmp_path)
     captured: dict[str, object] = {}
@@ -365,6 +394,22 @@ def test_create_rpd_summary_invokes_html_export(
         multi_runner_module,
         "export_method_rpdf_scatter_svg",
         lambda metrics_long_df, output_path: True,
+    )
+    json_metrics_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "initialize",
+                "norm_time": 0.11,
+                "rpd_f": 0.07,
+                "rpd_v": 0.08,
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        multi_runner_module,
+        "aggregate_scenario_endpoint_metrics_from_json",
+        lambda *args, **kwargs: json_metrics_df.copy(),
     )
 
     def fake_export_html(
@@ -391,8 +436,7 @@ def test_create_rpd_summary_invokes_html_export(
 
     assert result_df is not None
     assert (
-        captured["path"]
-        == tmp_path / "summary_method_rpdf_and_norm_time_scatter.html"
+        captured["path"] == tmp_path / "summary_method_rpdf_and_norm_time_scatter.html"
     )
     assert captured["baseline_instance_col"] == "Instance"
     assert captured["baseline_job_cnt_col"] == "n"
@@ -400,6 +444,50 @@ def test_create_rpd_summary_invokes_html_export(
     captured_baseline_df = captured["baseline_df"]
     assert isinstance(captured_baseline_df, pd.DataFrame)
     assert list(captured_baseline_df.columns) == ["Instance", "n", "s", "UB"]
+    captured_df = captured["df"]
+    assert isinstance(captured_df, pd.DataFrame)
+    assert captured_df.equals(json_metrics_df)
+
+
+def test_create_rpd_summary_falls_back_to_csv_metrics_when_json_metrics_empty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = _make_runner(tmp_path)
+    _write_method_summary_csv(tmp_path)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        multi_runner_module,
+        "export_method_rpdf_scatter_svg",
+        lambda metrics_long_df, output_path: True,
+    )
+    monkeypatch.setattr(
+        multi_runner_module,
+        "aggregate_scenario_endpoint_metrics_from_json",
+        lambda *args, **kwargs: pd.DataFrame(),
+    )
+
+    def fake_export_html(
+        metrics_long_df: pd.DataFrame,
+        baseline_df: pd.DataFrame,
+        output_path: Path,
+        baseline_instance_col: str,
+        baseline_job_cnt_col: str,
+        baseline_stage_cnt_col: str,
+    ) -> bool:
+        captured["df"] = metrics_long_df.copy()
+        return True
+
+    monkeypatch.setattr(
+        multi_runner_module, "export_method_rpdf_scatter_html", fake_export_html
+    )
+
+    result_df = runner._create_rpd_summary()
+
+    assert result_df is not None
+    captured_df = captured["df"]
+    assert isinstance(captured_df, pd.DataFrame)
+    assert list(captured_df["subroutine_name"]) == ["initialize", "repeat"]
 
 
 def test_create_rpd_summary_keeps_outputs_when_html_export_fails(
@@ -412,6 +500,11 @@ def test_create_rpd_summary_keeps_outputs_when_html_export_fails(
         multi_runner_module,
         "export_method_rpdf_scatter_svg",
         lambda metrics_long_df, output_path: True,
+    )
+    monkeypatch.setattr(
+        multi_runner_module,
+        "aggregate_scenario_endpoint_metrics_from_json",
+        lambda *args, **kwargs: pd.DataFrame(),
     )
     monkeypatch.setattr(
         multi_runner_module,

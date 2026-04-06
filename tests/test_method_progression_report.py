@@ -3,9 +3,13 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
+from exp_compare.metrics import compute_rpdf
 from hybridflowshop.report.method_progression_report import (
+    aggregate_scenario_endpoint_metrics_from_json,
     aggregate_scenario_progression,
+    build_instance_endpoint_rows_from_progression,
     build_progression_points,
     compute_improvement_curve,
     compute_mean_progression_curve,
@@ -88,6 +92,11 @@ def _make_sample_progression_data() -> dict:
     }
 
 
+def _write_subroutine_flow(scenario_dir: Path, method_names: list[str]) -> None:
+    with open(scenario_dir / "subroutine_flow.yaml", "w", encoding="utf-8") as f:
+        yaml.safe_dump([{"method": name} for name in method_names], f)
+
+
 def test_load_instance_progression_json_returns_none_when_missing(
     tmp_path: Path,
 ) -> None:
@@ -166,6 +175,86 @@ def test_build_progression_points_empty_data() -> None:
     }
     df = build_progression_points(data, ref_obj_value=50.0)
     assert df.empty
+
+
+def test_build_instance_endpoint_rows_from_progression_reconstructs_endpoints() -> None:
+    rows = build_instance_endpoint_rows_from_progression(
+        progression_data=_make_sample_progression_data(),
+        methods_list=[
+            ("1-", "initialize"),
+            ("2-", "repeat_while_improvement"),
+        ],
+        record_all_subroutines=True,
+    )
+
+    assert rows is not None
+    assert len(rows) == 2
+    assert rows[0]["subroutine_name"] == "initialize"
+    assert rows[0]["end_time"] == pytest.approx(5.0)
+    assert rows[0]["obj_value"] == pytest.approx(110.0)
+    assert rows[1]["subroutine_name"] == "repeat_while_improvement"
+    assert rows[1]["end_time"] == pytest.approx(25.0)
+    assert rows[1]["obj_value"] == pytest.approx(100.0)
+
+
+def test_build_instance_endpoint_rows_carries_forward_when_local_list_empty() -> None:
+    data = _make_sample_progression_data()
+    data["subroutine_calls"][1]["local_progress_list"] = []
+
+    rows = build_instance_endpoint_rows_from_progression(
+        progression_data=data,
+        methods_list=[
+            ("1-", "initialize"),
+            ("2-", "repeat_while_improvement"),
+        ],
+    )
+
+    assert rows is not None
+    assert rows[1]["end_time"] == pytest.approx(25.0)
+    assert rows[1]["obj_value"] == pytest.approx(110.0)
+
+
+def test_build_instance_endpoint_rows_fills_trailing_unexecuted_flow_items() -> None:
+    rows = build_instance_endpoint_rows_from_progression(
+        progression_data=_make_sample_progression_data(),
+        methods_list=[
+            ("1-", "initialize"),
+            ("2-", "repeat_while_improvement"),
+            ("3-", "finalize"),
+        ],
+        record_all_subroutines=True,
+    )
+
+    assert rows is not None
+    assert rows[2]["subroutine_name"] == "finalize"
+    assert rows[2]["end_time"] == pytest.approx(25.0)
+    assert rows[2]["obj_value"] == pytest.approx(100.0)
+
+
+def test_build_instance_endpoint_rows_omits_after_carry_forward() -> None:
+    rows = build_instance_endpoint_rows_from_progression(
+        progression_data=_make_sample_progression_data(),
+        methods_list=[
+            ("1-", "initialize"),
+            ("2-", "repeat_while_improvement"),
+            ("3-", "finalize"),
+        ],
+        record_all_subroutines=True,
+        omitted_subroutines={"repeat_while_improvement"},
+    )
+
+    assert rows is not None
+    assert [row["subroutine_name"] for row in rows] == ["initialize", "finalize"]
+    assert rows[1]["end_time"] == pytest.approx(25.0)
+    assert rows[1]["obj_value"] == pytest.approx(100.0)
+
+
+def test_build_instance_endpoint_rows_returns_none_when_flow_alignment_fails() -> None:
+    rows = build_instance_endpoint_rows_from_progression(
+        progression_data=_make_sample_progression_data(),
+        methods_list=[("1-", "initialize")],
+    )
+    assert rows is None
 
 
 def test_compute_subroutine_mean_points_aggregates() -> None:
@@ -285,3 +374,55 @@ def test_aggregate_scenario_progression_omits_subroutines(tmp_path: Path) -> Non
     assert "progression_df" in result
     if not result["progression_df"].empty:
         assert "initialize" not in result["progression_df"]["subroutine_name"].values
+
+
+def test_aggregate_scenario_endpoint_metrics_from_json_builds_metrics(
+    tmp_path: Path,
+) -> None:
+    instance_dir = tmp_path / "1"
+    results_dir = instance_dir / "results"
+    results_dir.mkdir(parents=True)
+    _write_subroutine_flow(
+        tmp_path,
+        ["initialize", "repeat_while_improvement", "finalize"],
+    )
+
+    with open(results_dir / "subroutine_progression.json", "w", encoding="utf-8") as f:
+        json.dump(_make_sample_progression_data(), f)
+
+    baseline_df = pd.DataFrame([{"Instance": "1", "UB": 100.0}])
+    result = aggregate_scenario_endpoint_metrics_from_json(
+        tmp_path,
+        baseline_df=baseline_df,
+        baseline_instance_col="Instance",
+        baseline_obj_val_col="UB",
+        record_all_subroutines=True,
+    )
+
+    assert not result.empty
+    assert list(result["subroutine_name"]) == [
+        "initialize",
+        "repeat_while_improvement",
+        "finalize",
+    ]
+    assert result.loc[0, "norm_time"] == pytest.approx(0.10)
+    assert result.loc[0, "rpd_f"] == pytest.approx(compute_rpdf(110.0, 100.0))
+    assert result.loc[2, "norm_time"] == pytest.approx(0.50)
+    assert result.loc[2, "rpd_f"] == pytest.approx(compute_rpdf(100.0, 100.0))
+
+
+def test_aggregate_scenario_endpoint_metrics_from_json_skips_misaligned_instance(
+    tmp_path: Path, caplog
+) -> None:
+    instance_dir = tmp_path / "1"
+    results_dir = instance_dir / "results"
+    results_dir.mkdir(parents=True)
+    _write_subroutine_flow(tmp_path, ["initialize"])
+
+    with open(results_dir / "subroutine_progression.json", "w", encoding="utf-8") as f:
+        json.dump(_make_sample_progression_data(), f)
+
+    result = aggregate_scenario_endpoint_metrics_from_json(tmp_path)
+
+    assert result.empty
+    assert "Failed to align progression JSON to subroutine_flow" in caplog.text
