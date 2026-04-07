@@ -767,12 +767,23 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
           y: (s.guide_marker_x || []).map(() => 0),
           text: s.guide_marker_text || [],
           name: traceName,
+          customdata: (s.guide_marker_text || []).map((name) => [
+            traceName,
+            s.job_cnt,
+            s.stage_cnt,
+            name
+          ]),
           marker: {{
             size: 8,
             symbol: (s.guide_marker_text || []).map((name) => SYMBOL_MAP[name] || "circle"),
             color: seriesColor
           }},
-          hoverinfo: "skip",
+          hovertemplate:
+            "series=%{{customdata[0]}}<br>" +
+            "job_cnt=%{{customdata[1]}}<br>" +
+            "stage_cnt=%{{customdata[2]}}<br>" +
+            "subroutine=%{{customdata[3]}}<br>" +
+            "avg end Time%%=%{{x:.4%}}<extra></extra>",
           showlegend: false
         }}];
       }});

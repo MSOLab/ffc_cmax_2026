@@ -661,6 +661,7 @@ def test_export_method_rpdf_scatter_html_creates_file_with_filters(
     assert "guide_marker_x" in content
     assert "step_customdata" in content
     assert "instance_cnt=%{customdata[3]}" in content
+    assert "avg end Time%%=%{x:.4%}" in content
     assert "SERIES_COLORS" in content
     assert "selected.flatMap((series, idx)" in content
 
