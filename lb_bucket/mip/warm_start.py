@@ -13,7 +13,7 @@ from .shared import BucketModelVars, TwoBucketInstance
 
 @dataclass(frozen=True)
 class ParsedUbSchedule:
-    solution_path: Path
+    solution_path: Path | None
     makespan: int
     operation_intervals: dict[tuple[int, int], tuple[int, int]]
 
@@ -54,40 +54,45 @@ def load_ub_schedule(
     start_time_map = _extract_time_map(solution_dict, "start_time_map", "start_times", solution_path)
     end_time_map = _extract_time_map(solution_dict, "end_time_map", "end_times", solution_path)
 
+    try:
+        return from_start_end_time_maps_create_ub_schedule(instance, start_time_map, end_time_map)
+    except (KeyError, ValueError) as e:
+        raise ValueError(f"Error processing solution file {solution_path}: {e}") from e
+
+
+def from_start_end_time_maps_create_ub_schedule(
+    instance: TwoBucketInstance,
+    start_time_map: dict,
+    end_time_map: dict,
+) -> ParsedUbSchedule:
     operation_intervals: dict[tuple[int, int], tuple[int, int]] = {}
     makespan = 0
 
     for operation_key, start_time in start_time_map.items():
-        if operation_key not in end_time_map:
-            raise ValueError(
-                f"Solution file {solution_path} is missing an end time for {operation_key}."
-            )
+        end_time = int(end_time_map[operation_key])
+        start_time = int(start_time)
+
         if not isinstance(operation_key, tuple) or len(operation_key) != 3:
             raise ValueError(
-                f"Unexpected solution key {operation_key!r} in {solution_path}; "
-                "expected (job, stage, machine)."
+                f"Unexpected solution key {operation_key!r}; expected (job, stage, machine)."
             )
 
-        job_label, stage_label, _machine_label = operation_key
+        job_label, stage_label, _ = operation_key
         job_idx = _parse_zero_based_suffix(job_label, "j") + 1
         stage_idx = _parse_zero_based_suffix(stage_label, "i") + 1
+
         if not (1 <= job_idx <= instance.job_count):
             raise ValueError(
-                f"Solution file {solution_path} has job index {job_idx} outside "
-                f"1..{instance.job_count}."
+                f"Solution has job index {job_idx} outside 1..{instance.job_count}."
             )
         if not (1 <= stage_idx <= instance.stage_count):
             raise ValueError(
-                f"Solution file {solution_path} has stage index {stage_idx} outside "
-                f"1..{instance.stage_count}."
+                f"Solution has stage index {stage_idx} outside 1..{instance.stage_count}."
             )
 
-        end_time = int(end_time_map[operation_key])
-        start_time = int(start_time)
         if end_time <= start_time:
             raise ValueError(
-                f"Operation {(job_label, stage_label)} in {solution_path} has "
-                f"non-positive duration [{start_time}, {end_time})."
+                f"Operation {(job_label, stage_label)} has non-positive duration [{start_time}, {end_time})."
             )
 
         expected_processing_time = instance.processing_times_by_stage[stage_idx - 1][
@@ -95,15 +100,14 @@ def load_ub_schedule(
         ]
         if end_time - start_time != expected_processing_time:
             raise ValueError(
-                f"Operation {(job_label, stage_label)} in {solution_path} has duration "
-                f"{end_time - start_time}, but the instance expects "
-                f"{expected_processing_time}."
+                f"Operation {(job_label, stage_label)} has duration {end_time - start_time}, "
+                f"but the instance expects {expected_processing_time}."
             )
 
         operation_id = (stage_idx, job_idx)
         if operation_id in operation_intervals:
             raise ValueError(
-                f"Duplicate operation {(job_label, stage_label)} detected in {solution_path}."
+                f"Duplicate operation {(job_label, stage_label)} detected."
             )
 
         operation_intervals[operation_id] = (start_time, end_time)
@@ -112,12 +116,12 @@ def load_ub_schedule(
     expected_operation_count = instance.stage_count * instance.job_count
     if len(operation_intervals) != expected_operation_count:
         raise ValueError(
-            f"Solution file {solution_path} contains {len(operation_intervals)} operations, "
+            f"Schedule contains {len(operation_intervals)} operations, "
             f"but the instance expects {expected_operation_count}."
         )
 
     return ParsedUbSchedule(
-        solution_path=solution_path,
+        solution_path=None,
         makespan=makespan,
         operation_intervals=operation_intervals,
     )

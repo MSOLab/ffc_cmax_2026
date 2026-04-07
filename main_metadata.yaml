@@ -9,7 +9,7 @@ pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
 baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
 input_dir: "resources/ff2020big"
 benchmark_idx_list:
-  # - 1
+  - 1
   # - 2
   # - 3
   # - 4
@@ -1544,10 +1544,14 @@ dicts_of_i_o_data_path:
   #   subroutine_flow_rel_path: "configs_ncs/20260324/subroutine_flow_20260324-02.yaml"
   #   output_dir: "ff2020/20260324-02"
   #   description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> CP-ALNS(mc(2))"
-  - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_ncs/20260324/subroutine_flow_20260324-03.yaml"
-    output_dir: "ff2020/20260324-03"
-    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> repeat(PFNS(mc(2))) -> base CP"
+  # - stopping_criteria_rel_path: "configs_ncs/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_ncs/20260324/subroutine_flow_20260324-03.yaml"
+  #   output_dir: "ff2020/20260324-03"
+  #   description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> repeat(PFNS(mc(2))) -> base CP"
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/subroutine_flow_20260407-01.yaml"
+    output_dir: "ff2020/20260407-01"
+    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> MIP LB"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
@@ -1566,16 +1570,16 @@ progress_plot_filename_format: "{}_progress_plot.png"
 drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
 # analysis_dir_path: "$HFS_RESULT_DIR/calop4/20260304/20260304T135956_984566"
-# analysis_timestamp: "20260323T091601_293200"
-# resume_dir_path: resources/pra_prev_calc/20250906T212736_116407
+# analysis_timestamp: "20260406T092725_768054"
+resume_dir_path: Outputs_scenarios/20260406T092725_768054/ff2020/20260322-06
 
 # Optional timepoint summary definitions for post-process outputs.
 # If omitted, defaults are used: 10p, 25p, 50p, 100s(with exclude_if_timelimit_lt=100).
-timepoint_summaries:
-  - label: "25p"
-    mode: "timelimit_ratio"
-    value: 0.25
-  # - label: "100s"
-  #   mode: "absolute_sec"
-  #   value: 100
-  #   exclude_if_timelimit_lt: 100
+# timepoint_summaries:
+#   - label: "25p"
+#     mode: "timelimit_ratio"
+#     value: 0.25
+#   - label: "100s"
+#     mode: "absolute_sec"
+#     value: 100
+#     exclude_if_timelimit_lt: 100

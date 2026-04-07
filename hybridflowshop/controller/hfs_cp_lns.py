@@ -2,8 +2,10 @@ import logging
 import math
 import random
 from collections import Counter, deque
+from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 from routix import ElapsedTimer
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
     HybridFlowshopParameters,
@@ -27,6 +29,14 @@ from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
     JobIdType,
     OperationType,
+)
+from lb_bucket.mip.search import run_bucket_search_for_instance
+from lb_bucket.mip.shared import (
+    ModelStrengtheningOptions,
+    PrecedenceOptions,
+    SummaryBoundRecord,
+    TwoBucketInstance,
+    import_gurobi,
 )
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
@@ -1505,6 +1515,193 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         self.solution_manager.register(report, None)
 
+    def apply_mip_lb(
+        self,
+        # Core parameters
+        preset: str = "binary_auto",
+        name: str | None = None,
+        experiments_root: Path | None = None,
+        note: str | None = None,
+        summary_csv: Path | None = None,
+        input_dir: Path | None = None,
+        solution_root: Path | None = None,
+        instances: Sequence[int] | None = None,
+        # Gurobi parameters
+        threads: int = 24,
+        time_limit_sec: float | None = None,
+        display_interval_sec: int | None = None,
+        log_to_console: bool = False,
+        # Delta parameters
+        delta: int | None = None,
+        delta_pmax_plus_one: bool = False,
+        same_bucket_threshold: int | None = None,
+        # Formulation parameters
+        precedence_formulation: str | None = None,
+        base_model_only: bool = False,
+        disable_valid_ineq_i: bool = False,
+        disable_valid_ineq_ii: bool = False,
+        disable_valid_ineq_iii: bool = False,
+        disable_valid_ineq_iv: bool = False,
+        # Flow control
+        disable_ub_warm_start: bool = False,
+        resume: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """
+        Compute lower bound using the bucket-indexed MIP formulation with Gurobi.
+
+        This method follows the same pattern as apply_shdlb, calling the MIP solver
+        from lb_bucket/mip/search.py to compute a potentially stronger lower bound.
+
+        All parameters mirror the command-line arguments from lb_bucket/run_mip_experiment.py.
+
+        Args:
+            preset: Named experiment preset (default: "binary_auto").
+            name: Experiment folder name. If None, uses '<preset>_<timestamp>'.
+            experiments_root: Root directory for experiment folders.
+            note: Optional description of this experiment.
+            summary_csv: Override summary CSV path.
+            input_dir: Override instance directory.
+            solution_root: Override UB warm-start solution root.
+            instances: Optional explicit list of instance IDs.
+            threads: Gurobi threads (default: 24).
+            time_limit_sec: Per-instance Gurobi time limit.
+            display_interval_sec: Gurobi DisplayInterval.
+            log_to_console: Forward Gurobi logs to console (default: False).
+            delta: Fixed bucket size. If None, uses max processing time.
+            delta_pmax_plus_one: If True, sets delta = max_p_ij + 1.
+            same_bucket_threshold: Override automatic delta selection threshold.
+            precedence_formulation: Precedence formulation ("bucket", "d", or "e").
+            base_model_only: Disable all model strengthening (default: False).
+            disable_valid_ineq_i: Disable valid-inequality family (i).
+            disable_valid_ineq_ii: Disable valid-inequality family (ii).
+            disable_valid_ineq_iii: Disable valid-inequality family (iii).
+            disable_valid_ineq_iv: Disable valid-inequality family (iv).
+            disable_ub_warm_start: Do not load UB warm-start solutions.
+            resume: Resume experiment folder if exists.
+            dry_run: Print arguments without running solver (default: False).
+        """
+        sub_timer = ElapsedTimer()
+        instance = self.instance
+
+        # Early return: no upper bound
+        input_ub = self.solution_manager.best_obj_value
+        if input_ub is None:
+            logging.warning("[MIP LB] No upper bound available, skipping")
+            return
+
+        # Early return: dry run
+        if dry_run:
+            logging.info("[MIP LB] Dry run: would call MIP solver")
+            return
+
+        # Import Gurobi
+        gp, grb = import_gurobi()
+
+        # Transform instance to TwoBucketInstance
+        processing_times_by_stage = [
+            [
+                instance.stage_2_job_2_p_map[stage_id][job_id]
+                for job_id in instance.job_id_list
+            ]
+            for stage_id in instance.stage_id_list
+        ]
+        machine_count_per_stage = [
+            len(instance.stage_2_machines_map[stage_id])
+            for stage_id in instance.stage_id_list
+        ]
+
+        two_bucket_instance = TwoBucketInstance(
+            ins_name=instance.name,
+            job_count=instance.job_count,
+            stage_count=instance.stage_count,
+            machine_count_per_stage=machine_count_per_stage,
+            processing_times_by_stage=processing_times_by_stage,
+        )
+
+        # Determine delta
+        max_p = max(
+            max(times.values()) for times in instance.stage_2_job_2_p_map.values()
+        )
+        if delta_pmax_plus_one:
+            delta = max_p + 1
+        elif delta is None:
+            delta = max_p
+
+        # Build strengthening options
+        if base_model_only:
+            strengthening = ModelStrengtheningOptions(
+                cumulative_precedence=False,
+                valid_ineq_i=False,
+                valid_ineq_ii=False,
+                valid_ineq_iii=False,
+                valid_ineq_iv=False,
+            )
+        else:
+            strengthening = ModelStrengtheningOptions(
+                cumulative_precedence=True,
+                valid_ineq_i=not disable_valid_ineq_i,
+                valid_ineq_ii=not disable_valid_ineq_ii,
+                valid_ineq_iii=not disable_valid_ineq_iii,
+                valid_ineq_iv=not disable_valid_ineq_iv,
+            )
+
+        precedence = PrecedenceOptions(formulation=precedence_formulation or "bucket")
+
+        # Create summary record
+        record = SummaryBoundRecord(
+            ins_name=instance.name,
+            input_lb=self.solution_manager.best_obj_bound or 1,
+            input_ub=input_ub,
+            job_count=instance.job_count,
+            stage_count=instance.stage_count,
+        )
+
+        last_sch_lite = self.solution_manager.get_incumbent()
+        ub_schedule = from_start_end_time_maps_create_ub_schedule(
+            two_bucket_instance,
+            last_sch_lite.get_jik_2_start_time_map(),
+            last_sch_lite.get_jik_2_end_time_map(),
+        )
+
+        # Call MIP solver
+        result, _, _, _ = run_bucket_search_for_instance(
+            gp,
+            grb,
+            two_bucket_instance,
+            record,
+            delta=delta,
+            threads=threads,
+            time_limit_sec=time_limit_sec,
+            log_to_console=log_to_console,
+            display_interval_sec=display_interval_sec or 10,
+            log_dir=None,
+            search_upper_t=None,
+            strengthening=strengthening,
+            precedence=precedence,
+            time_limit_sec_used=time_limit_sec,
+            ub_schedule=ub_schedule,
+        )
+
+        # Update bound if improved (apply_shdlb pattern)
+        new_lb = result.certified_final_lb
+        if self.solution_manager.current_obj_bound_is_worse_than(new_lb):
+            log_time = self.timer.elapsed_sec
+            self.add_obj_bound_log(log_time, new_lb, is_maximize=False)
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_bound_is_valid=True
+            )
+
+        # Create report and register (apply_shdlb pattern)
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=None,
+            obj_bound=new_lb,
+            is_init=False,
+        )
+        self.solution_manager.register(report, None)
+
     def initialize_by_dj_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
     ) -> None:
@@ -2777,9 +2974,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             job_2_release=job_2_release,
             machine_then_job=machine_then_job,
             draw_gantt_per_step=draw_gantt_per_step,
-            get_file_path_for_subroutine=self.get_file_path_for_subroutine
-            if draw_gantt_per_step
-            else None,
+            get_file_path_for_subroutine=(
+                self.get_file_path_for_subroutine if draw_gantt_per_step else None
+            ),
         )
         return schedule
 
@@ -2899,9 +3096,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             head_for_all_stages=head_for_all_stages,
             use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
-            get_file_path_for_subroutine=self.get_file_path_for_subroutine
-            if draw_gantt_per_step
-            else None,
+            get_file_path_for_subroutine=(
+                self.get_file_path_for_subroutine if draw_gantt_per_step else None
+            ),
         )
         if schedule is not None:
             logging.info(
@@ -2914,9 +3111,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             head_for_all_stages=head_for_all_stages,
             use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
-            get_file_path_for_subroutine=self.get_file_path_for_subroutine
-            if draw_gantt_per_step
-            else None,
+            get_file_path_for_subroutine=(
+                self.get_file_path_for_subroutine if draw_gantt_per_step else None
+            ),
         )
         if reversed_schedule is not None:
             logging.info(
@@ -2989,9 +3186,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             head_for_all_stages=head_for_all_stages,
             use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
-            get_file_path_for_subroutine=self.get_file_path_for_subroutine
-            if draw_gantt_per_step
-            else None,
+            get_file_path_for_subroutine=(
+                self.get_file_path_for_subroutine if draw_gantt_per_step else None
+            ),
         )
         if schedule is not None:
             logging.info(
@@ -3004,9 +3201,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             head_for_all_stages=head_for_all_stages,
             use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
-            get_file_path_for_subroutine=self.get_file_path_for_subroutine
-            if draw_gantt_per_step
-            else None,
+            get_file_path_for_subroutine=(
+                self.get_file_path_for_subroutine if draw_gantt_per_step else None
+            ),
         )
         if reversed_schedule is not None:
             logging.info(
@@ -3080,9 +3277,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             head_for_all_stages=head_for_all_stages,
             use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
-            get_file_path_for_subroutine=self.get_file_path_for_subroutine
-            if draw_gantt_per_step
-            else None,
+            get_file_path_for_subroutine=(
+                self.get_file_path_for_subroutine if draw_gantt_per_step else None
+            ),
         )
         if schedule is not None:
             logging.info(
@@ -3095,9 +3292,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             head_for_all_stages=head_for_all_stages,
             use_palmer_index=use_palmer_index,
             draw_gantt_per_step=draw_gantt_per_step,
-            get_file_path_for_subroutine=self.get_file_path_for_subroutine
-            if draw_gantt_per_step
-            else None,
+            get_file_path_for_subroutine=(
+                self.get_file_path_for_subroutine if draw_gantt_per_step else None
+            ),
         )
         if reversed_schedule is not None:
             logging.info(

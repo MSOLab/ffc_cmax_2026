@@ -72,7 +72,7 @@ def run_bucket_search_for_instance(
         raise ValueError(
             f"The updated range-based model requires T_U=ceil(UB/delta)={t_upper}, "
             f"but received search_upper_t={search_upper_t}."
-    )
+        )
 
     wall_start = time.perf_counter()
     range_base_time = float(t_lower * delta)
@@ -112,7 +112,7 @@ def run_bucket_search_for_instance(
                 apply_bucket_warm_start(model_vars, warm_start)
                 log_progress(
                     f"Instance {instance.ins_name}: applied UB warm start from "
-                    f"{ub_schedule.solution_path.name} with makespan={ub_schedule.makespan}, "
+                    f"{ub_schedule.solution_path.name if ub_schedule.solution_path else 'incumbent'} with makespan={ub_schedule.makespan}, "
                     f"warm_start_wall_sec={time.perf_counter() - warm_start_wall_start:.2f}"
                 )
         else:
@@ -175,8 +175,12 @@ def run_bucket_search_for_instance(
             runtime_sec=solver_runtime_sec,
             objective_ub=objective_ub,
             objective_lb=objective_lb,
-            horizon_ub=range_base_time + objective_ub if objective_ub is not None else None,
-            horizon_lb=range_base_time + objective_lb if objective_lb is not None else None,
+            horizon_ub=range_base_time + objective_ub
+            if objective_ub is not None
+            else None,
+            horizon_lb=range_base_time + objective_lb
+            if objective_lb is not None
+            else None,
             solution_count=solution_count,
         )
     ]
@@ -247,9 +251,7 @@ def run_bucket_search_for_instance(
         )
 
     total_runtime_sec = solver_runtime_sec
-    bucket_lb = (
-        range_base_time + objective_lb if objective_lb is not None else None
-    )
+    bucket_lb = range_base_time + objective_lb if objective_lb is not None else None
     horizon_ub = range_base_time + objective_ub if objective_ub is not None else None
     fallback_result = BucketSearchResult(
         ins_name=instance.ins_name,
