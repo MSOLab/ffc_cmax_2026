@@ -84,17 +84,24 @@ dicts_of_i_o_data_path:
   # Experiment 2: MIP bucket LB with generous total time budget (50% of n*c)
   # Pipeline: Same as exp 1, but more time for PW-CP refinement and MIP LB
   # Comparison vs exp 1: Measures time budget impact on final LB quality
-  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_mip_lb/subroutine_flow_20260407-01.yaml"
-    output_dir: "ff2020/20260407-02"
-    description: "SHDLB->Dispatch(BN2D+mixed)->PW-CP-refine(10-35%,tl=0.01)->MIP-bucket-LB(D-form) | Total TL=0.5*n*c, generous budget"
+  # - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_mip_lb/subroutine_flow_20260407-01.yaml"
+  #   output_dir: "ff2020/20260407-02"
+  #   description: "SHDLB->Dispatch(BN2D+mixed)->PW-CP-refine(10-35%,tl=0.01)->MIP-bucket-LB(D-form) | Total TL=0.5*n*c, generous budget"
   # Experiment 3: MIP bucket LB with explicit time allocation to MIP phase
   # Pipeline: Same as exp 2, but MIP LB phase gets explicit tl_nc_multiplier=0.1 constraint
   # Comparison vs exp 2: Tests whether dedicating time to MIP solving improves LB vs unlimited MIP phase
+  # - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+  #   subroutine_flow_rel_path: "configs_mip_lb/subroutine_flow_20260407-03.yaml"
+  #   output_dir: "ff2020/20260407-03"
+  #   description: "SHDLB->Dispatch(BN2D+mixed)->PW-CP-refine(10-35%,tl=0.01)->MIP-bucket-LB(D-form,tl_nc_mult=0.1) | Total TL=0.5*n*c, MIP phase capped at 0.1*n*c"
+  # Experiment 4: MIP bucket LB with explicit time allocation to MIP phase
+  # Pipeline: Same as exp 2, but MIP LB phase gets explicit tl_nc_multiplier=0.05 constraint
+  # Comparison vs exp 2: Tests whether dedicating time to MIP solving improves LB vs unlimited MIP phase
   - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_mip_lb/subroutine_flow_20260407-03.yaml"
-    output_dir: "ff2020/20260407-03"
-    description: "SHDLB->Dispatch(BN2D+mixed)->PW-CP-refine(10-35%,tl=0.01)->MIP-bucket-LB(D-form,tl_nc_mult=0.1) | Total TL=0.5*n*c, MIP phase capped at 0.1*n*c"
+    subroutine_flow_rel_path: "configs_mip_lb/subroutine_flow_20260407-04.yaml"
+    output_dir: "ff2020/20260407-04"
+    description: "SHDLB->Dispatch(BN2D+mixed)->PW-CP-refine(10-35%,tl=0.01)->MIP-bucket-LB(D-form,tl_nc_mult=0.05) | Total TL=0.5*n*c, MIP phase capped at 0.05*n*c"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
