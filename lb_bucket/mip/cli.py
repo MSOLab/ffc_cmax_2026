@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Sequence
 
 from .shared import (
     DEFAULT_INPUT_DIR,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_SOLUTION_ROOT,
     DEFAULT_SUMMARY_CSV,
     ModelStrengtheningOptions,
-    VariableTypeOptions,
+    PrecedenceOptions,
 )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run the exact two-bucket Gurobi relaxation from "
@@ -55,10 +57,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--solution-root",
         type=Path,
-        default=None,
+        default=DEFAULT_SOLUTION_ROOT,
         help=(
             "Optional root directory for persisted incumbent solution YAML files. "
-            "If omitted, infer the instance results directory from --summary-csv."
+            "The default points to the requested Outputs_scenarios run."
         ),
     )
     parser.add_argument(
@@ -66,8 +68,8 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help=(
-            "Optional fixed bucket length override. If omitted, choose delta per instance "
-            "from the summary LB/UB so that they stay in the same bucket."
+            "Optional fixed bucket length override. If omitted, use delta = p_max "
+            "for each instance."
         ),
     )
     parser.add_argument(
@@ -108,9 +110,8 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=10,
         help=(
-            "Maximum candidate bucket count for the automatic delta selection based on "
-            "input LB/UB. If LB and UB are still in the same bucket at this threshold, "
-            "the threshold is used as the final bucket count."
+            "Legacy option kept for compatibility. It is ignored by the current "
+            "default delta policy."
         ),
     )
     parser.add_argument(
@@ -145,20 +146,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--binary-job-count",
-        type=int,
-        default=None,
+        "--precedence-formulation",
+        choices=("bucket", "d", "e"),
+        default="bucket",
         help=(
-            "Optional number of jobs whose a/b variables remain binary. "
-            "If omitted, all jobs use continuous a/b. If set to 0, all jobs use continuous a/b. "
-            "When set between 1 and jobCount-1, the jobs are sampled randomly per instance."
+            "Choose one precedence formulation: "
+            "'bucket' uses precedence-bucket-prefix + precedence-bucket, "
+            "'d' uses the cumulative d-based formulation, "
+            "'e' uses the binary e-based linking formulation."
         ),
-    )
-    parser.add_argument(
-        "--binary-job-seed",
-        type=int,
-        default=0,
-        help="Seed for per-instance random sampling of binary jobs when --binary-job-count is used.",
     )
     parser.add_argument(
         "--base-model-only",
@@ -193,7 +189,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable family (iv): stage-based cuts and global scalar cut.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def resolve_strengthening_options(args: argparse.Namespace) -> ModelStrengtheningOptions:
@@ -214,12 +210,5 @@ def resolve_strengthening_options(args: argparse.Namespace) -> ModelStrengthenin
     )
 
 
-def resolve_variable_type_options(args: argparse.Namespace) -> VariableTypeOptions:
-    if args.binary_job_count is not None and args.binary_job_count < 0:
-        raise ValueError(
-            f"--binary-job-count must be nonnegative. Received {args.binary_job_count}."
-        )
-    return VariableTypeOptions(
-        binary_job_count=args.binary_job_count,
-        binary_job_seed=args.binary_job_seed,
-    )
+def resolve_precedence_options(args: argparse.Namespace) -> PrecedenceOptions:
+    return PrecedenceOptions(formulation=args.precedence_formulation)

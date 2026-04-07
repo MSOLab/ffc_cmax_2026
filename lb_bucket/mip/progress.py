@@ -29,16 +29,27 @@ def _safe_callback_int(model: Any, what: int) -> int | None:
 
 
 class GurobiProgressRecorder:
-    def __init__(self, grb: Any, ins_name: str, range_base_time: float) -> None:
+    def __init__(
+        self,
+        grb: Any,
+        ins_name: str,
+        range_base_time: float,
+        hard_time_limit_sec: float | None = None,
+    ) -> None:
         self.grb = grb
         self.ins_name = ins_name
         self.range_base_time = range_base_time
+        self.hard_time_limit_sec = hard_time_limit_sec
         self.rows: list[ProgressTraceRow] = []
         self._last_mip_signature: tuple[Any, ...] | None = None
         self._last_barrier_iter: int | None = None
         self._last_simplex_iter: float | None = None
+        self._terminate_requested = False
+        self.terminated_by_time_guard = False
 
     def callback(self, model: Any, where: int) -> None:
+        runtime_sec = _safe_callback_float(model, self.grb.Callback.RUNTIME)
+        self._maybe_terminate(model, runtime_sec)
         if where == self.grb.Callback.MIP:
             self._record_mip(model)
         elif where == self.grb.Callback.BARRIER:
@@ -189,6 +200,19 @@ class GurobiProgressRecorder:
                 simplex_iter=simplex_iter,
             )
         )
+
+    def _maybe_terminate(self, model: Any, runtime_sec: float | None) -> None:
+        if self._terminate_requested:
+            return
+        if self.hard_time_limit_sec is None or runtime_sec is None:
+            return
+        if runtime_sec >= self.hard_time_limit_sec:
+            self._terminate_requested = True
+            self.terminated_by_time_guard = True
+            try:
+                model.terminate()
+            except Exception:
+                pass
 
 
 def _shift_to_horizon(range_base_time: float, objective_value: float | None) -> float | None:

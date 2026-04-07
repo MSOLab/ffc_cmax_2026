@@ -16,7 +16,10 @@ DEFAULT_SUMMARY_CSV = (
     / "multi_instance_summary.csv"
 )
 DEFAULT_INPUT_DIR = REPO_ROOT / "resources" / "ff2020big"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "lb_bucket" / "results"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "lb_bucket" / "runs" / "mip_manual"
+DEFAULT_SOLUTION_ROOT = (
+    REPO_ROOT / "Outputs_scenarios" / "20260406T092725_768054"
+)
 DEFAULT_DELTA = 100
 
 
@@ -46,6 +49,8 @@ class BucketModelVars:
     x: Any
     u: Any
     z: Any
+    d: Any | None = None
+    e: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -129,27 +134,11 @@ class ModelStrengtheningOptions:
 
 
 @dataclass(frozen=True)
-class VariableTypeOptions:
-    binary_job_count: int | None
-    binary_job_seed: int
+class PrecedenceOptions:
+    formulation: str
 
-    def describe(self, *, selected_binary_job_ids: tuple[int, ...] | None = None) -> str:
-        if self.binary_job_count is None:
-            return "a/b type policy=all_continuous"
-        if self.binary_job_count == 0:
-            return "a/b type policy=all_continuous"
-        if selected_binary_job_ids is None:
-            return (
-                f"a/b type policy=random_partial_binary, "
-                f"binary_job_count={self.binary_job_count}, "
-                f"binary_job_seed={self.binary_job_seed}"
-            )
-        return (
-            f"a/b type policy=random_partial_binary, "
-            f"binary_job_count={self.binary_job_count}, "
-            f"binary_job_seed={self.binary_job_seed}, "
-            f"selected_binary_jobs={list(selected_binary_job_ids)}"
-        )
+    def describe(self) -> str:
+        return f"precedence_formulation={self.formulation}"
 
 
 def import_gurobi() -> tuple[Any, Any]:

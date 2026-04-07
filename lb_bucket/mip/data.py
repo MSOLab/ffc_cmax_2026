@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import math
-import random
 from pathlib import Path
 
 from schore.parameters_examples.parallel_shop.identical_flow import (
@@ -204,19 +203,3 @@ def resolve_time_limit_sec(
 
 def get_max_processing_time(instance: TwoBucketInstance) -> int:
     return max(max(stage_times) for stage_times in instance.processing_times_by_stage)
-
-
-def select_binary_job_ids(
-    instance: TwoBucketInstance,
-    binary_job_count: int | None,
-    binary_job_seed: int,
-) -> tuple[int, ...]:
-    all_job_ids = tuple(range(1, instance.job_count + 1))
-    if binary_job_count is None or binary_job_count <= 0:
-        return tuple()
-    if binary_job_count >= instance.job_count:
-        return all_job_ids
-
-    rng = random.Random(f"{binary_job_seed}:{instance.ins_name}")
-    selected_job_ids = sorted(rng.sample(all_job_ids, k=binary_job_count))
-    return tuple(selected_job_ids)

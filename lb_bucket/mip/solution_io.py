@@ -16,7 +16,7 @@ def extract_solution_payload(
     trace_row: SearchTraceRow,
     t_lower: int,
     t_upper: int,
-    binary_job_ids: tuple[int, ...] | None = None,
+    precedence_formulation: str,
     value_tolerance: float = 1e-9,
 ) -> dict[str, Any] | None:
     if trace_row.solution_count <= 0:
@@ -44,7 +44,7 @@ def extract_solution_payload(
             "certified_final_lb": result.certified_final_lb,
             "search_certified": result.search_certified,
             "termination_reason": result.termination_reason,
-            "binary_job_ids": list(binary_job_ids or ()),
+            "precedence_formulation": precedence_formulation,
             "value_tolerance": value_tolerance,
         },
         "a": _extract_operation_bucket_rows(model_vars.a, value_tolerance),

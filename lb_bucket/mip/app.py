@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import csv
+import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
-from .cli import parse_args, resolve_strengthening_options, resolve_variable_type_options
+from .cli import parse_args, resolve_precedence_options, resolve_strengthening_options
 from .data import (
-    compute_auto_bucket_configuration,
     compute_range_bucket_bounds,
     get_max_processing_time,
     load_ff2020_instance,
     load_summary_records,
     resolve_time_limit_sec,
     select_summary_records,
-    select_binary_job_ids,
 )
 from .search import run_bucket_search_for_instance
 from .shared import import_gurobi, log_progress
@@ -60,8 +59,8 @@ def load_completed_instance_names(path: Path) -> set[str]:
         return completed
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
     if args.delta is not None and args.delta <= 0:
         raise ValueError(f"delta must be a positive integer. Received delta={args.delta}.")
     if args.delta is not None and args.delta_pmax_plus_one:
@@ -73,7 +72,7 @@ def main() -> None:
     summary_records = load_summary_records(args.summary_csv)
     selected_records = select_summary_records(summary_records, args.instances)
     strengthening = resolve_strengthening_options(args)
-    variable_types = resolve_variable_type_options(args)
+    precedence = resolve_precedence_options(args)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     log_progress(
@@ -81,7 +80,7 @@ def main() -> None:
         f"Output directory: {args.output_dir}"
     )
     log_progress(f"Model strengthening options: {strengthening.describe()}")
-    log_progress(f"Variable type options: {variable_types.describe()}")
+    log_progress(f"Precedence options: {precedence.describe()}")
 
     result_path = args.output_dir / "bucket_lb_results.csv"
     completed_instance_names: set[str] = set()
@@ -112,6 +111,7 @@ def main() -> None:
         instance = load_ff2020_instance(args.input_dir, record.ins_name)
         ub_schedule = None
         if not args.disable_ub_warm_start:
+            warm_start_load_start = time.perf_counter()
             solution_path = resolve_solution_path(
                 args.summary_csv, record.ins_name, args.solution_root
             )
@@ -119,7 +119,8 @@ def main() -> None:
                 ub_schedule = load_ub_schedule(instance, solution_path)
                 log_progress(
                     f"Loaded UB warm start for instance {record.ins_name}: "
-                    f"makespan={ub_schedule.makespan}, path={solution_path}"
+                    f"makespan={ub_schedule.makespan}, path={solution_path}, "
+                    f"load_wall_sec={time.perf_counter() - warm_start_load_start:.2f}"
                 )
             else:
                 log_progress(
@@ -127,27 +128,20 @@ def main() -> None:
                     "continuing without warm start."
                 )
         max_processing_time = get_max_processing_time(instance)
-        binary_job_ids = select_binary_job_ids(
-            instance,
-            variable_types.binary_job_count,
-            variable_types.binary_job_seed,
-        )
         if args.delta_pmax_plus_one:
             configured_bucket_count = None
             instance_delta = max_processing_time + 1
         elif args.delta is None:
-            configured_bucket_count, instance_delta = compute_auto_bucket_configuration(
-                record, args.same_bucket_threshold
-            )
-            instance_delta = max(instance_delta, max_processing_time + 1)
+            configured_bucket_count = None
+            instance_delta = max_processing_time
         else:
             configured_bucket_count = None
             instance_delta = args.delta
 
-        if instance_delta <= max_processing_time:
+        if instance_delta < max_processing_time:
             raise ValueError(
                 f"Instance {record.ins_name} has max processing time {max_processing_time}, "
-                f"but this two-bucket implementation requires delta > max p_ij. "
+                f"but this two-bucket implementation requires delta >= max p_ij. "
                 f"Received delta={instance_delta}."
             )
         if record.input_ub is None:
@@ -182,7 +176,7 @@ def main() -> None:
             f"search_upper_T={search_upper_t}, auto_bucket_count={configured_bucket_count}, "
             f"delta_pmax_plus_one={args.delta_pmax_plus_one}, "
             f"time_limit_sec={instance_time_limit_sec:.2f}, "
-            f"binary_job_count_selected={len(binary_job_ids)}"
+            f"{precedence.describe()}"
         )
         result, trace_rows, progress_rows, solution_payload = run_bucket_search_for_instance(
             gp,
@@ -197,8 +191,7 @@ def main() -> None:
             log_dir=args.log_dir,
             search_upper_t=search_upper_t,
             strengthening=strengthening,
-            variable_types=variable_types,
-            binary_job_ids=binary_job_ids,
+            precedence=precedence,
             time_limit_sec_used=instance_time_limit_sec,
             ub_schedule=ub_schedule,
         )

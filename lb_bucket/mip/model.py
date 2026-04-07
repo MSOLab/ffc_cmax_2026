@@ -4,10 +4,21 @@ import math
 from typing import Any
 
 from .data import compute_range_bucket_bounds
-from .shared import BucketModelVars, ModelStrengtheningOptions, TwoBucketInstance
+from .shared import (
+    BucketModelVars,
+    ModelStrengtheningOptions,
+    PrecedenceOptions,
+    TwoBucketInstance,
+)
 
 
 def _var_or_zero(var_dict: Any, key: tuple[int, int, int]) -> Any:
+    if key in var_dict:
+        return var_dict[key]
+    return 0.0
+
+
+def _var4_or_zero(var_dict: Any, key: tuple[int, int, int, int]) -> Any:
     if key in var_dict:
         return var_dict[key]
     return 0.0
@@ -39,36 +50,6 @@ def compute_downstream_totals(
     return downstream
 
 
-def _add_mixed_type_bucket_vars(
-    model: Any,
-    grb: Any,
-    feasible_bucket_keys: list[tuple[int, int, int]],
-    binary_job_id_set: set[int],
-    var_name: str,
-) -> dict[tuple[int, int, int], Any]:
-    binary_keys = [key for key in feasible_bucket_keys if key[1] in binary_job_id_set]
-    continuous_keys = [
-        key for key in feasible_bucket_keys if key[1] not in binary_job_id_set
-    ]
-
-    var_dict: dict[tuple[int, int, int], Any] = {}
-    if binary_keys:
-        for key, var in model.addVars(
-            binary_keys, vtype=grb.BINARY, name=var_name
-        ).items():
-            var_dict[key] = var
-    if continuous_keys:
-        for key, var in model.addVars(
-            continuous_keys,
-            lb=0.0,
-            ub=1.0,
-            vtype=grb.CONTINUOUS,
-            name=var_name,
-        ).items():
-            var_dict[key] = var
-    return var_dict
-
-
 def build_two_bucket_model(
     gp: Any,
     grb: Any,
@@ -77,7 +58,7 @@ def build_two_bucket_model(
     input_lb: int,
     input_ub: int,
     strengthening: ModelStrengtheningOptions,
-    binary_job_ids: tuple[int, ...] | None = None,
+    precedence: PrecedenceOptions,
 ) -> tuple[Any, BucketModelVars]:
     t_lower, t_upper = compute_range_bucket_bounds(input_lb, input_ub, delta)
     model = gp.Model(name=f"bucket_lb_{instance.ins_name}_TL{t_lower}_TU{t_upper}")
@@ -152,7 +133,6 @@ def build_two_bucket_model(
         for t in operation_window[i, j]
     ]
     feasible_key_set = set(feasible_bucket_keys)
-    binary_job_id_set = set(binary_job_ids or ())
     bucket_keys_by_stage = {
         (i, t): [(i, j, t) for j in job_index if (i, j, t) in feasible_key_set]
         for i in stage_index
@@ -164,12 +144,8 @@ def build_two_bucket_model(
         for t in bucket_index
     }
 
-    a = _add_mixed_type_bucket_vars(
-        model, grb, feasible_bucket_keys, binary_job_id_set, "a"
-    )
-    b = _add_mixed_type_bucket_vars(
-        model, grb, feasible_bucket_keys, binary_job_id_set, "b"
-    )
+    a = model.addVars(feasible_bucket_keys, vtype=grb.BINARY, name="a")
+    b = model.addVars(feasible_bucket_keys, vtype=grb.BINARY, name="b")
     c = model.addVars(
         feasible_bucket_keys,
         lb=0.0,
@@ -184,18 +160,31 @@ def build_two_bucket_model(
         name="x",
     )
     u = model.addVars(range_bucket_index, vtype=grb.BINARY, name="u")
-    # d = model.addVars(
-    #     [
-    #         (i, j, t)
-    #         for i in range(1, instance.stage_count)
-    #         for j in job_index
-    #         for t in bucket_index
-    #     ],
-    #     lb=-1.0,
-    #     ub=1.0,
-    #     vtype=grb.CONTINUOUS,
-    #     name="d",
-    # )
+    d = None
+    e = None
+    if precedence.formulation == "d":
+        d = model.addVars(
+            [
+                (i, j, t)
+                for i in range(1, instance.stage_count)
+                for j in job_index
+                for t in bucket_index
+            ],
+            lb=-1.0,
+            ub=1.0,
+            vtype=grb.CONTINUOUS,
+            name="d",
+        )
+    elif precedence.formulation == "e":
+        e_keys = [
+            (i, j, t, t_prime)
+            for i in range(1, instance.stage_count)
+            for j in job_index
+            for t in operation_window[i, j]
+            for t_prime in operation_window[i + 1, j]
+            if t <= t_prime
+        ]
+        e = model.addVars(e_keys, vtype=grb.BINARY, name="e")
     z = {}
     for bucket_idx in range_bucket_index:
         lower_bound = 0.0
@@ -264,50 +253,94 @@ def build_two_bucket_model(
         ),
         name="sym_adjacent_2",
     )
-    # Original precedence-bucket constraint. Uncomment this block and comment out the
-    # d-based formulation below if you want to revert to the previous version.
-    model.addConstrs(
-        (
-            b[i, j, t]
-            <= gp.quicksum(
-                a[i + 1, j, tau] for tau in operation_window[i + 1, j] if tau >= t
+    if precedence.formulation == "bucket":
+        model.addConstrs(
+            (
+                a[i, j, t]
+                <= gp.quicksum(
+                    _var_or_zero(b, (i - 1, j, tau)) for tau in range(1, t + 1)
+                )
+                for i in range(2, instance.stage_count + 1)
+                for j in job_index
+                for t in operation_window[i, j]
+            ),
+            name="precedence_bucket_prefix",
+        )
+        model.addConstrs(
+            (
+                b[i, j, t]
+                <= gp.quicksum(
+                    a[i + 1, j, tau] for tau in operation_window[i + 1, j] if tau >= t
+                )
+                for i in range(1, instance.stage_count)
+                for j in job_index
+                for t in operation_window[i, j]
+            ),
+            name="precedence_bucket",
+        )
+    elif precedence.formulation == "d":
+        model.addConstrs(
+            (
+                d[i, j, 1]
+                == _var_or_zero(a, (i + 1, j, 1)) - _var_or_zero(b, (i, j, 1))
+                for i in range(1, instance.stage_count)
+                for j in job_index
+            ),
+            name="precedence_d_init",
+        )
+        if t_upper >= 2:
+            model.addConstrs(
+                (
+                    d[i, j, t]
+                    == d[i, j, t - 1]
+                    + _var_or_zero(a, (i + 1, j, t))
+                    - _var_or_zero(b, (i, j, t))
+                    for i in range(1, instance.stage_count)
+                    for j in job_index
+                    for t in range(2, t_upper + 1)
+                ),
+                name="precedence_d_flow",
             )
-            for i in range(1, instance.stage_count)
-            for j in job_index
-            for t in operation_window[i, j]
-        ),
-        name="precedence_bucket",
-    )
-    # model.addConstrs(
-    #     (
-    #         d[i, j, 1] == _var_or_zero(a, (i + 1, j, 1)) - _var_or_zero(b, (i, j, 1))
-    #         for i in range(1, instance.stage_count)
-    #         for j in job_index
-    #     ),
-    #     name="precedence_d_init",
-    # )
-    # if t_upper >= 2:
-    #     model.addConstrs(
-    #         (
-    #             d[i, j, t]
-    #             == d[i, j, t - 1]
-    #             + _var_or_zero(a, (i + 1, j, t))
-    #             - _var_or_zero(b, (i, j, t))
-    #             for i in range(1, instance.stage_count)
-    #             for j in job_index
-    #             for t in range(2, t_upper + 1)
-    #         ),
-    #         name="precedence_d_flow",
-    #     )
-    # model.addConstrs(
-    #     (
-    #         d[i, j, t] <= 0.0
-    #         for i in range(1, instance.stage_count)
-    #         for j in job_index
-    #         for t in bucket_index
-    #     ),
-    #     name="precedence_d_ub",
-    # )
+        model.addConstrs(
+            (
+                d[i, j, t] <= 0.0
+                for i in range(1, instance.stage_count)
+                for j in job_index
+                for t in bucket_index
+            ),
+            name="precedence_d_ub",
+        )
+    elif precedence.formulation == "e":
+        model.addConstrs(
+            (
+                _var_or_zero(b, (i, j, t))
+                == gp.quicksum(
+                    _var4_or_zero(e, (i, j, t, t_prime))
+                    for t_prime in range(t, t_upper + 1)
+                )
+                for i in range(1, instance.stage_count)
+                for j in job_index
+                for t in bucket_index
+            ),
+            name="precedence_e_from_b",
+        )
+        model.addConstrs(
+            (
+                _var_or_zero(a, (i + 1, j, t))
+                == gp.quicksum(
+                    _var4_or_zero(e, (i, j, t_prime, t))
+                    for t_prime in range(1, t + 1)
+                )
+                for i in range(1, instance.stage_count)
+                for j in job_index
+                for t in bucket_index
+            ),
+            name="precedence_e_to_a",
+        )
+    else:
+        raise ValueError(
+            f"Unsupported precedence formulation '{precedence.formulation}'."
+        )
     model.addConstrs(
         (
             gp.quicksum(x[i, j, t] for t in operation_window[i, j])
@@ -340,6 +373,15 @@ def build_two_bucket_model(
             if t < t_upper
         ),
         name="consec_x_a_relationship",
+    )
+    model.addConstrs(
+        (
+            _var_or_zero(x, (i, j, t - 1)) + x[i, j, t]
+            >= processing_time[i, j] * b[i, j, t]
+            for i, j, t in feasible_bucket_keys
+            if t > 1
+        ),
+        name="consec_x_b_relationship",
     )
     model.addConstrs(
         (c[i, j, t] >= a[i, j, t] + b[i, j, t] - 1 for i, j, t in feasible_bucket_keys),
@@ -497,4 +539,4 @@ def build_two_bucket_model(
         )
         model.addConstr(w_expr >= global_lb_s, name="range_global_cut")
 
-    return model, BucketModelVars(a=a, b=b, c=c, x=x, u=u, z=z)
+    return model, BucketModelVars(a=a, b=b, c=c, x=x, u=u, z=z, d=d, e=e)

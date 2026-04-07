@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from hybridflowshop.io_solution import get_end_time_dict, get_start_time_dict
+from routix.io.yaml import load_yaml
 
 from .data import compute_range_bucket_bounds
 from .shared import BucketModelVars, TwoBucketInstance
@@ -40,15 +41,18 @@ def resolve_solution_path(
     for candidate_path in candidate_paths:
         if candidate_path.is_file():
             return candidate_path
-    return None
+
+    solution_index = _build_solution_index(search_root)
+    return solution_index.get(ins_name)
 
 
 def load_ub_schedule(
     instance: TwoBucketInstance,
     solution_path: Path,
 ) -> ParsedUbSchedule:
-    start_time_map = get_start_time_dict(solution_path)
-    end_time_map = get_end_time_dict(solution_path)
+    solution_dict = _load_solution_dict(solution_path)
+    start_time_map = _extract_time_map(solution_dict, "start_time_map", "start_times", solution_path)
+    end_time_map = _extract_time_map(solution_dict, "end_time_map", "end_times", solution_path)
 
     operation_intervals: dict[tuple[int, int], tuple[int, int]] = {}
     makespan = 0
@@ -194,19 +198,6 @@ def apply_bucket_warm_start(
     model_vars: BucketModelVars,
     warm_start: BucketWarmStart,
 ) -> None:
-    for var in model_vars.a.values():
-        var.Start = 0.0
-    for var in model_vars.b.values():
-        var.Start = 0.0
-    for var in model_vars.c.values():
-        var.Start = 0.0
-    for var in model_vars.x.values():
-        var.Start = 0.0
-    for var in model_vars.u.values():
-        var.Start = 0.0
-    for var in model_vars.z.values():
-        var.Start = 0.0
-
     for key, value in warm_start.a_values.items():
         if key in model_vars.a:
             model_vars.a[key].Start = float(value)
@@ -232,5 +223,34 @@ def _parse_zero_based_suffix(label: Any, prefix: str) -> int:
     if not label_text.startswith(prefix):
         raise ValueError(
             f"Expected label starting with '{prefix}', but received {label_text!r}."
-        )
+    )
     return int(label_text[len(prefix) :])
+
+
+@lru_cache(maxsize=None)
+def _load_solution_dict(solution_path: Path) -> dict:
+    return load_yaml(solution_path, encoding="utf-8")
+
+
+def _extract_time_map(
+    solution_dict: dict,
+    primary_key: str,
+    fallback_key: str,
+    solution_path: Path,
+) -> dict:
+    if primary_key in solution_dict:
+        return solution_dict[primary_key]
+    if fallback_key in solution_dict:
+        return solution_dict[fallback_key]
+    raise ValueError(
+        f"Neither '{primary_key}' nor '{fallback_key}' found in solution file: {solution_path}"
+    )
+
+
+@lru_cache(maxsize=None)
+def _build_solution_index(search_root: Path) -> dict[str, Path]:
+    solution_index: dict[str, Path] = {}
+    for solution_path in search_root.rglob("*_solution.yaml"):
+        ins_name = solution_path.stem.removesuffix("_solution")
+        solution_index.setdefault(ins_name, solution_path)
+    return solution_index

@@ -13,3 +13,6 @@ wheels/
 .vscode/
 
 Outputs*/
+/lb_bucket/experiments
+/lb_bucket/fix_experiments
+/lb_bucket/runs
