@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
@@ -89,6 +90,32 @@ def export_method_rpdf_scatter_svg(
 REQUIRED_HTML_COLUMNS = {"instance_id", "subroutine_name", "norm_time", "rpd_f"}
 
 
+@dataclass(frozen=True)
+class ProgressionPoint:
+    time: float
+    rpd_f: float
+
+
+@dataclass(frozen=True)
+class MarkerMeta:
+    instance_id: str
+    job_cnt: int
+    stage_cnt: int
+    subroutine_name: str
+    count: int
+    time: float
+
+
+@dataclass(frozen=True)
+class RawInstanceProgression:
+    series_id: str
+    instance_id: str
+    job_cnt: int
+    stage_cnt: int
+    progression_points: list[ProgressionPoint]
+    marker_meta_by_time: dict[float, MarkerMeta]
+
+
 def _normalize_instance_key(value: object) -> str | None:
     if pd.isna(value):
         return None
@@ -130,7 +157,9 @@ def _load_and_merge_for_html(
             f"Missing columns in metrics DataFrame: {sorted(missing_metrics)}"
         )
     if missing_baseline:
-        raise ValueError(f"Missing columns in baseline DataFrame: {sorted(missing_baseline)}")
+        raise ValueError(
+            f"Missing columns in baseline DataFrame: {sorted(missing_baseline)}"
+        )
 
     metrics_df = metrics_long_df.copy()
     metrics_df["instance_key"] = metrics_df["instance_id"].map(_normalize_instance_key)
@@ -197,7 +226,42 @@ def _compute_best_so_far_y_values(y_values: list[float]) -> list[float]:
     return best_y_values
 
 
-def _build_step_path(x_values: list[float], y_values: list[float]) -> tuple[list[float], list[float]]:
+def _dedupe_progression_points(
+    points: list[ProgressionPoint],
+) -> list[ProgressionPoint]:
+    deduped_by_time: dict[float, ProgressionPoint] = {}
+    for point in points:
+        deduped_by_time[point.time] = point
+    return [deduped_by_time[time] for time in sorted(deduped_by_time)]
+
+
+def _build_best_so_far_progression_points(grp: pd.DataFrame) -> list[ProgressionPoint]:
+    if grp.empty:
+        return []
+
+    x_values = grp["norm_time"].tolist()
+    best_y_values = _compute_best_so_far_y_values(grp["rpd_f"].tolist())
+    points = [
+        ProgressionPoint(time=float(x_val), rpd_f=float(y_val))
+        for x_val, y_val in zip(x_values, best_y_values)
+    ]
+    return _dedupe_progression_points(points)
+
+
+def _lookup_rpdf_at_or_before(
+    progression_points: list[ProgressionPoint], query_time: float
+) -> float | None:
+    matched_rpd_f: float | None = None
+    for point in progression_points:
+        if point.time > query_time:
+            break
+        matched_rpd_f = point.rpd_f
+    return matched_rpd_f
+
+
+def _build_step_path(
+    x_values: list[float], y_values: list[float]
+) -> tuple[list[float], list[float]]:
     step_x: list[float] = []
     step_y: list[float] = []
     for idx, (x_val, y_val) in enumerate(zip(x_values, y_values)):
@@ -216,28 +280,91 @@ def _build_step_path(x_values: list[float], y_values: list[float]) -> tuple[list
     return step_x, step_y
 
 
-def _build_raw_best_step_series(
+def _build_marker_meta_by_time(
     instance_id: object, grp: pd.DataFrame, job_cnt: int, stage_cnt: int
-) -> dict:
-    """Build best-so-far stair-step data for one raw instance series."""
-    x_values = grp["norm_time"].tolist()
-    best_y_values = _compute_best_so_far_y_values(grp["rpd_f"].tolist())
-    text_values = grp["subroutine_name"].tolist()
-    step_x, step_y = _build_step_path(x_values, best_y_values)
+) -> dict[float, MarkerMeta]:
+    marker_meta_by_time: dict[float, MarkerMeta] = {}
+    for row in grp.itertuples():
+        marker_time = float(row.norm_time)
+        if marker_time in marker_meta_by_time:
+            raise ValueError(
+                f"Duplicate endpoint marker time for instance {instance_id}: {marker_time}"
+            )
+        marker_meta_by_time[marker_time] = MarkerMeta(
+            instance_id=str(instance_id),
+            job_cnt=job_cnt,
+            stage_cnt=stage_cnt,
+            subroutine_name=str(row.subroutine_name),
+            count=1,
+            time=marker_time,
+        )
+    return marker_meta_by_time
+
+
+def _build_raw_instance_progression(
+    instance_id: object,
+    endpoint_grp: pd.DataFrame,
+    progression_grp: pd.DataFrame | None,
+    job_cnt: int,
+    stage_cnt: int,
+) -> RawInstanceProgression:
+    series_id = f"instance={instance_id}"
+    marker_meta_by_time = _build_marker_meta_by_time(
+        instance_id, endpoint_grp, job_cnt, stage_cnt
+    )
+
+    if progression_grp is None or progression_grp.empty:
+        progression_points = _build_best_so_far_progression_points(endpoint_grp)
+    else:
+        progression_points = _build_best_so_far_progression_points(progression_grp)
+
+    return RawInstanceProgression(
+        series_id=series_id,
+        instance_id=str(instance_id),
+        job_cnt=job_cnt,
+        stage_cnt=stage_cnt,
+        progression_points=progression_points,
+        marker_meta_by_time=marker_meta_by_time,
+    )
+
+
+def _build_raw_plotly_series(model: RawInstanceProgression) -> dict:
+    progression_x = [point.time for point in model.progression_points]
+    progression_y = [point.rpd_f for point in model.progression_points]
+    step_x, step_y = _build_step_path(progression_x, progression_y)
+
+    marker_x = sorted(model.marker_meta_by_time)
+    marker_meta = [model.marker_meta_by_time[time] for time in marker_x]
+    marker_y = [
+        _lookup_rpdf_at_or_before(model.progression_points, marker.time)
+        for marker in marker_meta
+    ]
+
+    filtered_markers = [
+        (x_val, y_val, meta)
+        for x_val, y_val, meta in zip(marker_x, marker_y, marker_meta)
+        if y_val is not None
+    ]
 
     return {
-        "series_id": f"instance={instance_id}",
-        "instance_id": str(instance_id),
-        "job_cnt": job_cnt,
-        "stage_cnt": stage_cnt,
-        "x": x_values,
-        "y": best_y_values,
+        "series_id": model.series_id,
+        "instance_id": model.instance_id,
+        "job_cnt": model.job_cnt,
+        "stage_cnt": model.stage_cnt,
+        "x": [x_val for x_val, _, _ in filtered_markers],
+        "y": [y_val for _, y_val, _ in filtered_markers],
         "step_x": step_x,
         "step_y": step_y,
-        "text": text_values,
+        "text": [meta.subroutine_name for _, _, meta in filtered_markers],
         "customdata": [
-            [str(instance_id), job_cnt, stage_cnt, str(row.subroutine_name), 1]
-            for row in grp.itertuples()
+            [
+                meta.instance_id,
+                meta.job_cnt,
+                meta.stage_cnt,
+                meta.subroutine_name,
+                meta.count,
+            ]
+            for _, _, meta in filtered_markers
         ],
     }
 
@@ -264,31 +391,15 @@ def _build_raw_series_payload(
         )
         n_val = int(endpoint_grp["job_cnt"].iloc[0])
         c_val = int(endpoint_grp["stage_cnt"].iloc[0])
-        marker_series = _build_raw_best_step_series(instance_id, endpoint_grp, n_val, c_val)
-
         progression_grp = progression_by_instance.get(str(instance_id))
-        if progression_grp is None or progression_grp.empty:
-            line_x = marker_series["x"]
-            line_y = marker_series["y"]
-        else:
-            line_x = progression_grp["norm_time"].tolist()
-            line_y = _compute_best_so_far_y_values(progression_grp["rpd_f"].tolist())
-        step_x, step_y = _build_step_path(line_x, line_y)
-
-        raw_series.append(
-            {
-                "series_id": marker_series["series_id"],
-                "instance_id": marker_series["instance_id"],
-                "job_cnt": n_val,
-                "stage_cnt": c_val,
-                "x": marker_series["x"],
-                "y": marker_series["y"],
-                "step_x": step_x,
-                "step_y": step_y,
-                "text": marker_series["text"],
-                "customdata": marker_series["customdata"],
-            }
+        raw_model = _build_raw_instance_progression(
+            instance_id=instance_id,
+            endpoint_grp=endpoint_grp,
+            progression_grp=progression_grp,
+            job_cnt=n_val,
+            stage_cnt=c_val,
         )
+        raw_series.append(_build_raw_plotly_series(raw_model))
 
     return raw_series
 
@@ -298,11 +409,15 @@ def _build_html_payload(
 ) -> dict:
     """Build the JSON payload used by the interactive HTML page."""
     if df.empty:
-        return {"job_cnt_values": [], "stage_cnt_values": [], "raw_series": [], "mean_series": []}
+        return {
+            "job_cnt_values": [],
+            "stage_cnt_values": [],
+            "raw_series": [],
+            "mean_series": [],
+        }
 
     order_map = {
-        name: idx
-        for idx, name in enumerate(pd.unique(df["subroutine_name"]), start=1)
+        name: idx for idx, name in enumerate(pd.unique(df["subroutine_name"]), start=1)
     }
     work_df = df.copy()
     work_df["subroutine_order"] = work_df["subroutine_name"].map(order_map)
@@ -313,10 +428,12 @@ def _build_html_payload(
     progression_work_df = None
     if raw_progression_df is not None and not raw_progression_df.empty:
         progression_work_df = raw_progression_df.copy()
-        progression_work_df["subroutine_order"] = progression_work_df["subroutine_name"].map(
-            order_map
-        )
-        progression_work_df = progression_work_df.dropna(subset=["subroutine_order"]).copy()
+        progression_work_df["subroutine_order"] = progression_work_df[
+            "subroutine_name"
+        ].map(order_map)
+        progression_work_df = progression_work_df.dropna(
+            subset=["subroutine_order"]
+        ).copy()
 
     raw_series = _build_raw_series_payload(work_df, progression_work_df)
 
@@ -366,13 +483,20 @@ def _build_html_payload(
         "mean_series": mean_series,
     }
 
+
 def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
     """Build complete HTML page with inline JavaScript."""
     n_options = "".join(
-        [f'<option value="{v}">{v}</option>' for v in ["All", *payload["job_cnt_values"]]]
+        [
+            f'<option value="{v}">{v}</option>'
+            for v in ["All", *payload["job_cnt_values"]]
+        ]
     )
     c_options = "".join(
-        [f'<option value="{v}">{v}</option>' for v in ["All", *payload["stage_cnt_values"]]]
+        [
+            f'<option value="{v}">{v}</option>'
+            for v in ["All", *payload["stage_cnt_values"]]
+        ]
     )
 
     return f"""<!doctype html>
@@ -620,7 +744,9 @@ def export_method_rpdf_scatter_html(
             )
             merged_raw_progression_df = None
 
-    payload = _build_html_payload(merged_df, raw_progression_df=merged_raw_progression_df)
+    payload = _build_html_payload(
+        merged_df, raw_progression_df=merged_raw_progression_df
+    )
 
     if not payload["raw_series"] and not payload["mean_series"]:
         return False

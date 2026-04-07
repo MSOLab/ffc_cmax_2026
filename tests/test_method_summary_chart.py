@@ -7,10 +7,13 @@ import pytest
 import hfs_multi_instance_runner as multi_runner_module
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hybridflowshop.report.method_summary_chart import (
+    _build_best_so_far_progression_points,
     _build_html_payload,
-    _build_raw_best_step_series,
     _build_method_rpdf_scatter_df,
+    _build_raw_instance_progression,
+    _build_raw_plotly_series,
     _load_and_merge_for_html,
+    _lookup_rpdf_at_or_before,
     export_method_rpdf_scatter_html,
     export_method_rpdf_scatter_svg,
 )
@@ -273,7 +276,43 @@ def test_load_and_merge_for_html_drops_unmatched_rows_without_failing(
     assert "Excluded 1 metric rows from HTML chart" in caplog.text
 
 
-def test_build_raw_best_step_series_keeps_best_so_far_markers_and_steps() -> None:
+def test_build_best_so_far_progression_points_dedupes_times_and_keeps_best_values() -> (
+    None
+):
+    grp = pd.DataFrame(
+        [
+            {"subroutine_name": "init", "norm_time": 0.10, "rpd_f": 0.08},
+            {"subroutine_name": "worse_same_time", "norm_time": 0.10, "rpd_f": 0.09},
+            {"subroutine_name": "better", "norm_time": 0.35, "rpd_f": 0.05},
+            {"subroutine_name": "same_best", "norm_time": 0.50, "rpd_f": 0.05},
+        ]
+    )
+
+    points = _build_best_so_far_progression_points(grp)
+
+    assert [point.time for point in points] == pytest.approx([0.10, 0.35, 0.50])
+    assert [point.rpd_f for point in points] == pytest.approx([0.08, 0.05, 0.05])
+
+
+def test_lookup_rpdf_at_or_before_returns_previous_best_point() -> None:
+    grp = pd.DataFrame(
+        [
+            {"subroutine_name": "init", "norm_time": 0.10, "rpd_f": 0.08},
+            {"subroutine_name": "repeat", "norm_time": 0.20, "rpd_f": 0.07},
+            {"subroutine_name": "repeat", "norm_time": 0.30, "rpd_f": 0.06},
+        ]
+    )
+
+    points = _build_best_so_far_progression_points(grp)
+
+    assert _lookup_rpdf_at_or_before(points, 0.20) == pytest.approx(0.07)
+    assert _lookup_rpdf_at_or_before(points, 0.25) == pytest.approx(0.07)
+    assert _lookup_rpdf_at_or_before(points, 0.05) is None
+
+
+def test_build_raw_instance_progression_and_plotly_series_keeps_markers_on_line() -> (
+    None
+):
     grp = pd.DataFrame(
         [
             {"subroutine_name": "init", "norm_time": 0.10, "rpd_f": 0.08},
@@ -283,7 +322,14 @@ def test_build_raw_best_step_series_keeps_best_so_far_markers_and_steps() -> Non
         ]
     )
 
-    series = _build_raw_best_step_series("1", grp, job_cnt=20, stage_cnt=5)
+    model = _build_raw_instance_progression(
+        instance_id="1",
+        endpoint_grp=grp,
+        progression_grp=grp,
+        job_cnt=20,
+        stage_cnt=5,
+    )
+    series = _build_raw_plotly_series(model)
 
     assert series["x"] == pytest.approx([0.10, 0.20, 0.35, 0.50])
     assert series["y"] == pytest.approx([0.08, 0.08, 0.05, 0.05])
@@ -409,6 +455,51 @@ def test_build_html_payload_uses_progression_points_for_raw_line() -> None:
     assert raw_series["step_y"] == pytest.approx(
         [0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.05]
     )
+
+
+def test_build_html_payload_places_marker_on_previous_progression_point() -> None:
+    endpoint_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.35,
+                "rpd_f": 0.05,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            }
+        ]
+    )
+    progression_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.10,
+                "rpd_f": 0.08,
+                "global_sec": 10.0,
+                "call_index": 2,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.30,
+                "rpd_f": 0.06,
+                "global_sec": 30.0,
+                "call_index": 2,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+        ]
+    )
+
+    payload = _build_html_payload(endpoint_df, raw_progression_df=progression_df)
+
+    raw_series = payload["raw_series"][0]
+    assert raw_series["x"] == pytest.approx([0.35])
+    assert raw_series["y"] == pytest.approx([0.06])
 
 
 def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:
