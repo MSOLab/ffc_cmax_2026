@@ -7,7 +7,6 @@ from typing import Any
 from .data import compute_range_bucket_bounds
 from .model import build_two_bucket_model
 from .progress import GurobiProgressRecorder
-from .solution_io import extract_solution_payload
 from .shared import (
     BucketSearchResult,
     ModelStrengtheningOptions,
@@ -19,11 +18,35 @@ from .shared import (
     gurobi_status_name,
     log_progress,
 )
+from .solution_io import extract_solution_payload
 from .warm_start import (
     ParsedUbSchedule,
     apply_bucket_warm_start,
     build_bucket_warm_start,
 )
+
+
+def trace_rows_to_csv_rows(
+    trace_rows: list[tuple[float, float | None, float | None]],
+    result: BucketSearchResult,
+    status: str,
+    solution_count: int,
+) -> list[dict[str, Any]]:
+    """Convert trace rows to CSV-ready dictionaries with full SearchTraceRow fields."""
+    return [
+        {
+            "ins_name": result.ins_name,
+            "bucket_count": result.searched_bucket_count,
+            "status": status,
+            "runtime_sec": t,
+            "objective_ub": ub,
+            "objective_lb": lb,
+            "horizon_ub": result.horizon_ub,
+            "horizon_lb": result.horizon_lb,
+            "solution_count": solution_count,
+        }
+        for t, ub, lb in trace_rows
+    ]
 
 
 def _safe_float_attr(model: Any, attr_name: str) -> float | None:
@@ -55,7 +78,7 @@ def run_bucket_search_for_instance(
     ub_schedule: ParsedUbSchedule | None,
 ) -> tuple[
     BucketSearchResult,
-    list[SearchTraceRow],
+    list[tuple[float, float | None, float | None]],
     list[ProgressTraceRow],
     dict[str, Any] | None,
 ]:
@@ -167,26 +190,18 @@ def run_bucket_search_for_instance(
         solution_count=solution_count,
     )
 
+    # Extract (runtime_sec, objective_ub, objective_lb) from all progress rows
     trace_rows = [
-        SearchTraceRow(
-            ins_name=instance.ins_name,
-            bucket_count=t_upper,
-            status=status_name,
-            runtime_sec=solver_runtime_sec,
-            objective_ub=objective_ub,
-            objective_lb=objective_lb,
-            horizon_ub=range_base_time + objective_ub
-            if objective_ub is not None
-            else None,
-            horizon_lb=range_base_time + objective_lb
-            if objective_lb is not None
-            else None,
-            solution_count=solution_count,
+        (
+            r.runtime_sec,
+            range_base_time + r.objective_ub,
+            range_base_time + r.objective_lb,
         )
+        for r in progress_recorder.rows
     ]
     log_progress(
         f"Instance {instance.ins_name}: finished range model with status={status_name}, "
-        f"runtime_sec={trace_rows[-1].runtime_sec:.2f}, objective_ub={objective_ub}, "
+        f"runtime_sec={solver_runtime_sec:.2f}, objective_ub={objective_ub}, "
         f"objective_lb={objective_lb}, solutions={solution_count}"
     )
 
@@ -221,6 +236,8 @@ def run_bucket_search_for_instance(
             time_limit_sec_used=time_limit_sec_used,
             total_runtime_sec=total_runtime_sec,
             termination_reason="OPTIMAL_RANGE_MODEL",
+            status_name=status_name,
+            solution_count=solution_count,
         )
         log_progress(
             f"Completed instance {instance.ins_name}: W*={bucket_lb:.6f}, "
@@ -229,11 +246,14 @@ def run_bucket_search_for_instance(
             f"wall_runtime_sec={time.perf_counter() - wall_start:.2f}, "
             f"model_build_wall_sec={model_build_wall_sec:.2f}"
         )
+        # Create temporary SearchTraceRow for extract_solution_payload
+        last_runtime, last_ub, last_lb = trace_rows[-1]
         solution_payload = extract_solution_payload(
             model_vars,
             instance=instance,
             result=result,
-            trace_row=trace_rows[-1],
+            objective_ub=last_ub,
+            objective_lb=last_lb,
             t_lower=t_lower,
             t_upper=t_upper,
             precedence_formulation=precedence.formulation,
@@ -286,6 +306,8 @@ def run_bucket_search_for_instance(
             if objective_lb is not None
             else f"STOPPED_RANGE_MODEL_{status_name}"
         ),
+        status_name=status_name,
+        solution_count=solution_count,
     )
     log_progress(
         f"Stopped instance {instance.ins_name}: status={status_name}, "
@@ -294,11 +316,14 @@ def run_bucket_search_for_instance(
         f"wall_runtime_sec={time.perf_counter() - wall_start:.2f}, "
         f"model_build_wall_sec={model_build_wall_sec:.2f}"
     )
+    # Create temporary SearchTraceRow for extract_solution_payload
+    last_runtime, last_ub, last_lb = trace_rows[-1]
     solution_payload = extract_solution_payload(
         model_vars,
         instance=instance,
         result=fallback_result,
-        trace_row=trace_rows[-1],
+        objective_ub=last_ub,
+        objective_lb=last_lb,
         t_lower=t_lower,
         t_upper=t_upper,
         precedence_formulation=precedence.formulation,

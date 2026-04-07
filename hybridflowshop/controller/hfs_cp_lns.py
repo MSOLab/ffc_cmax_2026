@@ -5,6 +5,7 @@ from collections import Counter, deque
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from mbls.cpsat import CpsatStatus
 from routix import ElapsedTimer
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
     HybridFlowshopParameters,
@@ -23,7 +24,7 @@ from hybridflowshop.dispatcher import (
     StageDispatcher,
 )
 from hybridflowshop.dispatcher.utils import from_job_sequence_get_schedule_mixed
-from hybridflowshop.report import HfsSubroutineReport
+from hybridflowshop.report import HfsCpsatSolverReport, HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
     JobIdType,
@@ -1581,6 +1582,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             resume: Resume experiment folder if exists.
             dry_run: Print arguments without running solver (default: False).
         """
+        start_t = self.timer.elapsed_sec
         sub_timer = ElapsedTimer()
         instance = self.instance
 
@@ -1665,7 +1667,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         _time_limit_sec = self.get_remaining_time_limit(time_limit_sec)
         # Call MIP solver
-        result, _, _, _ = run_bucket_search_for_instance(
+        logging.info(
+            "[MIP LB] Starting MIP solver at %.1f with delta=%d strengthening=%s precedence=%s "
+            "threads=%d time_limit_sec=%.1f",
+            start_t,
+            delta,
+            strengthening,
+            precedence,
+            threads,
+            _time_limit_sec,
+        )
+        result, trace_rows, _, _ = run_bucket_search_for_instance(
             gp,
             grb,
             two_bucket_instance,
@@ -1683,31 +1695,62 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             ub_schedule=ub_schedule,
         )
 
-        # Update bound if improved (apply_shdlb pattern)
+        # Create report and register
+        if result.status_name == "OPTIMAL":
+            report_status = CpsatStatus.OPTIMAL
+        elif result.status_name == "SUBOPTIMAL":
+            report_status = CpsatStatus.FEASIBLE
+        elif result.status_name in {"INFEASIBLE", "INF_OR_UNBD"}:
+            report_status = CpsatStatus.INFEASIBLE
+        else:
+            report_status = CpsatStatus.UNKNOWN
+        obj_value_records: list[tuple[float, float]] = []
+        obj_bound_records: list[tuple[float, float]] = []
+        for time, ub, lb in trace_rows:
+            if ub is not None:
+                obj_value_records.append((time, ub))
+            if lb is not None:
+                obj_bound_records.append((time, lb))
+        logging.info("ObjBound trace: %s", obj_bound_records)
+
+        # Update bound if improved
         new_lb = result.certified_final_lb
+        # Record intermediate bound updates from MIP trace
+        current_bound = self.solution_manager.best_obj_bound or float("-inf")
+        for mip_time, trace_lb in obj_bound_records:
+            if trace_lb is not None and trace_lb > current_bound:
+                # Convert MIP-internal time to global elapsed time
+                global_time = start_t + mip_time
+                logging.info(
+                    f"[MIP LB] Recording intermediate bound {trace_lb} at global time {global_time:.2f}s "
+                    f"(MIP time: {mip_time:.2f}s)"
+                )
+                self.add_obj_bound_log(global_time, trace_lb, is_maximize=False)
+                current_bound = trace_lb
+
         if self.solution_manager.current_obj_bound_is_worse_than(new_lb):
             logging.info(
-                f"[MIP LB] New bound {new_lb} improves"
+                f"[MIP LB] Final bound {new_lb} improves"
                 f" over current bound {self.solution_manager.best_obj_bound}"
-            )
-            log_time = self.timer.elapsed_sec
-            self.add_obj_bound_log(log_time, new_lb, is_maximize=False)
-            _last_timestamp_note = self._get_call_context_of_current_method()
-            self.obj_store.add_last_timestamp_note(
-                _last_timestamp_note, obj_bound_is_valid=True
             )
         else:
             logging.info(
-                f"[MIP LB] New bound {new_lb} does not improve"
+                f"[MIP LB] Final bound {new_lb} does not improve"
                 f" over current bound {self.solution_manager.best_obj_bound}"
             )
-
-        # Create report and register (apply_shdlb pattern)
-        report = HfsSubroutineReport(
+        self.add_obj_bound_log(self.timer.elapsed_sec, new_lb, is_maximize=None)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_bound_is_valid=True
+        )
+        report = HfsCpsatSolverReport(
             elapsed_time=sub_timer.elapsed_sec,
             obj_value=None,
             obj_bound=new_lb,
             is_init=False,
+            status=report_status,
+            obj_value_records=obj_value_records,
+            obj_bound_records=obj_bound_records,
         )
         self.solution_manager.register(report, None)
 

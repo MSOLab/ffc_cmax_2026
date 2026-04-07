@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import logging
 import math
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,9 +17,7 @@ DEFAULT_SUMMARY_CSV = (
 )
 DEFAULT_INPUT_DIR = REPO_ROOT / "resources" / "ff2020big"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "lb_bucket" / "runs" / "mip_manual"
-DEFAULT_SOLUTION_ROOT = (
-    REPO_ROOT / "Outputs_scenarios" / "20260406T092725_768054"
-)
+DEFAULT_SOLUTION_ROOT = REPO_ROOT / "Outputs_scenarios" / "20260406T092725_768054"
 DEFAULT_DELTA = 100
 
 
@@ -91,6 +89,8 @@ class BucketSearchResult:
     time_limit_sec_used: float
     total_runtime_sec: float
     termination_reason: str
+    status_name: str
+    solution_count: int
 
 
 @dataclass(frozen=True)
@@ -183,8 +183,7 @@ def gurobi_status_name(grb: Any, status_code: int) -> str:
 
 
 def log_progress(message: str) -> None:
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {message}", flush=True)
+    logging.info(message)
 
 
 def ceil_div(numerator: int, denominator: int) -> int:

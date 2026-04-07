@@ -15,7 +15,7 @@ from .data import (
     resolve_time_limit_sec,
     select_summary_records,
 )
-from .search import run_bucket_search_for_instance
+from .search import run_bucket_search_for_instance, trace_rows_to_csv_rows
 from .shared import import_gurobi, log_progress
 from .solution_io import write_solution_payload
 from .warm_start import load_ub_schedule, resolve_solution_path
@@ -178,7 +178,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"time_limit_sec={instance_time_limit_sec:.2f}, "
             f"{precedence.describe()}"
         )
-        result, trace_rows, progress_rows, solution_payload = run_bucket_search_for_instance(
+        result, trace_rows, progress_rows, solution_payload, status_name, solution_count = run_bucket_search_for_instance(
             gp,
             grb,
             instance,
@@ -211,7 +211,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
 
         trace_path = args.output_dir / f"{record.ins_name}_search_trace.csv"
-        write_csv_rows(trace_path, [asdict(trace_row) for trace_row in trace_rows])
+        trace_csv_rows = trace_rows_to_csv_rows(trace_rows, result, status_name, solution_count)
+        write_csv_rows(trace_path, trace_csv_rows)
         log_progress(f"Wrote trace CSV for instance {record.ins_name} to {trace_path}")
 
         progress_path = args.output_dir / f"{record.ins_name}_progress_trace.csv"

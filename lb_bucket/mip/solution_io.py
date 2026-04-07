@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .shared import BucketModelVars, BucketSearchResult, SearchTraceRow, TwoBucketInstance
+from .shared import BucketModelVars, BucketSearchResult, TwoBucketInstance
 
 
 def extract_solution_payload(
@@ -13,13 +13,14 @@ def extract_solution_payload(
     *,
     instance: TwoBucketInstance,
     result: BucketSearchResult,
-    trace_row: SearchTraceRow,
+    objective_ub: float,
+    objective_lb: float,
     t_lower: int,
     t_upper: int,
     precedence_formulation: str,
     value_tolerance: float = 1e-9,
 ) -> dict[str, Any] | None:
-    if trace_row.solution_count <= 0:
+    if result.solution_count <= 0:
         return None
 
     payload = {
@@ -34,12 +35,12 @@ def extract_solution_payload(
             "t_lower": t_lower,
             "t_upper": t_upper,
             "objective_bucket_count": t_upper - t_lower,
-            "status": trace_row.status,
-            "solution_count": trace_row.solution_count,
-            "objective_ub": trace_row.objective_ub,
-            "objective_lb": trace_row.objective_lb,
-            "horizon_ub": trace_row.horizon_ub,
-            "horizon_lb": trace_row.horizon_lb,
+            "status": result.status_name,
+            "solution_count": result.solution_count,
+            "objective_ub": objective_ub,
+            "objective_lb": objective_lb,
+            "horizon_ub": result.horizon_ub,
+            "horizon_lb": result.horizon_lb,
             "bucket_indexed_lb": result.bucket_indexed_lb,
             "certified_final_lb": result.certified_final_lb,
             "search_certified": result.search_certified,
@@ -85,7 +86,9 @@ def write_solution_payload(output_dir: Path, payload: dict[str, Any]) -> None:
         )
 
 
-def _extract_operation_bucket_rows(var_dict: Any, value_tolerance: float) -> list[dict[str, Any]]:
+def _extract_operation_bucket_rows(
+    var_dict: Any, value_tolerance: float
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for (stage_idx, job_idx, bucket_idx), var in var_dict.items():
         value = float(var.X)
