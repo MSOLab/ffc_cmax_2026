@@ -123,7 +123,9 @@ def test_post_run_process_generates_configured_25p_outputs(tmp_path: Path):
     assert "scenario" in all_25_df.columns
 
 
-def test_post_run_process_creates_top_level_method_comparison_html(tmp_path: Path):
+def test_post_run_process_creates_top_level_method_comparison_html(
+    tmp_path: Path, caplog
+):
     scenario_1 = tmp_path / "ff2020" / "s1"
     scenario_2 = tmp_path / "ff2020" / "s2"
 
@@ -199,8 +201,18 @@ def test_post_run_process_creates_top_level_method_comparison_html(tmp_path: Pat
     assert "s2" in content
     assert "initialize" in content
     assert "repeat" in content
+    assert "step_x" in content
+    assert "guide_marker_x" in content
     assert "range: [0, payload.x_max]" in content
     assert "range: [0, payload.y_max]" in content
+    assert (
+        "Falling back to endpoint CSV for top-level method comparison in scenario 1"
+        in caplog.text
+    )
+    assert (
+        "Falling back to endpoint CSV for top-level method comparison in scenario 2"
+        in caplog.text
+    )
 
 
 def test_post_run_process_uses_json_endpoint_metrics_for_top_level_comparison(
@@ -324,6 +336,8 @@ def test_post_run_process_uses_json_endpoint_metrics_for_top_level_comparison(
     assert "initialize" in content
     assert "repeat" in content
     assert "finalize" in content
+    assert "step_x" in content
+    assert "guide_marker_x" in content
 
 
 def test_post_run_process_skips_top_level_method_comparison_when_method_summaries_missing(

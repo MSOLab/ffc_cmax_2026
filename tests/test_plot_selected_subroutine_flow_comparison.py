@@ -10,7 +10,7 @@ def _write_method_rpdf_summary(path: Path, rows: list[dict]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
-def test_run_cli_creates_html_from_explicit_paths(tmp_path: Path) -> None:
+def test_run_cli_creates_html_from_explicit_paths(tmp_path: Path, caplog) -> None:
     scenario_1 = tmp_path / "Outputs_scenarios" / "run_a" / "ff2020" / "flow-01"
     scenario_2 = tmp_path / "Outputs_scenarios" / "run_b" / "ff2020" / "flow-02"
     output_path = tmp_path / "comparison.html"
@@ -47,8 +47,11 @@ def test_run_cli_creates_html_from_explicit_paths(tmp_path: Path) -> None:
     assert "flow-02" in content
     assert "initialize" in content
     assert "repeat" in content
+    assert "step_x" in content
+    assert "guide_marker_x" in content
     assert "range: [0, payload.x_max]" in content
     assert "range: [0, payload.y_max]" in content
+    assert "Falling back to endpoint CSV for selected-scenario comparison" in caplog.text
 
 
 def test_run_cli_uses_global_scenario_path_list_when_args_are_empty(

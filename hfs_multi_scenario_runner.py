@@ -16,7 +16,11 @@ from xlsxwriter.worksheet import Worksheet
 from hfs_config import BaselineColumnMapping
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hfs_single_instance_runner import HfsSingleInstanceRunner
-from hybridflowshop.report import export_multi_scenario_method_rpdf_comparison_html
+from hybridflowshop.report import (
+    aggregate_scenario_endpoint_metrics_from_json,
+    aggregate_scenario_progression,
+    export_multi_scenario_method_rpdf_comparison_html,
+)
 from hybridflowshop.report.method_progression_report import (
     aggregate_scenario_endpoint_metrics_from_json,
 )
@@ -156,20 +160,29 @@ class HfsMultiScenarioRunner(
             )
 
     def _create_method_rpdf_comparison_html(self) -> None:
-        scenario_metrics: list[tuple[str, pd.DataFrame]] = []
+        scenario_metrics: list[dict[str, object]] = []
 
         for i, runner in enumerate(self.runners):
-            metrics_long_df = self._load_scenario_metrics_from_json_or_csv(
+            scenario_payload = self._load_scenario_metrics_from_json_or_csv(
                 runner.working_dir, i
             )
-            if metrics_long_df is None or metrics_long_df.empty:
+            if scenario_payload is None:
                 continue
 
             scenario_name = self.scenario_configs[i].get(
                 "output_subdir", f"scenario_{i + 1}"
             )
             scenario_label = Path(str(scenario_name)).name
-            scenario_metrics.append((scenario_label, metrics_long_df))
+            endpoint_df = scenario_payload["endpoint_df"]
+            if endpoint_df is None or endpoint_df.empty:
+                continue
+            scenario_metrics.append(
+                {
+                    "label": scenario_label,
+                    "endpoint_df": endpoint_df,
+                    "raw_progression_df": scenario_payload["raw_progression_df"],
+                }
+            )
 
         if not scenario_metrics:
             logging.warning(
@@ -196,7 +209,7 @@ class HfsMultiScenarioRunner(
 
     def _load_scenario_metrics_from_json_or_csv(
         self, working_dir: Path, scenario_index: int
-    ) -> pd.DataFrame | None:
+    ) -> dict[str, pd.DataFrame | None] | None:
         metrics_long_df = aggregate_scenario_endpoint_metrics_from_json(
             working_dir,
             baseline_df=getattr(self, "baseline_df", None),
@@ -214,7 +227,20 @@ class HfsMultiScenarioRunner(
             and not metrics_long_df.dropna(subset=["norm_time", "rpd_f"]).empty
         )
         if has_valid_json_metrics:
-            return metrics_long_df
+            progression_data = aggregate_scenario_progression(
+                working_dir,
+                baseline_df=getattr(self, "baseline_df", None),
+                baseline_instance_col=getattr(self, "baseline_instance_col", "Instance"),
+                baseline_obj_val_col=getattr(self, "baseline_obj_val_col", "UB"),
+                omitted_subroutines={
+                    "set_random_seed",
+                    "set_cp_model_as_base_cp_model",
+                },
+            )
+            return {
+                "endpoint_df": metrics_long_df,
+                "raw_progression_df": progression_data.get("progression_df"),
+            }
 
         summary_path = working_dir / "summary_method_rpdf_and_norm_time_long.csv"
         if not summary_path.exists():
@@ -226,7 +252,15 @@ class HfsMultiScenarioRunner(
             return None
 
         try:
-            return pd.read_csv(summary_path)
+            logging.warning(
+                "Falling back to endpoint CSV for top-level method comparison in scenario %d at %s",
+                scenario_index + 1,
+                working_dir,
+            )
+            return {
+                "endpoint_df": pd.read_csv(summary_path),
+                "raw_progression_df": None,
+            }
         except Exception as e:
             logging.error(
                 f"Failed to load method RPD summary from {summary_path}: {e}",

@@ -106,15 +106,25 @@ def build_scenario_labels(
 
 def load_scenario_metrics(
     scenario_paths: Sequence[Path], label_mode: str = DEFAULT_LABEL_MODE
-) -> list[tuple[str, pd.DataFrame]]:
+) -> list[dict[str, object]]:
     labels = build_scenario_labels(scenario_paths, label_mode=label_mode)
-    scenario_metrics: list[tuple[str, pd.DataFrame]] = []
+    scenario_metrics: list[dict[str, object]] = []
 
     for scenario_path, label in zip(scenario_paths, labels, strict=True):
         summary_path = scenario_path / SUMMARY_FILENAME
         if not summary_path.exists():
             raise FileNotFoundError(f"Missing required summary CSV at {summary_path}")
-        scenario_metrics.append((label, pd.read_csv(summary_path)))
+        logging.warning(
+            "Falling back to endpoint CSV for selected-scenario comparison at %s",
+            scenario_path,
+        )
+        scenario_metrics.append(
+            {
+                "label": label,
+                "endpoint_df": pd.read_csv(summary_path),
+                "raw_progression_df": None,
+            }
+        )
 
     return scenario_metrics
 
