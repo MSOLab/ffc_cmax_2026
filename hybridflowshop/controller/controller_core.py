@@ -301,24 +301,41 @@ class HybridFlowShopCpLnsControllerCore(
         Args:
             flow_resume_idx (int, optional): The index to resume the flow from. Defaults to -1.
         """
+        # Detect if this is a resume run (flow_resume_idx != -1 means resuming from a specific point)
+        is_resume_run = flow_resume_idx != -1
+
         if isinstance(self._subroutine_flow, Sequence) and not isinstance(
             self._subroutine_flow, (str, bytes)
         ):
+            # Accumulate elapsed time from all pre-resume methods
+            total_pre_resume_elapsed = 0.0
+
+            # First pass: run all methods before flow_resume_idx
             for idx, subroutine_data in enumerate(self._subroutine_flow):
                 if idx < flow_resume_idx:
+                    e_timer = ElapsedTimer()
                     if (
                         subroutine_data.get("method", "")
                         in self.method_names_to_run_before_resume
                     ):
-                        e_timer = ElapsedTimer()
                         self._run_flow(subroutine_data)
-                        virtual_dt = datetime.datetime.now() - datetime.timedelta(
-                            seconds=e_timer.elapsed_sec
-                        )
-                        self.timer.set_start_time(virtual_dt)
                     else:
                         self._run_flow(subroutine_data, skip_method_call=True)
-                else:
+                    total_pre_resume_elapsed += e_timer.elapsed_sec
+
+            # Adjust timer once after all pre-resume methods complete
+            if is_resume_run:
+                # Resume run: _try_apply_resume already set the baseline,
+                # so we add pre-resume time to the existing baseline
+                current_start_dt = self.timer.start_dt
+                new_start_dt = current_start_dt - datetime.timedelta(
+                    seconds=total_pre_resume_elapsed
+                )
+                self.timer.set_start_time(new_start_dt)
+
+            # Second pass: run methods from flow_resume_idx onwards
+            for idx, subroutine_data in enumerate(self._subroutine_flow):
+                if idx >= flow_resume_idx:
                     self._run_flow(subroutine_data)
         else:
             logging.warning(
