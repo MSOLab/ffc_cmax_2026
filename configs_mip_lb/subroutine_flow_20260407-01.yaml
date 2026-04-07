@@ -63,3 +63,4 @@
   use_lns_only: false
 - method: apply_mip_lb
   precedence_formulation: "d"
+  threads: 8

@@ -1,0 +1,111 @@
+# Input data configuration
+# pra_common_params_rel_path: "resources/pra_common_params.yaml"
+# baseline_csv_path: "resources/pra_ref/soaData.csv"
+# input_dir: "resources/pra"
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+# baseline_csv_path: "resources/ff2020small_ref/20260129_CPO_2mn_8t.csv"
+# input_dir: "resources/ff2020small"
+# baseline_csv_path: "resources/ff2020big_ref/20260129_CPO_2mn_8t.csv"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+benchmark_idx_list:
+  - 1
+  # - 2
+  # - 3
+  # - 4
+  # - 25
+  # - 26
+  # - 27
+  # - 28
+  # - 49
+  # - 50
+  # - 51
+  # - 52
+  # - 73
+  # - 74
+  # - 75
+  # - 76
+  # - 97
+  # - 98
+  # - 99
+  # - 100
+  # - 121
+  # - 122
+  # - 123
+  # - 124
+  # - 145
+  # - 146
+  # - 147
+  # - 148
+  # - 169
+  # - 170
+  # - 171
+  # - 172
+  # - 193
+  # - 194
+  # - 195
+  # - 196
+  # - 13
+  # - 81
+  # - 217
+  # - 24
+  # - 48
+  # - 72
+  # - 96
+  # - 120
+  # - 144
+  # - 168
+  # - 192
+  # - 216
+  # - 240
+  # - 15
+  # - 39
+  # - 63
+  # - 87
+  # - 111
+  # - 135
+  # - 159
+  # - 183
+  # - 207
+  # - 231
+first: 1
+last: 240
+benchmark_filename_format: "{}.txt"
+
+# Scenario configurations
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/subroutine_flow_20260407-01.yaml"
+    output_dir: "ff2020/20260407-01"
+    description: "LB -> Dispatch -> PW-CP(10%~35%,+5%,fixed*0.01,pf=1, promotion_pf=true) -> MIP LB"
+
+# Output and Logging configuration
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+# Execution configuration
+instance_worker_cnt: 12
+
+# Analysis and plotting options
+draw_gantt: true
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: true
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0
+# Optional metadata for post-processing only
+# analysis_dir_path: "$HFS_RESULT_DIR/calop4/20260304/20260304T135956_984566"
+# analysis_timestamp: "20260406T092725_768054"
+resume_dir_path: Outputs_scenarios/20260406T092725_768054/ff2020/20260322-06
+
+# Optional timepoint summary definitions for post-process outputs.
+# If omitted, defaults are used: 10p, 25p, 50p, 100s(with exclude_if_timelimit_lt=100).
+# timepoint_summaries:
+#   - label: "25p"
+#     mode: "timelimit_ratio"
+#     value: 0.25
+#   - label: "100s"
+#     mode: "absolute_sec"
+#     value: 100
+#     exclude_if_timelimit_lt: 100
