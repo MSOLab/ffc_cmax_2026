@@ -1,0 +1,808 @@
+\documentclass[11pt]{article}
+
+% ============================================================
+% Packages
+% ============================================================
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{stmaryrd}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{natbib}
+\usepackage[linesnumbered,ruled,vlined]{algorithm2e}
+\usepackage[T1]{fontenc}
+\usepackage{tgpagella}
+\usepackage[sc,osf]{mathpazo}
+\usepackage{array}
+\usepackage{alphalph,etoolbox}
+
+% \patchcmd{<cmd>}{<search>}{<replace>}{<success>}{<failure>}
+\patchcmd{\subequations}{\alph{equation}}{\alphalph{\value{equation}}}{}{}
+
+\newcommand{\kbc}[1]{\textcolor{red}{#1}}
+\newcommand{\kbs}[1]{\textcolor{red}{\sout{#1}}}
+\newcommand{\yjc}[1]{\textcolor{blue}{#1}}
+\newcommand{\yjs}[1]{\textcolor{blue}{\sout{#1}}}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{remark}[theorem]{Remark}
+
+\author{MSO Lab.}
+\title{Lower Bound for the Flexible Flow Shop Scheduling\\using a Bucket-indexed Formulation}
+\date{March 27, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Problem Definition}
+
+We consider the classical flexible flow shop scheduling problem with makespan minimization.
+There is a set of stages $I=\{1,\dots,c\}$ and a set of jobs $J=\{1,\dots,n\}$.
+Each job $j\in J$ must be processed once at every stage, in the common technological order
+\[
+1 \rightarrow 2 \rightarrow \cdots \rightarrow c.
+\]
+Stage $i\in I$ contains $m_i$ identical parallel machines.
+The processing time of operation $(i,j)$ is denoted by $p_{ij}$.
+Throughout this note we assume
+\[
+p_{ij}\in\mathbb Z_{+},
+\qquad
+1\le p_{ij}\le 99,
+\qquad \forall i\in I,\ \forall j\in J,
+\]
+and we restrict attention to schedules with integer start times.
+Hence every completion time is also integer.
+The objective of the original problem is to minimize the makespan $C_{\max}$.
+
+Our goal is \emph{not} to solve the original scheduling problem exactly, but to build a compact MILP that yields a valid lower bound.
+The model below is a bucket-indexed \emph{relaxation}: it preserves the stage order of each job at the bucket level, while replacing exact machine-wise no-overlap constraints by aggregate capacity constraints over time buckets.
+
+Assume that an external method already provides a valid lower bound $\underline C^{(0)}$ for the original problem.
+We will use this value to initialize the smallest bucket count that needs to be examined.
+
+\section{Bucket Discretization and Notation}
+
+\subsection{Buckets}
+
+Fix the bucket length to
+\[
+\Delta := 100.
+\]
+Since $p_{ij}\le \Delta$, every operation can intersect at most two consecutive buckets.
+For a candidate bucket count $T\in\mathbb Z_{+}$, define the buckets
+\[
+B_t := [(t-1)\Delta,\, t\Delta),
+\qquad t=1,\dots,T.
+\]
+Thus bucket $t$ starts at time $(t-1)\Delta$ and ends at time $t\Delta$.
+
+For an actual schedule, let $S_{ij}$ and $C_{ij}=S_{ij}+p_{ij}$ denote the start and completion times of operation $(i,j)$.
+Because $S_{ij}$, $C_{ij}$, and $\Delta$ are integer, the intersection length
+\[
+\bigl|[S_{ij},C_{ij})\cap B_t\bigr|
+\]
+is always integer.
+We define the \emph{start bucket} of operation $(i,j)$ as the unique bucket containing $S_{ij}$, and the \emph{last occupied bucket} as the unique bucket containing $C_{ij}-1$.
+The second definition avoids boundary ambiguity when a completion time lands exactly on a bucket boundary.
+
+\subsection{Auxiliary notation}
+
+For each operation $(i,j)$, define its upstream and downstream processing totals by
+\[
+r_{ij}:=\sum_{k=1}^{i-1} p_{kj},
+\qquad
+q_{ij}:=\sum_{k=i+1}^{c} p_{kj}.
+\]
+The quantity $r_{ij}$ is a trivial lower bound on the earliest start time of $(i,j)$, while $q_{ij}$ is a trivial lower bound on the processing that must still follow $(i,j)$.
+
+We will also use the obvious stage-wise and job-wise bucket-count lower bounds
+\begin{align}
+L^{\textnormal{stage}} &:= \max_{i\in I}\left\lceil \frac{\sum_{j\in J} p_{ij}}{m_i\Delta}\right\rceil,
+\label{eq:L-stage}\\
+L^{\textnormal{job}} &:= \max_{j\in J}\left\lceil \frac{\sum_{i\in I} p_{ij}}{\Delta}\right\rceil.
+\label{eq:L-job}
+\end{align}
+Hence a safe starting bucket count is
+\[
+T_0:=\max\left\{1,\ \left\lceil\frac{\underline C^{(0)}}{\Delta}\right\rceil,\ L^{\textnormal{stage}},\ L^{\textnormal{job}}\right\}.
+\]
+If one prefers to use only the external lower bound, replacing $T_0$ by $\max\{1,\lceil\underline C^{(0)}/\Delta\rceil\}$ is also valid.
+
+\begin{table}[htbp]
+\centering
+\caption{Sets and parameters}
+\label{tab:parameters}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.68\textwidth}}
+\toprule
+Notation & Meaning \\
+\midrule
+$\mathcal{I}=\{1,\dots,c\}$ & Set of stages \\
+$\mathcal{J}=\{1,\dots,n\}$ & Set of jobs \\
+$m_i$ & Number of identical parallel machines at stage $i\in \mathcal{I}$ \\
+$p_{ij}$ & Integer processing time of operation $(i,j)$, with $1\le p_{ij}\le 120$ \\
+$\Delta$ & Bucket length \\
+$C_{LB}$ & External valid lower bound on the original makespan \\
+$C_{UB}$ & External valid upper bound on the original makespan \\
+$T_L$ & Bucket index such that $C_{LB} \geq \Delta T_L$ \\
+$T_U$ & Bucket index such that $C_{UB} \leq \Delta T_U$ \\
+$\mathcal{T}$ & Set of total bucket index $\{1, \ldots, T_U\}$ \\
+$\mathcal{T}'$ & $\{T_L+1, \ldots, T_U\}$ \\
+$r_{ij}$ & Upstream processing total of job $j$ before stage $i$ \\
+$q_{ij}$ & Downstream processing total of job $j$ after stage $i$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Decision variables for the relaxation}
+\label{tab:variables}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.68\textwidth}}
+\toprule
+Variable & Meaning \\
+\midrule
+$a_{ijt}\in\{0,1\}$ & Equals $1$ if operation $(i,j)$ starts in bucket $t$, and $0$ otherwise ($\forall i \in \mathcal{I}, j \in \mathcal{J}, t \in \mathcal{T}$) \\
+$b_{ijt}\in\{0,1\}$ & Equals $1$ if bucket $t$ is the last bucket with positive processing of operation $(i,j)$, and $0$ otherwise ($\forall i \in \mathcal{I}, j \in \mathcal{J}, t \in \mathcal{T}$) \\
+$x_{ijt}\ge 0$ & Amount of processing time of operation $(i,j)$ assigned to bucket $t$ ($\forall i \in \mathcal{I}, j \in \mathcal{J}, t \in \mathcal{T}$) \\
+$u_t \in \{0, 1\}$ & Equals $1$ if bucket $t$ is used, and $0$ otherwise ($\forall t \in \mathcal{T}'$) \\
+$z_t\ge 0$ & Makespan contribution at bucket $t$ ($\forall t \in \mathcal{T}'$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Interpretation.}
+Because $p_{ij}\le \Delta$, each operation uses either one bucket or two consecutive buckets only.
+The pair $(a_{ijt},b_{ijt})$ records the first and last occupied buckets of operation $(i,j)$, and $x_{ijt}$ measures how much of that operation lies in bucket $t$.
+The variable $z$ is used to refine the lower bound inside the last bucket.
+
+\section{Bucket-indexed relaxation formulation}
+
+For a fixed candidate bucket count $T\ge T_0$, consider the following relaxation, denoted by $\mathcal R(T)$:
+
+\begin{subequations}\label{eq:relaxed-model}
+\begin{align}
+\min\quad & \sum_{t \in \mathcal{T}'} z_t \label{eq:obj}\\
+\textnormal{s.t.}\quad
+& \sum_{t \in \mathcal{T}} a_{ijt} = 1 && \forall i\in I,\ \forall j\in J 
+\label{eq:start-one}\\
+& \sum_{t \in \mathcal{T}} b_{ijt} = 1 && \forall i\in I,\ \forall j\in J 
+\label{eq:end-one}\\
+& a_{ijt} \le b_{ijt}+b_{ij,t+1} && \forall i\in I,\ \forall j\in J,\ \forall t \in \mathcal{T} \setminus \{T_U\}
+\label{eq:adjacent-1}\\
+& a_{ijT_U} \le b_{ijT_U} && \forall i\in I,\ \forall j\in J 
+\label{eq:adjacent-2}\\
+& b_{ij1} \le a_{ij1} && \forall i\in I,\ \forall j\in J
+\label{eq:sym-adjacent-1}\\
+& b_{ijt} \le a_{ijt}+a_{ij,t-1} && \forall i\in I,\ \forall j\in J,\ \forall t \in \mathcal{T} \setminus \{1\}
+\label{eq:sym-adjacent-2}\\
+& b_{ijt} \le \sum_{\tau=t}^{T_U} a_{i+1,j,\tau} && \forall i \in I \setminus \{c\},\ \forall j\in J,\ \forall t \in \mathcal{T} 
+\label{eq:precedence-bucket}\\
+& \sum_{t \in \mathcal{T}} x_{ijt} = p_{ij} && \forall i\in I,\ \forall j\in J 
+\label{eq:processing-conservation}\\
+& x_{ijt} \le p_{ij}(a_{ijt}+b_{ijt}) && \forall i\in I,\ \forall j\in J,\ \forall t \in \mathcal{T}
+\label{eq:bucket-activation}\\
+& x_{ijt} \ge a_{ijt} && \forall i\in I,\ \forall j\in J,\ \forall t \in \mathcal{T} 
+\label{eq:positive-start}\\
+& x_{ijt} \ge b_{ijt} && \forall i\in I,\ \forall j\in J,\ \forall t \in \mathcal{T} 
+\label{eq:positive-end}\\
+& x_{ijt} + x_{ij,t+1} \geq p_{ij} a_{ijt} && \forall i \in I, \ \forall j \in J, \ \forall t \in \mathcal{T} \setminus \{T_U\}
+\label{eq:consec-x-a-relationship} \\
+& c_{ijt} \ge a_{ijt} + b_{ijt} - 1 && \forall i \in I, \ \forall j \in J,   \ \forall t \in \mathcal{T}
+\label{eq:c-def1} \\ 
+& a_{ijt} \ge c_{ijt} && \forall i \in I, \ \forall j \in J, \ \forall t \in \mathcal{T}
+\label{eq:c-def2} \\
+& b_{ijt} \ge c_{ijt} && \forall i \in I, \ \forall j \in J, \ \forall t \in \mathcal{T}
+\label{eq:c-def3} \\
+& x_{ijt} \ge p_{ij} c_{ijt} && \forall i \in I, \ \forall j \in J, \ \forall t \in \mathcal{T}
+\label{eq:same-bucket-activation} \\
+& \sum_{j \in J} (a_{ijt}-c_{ijt}) \leq m_i && \forall i \in I, \ \forall t \in \mathcal{T} \setminus \{T_U\}
+\label{eq:machine-capacity} \\
+& \sum_{j\in J} x_{ijt} \le m_i\Delta && \forall i\in I,\ \forall t \in \mathcal{T} \setminus \mathcal{T}' 
+\label{eq:stage-capacity}\\
+& \sum_{j\in J} x_{ijt} \leq m_i z_t  && \forall i\in I, \ \forall t \in \mathcal{T}'
+\label{eq:z-average}\\
+& \sum_{i\in I} x_{ijt} \le \Delta && \forall j\in J,\ \forall t \in \mathcal{T} \setminus \mathcal{T}'
+\label{eq:job-bucket-capacity}\\
+& \sum_{i \in I} x_{ijt} \leq z_t && \forall j\in J, \ \forall t \in \mathcal{T}'
+\label{eq:z-single}\\
+& \Delta u_{t+1} \leq z_t \leq \Delta u_t && \forall t \in \mathcal{T}' \setminus \{T_U\} 
+\label{eq:u-z-relationship} \\
+& u_{t} \geq u_{t+1} && \forall t \in \mathcal{T}' \setminus \{T_U\}
+\label{eq:u-left-aligned} \\
+& u_t \geq b_{ijt} && \forall i \in I, \ \forall j \in J, \ \forall t \in \mathcal{T}' 
+\label{eq:u-b-relationship} \\
+& a_{ijt},b_{ijt}\in\{0,1\},\ 0 \le c_{ijt} \le 1, \ x_{ijt}\ge 0 && \forall i\in I,\ \forall j\in J,\ \forall t \in \mathcal{T} 
+\label{eq:domain-1}\\
+& u_t \in \{0, 1\} && \forall t \in \mathcal{T}'
+\label{eq:domain-2} \\
+& 0\le z_t \le \Delta && \forall t \in \mathcal{T}' \setminus \{T_L, T_U\}
+\label{eq:domain-3} \\
+& z_{T_L+1} \geq C_{LB} - \Delta(T_L) 
+\label{eq:domain-4} \\
+& 0\le z_{T_U} \le C_{UB} - \Delta(T_U-1)
+\label{eq:domain-5} 
+\end{align}
+\end{subequations}
+
+\subsection*{Meaning of the constraints}
+
+Constraints \eqref{eq:start-one}--\eqref{eq:end-one} assign exactly one start bucket and one last occupied bucket to every operation.
+Constraints \eqref{eq:adjacent-1}--\eqref{eq:adjacent-2} enforce that, because $p_{ij}\le \Delta$, the last occupied bucket of an operation must be either its start bucket or the next one.
+
+Constraint \eqref{eq:processing-conservation} preserves the total processing time of each operation.
+Constraint \eqref{eq:bucket-activation} allows an operation to contribute load only to its selected start bucket and/or its selected last occupied bucket.
+Because start times and processing times are integer, the start bucket and the last occupied bucket each contain at least one full unit of processing, which justifies the strengthening inequalities \eqref{eq:positive-start}--\eqref{eq:positive-end}.
+
+Constraint \eqref{eq:stage-capacity} is the main relaxation of exact machine scheduling: instead of imposing machine-wise no-overlap, it limits only the \emph{aggregate} stage-$i$ load inside each bucket by the total available capacity $m_i\Delta$.
+Constraint \eqref{eq:job-bucket-capacity} is a bucket-level non-overlap condition for each job: because a job cannot be processed simultaneously at two stages, its total load inside one bucket cannot exceed the bucket length.
+Constraint \eqref{eq:precedence-bucket} preserves the stage order at the bucket level.
+
+Finally, constraints \eqref{eq:z-single}--\eqref{eq:z-average} lower-bound the amount of time that must be occupied by stage $c$ inside the last bucket.
+The objective minimizes this within-bucket quantity.
+
+
+
+% \kbc{KB: The formulation can be slightly strengthened.} 
+% \begin{itemize}
+% \item 
+% \eqref{eq:bucket-activation} can be strengthened by 
+% $x_{ijt} \le p_{ij}(a_{ijt}+b_{ijt}) - 1$ $\forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T$ \\
+% \yjc{YJ: If $a_{ijt}=b_{ijt}=0$, then $x_{ijt} \leq -1$?} \kbc{You are right. \\
+% For the tight formulation,\\
+% for operation $(i,j)$ with $p_{ij} \geq 2$,\\
+% $x_{ijt} \le (p_{ij}-1)(a_{ijt}+b_{ijt})$ $\forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T$; \\
+% for operation $(i,j)$ with $p_{ij} =1$,\\
+% $x_{ijt} =  a_{ijt} = b_{ijt}$ }
+% \end{itemize}
+
+% \subsection{Bucket-search procedure}
+
+% \begin{algorithm}[htbp]
+% \DontPrintSemicolon
+% \KwIn{External lower bound $\underline C^{(0)}$, bucket length $\Delta=100$}
+% Compute $T_0=\max\left\{1,\left\lceil \underline C^{(0)}/\Delta\right\rceil,L^{\textnormal{stage}},L^{\textnormal{job}}\right\}$\;
+% $T\leftarrow T_0$\;
+% \While{$\mathcal R(T)$ is infeasible}{
+%     $T\leftarrow T+1$\;
+% }
+% Solve $\mathcal R(T)$ optimally and obtain $z^{\star}(T)$\;
+% Return
+% \[
+% \underline C^{\mathrm{final}}=\max\bigl\{\underline C^{(0)},\, (T-1)\Delta+z^{\star}(T)\bigr\}
+% \]
+% \caption{Bucket search starting from an external lower bound}
+% \label{alg:bucket-search}
+% \end{algorithm}
+
+\section{Valid Inequalities and Modeling Enhancements}
+
+For the range-based formulation \eqref{eq:relaxed-model}, define the surrogate makespan
+\[
+W:=T_L\Delta+\sum_{t\in\mathcal T'} z_t .
+\]
+This section lists strengthening inequalities and optimality-preserving tightenings that are consistent with the current range-based model.
+
+\subsection{Head/tail-based bucket windows}
+
+Recall that
+\[
+r_{ij}:=\sum_{k=1}^{i-1} p_{kj},
+\qquad
+q_{ij}:=\sum_{k=i+1}^{c} p_{kj},
+\qquad \forall i\in I,\ \forall j\in J.
+\]
+The quantity $r_{ij}$ is a valid lower bound on the earliest start time of operation $(i,j)$.
+Likewise, because $C_{UB}$ is a valid upper bound on the optimal makespan, $C_{UB}-q_{ij}$ is a valid upper bound on the latest completion time of operation $(i,j)$ in at least one optimal schedule.
+
+Define the earliest and latest buckets consistent with these bounds by
+\[
+\underline t_{ij}:=1+\left\lfloor\frac{r_{ij}}{\Delta}\right\rfloor,
+\qquad
+\underline u_{ij}:=\underline t_{ij}\Delta-r_{ij},
+\]
+\[
+\overline t_{ij}^{UB}:=\left\lceil\frac{C_{UB}-q_{ij}}{\Delta}\right\rceil,
+\qquad
+\overline u_{ij}^{UB}:=C_{UB}-q_{ij}-(\overline t_{ij}^{UB}-1)\Delta.
+\]
+
+Then the following fixings are valid:
+\begin{align}
+a_{ijt}=b_{ijt}=x_{ijt}=0
+&\qquad
+\forall i\in I,\ \forall j\in J,\ \forall t<\underline t_{ij},
+\label{eq:range-fix-earliest}\\
+a_{ijt}=b_{ijt}=x_{ijt}=0
+&\qquad
+\forall i\in I,\ \forall j\in J,\ \forall t>\overline t_{ij}^{UB},
+\label{eq:range-fix-latest}
+\end{align}
+and the following residual-capacity inequalities are valid whenever the indexed buckets lie in $\mathcal T$:
+\begin{align}
+x_{ij,\underline t_{ij}} &\le \underline u_{ij}
+&& \forall i\in I,\ \forall j\in J\text{ such that }\underline t_{ij}\in\mathcal T,
+\label{eq:range-earliest-residual}\\
+x_{ij,\overline t_{ij}^{UB}} &\le \overline u_{ij}^{UB}
+&& \forall i\in I,\ \forall j\in J\text{ such that }\overline t_{ij}^{UB}\in\mathcal T.
+\label{eq:range-latest-residual}
+\end{align}
+
+Inequalities \eqref{eq:range-fix-earliest}--\eqref{eq:range-earliest-residual} encode that operation $(i,j)$ cannot begin before time $r_{ij}$.
+Likewise, \eqref{eq:range-fix-latest}--\eqref{eq:range-latest-residual} eliminate buckets that are too late to contain any processing of $(i,j)$ if one restricts attention to schedules no longer than the known upper bound $C_{UB}$.
+
+\subsection{Head/tail linking cuts across the stages of one job}
+
+The following inequalities inject quantitative job-chain information into the bucket model:
+\begin{align}
+r_{ij} a_{ijt}
+&\le
+\sum_{k=1}^{i-1}\sum_{\tau=1}^{t} x_{kj\tau}
+&& \forall i=2,\dots,c,\ \forall j\in J,\ \forall t\in\mathcal T,
+\label{eq:range-head-link}\\
+q_{ij} b_{ijt}
+&\le
+\sum_{k=i+1}^{c}\sum_{\tau=t}^{T_U} x_{kj\tau}
+&& \forall i=1,\dots,c-1,\ \forall j\in J,\ \forall t\in\mathcal T.
+\label{eq:range-tail-link}
+\end{align}
+
+If operation $(i,j)$ starts in bucket $t$, then all upstream processing of the same job must already be completed within buckets $1,\dots,t$, which yields \eqref{eq:range-head-link}.
+Similarly, if bucket $t$ is the last occupied bucket of operation $(i,j)$, then all downstream processing of the same job must lie in buckets $t,\dots,T_U$, which yields \eqref{eq:range-tail-link}.
+
+\subsection{Range-based makespan cuts}
+
+Because
+\[
+W=T_L\Delta+\sum_{t\in\mathcal T'} z_t
+\]
+acts as the current surrogate makespan, all scalar lower-bound cuts should be written in terms of $W$.
+
+
+\paragraph{(ii) Job-chain cuts.}
+For every job $j\in J$,
+\begin{equation}
+W \ge \sum_{k=1}^{c} p_{kj}.
+\label{eq:range-job-chain-cut}
+\end{equation}
+This is the obvious fact that the makespan surrogate cannot be smaller than the total processing requirement of any single job.
+
+\paragraph{(iii) Stage-based cuts of Santos type.}
+For each stage $i\in I$, let
+\[
+r_{i[1]}\le r_{i[2]}\le \cdots \le r_{i[n]}
+\qquad\text{and}\qquad
+q_{i[1]}\le q_{i[2]}\le \cdots \le q_{i[n]}
+\]
+denote the nondecreasing rearrangements of $\{r_{ij}:j\in J\}$ and $\{q_{ij}:j\in J\}$, respectively.
+Then the following stage-based inequalities are valid:
+\begin{equation}
+m_i W
+\ge
+\sum_{y=1}^{m_i} r_{i[y]}
++
+\sum_{j\in J} p_{ij}
++
+\sum_{y=1}^{m_i} q_{i[y]}
+\qquad \forall i\in I.
+\label{eq:range-santos-stage-cut}
+\end{equation}
+
+Equivalently, defining
+\[
+LB_i^{\mathrm S}
+:=
+\frac{1}{m_i}
+\left(
+\sum_{y=1}^{m_i} r_{i[y]}
++
+\sum_{j\in J} p_{ij}
++
+\sum_{y=1}^{m_i} q_{i[y]}
+\right),
+\qquad \forall i\in I,
+\]
+one may write
+\[
+W \ge LB_i^{\mathrm S}
+\qquad \forall i\in I.
+\]
+
+If one wishes to aggregate the job-chain and stage-based bounds into a single scalar cut, define
+\[
+LB^{\mathrm S}
+:=
+\max\left\{
+\max_{j\in J}\sum_{k=1}^{c} p_{kj},
+\ \max_{i\in I} LB_i^{\mathrm S}
+\right\},
+\]
+and add
+\begin{equation}
+W \ge LB^{\mathrm S}.
+\label{eq:range-santos-global-cut}
+\end{equation}
+
+\subsection{Variable generation inside feasible windows}
+
+Instead of creating variables for every $t\in\mathcal T$, one may generate $a_{ijt}$, $b_{ijt}$, $c_{ijt}$, and $x_{ijt}$ only for buckets in the feasible window
+\[
+\underline t_{ij}\le t\le \overline t_{ij}^{UB}.
+\]
+This does not change the model logically, but it often reduces the MILP size substantially.
+
+
+
+
+\section{Results of MIP Formulation}
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{c|c|c|c|c|c||c|c|c}
+        Instance & \#Job & \#Stage & BestObj & BestBound & Time (ALG) & NewBound & Time (Bucket) \\
+        \midrule
+        Inst 001 & 40 & 5 & 989 & 973 & 0.61 & 973 & 3.16 \\
+        Inst 002 & 40 & 10 & 1315 & 1287 & 1.84 & 1287 & 105.05 \\
+        Inst 004 & 40 & 15 &2072 & 1655 & 6.20 & >1700 & 170 \\
+    \end{tabular}
+    \caption{Results ($\Delta = 100$)}
+    \label{tab:placeholder}
+\end{table}
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{c|c|c|c|c|c||c|c|c|c}
+        Instance & \#Job & \#Stage & BestObj & BestBound & $t_{ALG}$ & NewBound & $t_{Bucket}$ & Note \\
+        \midrule
+        Inst 001 & 40 & 5 & 989 & 973 & 0.61 & 973 & 0.62 & OPT \\
+        Inst 002 & 40 & 10 & 1315 & 1287 & 1.84 & 1287 & 14.8 & OPT \\
+        Inst 003 & 40 & 15 & 1568 & 1453 & 3.89 & \textcolor{red}{1473} & 67.4 & OPT\\
+        Inst 004 & 40 & 20 & 2072 & 1655 & 6.20 & \textcolor{red}{1673} & 40.0 & INTERMEDITAE\\
+    \end{tabular}
+    \caption{Results ($\Delta = 200$)}
+    \label{tab:placeholder}
+\end{table}
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{c|c|c|c|c|c||c|c|c|c}
+        Instance & \#Job & \#Stage & BestObj & BestBound & $t_{ALG}$ & NewBound & $t_{Bucket}$ & Note \\
+        \midrule
+        Inst 001 & 40 & 5 & 989 & 973 & 0.61 & 973 & 0.19 & OPT \\
+        Inst 002 & 40 & 10 & 1315 & 1287 & 1.84 & 1287 & 1.38 & OPT \\
+        Inst 003 & 40 & 15 & 1568 & 1453 & 3.89 & 1453 & 1.24 & OPT \\
+        Inst 004 & 40 & 20 & 2072 & 1655 & 6.20 & \textcolor{red}{1673} & 3.0 & INTERMEDITAE\\
+    \end{tabular}
+    \caption{Results ($\Delta = 400$)}
+    \label{tab:placeholder}
+\end{table}
+
+\begin{table}[ht]
+    \centering
+    \begin{tabular}{c|c|c|c|c|c||c|c|c|c|c}
+        Instance & \#Job & \#Stage & BestObj & BestBound & $t_{ALG}$ & NewBound & $t_{Bucket}$ & Time Ratio & Note\\
+        \midrule
+        Inst 004 & 40 & 20 & 2072 & 1655 & 6.20 & \textcolor{red}{1689} & 2.59 & 0.32\% &\\
+        Inst 011 & 120 & 15 & 3460 & 3095 & 12.17 & \textcolor{red}{3105} & 28.8 & 1.60\% & \\
+        Inst 020 & 200 & 20 & 5638 & 5546 & 43.16 & \textcolor{red}{5571} & 625.63 & 15.64\% & 5550 Inf.\\
+        Inst 036 & 120 & 20 & 3718 & 3283 & 21.42 & \textcolor{red}{3303} & 99.2 & 4.13\% & \\
+        Inst 060 & 120 & 20 & 3804 & 3285 & 21.70 & \textcolor{red}{3303} & 102.6 & 4.28\% & \\
+        Inst 079 & 80 & 15 & 2719 & 2383 & 8.09 & \textcolor{red}{2390} & 8.79 & 0.73\% & \\
+        Inst 112 & 160 & 20 & 3913 & 3448 & 33.28 & \textcolor{red}{3450} & 129.45 & 4.05\% & \\
+        Inst 123 & 40 & 15 & 1331 & 1085 & 3.69 & \textcolor{red}{1091} & 1.24 & 0.21\% & \\
+        Inst 126 & 80 & 10 & 1945 & 1755 & 4.17 & \textcolor{red}{1756} & 3.51 & 0.44\% & \\
+        Inst 128 & 80 & 20 & 2503 & 2130 & 14.06 & \textcolor{red}{2155} & 12.78 & 0.80\% & \\
+        Inst 132 & 120 & 20 & 3202 & 2693 & 21.64 & \textcolor{red}{2700} & 49.43 & 2.06\% & \\
+        Inst 136 & 160 & 20 & 3910 & 3419 & 33.29 & \textcolor{red}{3424} & 95.77 & 2.99\% & \\
+        Inst 144 & 240 & 20 & 6370 & 5726 & 54.5 & \textcolor{red}{5739} & 534.04 & 11.13\% & \\
+        Inst 156 & 120 & 20 & 3129 & 2740 & 21.75 & \textcolor{red}{2747} & 35.17 & 1.47\% & \\
+        Inst 171 & 40 & 15 & 1465 & 1190 & 3.84 & \textcolor{red}{1229} & 2.56 & 0.43\% & \\
+        Inst 193 & 40 & 5 & 1012 & 905 & 0.62 & \textcolor{red}{912} & 2.56 & 0.15\% & \\
+        Inst 198 & 80 & 10 & 1778 & 1570 & 3.84 & \textcolor{red}{1575} & 3.50 & 0.44\% & \\
+        Inst 208 & 160 & 20 & 4722 & 4229 & 32.48 & \textcolor{red}{4246} & 134.11 & 4.19\% & \\
+        Inst 228 & 120 & 20 & 3928 & 3341 & 20.95 & \textcolor{red}{3401} & 60.00 & 2.50\% & \\
+        Inst 240 & 240 & 20 & 6343 & 5653 & 52.06 & \textcolor{red}{5674} & 452.05 & 9.42\% & \\
+    \end{tabular}
+    \caption{Relaxation ($\Delta = 150$)}
+    \label{tab:placeholder}
+\end{table}
+
+\clearpage
+
+\section{Constraint Programming}
+
+
+
+% \subsection{A CP-SAT Formulation with Bucket Intervals}
+
+% The MILP formulation in \eqref{eq:relaxed-model} explicitly introduces
+% the bucket-start and bucket-end indicators $a_{ijt}$ and $b_{ijt}$ for every
+% $t=1,\dots,T$. In a CP-SAT model it is more natural to replace these
+% bucket-wise binaries by a small number of integer variables and interval
+% variables for each operation. The key observation is that, because
+% $p_{ij}<\Delta$, each operation occupies either one bucket or two consecutive
+% buckets only. Hence the \emph{bucket span} of operation $(i,j)$ has length
+% either $1$ or $2$.
+
+% For a fixed candidate bucket count $T\ge T_0$, let the bucket axis be
+% $\{0,1,\dots,T-1\}$, where bucket $t\in\{1,\dots,T\}$ corresponds to the
+% unit interval $[t-1,t)$ on this axis. For each operation $(i,j)$, introduce:
+
+% \begin{itemize}[leftmargin=1.5em]
+%     \item $s_{ij}\in\{1,\dots,T\}$: start bucket of operation $(i,j)$;
+%     \item $u_{ij}\in\{0,1\}$: spill indicator, where $u_{ij}=1$ iff
+%     operation $(i,j)$ occupies two buckets;
+%     \item $e_{ij}\in\{1,\dots,T\}$: last occupied bucket, defined by
+%     $e_{ij}=s_{ij}+u_{ij}$;
+%     \item $f_{ij}\in\mathbb Z_+$: processing amount assigned to the start bucket
+%     $s_{ij}$;
+%     \item $g_{ij}\in\mathbb Z_+$: processing amount assigned to the second
+%     bucket $s_{ij}+1$ when $u_{ij}=1$;
+%     \item $\ell_{ij}\in\mathbb Z_+$: processing amount of operation $(i,j)$
+%     in its own last occupied bucket, defined by
+%     $\ell_{ij}=g_{ij}+p_{ij}(1-u_{ij})$;
+%     \item $\lambda_{ij}\in\{0,1\}$: indicator of whether the last occupied
+%     bucket of operation $(i,j)$ is the global last bucket $T$;
+%     \item $\eta_{ij}\in\mathbb Z_+$: processing amount of operation $(i,j)$
+%     assigned to the global last bucket $T$;
+%     \item $z\in\{0,1,\dots,\Delta\}$: lower bound on the occupied length of
+%     the residual last bucket.
+% \end{itemize}
+
+% The binary variables $a_{ijt}$ and $b_{ijt}$ are no longer explicit. If
+% needed for interpretation, they are recovered by
+% \[
+% a_{ijt}=1 \iff s_{ij}=t,
+% \qquad
+% b_{ijt}=1 \iff e_{ij}=t.
+% \]
+
+% \paragraph{Interval variables.}
+% For each operation $(i,j)$, define the following CP-SAT interval variables.
+
+% \begin{itemize}[leftmargin=1.5em]
+%     \item $F_{ij}$: a mandatory unit interval with start $s_{ij}-1$ on the
+%     bucket axis. This interval represents the contribution $f_{ij}$ of
+%     operation $(i,j)$ to its start bucket.
+%     \item $G_{ij}$: an optional unit interval with start $s_{ij}$ on the
+%     bucket axis, present iff $u_{ij}=1$. This interval represents the
+%     contribution $g_{ij}$ to the second bucket.
+%     \item $K_{ij}$: an optional unit interval on the boundary axis
+%     $\{0,1,\dots,T-2\}$ with start $s_{ij}-1$, present iff $u_{ij}=1$.
+%     This interval is used to count bucket-crossing operations, i.e.,
+%     operations that spill from bucket $s_{ij}$ to bucket $s_{ij}+1$.
+% \end{itemize}
+
+% The CP-SAT model, denoted by $\mathcal{CP}(T)$, is then:
+
+% \begin{subequations}\label{eq:cp-bucket-model}
+% \begin{align}
+% \min\quad & z \label{eq:cp-obj}\\
+% \textnormal{s.t.}\quad
+% & e_{ij}=s_{ij}+u_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-end-def}\\
+% & 1\le s_{ij},\qquad e_{ij}\le T
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-domain-se}\\
+% & f_{ij}+g_{ij}=p_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-split-1}\\
+% & g_{ij}\le (p_{ij}-1)u_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-split-2}\\
+% & g_{ij}\ge u_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-split-3}\\
+% & \ell_{ij}=g_{ij}+p_{ij}(1-u_{ij})
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-lastload-def}\\
+% & s_{ij}\ge \underline t_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-earliest}\\
+% & e_{ij}\le \overline t_{ij}(T)
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-latest}\\
+% & s_{ij}=\underline t_{ij}\ \Longrightarrow\ f_{ij}\le \underline u_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-earliest-residual}\\
+% & e_{ij}=\overline t_{ij}(T)\ \Longrightarrow\ \ell_{ij}\le \overline u_{ij}(T)
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-latest-residual}\\
+% & e_{ij}\le s_{i+1,j}
+% && \forall i=1,\dots,c-1,\ \forall j\in J
+% \label{eq:cp-precedence}\\
+% & \operatorname{Cumulative}\!\bigl(\{F_{ij},G_{ij}:j\in J\},
+% \{f_{ij},g_{ij}:j\in J\},\, m_i\Delta\bigr)
+% && \forall i\in I
+% \label{eq:cp-stage-cumul}\\
+% & \operatorname{Cumulative}\!\bigl(\{F_{ij},G_{ij}:i\in I\},
+% \{f_{ij},g_{ij}:i\in I\},\, \Delta\bigr)
+% && \forall j\in J
+% \label{eq:cp-job-cumul}\\
+% & \operatorname{Cumulative}\!\bigl(\{K_{ij}:j\in J\},
+% \{1:j\in J\},\, m_i\bigr)
+% && \forall i\in I
+% \label{eq:cp-crossing-cumul}\\
+% & \lambda_{ij}=1 \iff e_{ij}=T
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-last-indicator}\\
+% & 0\le \eta_{ij}\le p_{ij}\lambda_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-eta-1}\\
+% & \eta_{ij}\le \ell_{ij}
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-eta-2}\\
+% & \eta_{ij}\ge \ell_{ij}-p_{ij}(1-\lambda_{ij})
+% && \forall i\in I,\ \forall j\in J
+% \label{eq:cp-eta-3}\\
+% & z\ge \sum_{i\in I}\eta_{ij}
+% && \forall j\in J
+% \label{eq:cp-z-job}\\
+% & m_i z\ge \sum_{j\in J}\eta_{ij}
+% && \forall i\in I
+% \label{eq:cp-z-stage}\\
+% & (T-1)\Delta+z \ge \sum_{k=1}^{c} p_{kj}
+% && \forall j\in J
+% \label{eq:cp-job-chain-cut}\\
+% & m_i\bigl((T-1)\Delta+z\bigr)
+% \ge
+% \sum_{y=1}^{m_i} r_{i[y]}
+% +\sum_{j\in J} p_{ij}
+% +\sum_{y=1}^{m_i} q_{i[y]}
+% && \forall i\in I
+% \label{eq:cp-santos-cut}\\
+% & s_{ij}\in\{1,\dots,T\},\quad
+% u_{ij},\lambda_{ij}\in\{0,1\},\quad
+% f_{ij},g_{ij},\ell_{ij},\eta_{ij},z\in\mathbb Z_+
+% && \forall i\in I,\ \forall j\in J.
+% \label{eq:cp-domain}
+% \end{align}
+% \end{subequations}
+
+% In \eqref{eq:cp-santos-cut}, the notation $r_{i[y]}$ denotes the $y$-th
+% smallest value in the multiset $\{r_{ij}:j\in J\}$, and $q_{i[y]}$ denotes
+% the $y$-th smallest value in the multiset $\{q_{ij}:j\in J\}$.
+
+
+\clearpage
+
+\section{Generalization to Tighter or Looser Time Resolution}
+\label{sec:generalization}
+
+The special case $\Delta=100>p_{ij}$ is attractive because every operation spans at most two buckets.
+However, the same logic can be generalized to an arbitrary bucket length
+\[
+\delta\in\mathbb Z_{+}.
+\]
+Choosing a \emph{smaller} $\delta$ yields a tighter time representation but increases the number of buckets and allows each operation to cross more buckets.
+Choosing a \emph{larger} $\delta$ yields a looser model with fewer buckets and fewer binary variables.
+Thus $\delta$ becomes a resolution parameter that can be tuned according to the desired trade-off between bound strength and running time.
+
+\subsection{How many buckets can one operation occupy?}
+
+For a general bucket length $\delta$, operation $(i,j)$ can intersect at most
+\[
+\kappa_{ij}(\delta):=1+\left\lceil\frac{p_{ij}}{\delta}\right\rceil
+\]
+consecutive buckets.
+When $\delta\ge p_{ij}$, this becomes $\kappa_{ij}(\delta)=2$ and we recover the two-bucket case.
+When $\delta$ is smaller, the same operation may span three or more consecutive buckets.
+
+\subsection{Generalized multi-bucket formulation}
+
+For the generalized model, keep the start and last-occupied bucket binaries $a_{ijt}$ and $b_{ijt}$, and introduce an additional occupancy binary
+\[
+u_{ijt}\in\{0,1\}
+\qquad \forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T,
+\]
+where $u_{ijt}=1$ means that operation $(i,j)$ occupies bucket $t$.
+Let
+\[
+\bar p_{ij}(\delta):=\min\{p_{ij},\delta\}.
+\]
+Then the two-bucket activation constraints are replaced by the following occupancy/contiguity system:
+\begin{subequations}\label{eq:general-occ}
+\begin{align}
+& \sum_{t=1}^{T} a_{ijt}=1,
+\qquad
+  \sum_{t=1}^{T} b_{ijt}=1
+&& \forall i\in I,\ \forall j\in J,
+\label{eq:gen-start-end}\\
+& u_{ijt} \le \sum_{\tau=1}^{t} a_{ij\tau}
+&& \forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-u-upper-1}\\
+& u_{ijt} \le \sum_{\tau=t}^{T} b_{ij\tau}
+&& \forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-u-upper-2}\\
+& u_{ijt} \ge \sum_{\tau=1}^{t} a_{ij\tau} + \sum_{\tau=t}^{T} b_{ij\tau} -1
+&& \forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-u-lower}\\
+& x_{ijt} \le \bar p_{ij}(\delta)\,u_{ijt}
+&& \forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-x-upper}\\
+& x_{ijt} \ge a_{ijt},
+\qquad
+  x_{ijt} \ge b_{ijt}
+&& \forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-x-pos}\\
+& x_{ijt} \ge \delta\bigl(u_{ijt}-a_{ijt}-b_{ijt}\bigr)
+&& \forall i\in I,\ \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-full-interior}\\
+& \sum_{t=1}^{T} x_{ijt}=p_{ij}
+&& \forall i\in I,\ \forall j\in J.
+\label{eq:gen-proc-conservation}
+\end{align}
+\end{subequations}
+Constraint \eqref{eq:gen-u-lower} together with \eqref{eq:gen-u-upper-1}--\eqref{eq:gen-u-upper-2} forces $u_{ijt}=1$ exactly on the contiguous block of buckets between the chosen start bucket and the chosen last occupied bucket.
+Constraint \eqref{eq:gen-full-interior} enforces full occupancy on every interior bucket, because a contiguous processing interval must completely fill all buckets strictly between its first and last occupied buckets.
+
+
+A useful additional valid inequality is
+\begin{equation}
+\sum_{t=1}^{T} u_{ijt}
+\le
+1+\left\lceil\frac{p_{ij}}{\delta}\right\rceil
+\qquad
+\forall i\in I,\ \forall j\in J,
+\label{eq:gen-max-buckets}
+\end{equation}
+which explicitly limits how many buckets one operation can occupy.
+
+The stage-capacity, job-capacity, precedence, and last-bucket constraints become
+\begin{align}
+\sum_{j\in J} x_{ijt} &\le m_i\delta && \forall i\in I,\ \forall t=1,\dots,T,
+\label{eq:gen-stage-capacity}\\
+\sum_{i\in I} x_{ijt} &\le \delta && \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-job-capacity}\\
+ b_{ijt} &\le \sum_{\tau=t}^{T} a_{i+1,j,\tau}
+ && \forall i=1,\dots,c-1,\ \forall j\in J,\ \forall t=1,\dots,T,
+\label{eq:gen-precedence}\\
+ z &\ge x_{cjT} && \forall j\in J,
+\label{eq:gen-z-1}\\
+ m_c z &\ge \sum_{j\in J} x_{cjT},
+\qquad
+0\le z\le \delta.
+\label{eq:gen-z-2}
+\end{align}
+All arguments of Lemma~\ref{lem:relaxation}, Proposition~\ref{prop:infeasible}, and Theorem~\ref{thm:first-feasible} carry over verbatim after replacing $\Delta$ by $\delta$.
+
+
+\kbc{KB: Possible strengthening 
+\begin{itemize}
+\item Consider $u_{ijt} \geq a_{ijt}$
+and $u_{ijt} \geq b_{ijt}$. They are different from \eqref{eq:gen-u-lower}
+\item 
+\eqref{eq:gen-full-interior} can be meaningful only for $(i,j)$ with $\kappa_{ij}(\delta) \geq 3$.
+\item 
+$\kappa_{ij}(\delta)$ gives the information of the distance between the start and end buckets in the same stage. $\kappa_{ij}(\delta) -1$ is the least number of consecutive buckets. (please check carefully)
+If $a_{ijt} = 1$, then $\sum_{\tau = t+\kappa_{ij}(\delta) - 2}^T b_{ij\tau} = 1$   
+\end{itemize}
+}
+
+
+
+\subsection{Practical interpretation}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Tighter resolution.} Choosing a smaller bucket size $\delta$ usually strengthens the lower bound because the model captures time more accurately. The price is a larger MILP and the need for the occupancy variables $u_{ijt}$.
+    \item \textbf{Looser resolution.} Choosing a larger bucket size reduces the number of buckets and may speed up solution time, but the resulting lower bound is usually weaker.
+    \item \textbf{Adaptive strategy.} One may start with a coarse $\delta$ to get a cheap lower bound, and then re-solve with a finer $\delta$ only when a stronger bound is needed.
+\end{itemize}
+
+
+\section{Conclusion}
+
+The bucket-indexed MILP developed above provides a practical lower-bounding device for the flexible flow shop makespan problem under integer processing and integer start times.
+For the special choice $\Delta=100$ and $1\le p_{ij}\le 99$, every operation intersects at most two consecutive buckets, which yields a compact relaxation.
+The model remains logically valid because it is derived from a direct schedule-to-MILP mapping, and the extracted lower bound is guaranteed when the bucket search stops at the first feasible bucket count.
+
+The generalized formulation of Section~\ref{sec:generalization} shows how the same idea can be used with tighter or looser time resolution.
+Therefore, the framework can be tuned between strength and speed and can also absorb stronger operation-level time-window information from other relaxations.
+
+\end{document}
