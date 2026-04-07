@@ -4,6 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 import matplotlib
 import pandas as pd
@@ -88,6 +89,7 @@ def export_method_rpdf_scatter_svg(
 
 
 REQUIRED_HTML_COLUMNS = {"instance_id", "subroutine_name", "norm_time", "rpd_f"}
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,12 @@ class RawInstanceProgression:
     stage_cnt: int
     progression_points: list[ProgressionPoint]
     marker_meta_by_time: dict[float, MarkerMeta]
+
+
+@dataclass(frozen=True)
+class MeanVerticalGuide:
+    subroutine_name: str
+    x: float
 
 
 def _normalize_instance_key(value: object) -> str | None:
@@ -280,6 +288,20 @@ def _build_step_path(
     return step_x, step_y
 
 
+def _build_step_aligned_values(base_values: list[T], y_values: list[float]) -> list[T]:
+    aligned_values: list[T] = []
+    for idx, base_value in enumerate(base_values):
+        if idx == 0:
+            aligned_values.append(base_value)
+            continue
+
+        aligned_values.append(base_values[idx - 1])
+        if y_values[idx] < y_values[idx - 1]:
+            aligned_values.append(base_value)
+
+    return aligned_values
+
+
 def _build_marker_meta_by_time(
     instance_id: object, grp: pd.DataFrame, job_cnt: int, stage_cnt: int
 ) -> dict[float, MarkerMeta]:
@@ -369,10 +391,10 @@ def _build_raw_plotly_series(model: RawInstanceProgression) -> dict:
     }
 
 
-def _build_raw_series_payload(
+def _build_raw_instance_progression_models(
     endpoint_df: pd.DataFrame, raw_progression_df: pd.DataFrame | None = None
-) -> list[dict]:
-    raw_series = []
+) -> list[RawInstanceProgression]:
+    raw_models: list[RawInstanceProgression] = []
     progression_by_instance: dict[str, pd.DataFrame] = {}
     if raw_progression_df is not None and not raw_progression_df.empty:
         progression_sort_cols = [
@@ -399,9 +421,117 @@ def _build_raw_series_payload(
             job_cnt=n_val,
             stage_cnt=c_val,
         )
-        raw_series.append(_build_raw_plotly_series(raw_model))
+        raw_models.append(raw_model)
 
-    return raw_series
+    return raw_models
+
+
+def _build_raw_series_payload(
+    endpoint_df: pd.DataFrame, raw_progression_df: pd.DataFrame | None = None
+) -> list[dict]:
+    raw_models = _build_raw_instance_progression_models(endpoint_df, raw_progression_df)
+    return [_build_raw_plotly_series(model) for model in raw_models]
+
+
+def _build_mean_vertical_guides(
+    models: list[RawInstanceProgression],
+) -> list[MeanVerticalGuide]:
+    subroutine_times: dict[str, list[float]] = {}
+    for model in models:
+        for marker_time in sorted(model.marker_meta_by_time):
+            marker_meta = model.marker_meta_by_time[marker_time]
+            subroutine_times.setdefault(marker_meta.subroutine_name, []).append(
+                marker_time
+            )
+
+    return [
+        MeanVerticalGuide(
+            subroutine_name=subroutine_name,
+            x=sum(times) / len(times),
+        )
+        for subroutine_name, times in sorted(subroutine_times.items())
+        if times
+    ]
+
+
+def _build_mean_series_payload(raw_models: list[RawInstanceProgression]) -> list[dict]:
+    models_by_group: dict[tuple[int, int], list[RawInstanceProgression]] = {}
+    for model in raw_models:
+        if not model.progression_points:
+            continue
+        models_by_group.setdefault((model.job_cnt, model.stage_cnt), []).append(model)
+
+    mean_series: list[dict] = []
+    for (job_cnt, stage_cnt), models in sorted(models_by_group.items()):
+        first_times = [model.progression_points[0].time for model in models]
+        last_times = [model.progression_points[-1].time for model in models]
+        start_time = max(first_times)
+        end_time = max(last_times)
+        union_times = sorted(
+            {
+                point.time
+                for model in models
+                for point in model.progression_points
+                if start_time <= point.time <= end_time
+            }
+        )
+        if not union_times:
+            union_times = [start_time]
+            if end_time > start_time:
+                union_times.append(end_time)
+        elif union_times[-1] < end_time:
+            union_times.append(end_time)
+
+        mean_x: list[float] = []
+        mean_y: list[float] = []
+        for time_val in union_times:
+            values = [
+                value
+                for model in models
+                if (
+                    value := _lookup_rpdf_at_or_before(
+                        model.progression_points, time_val
+                    )
+                )
+                is not None
+            ]
+            if len(values) != len(models):
+                continue
+            mean_x.append(time_val)
+            mean_y.append(sum(values) / len(values))
+
+        if not mean_x:
+            continue
+
+        series_id = f"mean(job_cnt={job_cnt},stage_cnt={stage_cnt})"
+        step_x, step_y = _build_step_path(mean_x, mean_y)
+        point_customdata = [
+            [series_id, job_cnt, stage_cnt, len(models)] for _ in mean_x
+        ]
+        step_customdata = _build_step_aligned_values(point_customdata, mean_y)
+        guides = _build_mean_vertical_guides(models)
+        mean_series.append(
+            {
+                "series_id": series_id,
+                "job_cnt": job_cnt,
+                "stage_cnt": stage_cnt,
+                "x": mean_x,
+                "y": mean_y,
+                "step_x": step_x,
+                "step_y": step_y,
+                "instance_count": len(models),
+                "vertical_guides": [
+                    {"subroutine_name": guide.subroutine_name, "x": guide.x}
+                    for guide in guides
+                ],
+                "guide_marker_x": [guide.x for guide in guides],
+                "guide_marker_text": [guide.subroutine_name for guide in guides],
+                "customdata": point_customdata,
+                "step_customdata": step_customdata,
+            }
+        )
+
+    return mean_series
 
 
 def _build_html_payload(
@@ -435,46 +565,9 @@ def _build_html_payload(
             subset=["subroutine_order"]
         ).copy()
 
-    raw_series = _build_raw_series_payload(work_df, progression_work_df)
-
-    # Mean series: aggregated by (job_cnt, stage_cnt, subroutine_name)
-    by_n_c_sub = (
-        work_df.groupby(
-            ["job_cnt", "stage_cnt", "subroutine_name", "subroutine_order"],
-            as_index=False,
-            sort=False,
-        )
-        .agg(
-            norm_time=("norm_time", "mean"),
-            rpd_f=("rpd_f", "mean"),
-            count=("instance_id", "size"),
-        )
-        .sort_values(["job_cnt", "stage_cnt", "norm_time", "subroutine_order"])
-    )
-
-    mean_series = []
-    for (n_val, c_val), grp in by_n_c_sub.groupby(["job_cnt", "stage_cnt"], sort=True):
-        grp = grp.sort_values(["norm_time", "subroutine_order", "subroutine_name"])
-        mean_series.append(
-            {
-                "series_id": f"mean(job_cnt={int(n_val)},stage_cnt={int(c_val)})",
-                "job_cnt": int(n_val),
-                "stage_cnt": int(c_val),
-                "x": grp["norm_time"].tolist(),
-                "y": grp["rpd_f"].tolist(),
-                "text": grp["subroutine_name"].tolist(),
-                "customdata": [
-                    [
-                        f"mean(job_cnt={int(n_val)},stage_cnt={int(c_val)})",
-                        int(n_val),
-                        int(c_val),
-                        str(row.subroutine_name),
-                        int(row.count),
-                    ]
-                    for row in grp.itertuples()
-                ],
-            }
-        )
+    raw_models = _build_raw_instance_progression_models(work_df, progression_work_df)
+    raw_series = [_build_raw_plotly_series(model) for model in raw_models]
+    mean_series = _build_mean_series_payload(raw_models)
 
     return {
         "job_cnt_values": [int(x) for x in n_values],
@@ -559,6 +652,10 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
     const chartId = "rpdf-chart";
     const xTickFormat = ".{x_decimals}%";
     const yTickFormat = ".{y_decimals}%";
+    const SERIES_COLORS = [
+      "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+      "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+    ];
     const SYMBOL_MAP = {{
       "initialize_by_best_of_selected_dispatches": "circle",
       "neh_cp": "diamond",
@@ -607,13 +704,14 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
         return jobCntMatch && stageCntMatch;
       }});
 
-      const traces = selected.flatMap((s) => {{
-        const symbols = s.text.map((name) => SYMBOL_MAP[name] || "circle");
+      const traces = selected.flatMap((s, idx) => {{
+        const seriesColor = SERIES_COLORS[idx % SERIES_COLORS.length];
         const traceName = modeVal === "mean"
           ? `job_cnt=${{s.job_cnt}}, stage_cnt=${{s.stage_cnt}}`
           : `instance=${{s.instance_id}}`;
 
         if (modeVal === "raw") {{
+          const symbols = s.text.map((name) => SYMBOL_MAP[name] || "circle");
           return [
             {{
               type: "scatter",
@@ -621,7 +719,7 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
               x: s.step_x,
               y: s.step_y,
               name: traceName,
-              line: {{ width: 1.0 }},
+              line: {{ width: 1.0, color: seriesColor }},
               hoverinfo: "skip",
               showlegend: false
             }},
@@ -632,7 +730,7 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
               y: s.y,
               customdata: s.customdata,
               name: traceName,
-              marker: {{ size: 7, symbol: symbols }},
+              marker: {{ size: 7, symbol: symbols, color: seriesColor }},
               hovertemplate:
                 "series=%{{customdata[0]}}<br>" +
                 "job_cnt=%{{customdata[1]}}<br>" +
@@ -648,23 +746,33 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
 
         return [{{
           type: "scatter",
-          mode: "lines+markers+text",
-          x: s.x,
-          y: s.y,
-          text: s.text,
-          textposition: "top center",
-          customdata: s.customdata,
+          mode: "lines",
+          x: s.step_x,
+          y: s.step_y,
+          customdata: s.step_customdata,
           name: traceName,
-          line: {{ width: 2.0 }},
-          marker: {{ size: 9, symbol: symbols }},
+          line: {{ width: 2.0, color: seriesColor }},
           hovertemplate:
             "series=%{{customdata[0]}}<br>" +
             "job_cnt=%{{customdata[1]}}<br>" +
             "stage_cnt=%{{customdata[2]}}<br>" +
-            "subroutine=%{{customdata[3]}}<br>" +
-            "count=%{{customdata[4]}}<br>" +
+            "instance_cnt=%{{customdata[3]}}<br>" +
             "Time%%=%{{x:.4%}}<br>" +
             "RPDf=%{{y:.4%}}<extra></extra>",
+          showlegend: false
+        }}, {{
+          type: "scatter",
+          mode: "markers",
+          x: s.guide_marker_x || [],
+          y: (s.guide_marker_x || []).map(() => 0),
+          text: s.guide_marker_text || [],
+          name: traceName,
+          marker: {{
+            size: 8,
+            symbol: (s.guide_marker_text || []).map((name) => SYMBOL_MAP[name] || "circle"),
+            color: seriesColor
+          }},
+          hoverinfo: "skip",
           showlegend: false
         }}];
       }});
@@ -675,6 +783,27 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
       const layout = buildLayout(
         `RPDf vs Time% - ${{modeLabel}} (${{selected.length}} lines)`
       );
+      if (modeVal === "mean") {{
+        layout.shapes = selected.flatMap((series, idx) => {{
+          const seriesColor = SERIES_COLORS[idx % SERIES_COLORS.length];
+          return (series.vertical_guides || []).map((guide) => {{
+            return {{
+              type: "line",
+              xref: "x",
+              yref: "paper",
+              x0: guide.x,
+              x1: guide.x,
+              y0: 0,
+              y1: 1,
+              line: {{
+                color: seriesColor,
+                width: 1,
+                dash: "dot"
+              }}
+            }};
+          }});
+        }});
+      }}
       Plotly.react(chartId, traces, layout, {{ responsive: true }});
     }}
 

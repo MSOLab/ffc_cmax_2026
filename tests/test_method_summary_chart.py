@@ -503,12 +503,12 @@ def test_build_html_payload_places_marker_on_previous_progression_point() -> Non
 
 
 def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:
-    merged_df = pd.DataFrame(
+    endpoint_df = pd.DataFrame(
         [
             {
                 "instance_id": "1",
                 "subroutine_name": "init",
-                "norm_time": 0.10,
+                "norm_time": 0.20,
                 "rpd_f": 0.03,
                 "job_cnt": 20,
                 "stage_cnt": 5,
@@ -516,7 +516,7 @@ def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:
             {
                 "instance_id": "2",
                 "subroutine_name": "init",
-                "norm_time": 0.20,
+                "norm_time": 0.10,
                 "rpd_f": 0.05,
                 "job_cnt": 20,
                 "stage_cnt": 5,
@@ -529,10 +529,62 @@ def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:
                 "job_cnt": 20,
                 "stage_cnt": 5,
             },
+            {
+                "instance_id": "2",
+                "subroutine_name": "repeat",
+                "norm_time": 0.40,
+                "rpd_f": 0.02,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+        ]
+    )
+    progression_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "init",
+                "norm_time": 0.20,
+                "rpd_f": 0.03,
+                "global_sec": 20.0,
+                "call_index": 1,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.30,
+                "rpd_f": 0.01,
+                "global_sec": 30.0,
+                "call_index": 2,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "2",
+                "subroutine_name": "init",
+                "norm_time": 0.10,
+                "rpd_f": 0.05,
+                "global_sec": 10.0,
+                "call_index": 1,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "2",
+                "subroutine_name": "repeat",
+                "norm_time": 0.40,
+                "rpd_f": 0.02,
+                "global_sec": 40.0,
+                "call_index": 2,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
         ]
     )
 
-    payload = _build_html_payload(merged_df)
+    payload = _build_html_payload(endpoint_df, raw_progression_df=progression_df)
 
     assert payload["job_cnt_values"] == [20]
     assert payload["stage_cnt_values"] == [5]
@@ -541,9 +593,18 @@ def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:
     mean_series = payload["mean_series"][0]
     assert mean_series["job_cnt"] == 20
     assert mean_series["stage_cnt"] == 5
-    assert mean_series["text"] == ["init", "repeat"]
-    assert mean_series["x"][0] == pytest.approx(0.15)
-    assert mean_series["y"][0] == pytest.approx(0.04)
+    assert mean_series["x"] == pytest.approx([0.20, 0.30, 0.40])
+    assert mean_series["y"] == pytest.approx([0.04, 0.03, 0.015])
+    assert mean_series["step_x"] == pytest.approx([0.20, 0.30, 0.30, 0.40, 0.40])
+    assert mean_series["step_y"] == pytest.approx([0.04, 0.04, 0.03, 0.03, 0.015])
+    assert mean_series["instance_count"] == 2
+    assert len(mean_series["step_customdata"]) == len(mean_series["step_x"])
+    assert mean_series["vertical_guides"] == [
+        {"subroutine_name": "init", "x": pytest.approx(0.15)},
+        {"subroutine_name": "repeat", "x": pytest.approx(0.35)},
+    ]
+    assert mean_series["guide_marker_x"] == pytest.approx([0.15, 0.35])
+    assert mean_series["guide_marker_text"] == ["init", "repeat"]
 
 
 def test_export_method_rpdf_scatter_html_creates_file_with_filters(
@@ -595,6 +656,13 @@ def test_export_method_rpdf_scatter_html_creates_file_with_filters(
     assert "step_x" in content
     assert 'mode: "lines"' in content
     assert 'mode: "markers"' in content
+    assert "vertical_guides" in content
+    assert 'dash: "dot"' in content
+    assert "guide_marker_x" in content
+    assert "step_customdata" in content
+    assert "instance_cnt=%{customdata[3]}" in content
+    assert "SERIES_COLORS" in content
+    assert "selected.flatMap((series, idx)" in content
 
 
 def test_export_method_rpdf_scatter_html_returns_false_when_no_rows_survive_merge(
