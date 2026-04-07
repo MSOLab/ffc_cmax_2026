@@ -9,7 +9,7 @@ pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
 baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
 input_dir: "resources/ff2020big"
 benchmark_idx_list:
-  - 1
+  # - 1
   # - 2
   # - 3
   # - 4
@@ -88,7 +88,7 @@ result_dir_name: "results"
 instance_worker_cnt: 12
 
 # Analysis and plotting options
-draw_gantt: true
+draw_gantt: false
 painter_thread_cnt: 8
 result_gantt_filename_format: "{}_result_gantt.png"
 draw_progress_plot: true
@@ -97,7 +97,7 @@ drop_first_values_percent: 0.0
 # Optional metadata for post-processing only
 # analysis_dir_path: "$HFS_RESULT_DIR/calop4/20260304/20260304T135956_984566"
 # analysis_timestamp: "20260406T092725_768054"
-resume_dir_path: Outputs_scenarios/20260406T092725_768054/ff2020/20260322-06
+resume_dir_path: Outputs_scenarios/20260323T025649_822990/ff2020/20260322-06
 
 # Optional timepoint summary definitions for post-process outputs.
 # If omitted, defaults are used: 10p, 25p, 50p, 100s(with exclude_if_timelimit_lt=100).
