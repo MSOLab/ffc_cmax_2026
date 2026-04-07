@@ -607,6 +607,7 @@ class HfsMultiInstanceRunner(
             self.working_dir / "summary_method_rpdf_and_norm_time_scatter.html"
         )
         try:
+            raw_progression_df = None
             html_metrics_long_df = aggregate_scenario_endpoint_metrics_from_json(
                 self.working_dir,
                 baseline_df=self.baseline_df,
@@ -629,6 +630,18 @@ class HfsMultiInstanceRunner(
                     "falling back to CSV-derived metrics."
                 )
                 html_metrics_long_df = metrics_long_df
+            else:
+                progression_data = aggregate_scenario_progression(
+                    self.working_dir,
+                    baseline_df=self.baseline_df,
+                    baseline_instance_col=instance_col,
+                    baseline_obj_val_col=obj_val_col,
+                    omitted_subroutines={
+                        "set_random_seed",
+                        "set_cp_model_as_base_cp_model",
+                    },
+                )
+                raw_progression_df = progression_data.get("progression_df")
 
             html_created = export_method_rpdf_scatter_html(
                 metrics_long_df=html_metrics_long_df,
@@ -637,6 +650,7 @@ class HfsMultiInstanceRunner(
                 baseline_instance_col=instance_col,
                 baseline_job_cnt_col=job_cnt_col,
                 baseline_stage_cnt_col=stage_cnt_col,
+                raw_progression_df=raw_progression_df,
             )
             if not html_created:
                 logging.warning(

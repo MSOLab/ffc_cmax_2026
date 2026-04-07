@@ -188,7 +188,114 @@ def _load_and_merge_for_html(
     ]
 
 
-def _build_html_payload(df: pd.DataFrame) -> dict:
+def _compute_best_so_far_y_values(y_values: list[float]) -> list[float]:
+    best_y_values: list[float] = []
+    current_best: float | None = None
+    for y_val in y_values:
+        current_best = y_val if current_best is None else min(current_best, y_val)
+        best_y_values.append(current_best)
+    return best_y_values
+
+
+def _build_step_path(x_values: list[float], y_values: list[float]) -> tuple[list[float], list[float]]:
+    step_x: list[float] = []
+    step_y: list[float] = []
+    for idx, (x_val, y_val) in enumerate(zip(x_values, y_values)):
+        if idx == 0:
+            step_x.append(x_val)
+            step_y.append(y_val)
+            continue
+
+        previous_y = y_values[idx - 1]
+        step_x.append(x_val)
+        step_y.append(previous_y)
+        if y_val < previous_y:
+            step_x.append(x_val)
+            step_y.append(y_val)
+
+    return step_x, step_y
+
+
+def _build_raw_best_step_series(
+    instance_id: object, grp: pd.DataFrame, job_cnt: int, stage_cnt: int
+) -> dict:
+    """Build best-so-far stair-step data for one raw instance series."""
+    x_values = grp["norm_time"].tolist()
+    best_y_values = _compute_best_so_far_y_values(grp["rpd_f"].tolist())
+    text_values = grp["subroutine_name"].tolist()
+    step_x, step_y = _build_step_path(x_values, best_y_values)
+
+    return {
+        "series_id": f"instance={instance_id}",
+        "instance_id": str(instance_id),
+        "job_cnt": job_cnt,
+        "stage_cnt": stage_cnt,
+        "x": x_values,
+        "y": best_y_values,
+        "step_x": step_x,
+        "step_y": step_y,
+        "text": text_values,
+        "customdata": [
+            [str(instance_id), job_cnt, stage_cnt, str(row.subroutine_name), 1]
+            for row in grp.itertuples()
+        ],
+    }
+
+
+def _build_raw_series_payload(
+    endpoint_df: pd.DataFrame, raw_progression_df: pd.DataFrame | None = None
+) -> list[dict]:
+    raw_series = []
+    progression_by_instance: dict[str, pd.DataFrame] = {}
+    if raw_progression_df is not None and not raw_progression_df.empty:
+        progression_sort_cols = [
+            col
+            for col in ["norm_time", "global_sec", "call_index"]
+            if col in raw_progression_df.columns
+        ]
+        progression_by_instance = {
+            str(instance_id): grp.sort_values(progression_sort_cols)
+            for instance_id, grp in raw_progression_df.groupby("instance_id", sort=True)
+        }
+
+    for instance_id, endpoint_grp in endpoint_df.groupby("instance_id", sort=True):
+        endpoint_grp = endpoint_grp.sort_values(
+            ["norm_time", "subroutine_order", "subroutine_name"]
+        )
+        n_val = int(endpoint_grp["job_cnt"].iloc[0])
+        c_val = int(endpoint_grp["stage_cnt"].iloc[0])
+        marker_series = _build_raw_best_step_series(instance_id, endpoint_grp, n_val, c_val)
+
+        progression_grp = progression_by_instance.get(str(instance_id))
+        if progression_grp is None or progression_grp.empty:
+            line_x = marker_series["x"]
+            line_y = marker_series["y"]
+        else:
+            line_x = progression_grp["norm_time"].tolist()
+            line_y = _compute_best_so_far_y_values(progression_grp["rpd_f"].tolist())
+        step_x, step_y = _build_step_path(line_x, line_y)
+
+        raw_series.append(
+            {
+                "series_id": marker_series["series_id"],
+                "instance_id": marker_series["instance_id"],
+                "job_cnt": n_val,
+                "stage_cnt": c_val,
+                "x": marker_series["x"],
+                "y": marker_series["y"],
+                "step_x": step_x,
+                "step_y": step_y,
+                "text": marker_series["text"],
+                "customdata": marker_series["customdata"],
+            }
+        )
+
+    return raw_series
+
+
+def _build_html_payload(
+    df: pd.DataFrame, raw_progression_df: pd.DataFrame | None = None
+) -> dict:
     """Build the JSON payload used by the interactive HTML page."""
     if df.empty:
         return {"job_cnt_values": [], "stage_cnt_values": [], "raw_series": [], "mean_series": []}
@@ -203,27 +310,15 @@ def _build_html_payload(df: pd.DataFrame) -> dict:
     n_values = sorted(work_df["job_cnt"].unique())
     c_values = sorted(df["stage_cnt"].unique())
 
-    # Raw series: per-instance progression
-    raw_series = []
-    for instance_id, grp in work_df.groupby("instance_id", sort=True):
-        grp = grp.sort_values(["norm_time", "subroutine_order", "subroutine_name"])
-        n_val = int(grp["job_cnt"].iloc[0])
-        c_val = int(grp["stage_cnt"].iloc[0])
-        raw_series.append(
-            {
-                "series_id": f"instance={instance_id}",
-                "instance_id": str(instance_id),
-                "job_cnt": n_val,
-                "stage_cnt": c_val,
-                "x": grp["norm_time"].tolist(),
-                "y": grp["rpd_f"].tolist(),
-                "text": grp["subroutine_name"].tolist(),
-                "customdata": [
-                    [str(instance_id), n_val, c_val, str(row.subroutine_name), 1]
-                    for row in grp.itertuples()
-                ],
-            }
+    progression_work_df = None
+    if raw_progression_df is not None and not raw_progression_df.empty:
+        progression_work_df = raw_progression_df.copy()
+        progression_work_df["subroutine_order"] = progression_work_df["subroutine_name"].map(
+            order_map
         )
+        progression_work_df = progression_work_df.dropna(subset=["subroutine_order"]).copy()
+
+    raw_series = _build_raw_series_payload(work_df, progression_work_df)
 
     # Mean series: aggregated by (job_cnt, stage_cnt, subroutine_name)
     by_n_c_sub = (
@@ -388,22 +483,56 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
         return jobCntMatch && stageCntMatch;
       }});
 
-      const traces = selected.map((s) => {{
+      const traces = selected.flatMap((s) => {{
         const symbols = s.text.map((name) => SYMBOL_MAP[name] || "circle");
         const traceName = modeVal === "mean"
           ? `job_cnt=${{s.job_cnt}}, stage_cnt=${{s.stage_cnt}}`
           : `instance=${{s.instance_id}}`;
-        return {{
+
+        if (modeVal === "raw") {{
+          return [
+            {{
+              type: "scatter",
+              mode: "lines",
+              x: s.step_x,
+              y: s.step_y,
+              name: traceName,
+              line: {{ width: 1.0 }},
+              hoverinfo: "skip",
+              showlegend: false
+            }},
+            {{
+              type: "scatter",
+              mode: "markers",
+              x: s.x,
+              y: s.y,
+              customdata: s.customdata,
+              name: traceName,
+              marker: {{ size: 7, symbol: symbols }},
+              hovertemplate:
+                "series=%{{customdata[0]}}<br>" +
+                "job_cnt=%{{customdata[1]}}<br>" +
+                "stage_cnt=%{{customdata[2]}}<br>" +
+                "subroutine=%{{customdata[3]}}<br>" +
+                "count=%{{customdata[4]}}<br>" +
+                "Time%%=%{{x:.4%}}<br>" +
+                "RPDf=%{{y:.4%}}<extra></extra>",
+              showlegend: false
+            }}
+          ];
+        }}
+
+        return [{{
           type: "scatter",
-          mode: modeVal === "mean" ? "lines+markers+text" : "lines+markers",
+          mode: "lines+markers+text",
           x: s.x,
           y: s.y,
-          text: modeVal === "mean" ? s.text : undefined,
+          text: s.text,
           textposition: "top center",
           customdata: s.customdata,
           name: traceName,
-          line: {{ width: modeVal === "mean" ? 2.0 : 1.0 }},
-          marker: {{ size: modeVal === "mean" ? 9 : 7, symbol: symbols }},
+          line: {{ width: 2.0 }},
+          marker: {{ size: 9, symbol: symbols }},
           hovertemplate:
             "series=%{{customdata[0]}}<br>" +
             "job_cnt=%{{customdata[1]}}<br>" +
@@ -413,7 +542,7 @@ def _build_html_page(payload: dict, x_decimals: int, y_decimals: int) -> str:
             "Time%%=%{{x:.4%}}<br>" +
             "RPDf=%{{y:.4%}}<extra></extra>",
           showlegend: false
-        }};
+        }}];
       }});
 
       const modeLabel = modeVal === "mean"
@@ -442,6 +571,7 @@ def export_method_rpdf_scatter_html(
     baseline_instance_col: str,
     baseline_job_cnt_col: str,
     baseline_stage_cnt_col: str,
+    raw_progression_df: pd.DataFrame | None = None,
     x_percent_decimals: int = 1,
     y_percent_decimals: int = 1,
 ) -> bool:
@@ -472,7 +602,25 @@ def export_method_rpdf_scatter_html(
         logging.error(f"Failed to load/merge data for HTML chart: {e}", exc_info=True)
         return False
 
-    payload = _build_html_payload(merged_df)
+    merged_raw_progression_df: pd.DataFrame | None = None
+    if raw_progression_df is not None and not raw_progression_df.empty:
+        try:
+            merged_raw_progression_df = _load_and_merge_for_html(
+                metrics_long_df=raw_progression_df,
+                baseline_df=baseline_df,
+                baseline_instance_col=baseline_instance_col,
+                baseline_job_cnt_col=baseline_job_cnt_col,
+                baseline_stage_cnt_col=baseline_stage_cnt_col,
+            )
+        except ValueError as e:
+            logging.warning(
+                "Failed to load raw progression data for HTML chart; "
+                "falling back to endpoint-only raw series: %s",
+                e,
+            )
+            merged_raw_progression_df = None
+
+    payload = _build_html_payload(merged_df, raw_progression_df=merged_raw_progression_df)
 
     if not payload["raw_series"] and not payload["mean_series"]:
         return False

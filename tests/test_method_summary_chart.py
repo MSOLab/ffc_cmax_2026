@@ -8,6 +8,7 @@ import hfs_multi_instance_runner as multi_runner_module
 from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hybridflowshop.report.method_summary_chart import (
     _build_html_payload,
+    _build_raw_best_step_series,
     _build_method_rpdf_scatter_df,
     _load_and_merge_for_html,
     export_method_rpdf_scatter_html,
@@ -272,6 +273,144 @@ def test_load_and_merge_for_html_drops_unmatched_rows_without_failing(
     assert "Excluded 1 metric rows from HTML chart" in caplog.text
 
 
+def test_build_raw_best_step_series_keeps_best_so_far_markers_and_steps() -> None:
+    grp = pd.DataFrame(
+        [
+            {"subroutine_name": "init", "norm_time": 0.10, "rpd_f": 0.08},
+            {"subroutine_name": "worse", "norm_time": 0.20, "rpd_f": 0.12},
+            {"subroutine_name": "better", "norm_time": 0.35, "rpd_f": 0.05},
+            {"subroutine_name": "same_best", "norm_time": 0.50, "rpd_f": 0.05},
+        ]
+    )
+
+    series = _build_raw_best_step_series("1", grp, job_cnt=20, stage_cnt=5)
+
+    assert series["x"] == pytest.approx([0.10, 0.20, 0.35, 0.50])
+    assert series["y"] == pytest.approx([0.08, 0.08, 0.05, 0.05])
+    assert series["step_x"] == pytest.approx([0.10, 0.20, 0.35, 0.35, 0.50])
+    assert series["step_y"] == pytest.approx([0.08, 0.08, 0.08, 0.05, 0.05])
+    assert series["text"] == ["init", "worse", "better", "same_best"]
+
+
+def test_build_html_payload_uses_best_so_far_for_raw_series() -> None:
+    merged_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "init",
+                "norm_time": 0.10,
+                "rpd_f": 0.08,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "worse",
+                "norm_time": 0.20,
+                "rpd_f": 0.12,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "better",
+                "norm_time": 0.35,
+                "rpd_f": 0.05,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+        ]
+    )
+
+    payload = _build_html_payload(merged_df)
+
+    assert len(payload["raw_series"]) == 1
+    raw_series = payload["raw_series"][0]
+    assert raw_series["x"] == pytest.approx([0.10, 0.20, 0.35])
+    assert raw_series["y"] == pytest.approx([0.08, 0.08, 0.05])
+    assert raw_series["step_x"] == pytest.approx([0.10, 0.20, 0.35, 0.35])
+    assert raw_series["step_y"] == pytest.approx([0.08, 0.08, 0.08, 0.05])
+
+
+def test_build_html_payload_uses_progression_points_for_raw_line() -> None:
+    endpoint_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "init",
+                "norm_time": 0.10,
+                "rpd_f": 0.08,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.35,
+                "rpd_f": 0.05,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+        ]
+    )
+    progression_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "init",
+                "norm_time": 0.10,
+                "rpd_f": 0.08,
+                "global_sec": 10.0,
+                "call_index": 1,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.20,
+                "rpd_f": 0.07,
+                "global_sec": 20.0,
+                "call_index": 2,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.30,
+                "rpd_f": 0.06,
+                "global_sec": 30.0,
+                "call_index": 2,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "repeat",
+                "norm_time": 0.35,
+                "rpd_f": 0.05,
+                "global_sec": 35.0,
+                "call_index": 2,
+                "job_cnt": 20,
+                "stage_cnt": 5,
+            },
+        ]
+    )
+
+    payload = _build_html_payload(endpoint_df, raw_progression_df=progression_df)
+
+    raw_series = payload["raw_series"][0]
+    assert raw_series["x"] == pytest.approx([0.10, 0.35])
+    assert raw_series["y"] == pytest.approx([0.08, 0.05])
+    assert raw_series["step_x"] == pytest.approx(
+        [0.10, 0.20, 0.20, 0.30, 0.30, 0.35, 0.35]
+    )
+    assert raw_series["step_y"] == pytest.approx(
+        [0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.05]
+    )
+
+
 def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:
     merged_df = pd.DataFrame(
         [
@@ -350,6 +489,7 @@ def test_export_method_rpdf_scatter_html_creates_file_with_filters(
         baseline_instance_col="Instance",
         baseline_job_cnt_col="n",
         baseline_stage_cnt_col="s",
+        raw_progression_df=metrics_df.copy(),
     )
 
     assert created is True
@@ -361,6 +501,9 @@ def test_export_method_rpdf_scatter_html_creates_file_with_filters(
     assert 'id="mode-filter"' in content
     assert 'id="job-cnt-filter"' in content
     assert 'id="stage-cnt-filter"' in content
+    assert "step_x" in content
+    assert 'mode: "lines"' in content
+    assert 'mode: "markers"' in content
 
 
 def test_export_method_rpdf_scatter_html_returns_false_when_no_rows_survive_merge(
@@ -411,6 +554,31 @@ def test_create_rpd_summary_invokes_html_export(tmp_path: Path, monkeypatch) -> 
         "aggregate_scenario_endpoint_metrics_from_json",
         lambda *args, **kwargs: json_metrics_df.copy(),
     )
+    progression_df = pd.DataFrame(
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "initialize",
+                "norm_time": 0.09,
+                "rpd_f": 0.08,
+                "global_sec": 9.0,
+                "call_index": 1,
+            },
+            {
+                "instance_id": "1",
+                "subroutine_name": "initialize",
+                "norm_time": 0.11,
+                "rpd_f": 0.07,
+                "global_sec": 11.0,
+                "call_index": 1,
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        multi_runner_module,
+        "aggregate_scenario_progression",
+        lambda *args, **kwargs: {"progression_df": progression_df.copy()},
+    )
 
     def fake_export_html(
         metrics_long_df: pd.DataFrame,
@@ -419,8 +587,10 @@ def test_create_rpd_summary_invokes_html_export(tmp_path: Path, monkeypatch) -> 
         baseline_instance_col: str,
         baseline_job_cnt_col: str,
         baseline_stage_cnt_col: str,
+        raw_progression_df: pd.DataFrame | None = None,
     ) -> bool:
         captured["df"] = metrics_long_df.copy()
+        captured["raw_progression_df"] = raw_progression_df
         captured["baseline_df"] = baseline_df.copy()
         captured["path"] = output_path
         captured["baseline_instance_col"] = baseline_instance_col
@@ -447,6 +617,9 @@ def test_create_rpd_summary_invokes_html_export(tmp_path: Path, monkeypatch) -> 
     captured_df = captured["df"]
     assert isinstance(captured_df, pd.DataFrame)
     assert captured_df.equals(json_metrics_df)
+    captured_raw_progression_df = captured["raw_progression_df"]
+    assert isinstance(captured_raw_progression_df, pd.DataFrame)
+    assert captured_raw_progression_df.equals(progression_df)
 
 
 def test_create_rpd_summary_falls_back_to_csv_metrics_when_json_metrics_empty(
@@ -474,8 +647,10 @@ def test_create_rpd_summary_falls_back_to_csv_metrics_when_json_metrics_empty(
         baseline_instance_col: str,
         baseline_job_cnt_col: str,
         baseline_stage_cnt_col: str,
+        raw_progression_df: pd.DataFrame | None = None,
     ) -> bool:
         captured["df"] = metrics_long_df.copy()
+        captured["raw_progression_df"] = raw_progression_df
         return True
 
     monkeypatch.setattr(
@@ -488,6 +663,7 @@ def test_create_rpd_summary_falls_back_to_csv_metrics_when_json_metrics_empty(
     captured_df = captured["df"]
     assert isinstance(captured_df, pd.DataFrame)
     assert list(captured_df["subroutine_name"]) == ["initialize", "repeat"]
+    assert captured["raw_progression_df"] is None
 
 
 def test_create_rpd_summary_keeps_outputs_when_html_export_fails(
