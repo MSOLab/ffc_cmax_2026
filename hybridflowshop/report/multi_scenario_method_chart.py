@@ -267,6 +267,33 @@ def _build_multi_scenario_method_rpdf_html_page(
       "finalize": "star"
     };
 
+    function buildVisibleGuideShapes(plotData) {
+      return payload.traces.flatMap((trace, idx) => {
+        const lineTrace = plotData?.[idx * 2];
+        const isVisible = lineTrace && lineTrace.visible !== "legendonly";
+        if (!isVisible) {
+          return [];
+        }
+        const seriesColor = SERIES_COLORS[idx % SERIES_COLORS.length];
+        return (trace.vertical_guides || []).map((guide) => {
+          return {
+            type: "line",
+            xref: "x",
+            yref: "paper",
+            x0: guide.x,
+            x1: guide.x,
+            y0: 0,
+            y1: 1,
+            line: {
+              color: seriesColor,
+              width: 1,
+              dash: "dot"
+            }
+          };
+        });
+      });
+    }
+
     const traces = payload.traces.flatMap((trace, idx) => {
       const seriesColor = SERIES_COLORS[idx % SERIES_COLORS.length];
       return [
@@ -274,6 +301,7 @@ def _build_multi_scenario_method_rpdf_html_page(
           type: "scatter",
           mode: "lines",
           name: trace.scenario,
+          legendgroup: trace.scenario,
           x: trace.step_x,
           y: trace.step_y,
           customdata: trace.step_customdata,
@@ -289,6 +317,7 @@ def _build_multi_scenario_method_rpdf_html_page(
           type: "scatter",
           mode: "markers",
           name: trace.scenario,
+          legendgroup: trace.scenario,
           x: trace.guide_marker_x,
           y: trace.guide_marker_x.map(() => 0),
           text: trace.guide_marker_text,
@@ -321,31 +350,18 @@ def _build_multi_scenario_method_rpdf_html_page(
       },
       template: "plotly_white",
       hovermode: "closest",
-      legend: { orientation: "h" },
+      legend: { orientation: "h", groupclick: "togglegroup" },
       margin: { l: 70, r: 20, t: 70, b: 70 },
-      shapes: payload.traces.flatMap((trace, idx) => {
-        const seriesColor = SERIES_COLORS[idx % SERIES_COLORS.length];
-        return (trace.vertical_guides || []).map((guide) => {
-          return {
-            type: "line",
-            xref: "x",
-            yref: "paper",
-            x0: guide.x,
-            x1: guide.x,
-            y0: 0,
-            y1: 1,
-            line: {
-              color: seriesColor,
-              width: 1,
-              dash: "dot"
-            }
-          };
-        });
-      }),
+      shapes: buildVisibleGuideShapes(traces),
     };
 
     Plotly.newPlot("multi-scenario-method-chart", traces, layout, {
       responsive: true
+    }).then((gd) => {
+      const syncGuideShapes = () => {
+        Plotly.relayout(gd, { shapes: buildVisibleGuideShapes(gd.data) });
+      };
+      gd.on("plotly_restyle", syncGuideShapes);
     });
   </script>
 </body>
