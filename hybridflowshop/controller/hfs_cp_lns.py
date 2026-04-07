@@ -5,7 +5,6 @@ from collections import Counter, deque
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 from routix import ElapsedTimer
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
     HybridFlowshopParameters,
@@ -38,6 +37,7 @@ from lb_bucket.mip.shared import (
     TwoBucketInstance,
     import_gurobi,
 )
+from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
@@ -1663,7 +1663,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             last_sch_lite.get_jik_2_start_time_map(),
             last_sch_lite.get_jik_2_end_time_map(),
         )
-
+        _time_limit_sec = self.get_remaining_time_limit(time_limit_sec)
         # Call MIP solver
         result, _, _, _ = run_bucket_search_for_instance(
             gp,
@@ -1672,25 +1672,34 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             record,
             delta=delta,
             threads=threads,
-            time_limit_sec=time_limit_sec,
+            time_limit_sec=_time_limit_sec,
             log_to_console=log_to_console,
             display_interval_sec=display_interval_sec or 10,
             log_dir=None,
             search_upper_t=None,
             strengthening=strengthening,
             precedence=precedence,
-            time_limit_sec_used=time_limit_sec,
+            time_limit_sec_used=_time_limit_sec,
             ub_schedule=ub_schedule,
         )
 
         # Update bound if improved (apply_shdlb pattern)
         new_lb = result.certified_final_lb
         if self.solution_manager.current_obj_bound_is_worse_than(new_lb):
+            logging.info(
+                f"[MIP LB] New bound {new_lb} improves"
+                f" over current bound {self.solution_manager.best_obj_bound}"
+            )
             log_time = self.timer.elapsed_sec
             self.add_obj_bound_log(log_time, new_lb, is_maximize=False)
             _last_timestamp_note = self._get_call_context_of_current_method()
             self.obj_store.add_last_timestamp_note(
                 _last_timestamp_note, obj_bound_is_valid=True
+            )
+        else:
+            logging.info(
+                f"[MIP LB] New bound {new_lb} does not improve"
+                f" over current bound {self.solution_manager.best_obj_bound}"
             )
 
         # Create report and register (apply_shdlb pattern)
