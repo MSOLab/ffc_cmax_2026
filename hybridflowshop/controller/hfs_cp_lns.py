@@ -1529,6 +1529,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         instances: Sequence[int] | None = None,
         # Gurobi parameters
         threads: int = 24,
+        tl_nc_multiplier: float | None = None,
         time_limit_sec: float | None = None,
         display_interval_sec: int | None = None,
         log_to_console: bool = False,
@@ -1665,7 +1666,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             last_sch_lite.get_jik_2_start_time_map(),
             last_sch_lite.get_jik_2_end_time_map(),
         )
-        _time_limit_sec = self.get_remaining_time_limit(time_limit_sec)
+        if tl_nc_multiplier is not None:
+            _time_limit_sec = (
+                tl_nc_multiplier * instance.job_count * instance.stage_count
+            )
+        else:
+            _time_limit_sec = time_limit_sec
+        _time_limit_sec = self.get_remaining_time_limit(_time_limit_sec)
         # Call MIP solver
         logging.info(
             "[MIP LB] Starting MIP solver at %.1f with delta=%d strengthening=%s precedence=%s "
@@ -1706,11 +1713,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             report_status = CpsatStatus.UNKNOWN
         obj_value_records: list[tuple[float, float]] = []
         obj_bound_records: list[tuple[float, float]] = []
+        ub_before = self.solution_manager.best_obj_value
+        lb_before = self.solution_manager.best_obj_bound
         for time, ub, lb in trace_rows:
-            if ub is not None:
+            if ub is not None and self.solution_manager._a_is_better_obj_value(
+                ub, ub_before
+            ):
                 obj_value_records.append((time, ub))
-            if lb is not None:
+                ub_before = ub
+            if lb is not None and self.solution_manager._a_is_better_obj_bound(
+                lb, lb_before
+            ):
                 obj_bound_records.append((time, lb))
+                lb_before = lb
         logging.info("ObjBound trace: %s", obj_bound_records)
 
         # Update bound if improved
