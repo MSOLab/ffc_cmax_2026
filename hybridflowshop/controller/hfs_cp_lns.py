@@ -1713,13 +1713,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if solution_payload is not None
             else None
         )
-        if solution_payload is not None and self._working_dir_path is not None:
-            mip_lb_output_dir = self._working_dir_path / "mip_lb"
-            write_solution_payload(mip_lb_output_dir, solution_payload)
-            logging.info(
-                "[MIP LB] Wrote solution payload with dispatch windows to %s",
-                mip_lb_output_dir,
-            )
 
         global_incumbent_ub_to_beat = self.solution_manager.best_obj_value
         mip_dispatch_cmax = (
@@ -1829,6 +1822,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             "[MIP LB] Global incumbent schedule UB after apply_mip_lb is %s",
             self.solution_manager.best_obj_value,
         )
+        if self._working_dir_path is not None and solution_payload is not None:
+            mip_lb_output_dir = self._working_dir_path / "mip_lb"
+            write_solution_payload(mip_lb_output_dir, solution_payload)
+            self._write_mip_lb_dispatch_artifacts(
+                dispatched_schedule=dispatched_schedule,
+                selected_variant=selected_dispatch_variant,
+                stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
+            )
+            logging.info(
+                "[MIP LB] Persisted solution payload and dispatch artifacts to %s",
+                mip_lb_output_dir,
+            )
         return {
             "result": result,
             "solution_payload": solution_payload,
@@ -1870,14 +1875,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self.last_mip_lb_dispatch_window_lookup = build_dispatch_window_lookup(
             solution_payload["dispatch_windows"]
         )
-
-        if self._working_dir_path is not None and source_dir != self._working_dir_path / "mip_lb":
-            mip_lb_output_dir = self._working_dir_path / "mip_lb"
-            write_solution_payload(mip_lb_output_dir, solution_payload)
-            logging.info(
-                "[MIP LB] Copied saved solution payload with dispatch windows to %s",
-                mip_lb_output_dir,
-            )
 
         global_incumbent_ub_to_beat = self.solution_manager.best_obj_value
         mip_dispatch_cmax = solution_payload.get("metadata", {}).get("dispatch_cmax")
@@ -1925,6 +1922,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             "[MIP LB] Global incumbent schedule UB after dispatch_from_saved_mip_lb is %s",
             self.solution_manager.best_obj_value,
         )
+        if self._working_dir_path is not None:
+            mip_lb_output_dir = self._working_dir_path / "mip_lb"
+            if source_dir != mip_lb_output_dir:
+                write_solution_payload(mip_lb_output_dir, solution_payload)
+                logging.info(
+                    "[MIP LB] Copied saved solution payload with dispatch windows to %s",
+                    mip_lb_output_dir,
+                )
+            self._write_mip_lb_dispatch_artifacts(
+                dispatched_schedule=dispatched_schedule,
+                selected_variant=selected_dispatch_variant,
+                stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
+            )
         return {
             "solution_payload": solution_payload,
             "dispatch_window_lookup": self.last_mip_lb_dispatch_window_lookup,
@@ -2347,12 +2357,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.last_mip_lb_selected_dispatch_variant = None
             self.last_mip_lb_dispatched_schedules = None
 
-        if self._working_dir_path is not None:
-            self._write_mip_lb_dispatch_artifacts(
-                dispatched_schedule=dispatched_schedule,
-                selected_variant=selected_dispatch_variant,
-                stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
-            )
         return dispatched_schedule, selected_dispatch_variant
 
     def _write_mip_lb_dispatch_artifacts(
