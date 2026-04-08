@@ -3,13 +3,15 @@ from __future__ import annotations
 import ast
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
 def test_inspect_retiming_gantt_smoke(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "scripts" / "inspect_retiming_gantt.py"
-    python_path = repo_root / ".venv" / "bin" / "python"
+    # Use sys.executable to run the script in the current virtual environment
+    python_path = sys.executable
     out_dir = tmp_path / "retiming_pra_0"
 
     result = subprocess.run(

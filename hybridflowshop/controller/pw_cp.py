@@ -271,9 +271,10 @@ class PwCpConstructor:
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         batch_size: int = 1,
-        lr_profile_fixed_batch_count: int = 0,
-        left_profile_fixed_batch_count: int = 0,
-        right_profile_fixed_batch_count: int = 0,
+        step_size: int = 1,  # Sliding window: step size for window movement
+        unfixed_batch_count: int = 1,  # Sliding window: unfixed batch count
+        left_profile_fixed_batch_count: int = 0,  # Profile-fixed buffer on left
+        right_profile_fixed_batch_count: int = 0,  # Profile-fixed buffer on right
         enable_promotion_profile_fixed: bool = False,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
@@ -293,26 +294,17 @@ class PwCpConstructor:
             and non_time_fixed_op_time_limit_multiplier <= 0
         ):
             raise ValueError("non_time_fixed_op_time_limit_multiplier must be > 0")
-        if lr_profile_fixed_batch_count > 0:
-            # Override
-            _left_profile_fixed_batch_count = lr_profile_fixed_batch_count
-            _right_profile_fixed_batch_count = lr_profile_fixed_batch_count
-        else:
-            if left_profile_fixed_batch_count < 0:
-                raise ValueError("left_profile_fixed_batch_count must be >= 0")
-            if right_profile_fixed_batch_count < 0:
-                raise ValueError("right_profile_fixed_batch_count must be >= 0")
-            _left_profile_fixed_batch_count = left_profile_fixed_batch_count
-            _right_profile_fixed_batch_count = right_profile_fixed_batch_count
+        if step_size < 1:
+            raise ValueError("step_size must be >= 1")
+        if unfixed_batch_count < 1:
+            raise ValueError("unfixed_batch_count must be >= 1")
+        if left_profile_fixed_batch_count < 0:
+            raise ValueError("left_profile_fixed_batch_count must be >= 0")
+        if right_profile_fixed_batch_count < 0:
+            raise ValueError("right_profile_fixed_batch_count must be >= 0")
 
         sub_obj_store = ObjValueBoundStore[int]()
         sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
-        sub_obj_store.add_obj_value(0.0, int(ref_schedule.makespan), None)
-        sub_obj_store.add_last_timestamp_note(
-            "initial_schedule",
-            obj_value_is_valid=True,
-            obj_bound_is_valid=False,
-        )
 
         self._st = PwCpRunState(
             timer=timer,
@@ -337,17 +329,30 @@ class PwCpConstructor:
                     force_start=None,
                     force_end=None,
                 )
-            initial_batches = self._build_stage_batches(
+            initial_batches = self.build_stage_2_batch_list(
                 ref_schedule, batch_size=batch_size
             )
-            max_batch_cnt = self._validate_and_get_batch_count(initial_batches)
-            for batch_idx in range(max_batch_cnt):
+            max_batch_cnt = self.validate_and_get_batch_count(initial_batches)
+
+            # Main iteration loop with sliding window
+            # Window moves by step_size each iteration
+            # Stop when unfixed region exceeds available batches
+            # right_profile_fixed region is clipped at the end if needed
+            max_window_start = max_batch_cnt - unfixed_batch_count
+            iteration_range = range(0, max_window_start + 1, step_size)
+
+            for unfixed_batch_start_idx in iteration_range:
+                logging.info(
+                    "PW-CP sliding window iteration: unfixed_batches=[%d, %d)",
+                    unfixed_batch_start_idx,
+                    unfixed_batch_start_idx + unfixed_batch_count,
+                )
                 st = self._require_state()
-                current_batches = self._build_stage_batches(
+                stage_2_batch_list = self.build_stage_2_batch_list(
                     st.incumbent, batch_size=batch_size
                 )
-                current_max_batch_cnt = self._validate_and_get_batch_count(
-                    current_batches
+                current_max_batch_cnt = self.validate_and_get_batch_count(
+                    stage_2_batch_list
                 )
                 if current_max_batch_cnt != max_batch_cnt:
                     raise AssertionError(
@@ -355,16 +360,17 @@ class PwCpConstructor:
                         f"initial={max_batch_cnt}, current={current_max_batch_cnt}."
                     )
 
-                # Step 1: Build partition
+                # Step 1: Build partition using sliding window
                 stage_2_partition: dict[str, OperationPartition] = {}
                 for stage_id in ref_schedule.stages:
-                    current_batch = current_batches[stage_id]
+                    batch_list_on_stage = stage_2_batch_list[stage_id]
                     stage_2_partition[stage_id] = self._build_operation_partition(
-                        current_batch,
+                        batch_list_on_stage,
                         stage_id,
-                        batch_idx,
-                        left_profile_fixed_batch_count=_left_profile_fixed_batch_count,
-                        right_profile_fixed_batch_count=_right_profile_fixed_batch_count,
+                        unfixed_batch_start_idx=unfixed_batch_start_idx,
+                        unfixed_batch_count=unfixed_batch_count,
+                        left_profile_fixed_batch_count=left_profile_fixed_batch_count,
+                        right_profile_fixed_batch_count=right_profile_fixed_batch_count,
                     )
                 if enable_promotion_profile_fixed:
                     unfixed_job_set = set(
@@ -383,8 +389,7 @@ class PwCpConstructor:
                     incumbent=st.incumbent,
                     stage_2_partition=stage_2_partition,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
-                    batch_idx=batch_idx,
-                    max_batch_cnt=max_batch_cnt,
+                    batch_idx=unfixed_batch_start_idx,
                 )
 
                 batch_time_limit = self._resolve_batch_time_limit(
@@ -412,16 +417,21 @@ class PwCpConstructor:
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
                 )
 
-                if debug_export and batch_idx < max_batch_cnt:
+                if debug_export and unfixed_batch_start_idx < max_batch_cnt:
                     self._save_solution_dict(spec, st.incumbent, accepted=accepted)
 
                 ts = st.timer.elapsed_sec
-                st.sub_obj_store.add_obj_value(ts, int(st.incumbent.makespan), None)
-                st.sub_obj_store.add_last_timestamp_note(
-                    f"batch={batch_idx + 1}",
-                    obj_value_is_valid=True,
-                    obj_bound_is_valid=False,
-                )
+                if accepted:
+                    st.sub_obj_store.add_obj_value(
+                        ts,
+                        int(st.incumbent.makespan),
+                        is_maximize=False,
+                    )
+                    st.sub_obj_store.add_last_timestamp_note(
+                        f"batch_start={unfixed_batch_start_idx}",
+                        obj_value_is_valid=True,
+                        obj_bound_is_valid=False,
+                    )
 
             if error_if_infeasible:
                 self.ctx.check_feasibility(
@@ -439,7 +449,7 @@ class PwCpConstructor:
         finally:
             self._st = None
 
-    def _build_stage_batches(
+    def build_stage_2_batch_list(
         self,
         schedule: HybridFlowshopLiteSchedule,
         batch_size: int,
@@ -502,21 +512,22 @@ class PwCpConstructor:
 
     def _build_operation_partition(
         self,
-        batches: list[tuple[JobMcType, ...]],
+        batch_list_on_stage: list[tuple[JobMcType, ...]],
         stage_id: StageIdType,
-        current_batch_idx: int,
+        unfixed_batch_start_idx: int,
+        unfixed_batch_count: int,
         left_profile_fixed_batch_count: int = 0,
         right_profile_fixed_batch_count: int = 0,
     ) -> OperationPartition:
         """
-        Build operation partition based on batch indices.
+        Build operation partition based on sliding window.
 
         Partitioning rule:
-        - left_time_fixed: sufficiently earlier batches
-        - left_profile_fixed: immediately preceding batches
-        - unfixed: operations from batch at current_batch_idx
-        - right_profile_fixed: immediately following batches
-        - right_time_fixed: sufficiently later batches
+        - left_time_fixed: batches before (unfixed_batch_start_idx - profile_fixed_buffer)
+        - left_profile_fixed: batches from (unfixed_batch_start_idx - buffer) to unfixed_batch_start_idx
+        - unfixed: batches from unfixed_batch_start_idx to (unfixed_batch_start_idx + unfixed_batch_count)
+        - right_profile_fixed: batches from (unfixed_batch_start_idx + unfixed_batch_count) to ...+buffer
+        - right_time_fixed: batches after the right profile-fixed region
 
         This leverages the existing time-based sorting in _build_stage_batches,
         where batch_idx=0 contains earliest operations and higher indices contain
@@ -528,14 +539,21 @@ class PwCpConstructor:
         r_pf_ops: list[JobMcType] = []
         r_tf_ops: list[JobMcType] = []
 
-        for idx, batch in enumerate(batches):
-            if idx < current_batch_idx - left_profile_fixed_batch_count:
+        left_pf_start = unfixed_batch_start_idx - left_profile_fixed_batch_count
+        right_pf_end = (
+            unfixed_batch_start_idx
+            + unfixed_batch_count
+            + right_profile_fixed_batch_count
+        )
+
+        for idx, batch in enumerate(batch_list_on_stage):
+            if idx < left_pf_start:
                 l_tf_ops.extend(batch)
-            elif idx < current_batch_idx:
+            elif idx < unfixed_batch_start_idx:
                 l_pf_ops.extend(batch)
-            elif idx == current_batch_idx:
+            elif idx < unfixed_batch_start_idx + unfixed_batch_count:
                 unfixed_ops.extend(batch)
-            elif idx <= current_batch_idx + right_profile_fixed_batch_count:
+            elif idx < right_pf_end:
                 r_pf_ops.extend(batch)
             else:
                 r_tf_ops.extend(batch)
@@ -603,7 +621,6 @@ class PwCpConstructor:
         stage_2_mc_2_window: dict[str, dict[str, tuple[int, int]]],
         init_schedule: HybridFlowshopLiteSchedule,
         batch_idx: int,
-        max_batch_cnt: int,
     ) -> PwCpSubproblemSpec:
         st = self._require_state()
         st.subproblem_idx += 1
@@ -622,7 +639,6 @@ class PwCpConstructor:
         stage_2_partition: Mapping[str, OperationPartition],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         batch_idx: int,
-        max_batch_cnt: int,
     ) -> PwCpSubproblemSpec:
         has_right_time_fixed = any(
             len(partition.right_time_fixed) > 0
@@ -652,7 +668,6 @@ class PwCpConstructor:
             stage_2_mc_2_window=stage_2_mc_2_window,
             init_schedule=init_schedule,
             batch_idx=batch_idx,
-            max_batch_cnt=max_batch_cnt,
         )
 
     @staticmethod
@@ -1135,11 +1150,11 @@ class PwCpConstructor:
             )
         )
 
-    def _validate_and_get_batch_count(
-        self, stage_2_batches: dict[StageIdType, list[tuple[JobMcType, ...]]]
+    def validate_and_get_batch_count(
+        self, stage_2_batch_list: dict[StageIdType, list[tuple[JobMcType, ...]]]
     ) -> int:
         batch_counts: dict[StageIdType, int] = {
-            stage_id: len(batches) for stage_id, batches in stage_2_batches.items()
+            stage_id: len(batches) for stage_id, batches in stage_2_batch_list.items()
         }
         unique_counts = set(batch_counts.values())
         if len(unique_counts) > 1:
