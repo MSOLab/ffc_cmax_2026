@@ -449,10 +449,10 @@ def test_run_records_only_accepted_incumbent_improvements(monkeypatch, tmp_path)
     monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", lambda **kwargs: object())
     accepted_outcomes = iter(
         [
-            (SimpleNamespace(makespan=9), True),
-            (SimpleNamespace(makespan=9), False),
-            (SimpleNamespace(makespan=8), True),
-            (SimpleNamespace(makespan=8), False),
+            (SimpleNamespace(makespan=9), False),  # First iteration: incumbent semi-active → makespan=9, no improvement
+            (SimpleNamespace(makespan=8), True),   # Second iteration: improvement to 8
+            (SimpleNamespace(makespan=8), False),  # Third iteration: no improvement
+            (SimpleNamespace(makespan=8), False),  # Fourth iteration: no improvement
         ]
     )
 
@@ -488,6 +488,5 @@ def test_run_records_only_accepted_incumbent_improvements(monkeypatch, tmp_path)
     )
 
     assert [value for _, value in result.sub_obj_store.obj_value_series.items()] == [
-        9,
-        8,
+        8,  # Only the improvement from 9 to 8 is recorded
     ]
