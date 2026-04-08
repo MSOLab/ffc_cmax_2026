@@ -102,6 +102,36 @@ def test_append_operation_2_stage_uses_machine_ready_time_if_larger_than_precede
     assert end_map[("j2", "s2", "m2")] == 12
 
 
+def test_dispatch_stage_by_jobs_keeps_legacy_priority_queue_behavior(monkeypatch):
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    observed = {}
+    original = HybridFlowshopLiteSchedule.get_job_priority_queue_for_stage_dispatch
+
+    def spy(self, stage_id, job_id_seq, job_2_release=None):
+        observed["job_2_release"] = job_2_release
+        return original(self, stage_id, job_id_seq, job_2_release=job_2_release)
+
+    monkeypatch.setattr(
+        HybridFlowshopLiteSchedule,
+        "get_job_priority_queue_for_stage_dispatch",
+        spy,
+    )
+
+    sched.dispatch_stage_by_jobs(
+        "s1",
+        ["j1", "j2"],
+        {"j1": 2, "j2": 3},
+        job_2_release={"j1": 10, "j2": 0},
+    )
+
+    assert observed["job_2_release"] is None
+
+
 def test_duplicate_job_in_same_stage_raises_value_error():
     sched = HybridFlowshopLiteSchedule(
         jobs=["j1"],

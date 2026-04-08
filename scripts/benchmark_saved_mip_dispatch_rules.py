@@ -20,10 +20,12 @@ from hybridflowshop.dispatcher import (
     build_schedule_from_stage_job_sequences_priority_score,
     build_schedule_from_stage_job_sequences_strict_call_order,
     dispatch_stages_by_job_sequence,
+    get_bottleneck_anchor_stage_from_solution_payload,
     get_job_sequence_from_dispatch_windows_aggregate,
     get_job_sequence_from_dispatch_windows_anchor_stage,
     get_job_tiebreak_rank_from_job_sequence,
     get_stage_job_sequences_from_dispatch_windows,
+    improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
@@ -184,6 +186,56 @@ def _safe_makespan(schedule: HybridFlowshopLiteSchedule | None) -> int | None:
     return int(schedule.makespan)
 
 
+def _repair_schedule(
+    instance: HybridFlowshopParameters,
+    schedule: HybridFlowshopLiteSchedule | None,
+    *,
+    target_stage_ids: list[str] | None = None,
+    insertion_passes: int = 3,
+    max_shift: int = 4,
+    swap_passes: int = 3,
+) -> HybridFlowshopLiteSchedule | None:
+    if schedule is None:
+        return None
+
+    candidate_pool = [schedule]
+    try:
+        inserted = improve_schedule_by_critical_stage_sequence_insertions(
+            lambda: _build_empty_schedule(instance),
+            schedule,
+            instance.stage_2_job_2_p_map,
+            target_stage_ids=target_stage_ids,
+            max_passes=max(1, insertion_passes),
+            max_shift=max(1, max_shift),
+        )
+        candidate_pool.append(inserted)
+    except Exception:
+        inserted = None
+
+    try:
+        swapped = improve_schedule_by_critical_adjacent_swaps(
+            schedule,
+            instance.stage_2_job_2_p_map,
+            max_passes=max(1, swap_passes),
+        )
+        candidate_pool.append(swapped)
+    except Exception:
+        pass
+
+    if inserted is not None:
+        try:
+            inserted_swapped = improve_schedule_by_critical_adjacent_swaps(
+                inserted,
+                instance.stage_2_job_2_p_map,
+                max_passes=max(1, swap_passes),
+            )
+            candidate_pool.append(inserted_swapped)
+        except Exception:
+            pass
+
+    return min(candidate_pool, key=lambda sch: sch.makespan)
+
+
 def _validate_schedule(
     schedule: HybridFlowshopLiteSchedule | None,
     stage_2_job_2_p: dict[str, dict[str, int]],
@@ -209,6 +261,12 @@ def _evaluate_instance(
     job_ids = instance.job_id_list
     stage_2_job_2_p = instance.stage_2_job_2_p_map
     bottleneck_stage_id = _get_bottleneck_stage_id(instance)
+    bottleneck_anchor_stage_id = get_bottleneck_anchor_stage_from_solution_payload(
+        stage_ids,
+        stage_2_job_2_p,
+        instance.stage_2_machines_map,
+        payload,
+    )
     saved_dispatch_summary = _load_saved_dispatch_summary(instance_dir)
     saved_candidates = saved_dispatch_summary.get("dispatch_candidates", {}) or {}
 
@@ -271,7 +329,20 @@ def _evaluate_instance(
         stage_2_job_2_p,
         aggregation_rule="sum_ls_slack_p_desc",
     )
-
+    anchor_midpoint_sequence = get_job_sequence_from_dispatch_windows_anchor_stage(
+        stage_ids,
+        job_ids,
+        dispatch_window_lookup,
+        stage_2_job_2_p,
+        anchor_stage_id=bottleneck_anchor_stage_id,
+        sort_rule="midpoint_slack_ls_p_desc",
+    )
+    aggregate_es_slack_rank = get_job_tiebreak_rank_from_job_sequence(
+        aggregate_es_slack_sequence
+    )
+    aggregate_ls_slack_rank = get_job_tiebreak_rank_from_job_sequence(
+        aggregate_ls_slack_sequence
+    )
     candidate_schedules: dict[str, HybridFlowshopLiteSchedule | None] = {
         "priority_stage_es_ls": build_schedule_from_stage_job_sequences_priority_score(
             lambda: _build_empty_schedule(instance),
@@ -328,25 +399,52 @@ def _evaluate_instance(
         ),
         "best_mixed_rank_agg_es_slack": _get_best_of_mixed_dispatches_with_rank(
             instance,
-            get_job_tiebreak_rank_from_job_sequence(aggregate_es_slack_sequence),
+            aggregate_es_slack_rank,
         ),
         "best_mixed_rank_agg_ls_slack": _get_best_of_mixed_dispatches_with_rank(
             instance,
-            get_job_tiebreak_rank_from_job_sequence(aggregate_ls_slack_sequence),
+            aggregate_ls_slack_rank,
         ),
     }
 
     slack_local_repair_base = candidate_schedules["priority_stage_slack_ls"]
     if slack_local_repair_base is not None:
-        candidate_schedules["priority_stage_slack_ls_local"] = (
-            improve_schedule_by_critical_adjacent_swaps(
-                slack_local_repair_base,
-                stage_2_job_2_p,
-                max_passes=3,
-            )
+        candidate_schedules["priority_stage_slack_ls_local"] = _repair_schedule(
+            instance,
+            slack_local_repair_base,
+            target_stage_ids=None,
+            insertion_passes=3,
+            max_shift=4,
+            swap_passes=3,
         )
     else:
         candidate_schedules["priority_stage_slack_ls_local"] = None
+
+    if candidate_schedules["mixed_aggregate_ls_slack"] is not None:
+        candidate_schedules["mixed_aggregate_ls_slack_local_repair"] = _repair_schedule(
+            instance,
+            candidate_schedules["mixed_aggregate_ls_slack"],
+            target_stage_ids=[bottleneck_anchor_stage_id, stage_ids[-1]],
+            insertion_passes=3,
+            max_shift=4,
+            swap_passes=3,
+        )
+    else:
+        candidate_schedules["mixed_aggregate_ls_slack_local_repair"] = None
+
+    if candidate_schedules["best_mixed_rank_agg_ls_slack"] is not None:
+        candidate_schedules[
+            "best_mixed_rank_agg_ls_slack_local_repair"
+        ] = _repair_schedule(
+            instance,
+            candidate_schedules["best_mixed_rank_agg_ls_slack"],
+            target_stage_ids=[bottleneck_anchor_stage_id, stage_ids[-1]],
+            insertion_passes=3,
+            max_shift=4,
+            swap_passes=3,
+        )
+    else:
+        candidate_schedules["best_mixed_rank_agg_ls_slack_local_repair"] = None
 
     for schedule in candidate_schedules.values():
         _validate_schedule(schedule, stage_2_job_2_p)
@@ -360,6 +458,27 @@ def _evaluate_instance(
         for name, makespan in candidate_makespans.items()
         if makespan is not None
     }
+    if feasible_new_candidates:
+        base_best_name = min(feasible_new_candidates, key=feasible_new_candidates.get)
+        base_best_schedule = candidate_schedules[base_best_name]
+        if base_best_schedule is not None:
+            repaired_best_schedule = _repair_schedule(
+                instance,
+                base_best_schedule,
+                target_stage_ids=[bottleneck_anchor_stage_id, stage_ids[-1]],
+                insertion_passes=3,
+                max_shift=4,
+                swap_passes=3,
+            )
+            candidate_schedules["selected_post_mip_local_repair"] = repaired_best_schedule
+            candidate_makespans["selected_post_mip_local_repair"] = _safe_makespan(
+                repaired_best_schedule
+            )
+            if candidate_makespans["selected_post_mip_local_repair"] is not None:
+                feasible_new_candidates["selected_post_mip_local_repair"] = (
+                    candidate_makespans["selected_post_mip_local_repair"]
+                )
+
     best_new_name = min(feasible_new_candidates, key=feasible_new_candidates.get)
     best_new_makespan = feasible_new_candidates[best_new_name]
 
@@ -384,6 +503,7 @@ def _evaluate_instance(
         "best_new_rule": best_new_name,
         "best_new_makespan": best_new_makespan,
         "bottleneck_stage_id": bottleneck_stage_id,
+        "bottleneck_anchor_stage_id": bottleneck_anchor_stage_id,
     }
     result_row.update(candidate_makespans)
     return result_row

@@ -697,21 +697,20 @@ class HybridFlowshopLiteSchedule:
     ) -> None:
         """Dispatch multiple jobs to a stage with precedence-aware priority.
 
-        This method schedules all jobs in the sequence to the specified stage.
-        Jobs are scheduled in priority order based on:
-        1. Effective start time (max of previous stage end time and release time)
-        2. Input sequence order (as tiebreaker)
-
-        This priority rule ensures that jobs ready earlier can claim earlier time slots,
-        particularly important when idle gaps exist in the machine timelines.
+        This method schedules all jobs in the sequence to the specified stage
+        following the legacy stage-dispatch behavior used by the original
+        initializer heuristics. The input sequence is reordered only by
+        previous-stage readiness, and the optional release time is applied
+        later as a lower bound when each operation is inserted.
 
         Args:
             stage_id (StageIdType): Stage identifier
             job_id_seq (Sequence[JobIdType]): Sequence of job identifiers to dispatch
             job_2_duration (Mapping[JobIdType, int]): Mapping from job ID to operation duration
-            job_2_release (Mapping[JobIdType, int] | None, optional): Mapping from job ID to release time.
-                If provided, each job's effective start time is max(prev_stage_end_time, release_time).
-                Defaults to None.
+            job_2_release (Mapping[JobIdType, int] | None, optional): Optional
+                release-time lower bounds passed to ``add_operation_2_stage``.
+                They do not affect the internal stage-priority queue here so
+                that legacy initializer behavior remains unchanged.
 
         Raises:
             ValueError: If stage_id is invalid
@@ -721,7 +720,7 @@ class HybridFlowshopLiteSchedule:
             raise ValueError(f"Invalid stage ID: {stage_id}")
 
         job_priority_queue = self.get_job_priority_queue_for_stage_dispatch(
-            stage_id, job_id_seq, job_2_release=job_2_release
+            stage_id, job_id_seq
         )
 
         for job_id in job_priority_queue:

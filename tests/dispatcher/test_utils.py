@@ -9,12 +9,15 @@ from hybridflowshop.dispatcher.utils import (
     dispatch_job_sequence_by_stages,
     dispatch_stages_by_job_sequence,
     from_job_sequence_get_schedule_mixed,
+    get_bottleneck_anchor_stage_from_solution_payload,
     get_job_sequence_from_dispatch_windows_aggregate,
     get_job_sequence_from_dispatch_windows_anchor_stage,
     get_job_tiebreak_rank_from_job_sequence,
     get_job_tiebreak_rank_from_stage_job_sequences,
+    get_stage_job_sequences_from_schedule,
     get_stage_job_release_times_from_dispatch_windows,
     get_stage_job_sequences_from_dispatch_windows,
+    improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
@@ -147,6 +150,26 @@ def test_get_stage_job_release_times_from_dispatch_windows_uses_early_start():
     assert releases == {"s1": {"j1": 10, "j2": 5}}
 
 
+def test_get_bottleneck_anchor_stage_from_solution_payload_uses_bucket_congestion():
+    payload = {
+        "metadata": {"delta": 10},
+        "x": [
+            {"stage": 1, "job": 1, "bucket": 1, "value": 4.0},
+            {"stage": 1, "job": 2, "bucket": 1, "value": 4.0},
+            {"stage": 2, "job": 1, "bucket": 1, "value": 9.0},
+            {"stage": 2, "job": 2, "bucket": 1, "value": 8.0},
+        ],
+    }
+    anchor = get_bottleneck_anchor_stage_from_solution_payload(
+        ["s1", "s2"],
+        {"s1": {"j1": 3, "j2": 3}, "s2": {"j1": 3, "j2": 3}},
+        {"s1": ["m1", "m2"], "s2": ["m1"]},
+        payload,
+    )
+
+    assert anchor == "s2"
+
+
 def test_build_schedule_from_stage_job_sequences_priority_score_basic():
     stage_2_job_sequence = {
         "s1": ["j2", "j1", "j3"],
@@ -265,6 +288,41 @@ def test_improve_schedule_by_critical_adjacent_swaps_improves_known_case():
 
     validate_schedule(improved, stage_2_job_2_p)
     assert improved.makespan == 31
+
+
+def test_improve_schedule_by_critical_stage_sequence_insertions_nonworsening():
+    stage_2_job_2_p = {
+        "s1": {"j1": 3, "j2": 4, "j3": 2},
+        "s2": {"j1": 2, "j2": 1, "j3": 5},
+    }
+    stage_2_job_sequence = {
+        "s1": ["j2", "j1", "j3"],
+        "s2": ["j2", "j1", "j3"],
+    }
+    base = build_schedule_from_stage_job_sequences_priority_score(
+        lambda: HybridFlowshopLiteSchedule(
+            jobs=["j1", "j2", "j3"],
+            stages=["s1", "s2"],
+            machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+        ),
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+    )
+    improved = improve_schedule_by_critical_stage_sequence_insertions(
+        lambda: HybridFlowshopLiteSchedule(
+            jobs=["j1", "j2", "j3"],
+            stages=["s1", "s2"],
+            machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+        ),
+        base,
+        stage_2_job_2_p,
+        target_stage_ids=["s2"],
+        max_passes=2,
+        max_shift=2,
+    )
+
+    validate_schedule(improved, stage_2_job_2_p)
+    assert improved.makespan <= base.makespan
 
 
 def test_improve_schedule_by_critical_adjacent_swaps_preserves_release_constraints():

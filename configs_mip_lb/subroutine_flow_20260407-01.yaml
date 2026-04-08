@@ -19,6 +19,13 @@
   method_list:
     - bn2d_all_stages
     - best_of_mixed_dispatches
+- method: apply_mip_lb
+  precedence_formulation: "d"
+  threads: 24
+  time_limit_n_by_c_multiplier: 0.01
+  display_interval_sec: 1
+  log_to_console: false
+  delta: 1200
 - method: pw_cp
   batch_size_ratio: 0.10
   non_time_fixed_op_time_limit_multiplier: 0.01
@@ -61,6 +68,3 @@
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 8
   use_lns_only: false
-- method: apply_mip_lb
-  precedence_formulation: "d"
-  threads: 8

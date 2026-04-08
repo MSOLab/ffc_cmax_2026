@@ -209,6 +209,76 @@ def get_job_tiebreak_rank_from_stage_job_sequences(
     return {}
 
 
+def get_stage_job_sequences_from_schedule(
+    schedule: HybridFlowshopLiteSchedule,
+) -> dict[StageIdType, list[JobIdType]]:
+    """Extract a stage-wise job order from a realized schedule."""
+    stage_2_job_sequence: dict[StageIdType, list[JobIdType]] = {}
+    for stage_id in schedule.stages:
+        stage_jobs: list[tuple[int, int, JobIdType]] = []
+        for mc_id in schedule.machines_per_stage[stage_id]:
+            stage_jobs.extend(schedule.get_job_sequence(stage_id, mc_id))
+        stage_jobs.sort(key=lambda row: (row[0], row[1], row[2]))
+        stage_2_job_sequence[stage_id] = [job_id for _s, _e, job_id in stage_jobs]
+    return stage_2_job_sequence
+
+
+def get_bottleneck_anchor_stage_from_solution_payload(
+    stage_id_list: Sequence[StageIdType],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    stage_2_machines: Mapping[StageIdType, Sequence[Any]],
+    solution_payload: Mapping[str, Any] | None,
+) -> StageIdType:
+    """Select a bottleneck anchor stage using saved bucket usage when available.
+
+    The primary signal is max stage-bucket congestion from ``x`` values:
+    ``sum_j x[s,j,t] / (m_s * delta)``.
+    When no payload is available, or all bucket usage is missing, it falls back
+    to the classic average load proxy ``sum_j p[s,j] / m_s``.
+    """
+    if not stage_id_list:
+        raise ValueError("stage_id_list cannot be empty.")
+
+    delta = 0.0
+    x_rows: list[dict[str, Any]] = []
+    if solution_payload is not None:
+        metadata = solution_payload.get("metadata", {}) or {}
+        delta = float(metadata.get("delta", 0.0) or 0.0)
+        x_rows = list(solution_payload.get("x", []) or [])
+
+    stage_idx_to_id = {
+        stage_idx: stage_id for stage_idx, stage_id in enumerate(stage_id_list, start=1)
+    }
+    stage_bucket_usage: dict[tuple[int, int], float] = {}
+    for row in x_rows:
+        stage_idx = int(row["stage"])
+        bucket_idx = int(row["bucket"])
+        stage_bucket_usage[(stage_idx, bucket_idx)] = stage_bucket_usage.get(
+            (stage_idx, bucket_idx), 0.0
+        ) + float(row["value"])
+
+    def stage_key(stage_id: StageIdType) -> tuple[float, float]:
+        stage_idx = stage_id_list.index(stage_id) + 1
+        machine_cnt = max(len(stage_2_machines[stage_id]), 1)
+        avg_load = (
+            sum(float(proc) for proc in stage_2_job_2_p[stage_id].values()) / machine_cnt
+        )
+        if delta > 0:
+            congestion = max(
+                (
+                    usage / (machine_cnt * delta)
+                    for (row_stage_idx, _bucket_idx), usage in stage_bucket_usage.items()
+                    if row_stage_idx == stage_idx
+                ),
+                default=0.0,
+            )
+        else:
+            congestion = 0.0
+        return congestion, avg_load
+
+    return max(stage_id_list, key=stage_key)
+
+
 def dispatch_stage_job_sequences_strict_call_order(
     schedule: HybridFlowshopLiteSchedule,
     stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
@@ -260,25 +330,32 @@ def dispatch_stage_job_sequences_priority_score(
 
     The caller provides a per-stage job order derived from MIP ES/LS windows.
     This function does not force that order as a hard call order. Instead, it
-    uses the provided order as the priority tie-break inside
-    ``dispatch_stage_by_jobs()``, which still gives precedence to jobs that are
-    already ready earlier on the current stage.
+    builds an explicit release-aware priority queue stage by stage, using the
+    provided order as the tie-break. This keeps post-MIP dispatch behavior
+    readiness-aware even though the legacy initializer path keeps the original
+    ``dispatch_stage_by_jobs()`` semantics.
     """
     for stage_id in schedule.stages:
         if stage_id not in stage_2_job_sequence:
             raise ValueError(f"Missing job sequence for stage {stage_id}.")
         if stage_id not in stage_2_job_2_p:
             raise ValueError(f"Missing duration mapping for stage {stage_id}.")
-        schedule.dispatch_stage_by_jobs(
+        job_2_release = (
+            stage_2_job_2_release.get(stage_id)
+            if stage_2_job_2_release is not None
+            else None
+        )
+        stage_priority_queue = schedule.get_job_priority_queue_for_stage_dispatch(
             stage_id,
             stage_2_job_sequence[stage_id],
-            stage_2_job_2_p[stage_id],
-            job_2_release=(
-                stage_2_job_2_release.get(stage_id)
-                if stage_2_job_2_release is not None
-                else None
-            ),
+            job_2_release=job_2_release,
         )
+        for job_id in stage_priority_queue:
+            duration = stage_2_job_2_p[stage_id][job_id]
+            release_t = job_2_release[job_id] if job_2_release is not None else None
+            schedule.add_operation_2_stage(
+                stage_id, job_id, duration, release_t=release_t
+            )
     return schedule
 
 
@@ -296,6 +373,77 @@ def build_schedule_from_stage_job_sequences_priority_score(
         stage_2_job_2_p,
         stage_2_job_2_release=stage_2_job_2_release,
     )
+
+
+def improve_schedule_by_critical_stage_sequence_insertions(
+    schedule_factory: Callable[[], HybridFlowshopLiteSchedule],
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+    *,
+    target_stage_ids: Sequence[StageIdType] | None = None,
+    max_passes: int = 2,
+    max_shift: int = 3,
+) -> HybridFlowshopLiteSchedule:
+    """Improve a schedule by reinserting critical jobs in stage sequences.
+
+    This is a light-weight insertion neighborhood: it extracts the current
+    stage-wise job order, shifts one critical job within a target stage, and
+    rebuilds the full schedule with readiness-aware dispatch.
+    """
+    if max_passes <= 0:
+        return schedule.deepcopy()
+
+    best_schedule = schedule.deepcopy()
+    best_schedule.make_semi_active(stage_2_job_2_duration)
+    target_stage_id_set = set(target_stage_ids or [])
+
+    for _pass_idx in range(max_passes):
+        critical_blocks = best_schedule.find_critical_blocks(
+            stage_2_job_2_duration,
+            include_singletons=False,
+        )
+        if not critical_blocks:
+            break
+
+        current_stage_sequences = get_stage_job_sequences_from_schedule(best_schedule)
+        best_neighbor: HybridFlowshopLiteSchedule | None = None
+        best_neighbor_makespan = best_schedule.makespan
+
+        for block in critical_blocks:
+            for job_id, stage_id, _mc_id in block:
+                if target_stage_id_set and stage_id not in target_stage_id_set:
+                    continue
+                current_seq = current_stage_sequences.get(stage_id, [])
+                if len(current_seq) <= 1 or job_id not in current_seq:
+                    continue
+                current_pos = current_seq.index(job_id)
+                for shift in range(-max_shift, max_shift + 1):
+                    if shift == 0:
+                        continue
+                    new_pos = current_pos + shift
+                    if new_pos < 0 or new_pos >= len(current_seq):
+                        continue
+                    trial_stage_sequences = {
+                        sid: list(seq) for sid, seq in current_stage_sequences.items()
+                    }
+                    stage_seq = trial_stage_sequences[stage_id]
+                    stage_seq.pop(current_pos)
+                    stage_seq.insert(new_pos, job_id)
+                    candidate = build_schedule_from_stage_job_sequences_priority_score(
+                        schedule_factory,
+                        trial_stage_sequences,
+                        stage_2_job_2_duration,
+                    )
+                    candidate.make_semi_active(stage_2_job_2_duration)
+                    if candidate.makespan < best_neighbor_makespan:
+                        best_neighbor = candidate
+                        best_neighbor_makespan = candidate.makespan
+
+        if best_neighbor is None:
+            break
+        best_schedule = best_neighbor
+
+    return best_schedule
 
 
 def improve_schedule_by_critical_adjacent_swaps(
