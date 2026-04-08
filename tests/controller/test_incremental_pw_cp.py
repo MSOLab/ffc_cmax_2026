@@ -76,10 +76,7 @@ def test_incremental_pw_cp_always_runs_each_count_once_and_clamps_max():
     assert seen_kwargs[0]["batch_size_ratio"] == 0.25
     assert seen_kwargs[0]["lr_profile_fixed_batch_count"] == 1
     assert seen_kwargs[0]["enable_promotion_profile_fixed"] is True
-    assert seen_contexts == [
-        "unfixed_batch_count_001",
-        "unfixed_batch_count_002",
-    ]
+    assert seen_contexts == ["batch_001", "batch_002"]
 
 
 def test_incremental_pw_cp_if_no_improvement_retries_same_count_until_stop():
@@ -116,10 +113,10 @@ def test_incremental_pw_cp_if_no_improvement_retries_same_count_until_stop():
 
     assert seen_counts == [1, 1, 2, 2]
     assert seen_contexts == [
-        "unfixed_batch_count_001",
+        "batch_001",
         "reps_001",
         "reps_002",
-        "unfixed_batch_count_002",
+        "batch_002",
         "reps_001",
         "reps_002",
     ]
@@ -161,7 +158,8 @@ def test_incremental_pw_cp_rejects_min_above_actual_batch_count():
     ctrl, _seen_contexts = _make_controller(schedule)
 
     with pytest.raises(
-        ValueError, match="unfixed_batch_count_min exceeds the available PW-CP batch count"
+        ValueError,
+        match="unfixed_batch_count_min exceeds the available PW-CP batch count",
     ):
         ctrl.incremental_pw_cp(
             solver_thread_cnt=8,

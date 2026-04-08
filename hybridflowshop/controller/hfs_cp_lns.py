@@ -3095,7 +3095,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 **base_pw_cp_kwargs,
                 "unfixed_batch_count": unfixed_batch_count,
             }
-            context_name = f"unfixed_batch_count_{unfixed_batch_count:03d}"
+            context_name = f"batch_{unfixed_batch_count:03d}"
 
             with self.temporarily_extended_context(context_name):
                 if increment_unfixed_batch_count_flag == "if_no_improvement":
