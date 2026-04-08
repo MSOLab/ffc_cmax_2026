@@ -1,3 +1,4 @@
+import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -502,3 +503,34 @@ class TestSubroutineProgressionRecorder:
             94.0,
             93.0,
         ]
+
+    def test_run_tracks_top_level_subroutine_calls_for_main_loop(self) -> None:
+        controller = HybridFlowShopCpLnsControllerCore.__new__(
+            HybridFlowShopCpLnsControllerCore
+        )
+        controller._subroutine_flow = [
+            {"method": "initialize"},
+            {"method": "incremental_pw_cp"},
+        ]
+        controller.method_names_to_run_before_resume = set()
+        controller._run_flow = MagicMock()
+        controller._start_subroutine_call = MagicMock()
+        controller._end_subroutine_call = MagicMock()
+        controller.post_run_process = MagicMock()
+        controller.timer = SimpleNamespace(
+            start_dt=datetime.datetime(2026, 4, 8, 12, 0, 0),
+            set_start_time=MagicMock(),
+        )
+
+        HybridFlowShopCpLnsControllerCore.run(controller, flow_resume_idx=0)
+
+        assert controller._start_subroutine_call.call_args_list == [
+            (("initialize",),),
+            (("incremental_pw_cp",),),
+        ]
+        assert controller._end_subroutine_call.call_args_list == [
+            (("initialize",),),
+            (("incremental_pw_cp",),),
+        ]
+        assert controller._run_flow.call_count == 2
+        controller.post_run_process.assert_called_once_with()

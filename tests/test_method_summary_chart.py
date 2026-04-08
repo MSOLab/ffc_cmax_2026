@@ -447,17 +447,18 @@ def test_build_html_payload_uses_progression_points_for_raw_line() -> None:
     payload = _build_html_payload(endpoint_df, raw_progression_df=progression_df)
 
     raw_series = payload["raw_series"][0]
-    assert raw_series["x"] == pytest.approx([0.10, 0.35])
-    assert raw_series["y"] == pytest.approx([0.08, 0.05])
+    assert raw_series["x"] == pytest.approx([0.10, 0.20, 0.30, 0.35])
+    assert raw_series["y"] == pytest.approx([0.08, 0.07, 0.06, 0.05])
     assert raw_series["step_x"] == pytest.approx(
         [0.10, 0.20, 0.20, 0.30, 0.30, 0.35, 0.35]
     )
     assert raw_series["step_y"] == pytest.approx(
         [0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.05]
     )
+    assert raw_series["text"] == ["init", "repeat", "repeat", "repeat"]
 
 
-def test_build_html_payload_places_marker_on_previous_progression_point() -> None:
+def test_build_html_payload_uses_progression_points_for_raw_markers() -> None:
     endpoint_df = pd.DataFrame(
         [
             {
@@ -498,8 +499,9 @@ def test_build_html_payload_places_marker_on_previous_progression_point() -> Non
     payload = _build_html_payload(endpoint_df, raw_progression_df=progression_df)
 
     raw_series = payload["raw_series"][0]
-    assert raw_series["x"] == pytest.approx([0.35])
-    assert raw_series["y"] == pytest.approx([0.06])
+    assert raw_series["x"] == pytest.approx([0.10, 0.30])
+    assert raw_series["y"] == pytest.approx([0.08, 0.06])
+    assert raw_series["text"] == ["repeat", "repeat"]
 
 
 def test_build_html_payload_groups_mean_series_by_job_and_stage() -> None:

@@ -756,7 +756,9 @@ class HybridFlowShopCpLnsControllerCore(
                         subroutine_data.get("method", "")
                         in self.method_names_to_run_before_resume
                     ):
+                        self._start_subroutine_call(method_name)
                         self._run_flow(subroutine_data)
+                        self._end_subroutine_call(method_name)
                     else:
                         self._run_flow(subroutine_data, skip_method_call=True)
                     total_pre_resume_elapsed += e_timer.elapsed_sec
@@ -774,6 +776,8 @@ class HybridFlowShopCpLnsControllerCore(
             # Second pass: run methods from flow_resume_idx onwards
             for idx, subroutine_data in enumerate(self._subroutine_flow):
                 if idx >= flow_resume_idx:
+                    method_name = subroutine_data.get("method", "")
+                    self._start_subroutine_call(method_name)
                     self._run_flow(subroutine_data)
                     self._end_subroutine_call(method_name)
         else:

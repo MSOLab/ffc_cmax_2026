@@ -115,7 +115,8 @@ class RawInstanceProgression:
     job_cnt: int
     stage_cnt: int
     progression_points: list[ProgressionPoint]
-    marker_meta_by_time: dict[float, MarkerMeta]
+    raw_marker_meta_by_time: dict[float, MarkerMeta]
+    endpoint_marker_meta_by_time: dict[float, MarkerMeta]
 
 
 @dataclass(frozen=True)
@@ -331,8 +332,16 @@ def _build_raw_instance_progression(
     stage_cnt: int,
 ) -> RawInstanceProgression:
     series_id = f"instance={instance_id}"
-    marker_meta_by_time = _build_marker_meta_by_time(
+    endpoint_marker_meta_by_time = _build_marker_meta_by_time(
         instance_id, endpoint_grp, job_cnt, stage_cnt
+    )
+    raw_marker_source_grp = (
+        endpoint_grp
+        if progression_grp is None or progression_grp.empty
+        else progression_grp
+    )
+    raw_marker_meta_by_time = _build_marker_meta_by_time(
+        instance_id, raw_marker_source_grp, job_cnt, stage_cnt
     )
 
     if progression_grp is None or progression_grp.empty:
@@ -346,7 +355,8 @@ def _build_raw_instance_progression(
         job_cnt=job_cnt,
         stage_cnt=stage_cnt,
         progression_points=progression_points,
-        marker_meta_by_time=marker_meta_by_time,
+        raw_marker_meta_by_time=raw_marker_meta_by_time,
+        endpoint_marker_meta_by_time=endpoint_marker_meta_by_time,
     )
 
 
@@ -355,8 +365,8 @@ def _build_raw_plotly_series(model: RawInstanceProgression) -> dict:
     progression_y = [point.rpd_f for point in model.progression_points]
     step_x, step_y = _build_step_path(progression_x, progression_y)
 
-    marker_x = sorted(model.marker_meta_by_time)
-    marker_meta = [model.marker_meta_by_time[time] for time in marker_x]
+    marker_x = sorted(model.raw_marker_meta_by_time)
+    marker_meta = [model.raw_marker_meta_by_time[time] for time in marker_x]
     marker_y = [
         _lookup_rpdf_at_or_before(model.progression_points, marker.time)
         for marker in marker_meta
@@ -438,8 +448,8 @@ def _build_mean_vertical_guides(
 ) -> list[MeanVerticalGuide]:
     subroutine_times: dict[str, list[float]] = {}
     for model in models:
-        for marker_time in sorted(model.marker_meta_by_time):
-            marker_meta = model.marker_meta_by_time[marker_time]
+        for marker_time in sorted(model.endpoint_marker_meta_by_time):
+            marker_meta = model.endpoint_marker_meta_by_time[marker_time]
             subroutine_times.setdefault(marker_meta.subroutine_name, []).append(
                 marker_time
             )
