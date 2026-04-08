@@ -20,9 +20,19 @@ from hybridflowshop.dispatcher.mixed import MixedDispatcher
 from hybridflowshop.dispatcher.stage import StageDispatcher
 
 from .utils import (
+    build_schedule_from_stage_job_sequences_priority_score,
+    build_schedule_from_stage_job_sequences_strict_call_order,
+    dispatch_stage_job_sequences_strict_call_order,
+    dispatch_stage_job_sequences_priority_score,
     dispatch_job_sequence_by_stages,
     dispatch_stages_by_job_sequence,
     from_job_sequence_get_schedule_mixed,
+    get_job_sequence_from_dispatch_windows_aggregate,
+    get_job_sequence_from_dispatch_windows_anchor_stage,
+    get_job_tiebreak_rank_from_job_sequence,
+    get_job_tiebreak_rank_from_stage_job_sequences,
+    get_stage_job_sequences_from_dispatch_windows,
+    improve_schedule_by_critical_adjacent_swaps,
     reverse_even_positions,
 )
 
@@ -34,8 +44,18 @@ __all__ = [
     "BN2DDispatcher",
     "BN2DOption",
     "MachineDispatcher",
+    "build_schedule_from_stage_job_sequences_priority_score",
+    "build_schedule_from_stage_job_sequences_strict_call_order",
+    "dispatch_stage_job_sequences_priority_score",
+    "dispatch_stage_job_sequences_strict_call_order",
     "dispatch_job_sequence_by_stages",
     "dispatch_stages_by_job_sequence",
     "from_job_sequence_get_schedule_mixed",
+    "get_job_sequence_from_dispatch_windows_aggregate",
+    "get_job_sequence_from_dispatch_windows_anchor_stage",
+    "get_job_tiebreak_rank_from_job_sequence",
+    "get_job_tiebreak_rank_from_stage_job_sequences",
+    "get_stage_job_sequences_from_dispatch_windows",
+    "improve_schedule_by_critical_adjacent_swaps",
     "reverse_even_positions",
 ]

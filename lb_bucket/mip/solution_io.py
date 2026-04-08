@@ -178,6 +178,81 @@ def write_solution_payload(output_dir: Path, payload: dict[str, Any]) -> None:
         )
 
 
+def read_solution_payload(output_dir: Path, ins_name: str) -> dict[str, Any] | None:
+    solution_dir = output_dir / "solutions" / str(ins_name)
+    if not solution_dir.exists():
+        return None
+
+    metadata_path = solution_dir / "metadata.json"
+    if not metadata_path.exists():
+        return None
+
+    payload: dict[str, Any] = {
+        "metadata": json.loads(metadata_path.read_text(encoding="utf-8")),
+    }
+
+    for variable_name in ("a", "b", "c", "x"):
+        payload[variable_name] = _read_csv_rows(
+            solution_dir / f"{variable_name}.csv",
+            {
+                "stage": int,
+                "job": int,
+                "bucket": int,
+                "value": float,
+            },
+        )
+
+    for variable_name in ("u", "z"):
+        payload[variable_name] = _read_csv_rows(
+            solution_dir / f"{variable_name}.csv",
+            {
+                "bucket": int,
+                "value": float,
+            },
+        )
+
+    payload["dispatch_window_inputs"] = _read_csv_rows(
+        solution_dir / "dispatch_window_inputs.csv",
+        {
+            "stage": int,
+            "job": int,
+            "processing_time": int,
+            "a_bucket": int,
+            "b_bucket": int,
+            "x_bucket_1": _to_optional_int,
+            "x_value_1": _to_optional_float,
+            "x_bucket_2": _to_optional_int,
+            "x_value_2": _to_optional_float,
+            "x_at_a_bucket": float,
+            "x_at_b_bucket": float,
+            "spans_two_buckets": _to_bool,
+        },
+    )
+    payload["dispatch_windows"] = _read_csv_rows(
+        solution_dir / "dispatch_windows.csv",
+        {
+            "stage": int,
+            "job": int,
+            "processing_time": int,
+            "a_bucket": int,
+            "b_bucket": int,
+            "x_bucket_1": _to_optional_int,
+            "x_value_1": _to_optional_float,
+            "x_bucket_2": _to_optional_int,
+            "x_value_2": _to_optional_float,
+            "x_at_a_bucket": float,
+            "x_at_b_bucket": float,
+            "spans_two_buckets": _to_bool,
+            "es_candidate": float,
+            "completion_candidate": float,
+            "early_start": float,
+            "late_start": float,
+            "slack": float,
+        },
+    )
+    return payload
+
+
 def _extract_operation_bucket_rows(var_dict: Any, value_tolerance: float) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for (stage_idx, job_idx, bucket_idx), var in var_dict.items():
@@ -216,6 +291,44 @@ def _write_csv_rows(
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _read_csv_rows(
+    path: Path,
+    converters: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for raw_row in reader:
+            row: dict[str, Any] = {}
+            for key, value in raw_row.items():
+                converter = converters.get(key)
+                if converter is None:
+                    row[key] = value
+                else:
+                    row[key] = converter(value)
+            rows.append(row)
+    return rows
+
+
+def _to_optional_int(value: str) -> int | None:
+    if value == "" or value is None:
+        return None
+    return int(float(value))
+
+
+def _to_optional_float(value: str) -> float | None:
+    if value == "" or value is None:
+        return None
+    return float(value)
+
+
+def _to_bool(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes"}
 
 
 def _to_jsonable(value: Any) -> Any:

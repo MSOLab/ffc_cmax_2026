@@ -3,6 +3,7 @@ BaseDispatcher class with shared utilities for all dispatchers.
 """
 
 import logging
+from typing import Mapping
 
 from schore.parameters_examples import HybridFlowshopParameters
 
@@ -26,7 +27,12 @@ class BaseDispatcher:
     - NP candidate generation for mixed dispatch
     """
 
-    def __init__(self, instance: HybridFlowshopParameters, logger=None) -> None:
+    def __init__(
+        self,
+        instance: HybridFlowshopParameters,
+        logger=None,
+        job_tiebreak_rank: Mapping[JobIdType, int] | None = None,
+    ) -> None:
         """
         Initialize the BaseDispatcher.
 
@@ -46,8 +52,34 @@ class BaseDispatcher:
         )
         self.stage_count: int = instance.stage_count
         self.job_count: int = instance.job_count
+        self.job_id_2_original_index: dict[JobIdType, int] = {
+            job_id: idx for idx, job_id in enumerate(self.job_id_list)
+        }
+        self.job_tiebreak_rank: dict[JobIdType, int] = dict(job_tiebreak_rank or {})
 
         self.logger: logging.Logger = logger or logging.getLogger(__name__)
+
+    def _get_sequence_tiebreak_key(self, job_id: JobIdType) -> int | JobIdType:
+        """Return heuristic tie-break key for sequence generation."""
+        if getattr(self, "job_tiebreak_rank", None):
+            return self.job_tiebreak_rank.get(
+                job_id,
+                self.job_id_2_original_index.get(
+                    job_id, len(getattr(self, "job_tiebreak_rank", {}))
+                ),
+            )
+        return job_id
+
+    def _get_rank_tiebreak_key(self, job_id: JobIdType) -> int:
+        """Return rank-based tie-break key, falling back to original order."""
+        if getattr(self, "job_tiebreak_rank", None):
+            return self.job_tiebreak_rank.get(
+                job_id,
+                self.job_id_2_original_index.get(
+                    job_id, len(getattr(self, "job_tiebreak_rank", {}))
+                ),
+            )
+        return self.job_id_2_original_index.get(job_id, 0)
 
     def _create_empty_schedule(
         self, instance: HybridFlowshopParameters | None = None
@@ -86,9 +118,10 @@ class BaseDispatcher:
         else:
             return schedule.deepcopy()
 
-    @staticmethod
     def get_johnsons_rule_sequence(
-        job_name_2_p1_map: dict[JobIdType, int], job_name_2_p2_map: dict[JobIdType, int]
+        self,
+        job_name_2_p1_map: dict[JobIdType, int],
+        job_name_2_p2_map: dict[JobIdType, int],
     ) -> list[JobIdType]:
         """Apply Johnson's rule to determine the job sequence.
 
@@ -112,8 +145,18 @@ class BaseDispatcher:
             else:
                 l2.append(job)
 
-        l1.sort(key=lambda j: (job_name_2_p1_map[j], j))
-        l2.sort(key=lambda j: (job_name_2_p2_map[j], j), reverse=True)
+        l1.sort(
+            key=lambda j: (job_name_2_p1_map[j], self._get_sequence_tiebreak_key(j))
+        )
+        if getattr(self, "job_tiebreak_rank", None):
+            l2.sort(
+                key=lambda j: (
+                    -job_name_2_p2_map[j],
+                    self._get_sequence_tiebreak_key(j),
+                )
+            )
+        else:
+            l2.sort(key=lambda j: (job_name_2_p2_map[j], j), reverse=True)
 
         return l1 + l2
 
@@ -161,7 +204,14 @@ class BaseDispatcher:
             gupta_score[j] = f_j
             total_p[j] = sum(stage_2_p[s] for s in stages)
 
-        sorted_jobs = sorted(jobs, key=lambda j: (gupta_score[j], total_p[j], j))
+        sorted_jobs = sorted(
+            jobs,
+            key=lambda j: (
+                gupta_score[j],
+                total_p[j],
+                self._get_sequence_tiebreak_key(j),
+            ),
+        )
         return sorted_jobs
 
     def get_palmer_sequence(self) -> list[JobIdType]:
@@ -184,5 +234,8 @@ class BaseDispatcher:
             )
             palmer_score[j] = s
 
-        sorted_jobs = sorted(jobs, key=lambda j: (palmer_score[j], j))
+        sorted_jobs = sorted(
+            jobs,
+            key=lambda j: (palmer_score[j], self._get_sequence_tiebreak_key(j)),
+        )
         return sorted_jobs

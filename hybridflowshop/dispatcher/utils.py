@@ -9,6 +9,384 @@ from hybridflowshop.schedule_lite import (
 )
 
 
+def get_stage_job_sequences_from_dispatch_windows(
+    stage_id_list: Sequence[StageIdType],
+    job_id_list: Sequence[JobIdType],
+    dispatch_window_lookup: Mapping[tuple[int, int], Mapping[str, Any]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    sort_rule: str = "es_ls_p_desc",
+) -> dict[StageIdType, list[JobIdType]]:
+    """Build a stage-specific job sequence from ES/LS dispatch windows.
+
+    For each stage, jobs are sorted by:
+    - according to the provided sort_rule, then
+    - job index ascending as the last tie-break
+    """
+    stage_2_job_sequence: dict[StageIdType, list[JobIdType]] = {}
+    for stage_idx, stage_id in enumerate(stage_id_list, start=1):
+        sortable_rows: list[tuple[tuple[float, ...], JobIdType]] = []
+        for job_idx, job_id in enumerate(job_id_list, start=1):
+            op_window = dispatch_window_lookup.get((stage_idx, job_idx))
+            if op_window is None:
+                raise ValueError(
+                    f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
+                )
+            processing_time = stage_2_job_2_p[stage_id][job_id]
+            sortable_rows.append((
+                _get_dispatch_window_sort_key(
+                    op_window,
+                    processing_time,
+                    job_idx,
+                    sort_rule=sort_rule,
+                ),
+                job_id,
+            ))
+        sortable_rows.sort(key=lambda row: row[0])
+        stage_2_job_sequence[stage_id] = [job_id for _key, job_id in sortable_rows]
+    return stage_2_job_sequence
+
+
+def get_job_sequence_from_dispatch_windows_anchor_stage(
+    stage_id_list: Sequence[StageIdType],
+    job_id_list: Sequence[JobIdType],
+    dispatch_window_lookup: Mapping[tuple[int, int], Mapping[str, Any]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    *,
+    anchor_stage_id: StageIdType,
+    sort_rule: str = "es_ls_p_desc",
+) -> list[JobIdType]:
+    """Build a global job sequence from one anchor stage's ES/LS window order."""
+    if anchor_stage_id not in stage_id_list:
+        raise ValueError(f"Unknown anchor_stage_id: {anchor_stage_id}")
+
+    stage_idx = stage_id_list.index(anchor_stage_id) + 1
+    sortable_rows: list[tuple[tuple[float, ...], JobIdType]] = []
+    for job_idx, job_id in enumerate(job_id_list, start=1):
+        op_window = dispatch_window_lookup.get((stage_idx, job_idx))
+        if op_window is None:
+            raise ValueError(
+                f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
+            )
+        processing_time = stage_2_job_2_p[anchor_stage_id][job_id]
+        sortable_rows.append((
+            _get_dispatch_window_sort_key(
+                op_window,
+                processing_time,
+                job_idx,
+                sort_rule=sort_rule,
+            ),
+            job_id,
+        ))
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
+def get_job_sequence_from_dispatch_windows_aggregate(
+    stage_id_list: Sequence[StageIdType],
+    job_id_list: Sequence[JobIdType],
+    dispatch_window_lookup: Mapping[tuple[int, int], Mapping[str, Any]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    *,
+    aggregation_rule: str = "sum_es_slack_p_desc",
+) -> list[JobIdType]:
+    """Build a global job sequence by aggregating ES/LS window metrics over stages."""
+    sortable_rows: list[tuple[tuple[float, ...], JobIdType]] = []
+    for job_idx, job_id in enumerate(job_id_list, start=1):
+        es_list: list[float] = []
+        ls_list: list[float] = []
+        slack_list: list[float] = []
+        total_p = 0.0
+        for stage_idx, stage_id in enumerate(stage_id_list, start=1):
+            op_window = dispatch_window_lookup.get((stage_idx, job_idx))
+            if op_window is None:
+                raise ValueError(
+                    f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
+                )
+            processing_time = float(stage_2_job_2_p[stage_id][job_id])
+            es = float(op_window["early_start"])
+            ls = float(op_window["late_start"])
+            es_list.append(es)
+            ls_list.append(ls)
+            slack_list.append(ls - es)
+            total_p += processing_time
+        sortable_rows.append((
+            _get_dispatch_window_aggregate_key(
+                es_list=es_list,
+                ls_list=ls_list,
+                slack_list=slack_list,
+                total_p=total_p,
+                job_idx=job_idx,
+                aggregation_rule=aggregation_rule,
+            ),
+            job_id,
+        ))
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
+def get_job_tiebreak_rank_from_job_sequence(
+    job_sequence: Sequence[JobIdType],
+) -> dict[JobIdType, int]:
+    """Build a global rank map from a single job sequence."""
+    return {job_id: idx for idx, job_id in enumerate(job_sequence)}
+
+
+def _get_dispatch_window_sort_key(
+    op_window: Mapping[str, Any],
+    processing_time: int | float,
+    job_idx: int,
+    *,
+    sort_rule: str,
+) -> tuple[float, ...]:
+    early_start = float(op_window["early_start"])
+    late_start = float(op_window["late_start"])
+    slack = late_start - early_start
+    midpoint = early_start + late_start
+    proc = float(processing_time)
+
+    if sort_rule == "es_ls_p_desc":
+        return (early_start, late_start, -proc, job_idx)
+    if sort_rule == "ls_es_p_desc":
+        return (late_start, early_start, -proc, job_idx)
+    if sort_rule == "slack_ls_es_p_desc":
+        return (slack, late_start, early_start, -proc, job_idx)
+    if sort_rule == "es_slack_ls_p_desc":
+        return (early_start, slack, late_start, -proc, job_idx)
+    if sort_rule == "midpoint_slack_ls_p_desc":
+        return (midpoint, slack, late_start, -proc, job_idx)
+    raise ValueError(f"Unknown dispatch-window sort_rule: {sort_rule}")
+
+
+def _get_dispatch_window_aggregate_key(
+    *,
+    es_list: Sequence[float],
+    ls_list: Sequence[float],
+    slack_list: Sequence[float],
+    total_p: float,
+    job_idx: int,
+    aggregation_rule: str,
+) -> tuple[float, ...]:
+    if aggregation_rule == "sum_es_slack_p_desc":
+        return (sum(es_list), sum(slack_list), sum(ls_list), -total_p, job_idx)
+    if aggregation_rule == "sum_ls_slack_p_desc":
+        return (sum(ls_list), sum(slack_list), sum(es_list), -total_p, job_idx)
+    if aggregation_rule == "tail_ls_sum_slack_p_desc":
+        return (ls_list[-1], sum(slack_list), es_list[-1], -total_p, job_idx)
+    raise ValueError(
+        f"Unknown dispatch-window aggregation_rule: {aggregation_rule}"
+    )
+
+
+def get_stage_job_release_times_from_dispatch_windows(
+    stage_id_list: Sequence[StageIdType],
+    job_id_list: Sequence[JobIdType],
+    dispatch_window_lookup: Mapping[tuple[int, int], Mapping[str, Any]],
+) -> dict[StageIdType, dict[JobIdType, int]]:
+    """Build stage/job release times from MIP ES values."""
+    stage_2_job_2_release: dict[StageIdType, dict[JobIdType, int]] = {}
+    for stage_idx, stage_id in enumerate(stage_id_list, start=1):
+        job_2_release: dict[JobIdType, int] = {}
+        for job_idx, job_id in enumerate(job_id_list, start=1):
+            op_window = dispatch_window_lookup.get((stage_idx, job_idx))
+            if op_window is None:
+                raise ValueError(
+                    f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
+                )
+            job_2_release[job_id] = int(float(op_window["early_start"]))
+        stage_2_job_2_release[stage_id] = job_2_release
+    return stage_2_job_2_release
+
+
+def get_job_tiebreak_rank_from_stage_job_sequences(
+    stage_id_list: Sequence[StageIdType],
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+) -> dict[JobIdType, int]:
+    """Build a global job rank from the first available ES/LS stage sequence."""
+    for stage_id in stage_id_list:
+        job_sequence = stage_2_job_sequence.get(stage_id)
+        if job_sequence:
+            return {job_id: idx for idx, job_id in enumerate(job_sequence)}
+    return {}
+
+
+def dispatch_stage_job_sequences_strict_call_order(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Dispatch each stage using the exact provided stage-wise job order."""
+    for stage_id in schedule.stages:
+        if stage_id not in stage_2_job_sequence:
+            raise ValueError(f"Missing job sequence for stage {stage_id}.")
+        if stage_id not in stage_2_job_2_p:
+            raise ValueError(f"Missing duration mapping for stage {stage_id}.")
+        schedule.dispatch_stage_by_jobs_strict_sequence(
+            stage_id,
+            stage_2_job_sequence[stage_id],
+            stage_2_job_2_p[stage_id],
+            job_2_release=(
+                stage_2_job_2_release.get(stage_id)
+                if stage_2_job_2_release is not None
+                else None
+            ),
+        )
+    return schedule
+
+
+def build_schedule_from_stage_job_sequences_strict_call_order(
+    schedule_factory: Callable[[], HybridFlowshopLiteSchedule],
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Create a fresh schedule and dispatch it with the provided stage-wise order."""
+    schedule = schedule_factory()
+    return dispatch_stage_job_sequences_strict_call_order(
+        schedule,
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+        stage_2_job_2_release=stage_2_job_2_release,
+    )
+
+
+def dispatch_stage_job_sequences_priority_score(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Dispatch each stage with readiness-first priority and ES/LS tie-breaks.
+
+    The caller provides a per-stage job order derived from MIP ES/LS windows.
+    This function does not force that order as a hard call order. Instead, it
+    uses the provided order as the priority tie-break inside
+    ``dispatch_stage_by_jobs()``, which still gives precedence to jobs that are
+    already ready earlier on the current stage.
+    """
+    for stage_id in schedule.stages:
+        if stage_id not in stage_2_job_sequence:
+            raise ValueError(f"Missing job sequence for stage {stage_id}.")
+        if stage_id not in stage_2_job_2_p:
+            raise ValueError(f"Missing duration mapping for stage {stage_id}.")
+        schedule.dispatch_stage_by_jobs(
+            stage_id,
+            stage_2_job_sequence[stage_id],
+            stage_2_job_2_p[stage_id],
+            job_2_release=(
+                stage_2_job_2_release.get(stage_id)
+                if stage_2_job_2_release is not None
+                else None
+            ),
+        )
+    return schedule
+
+
+def build_schedule_from_stage_job_sequences_priority_score(
+    schedule_factory: Callable[[], HybridFlowshopLiteSchedule],
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Create a fresh schedule and dispatch it by readiness with ES/LS tie-break."""
+    schedule = schedule_factory()
+    return dispatch_stage_job_sequences_priority_score(
+        schedule,
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+        stage_2_job_2_release=stage_2_job_2_release,
+    )
+
+
+def improve_schedule_by_critical_adjacent_swaps(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+    *,
+    max_passes: int = 3,
+    max_adjacent_pairs_per_pass: int | None = None,
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Greedily improve a schedule with adjacent swaps on critical blocks.
+
+    The schedule is first normalized to a semi-active schedule. Each pass then:
+    1. extracts critical blocks,
+    2. enumerates adjacent job pairs inside those blocks,
+    3. evaluates one-swap neighbors, and
+    4. accepts the best improving move, if any.
+
+    This is intentionally lightweight: it uses only local schedule edits and
+    semi-active retiming, without invoking CP.
+    """
+    if max_passes <= 0:
+        return schedule.deepcopy()
+
+    def respects_release_times(candidate: HybridFlowshopLiteSchedule) -> bool:
+        if stage_2_job_2_release is None:
+            return True
+        for stage_id, job_2_release in stage_2_job_2_release.items():
+            for job_id, release_t in job_2_release.items():
+                if candidate.get_job_start_time(stage_id, job_id) < release_t:
+                    return False
+        return True
+
+    best_schedule = schedule.deepcopy()
+    best_schedule.make_semi_active(stage_2_job_2_duration)
+    if not respects_release_times(best_schedule):
+        return schedule.deepcopy()
+
+    for _pass_idx in range(max_passes):
+        critical_blocks = best_schedule.find_critical_blocks(
+            stage_2_job_2_duration,
+            include_singletons=False,
+        )
+        if not critical_blocks:
+            break
+
+        adjacent_pairs: list[tuple[StageIdType, JobIdType, JobIdType]] = []
+        seen_pairs: set[tuple[StageIdType, JobIdType, JobIdType]] = set()
+        for block in critical_blocks:
+            for left_op, right_op in zip(block, block[1:]):
+                pair = (left_op[1], left_op[0], right_op[0])
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                adjacent_pairs.append(pair)
+
+        if max_adjacent_pairs_per_pass is not None:
+            adjacent_pairs = adjacent_pairs[:max_adjacent_pairs_per_pass]
+
+        incumbent_makespan = best_schedule.makespan
+        best_neighbor: HybridFlowshopLiteSchedule | None = None
+        best_neighbor_makespan = incumbent_makespan
+
+        for stage_id, first_job_id, second_job_id in adjacent_pairs:
+            candidate = best_schedule.deepcopy()
+            try:
+                candidate.swap_two_operations_within_stage(
+                    stage_id,
+                    first_job_id,
+                    second_job_id,
+                    stage_2_job_2_duration,
+                    do_make_semi_active=True,
+                )
+            except ValueError:
+                continue
+
+            candidate_makespan = candidate.makespan
+            if not respects_release_times(candidate):
+                continue
+            if candidate_makespan < best_neighbor_makespan:
+                best_neighbor = candidate
+                best_neighbor_makespan = candidate_makespan
+
+        if best_neighbor is None:
+            break
+
+        best_schedule = best_neighbor
+
+    return best_schedule
+
+
 def dispatch_job_sequence_by_stages(
     schedule: HybridFlowshopLiteSchedule,
     job_sequence: Sequence[JobIdType],

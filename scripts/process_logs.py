@@ -107,6 +107,31 @@ def _is_missing_obj_value(val):
     return False
 
 
+def get_fallback_obj_value_for_method(instance_dir: Path, method_name: str):
+    """Read a method-specific fallback objective value when obj_log has no entry.
+
+    Currently used for apply_mip_lb, whose dispatched schedule can be feasible
+    without improving the incumbent and therefore may not be present in obj_log.
+    """
+    if method_name != "apply_mip_lb":
+        return None
+
+    dispatch_summary_path = instance_dir / "mip_lb" / "dispatch" / "dispatch_summary.yaml"
+    if not dispatch_summary_path.exists():
+        return None
+
+    try:
+        with open(dispatch_summary_path, "r", encoding="utf-8") as f:
+            content = yaml.safe_load(f) or {}
+    except Exception as e:
+        logging.warning(
+            f"Failed to read dispatch summary {dispatch_summary_path}: {e}"
+        )
+        return None
+
+    return content.get("selected_makespan")
+
+
 def get_methods_from_flow(scenario_dir: Path) -> list[tuple[str, str]]:
     flow_path = scenario_dir / "subroutine_flow.yaml"
     if not flow_path.exists():
@@ -172,19 +197,26 @@ def process_instance(instance_dir: Path, methods_list: list[tuple[str, str]]):
             final_end_sec = end_sec
             final_obj_val = obj_val
         else:
-            successor_in_notes = False
-            for j in range(i + 1, len(methods_list)):
-                succ_prefix, _ = methods_list[j]
-                if any(note.startswith(succ_prefix) for note in obj_notes.values()):
-                    successor_in_notes = True
-                    break
-
-            if not successor_in_notes:
-                final_end_sec = end_sec  # Keep end_sec if it was recorded
-                final_obj_val = None
-            else:
+            fallback_obj_val = get_fallback_obj_value_for_method(
+                instance_dir, method_name
+            )
+            if not _is_missing_obj_value(fallback_obj_val):
                 final_end_sec = end_sec
-                final_obj_val = current_obj_value
+                final_obj_val = fallback_obj_val
+            else:
+                successor_in_notes = False
+                for j in range(i + 1, len(methods_list)):
+                    succ_prefix, _ = methods_list[j]
+                    if any(note.startswith(succ_prefix) for note in obj_notes.values()):
+                        successor_in_notes = True
+                        break
+
+                if not successor_in_notes:
+                    final_end_sec = end_sec  # Keep end_sec if it was recorded
+                    final_obj_val = None
+                else:
+                    final_end_sec = end_sec
+                    final_obj_val = current_obj_value
 
         if not _is_missing_obj_value(final_obj_val):
             current_obj_value = final_obj_val

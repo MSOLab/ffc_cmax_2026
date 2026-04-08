@@ -4,7 +4,7 @@ BN2DDispatcher class for BN2D (Bottleneck-based Two-Way Dispatching) methods.
 
 import math
 import random
-from typing import Callable
+from typing import Callable, Mapping
 
 from schore.parameters_examples import HybridFlowshopParameters
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
@@ -42,10 +42,13 @@ class BN2DDispatcher(BaseDispatcher):
     def __init__(
         self,
         instance: HybridFlowshopParameters,
+        job_tiebreak_rank: Mapping[JobIdType, int] | None = None,
     ):
-        super().__init__(instance)
+        super().__init__(instance, job_tiebreak_rank=job_tiebreak_rank)
         self.instance = instance
-        self.mixed_dispatcher = MixedDispatcher(instance)
+        self.mixed_dispatcher = MixedDispatcher(
+            instance, job_tiebreak_rank=job_tiebreak_rank
+        )
 
     def _get_bottleneck_stage_schedule_heuristic(
         self,
@@ -128,18 +131,28 @@ class BN2DDispatcher(BaseDispatcher):
             if result["status"] in ("OPTIMAL", "FEASIBLE"):
                 left_cap_job_id_list = result["L_set"]
                 # Sort by r_j in ascending order
-                left_cap_job_id_list.sort(key=lambda j: r_dict[j])
+                left_cap_job_id_list.sort(
+                    key=lambda j: (r_dict[j], self._get_rank_tiebreak_key(j))
+                )
                 right_cap_job_id_list = result["R_set"]
                 # Sort by tr_j in descending order
-                right_cap_job_id_list.sort(key=lambda j: tr_dict[j], reverse=True)
+                right_cap_job_id_list.sort(
+                    key=lambda j: (-tr_dict[j], self._get_rank_tiebreak_key(j))
+                )
             else:
                 # Fallback to greedy selection
                 if left_cap_op_cnt > 0:
-                    sorted_by_r = sorted(r_dict.items(), key=lambda x: x[1])
+                    sorted_by_r = sorted(
+                        r_dict.items(),
+                        key=lambda x: (x[1], self._get_rank_tiebreak_key(x[0])),
+                    )
                     left_cap_job_id_list = [j for j, _ in sorted_by_r[:left_cap_op_cnt]]
 
                 if right_cap_op_cnt > 0:
-                    sorted_by_tr = sorted(tr_dict.items(), key=lambda x: x[1])
+                    sorted_by_tr = sorted(
+                        tr_dict.items(),
+                        key=lambda x: (x[1], self._get_rank_tiebreak_key(x[0])),
+                    )
                     # Exclude those in head_job_id_list
                     sorted_by_tr = [
                         (j, t) for j, t in sorted_by_tr if j not in left_cap_job_id_list
@@ -168,7 +181,7 @@ class BN2DDispatcher(BaseDispatcher):
         else:
             # Sort mid jobs by (r_j - tr_j, tie-break by original job index)
             mid_job_id_list.sort(
-                key=lambda j: (r_dict[j] - tr_dict[j], instance.job_id_list.index(j))
+                key=lambda j: (r_dict[j] - tr_dict[j], self._get_rank_tiebreak_key(j))
             )
             if option.reverse_mid_even:
                 reverse_even_positions(mid_job_id_list, in_place=True)
@@ -240,11 +253,14 @@ class BN2DDispatcher(BaseDispatcher):
             instance_for_former_stages.job_id_list,
             key=lambda j: (
                 job_2_release_t[j],
-                instance_for_former_stages.job_id_list.index(j),
+                self._get_rank_tiebreak_key(j),
             ),
         )
         if get_mixed_schedule:
-            dispatcher = MixedDispatcher(instance_for_former_stages)
+            dispatcher = MixedDispatcher(
+                instance_for_former_stages,
+                job_tiebreak_rank=self.job_tiebreak_rank,
+            )
             schedule = dispatcher.get_best_mixed_schedule_by_sequence(
                 sorted_j_list,
                 job_2_release_t=job_2_release_t,
@@ -346,7 +362,7 @@ class BN2DDispatcher(BaseDispatcher):
                 self.job_id_list,
                 key=lambda j: (
                     job_2_bottleneck_end_time.get(j, 0),
-                    self.job_id_list.index(j),
+                    self._get_rank_tiebreak_key(j),
                 ),
             )
 

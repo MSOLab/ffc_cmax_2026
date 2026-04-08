@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from lb_bucket.mip.dispatch_windows import build_dispatch_window_lookup
-from lb_bucket.mip.solution_io import write_solution_payload
+from lb_bucket.mip.solution_io import read_solution_payload, write_solution_payload
 from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 from routix import ElapsedTimer
+from routix.io.yaml import dump_yaml
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
     HybridFlowshopParameters,
     reverse_stages,
@@ -25,7 +26,17 @@ from hybridflowshop.dispatcher import (
     MixedDispatcher,
     StageDispatcher,
 )
-from hybridflowshop.dispatcher.utils import from_job_sequence_get_schedule_mixed
+from hybridflowshop.dispatcher.utils import (
+    build_schedule_from_stage_job_sequences_priority_score,
+    build_schedule_from_stage_job_sequences_strict_call_order,
+    from_job_sequence_get_schedule_mixed,
+    get_job_sequence_from_dispatch_windows_aggregate,
+    get_job_sequence_from_dispatch_windows_anchor_stage,
+    get_job_tiebreak_rank_from_job_sequence,
+    get_job_tiebreak_rank_from_stage_job_sequences,
+    get_stage_job_sequences_from_dispatch_windows,
+    improve_schedule_by_critical_adjacent_swaps,
+)
 from hybridflowshop.report import HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
@@ -1522,6 +1533,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Gurobi parameters
         threads: int = 24,
         time_limit_sec: float | None = None,
+        time_limit_n_by_c_multiplier: float | None = None,
         display_interval_sec: int | None = None,
         log_to_console: bool = False,
         # Delta parameters
@@ -1534,6 +1546,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         disable_valid_ineq_ii: bool = False,
         disable_valid_ineq_iii: bool = False,
         disable_valid_ineq_iv: bool = False,
+        # Post-MIP dispatch parameters
+        es_ls_local_repair_max_passes: int = 3,
     ) -> None:
         """
         Compute lower bound using the bucket-indexed MIP formulation with Gurobi.
@@ -1544,6 +1558,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         Args:
             threads: Gurobi threads (default: 24).
             time_limit_sec: Per-instance Gurobi time limit.
+            time_limit_n_by_c_multiplier: If ``time_limit_sec`` is None, uses
+                ``job_count * stage_count * time_limit_n_by_c_multiplier`` as the
+                MIP time limit before applying the controller's remaining-time cap.
             display_interval_sec: Gurobi DisplayInterval.
             log_to_console: Forward Gurobi logs to console (default: False).
             delta: Fixed bucket size. If None, uses max processing time.
@@ -1554,6 +1571,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             disable_valid_ineq_ii: Disable valid-inequality family (ii).
             disable_valid_ineq_iii: Disable valid-inequality family (iii).
             disable_valid_ineq_iv: Disable valid-inequality family (iv).
+            es_ls_local_repair_max_passes: Number of local-repair passes applied to
+                the ES/LS priority-score dispatch.
         """
         sub_timer = ElapsedTimer()
         instance = self.instance
@@ -1632,6 +1651,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             last_sch_lite.get_jik_2_start_time_map(),
             last_sch_lite.get_jik_2_end_time_map(),
         )
+        if time_limit_sec is None and time_limit_n_by_c_multiplier is not None:
+            time_limit_sec = (
+                float(instance.job_count)
+                * float(instance.stage_count)
+                * float(time_limit_n_by_c_multiplier)
+            )
+
         _time_limit_sec = self.get_remaining_time_limit(time_limit_sec)
         # Call MIP solver
         result, _, _, solution_payload = run_bucket_search_for_instance(
@@ -1667,28 +1693,27 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 mip_lb_output_dir,
             )
 
-        dispatched_schedule = None
-        self.last_mip_lb_dispatched_schedules = None
-        if self.last_mip_lb_dispatch_window_lookup is not None:
-            stage_2_job_sequence = self._get_stage_job_sequences_from_dispatch_windows(
-                self.last_mip_lb_dispatch_window_lookup
+        global_incumbent_ub_to_beat = self.solution_manager.best_obj_value
+        mip_dispatch_cmax = (
+            float(solution_payload["metadata"]["dispatch_cmax"])
+            if solution_payload is not None
+            and solution_payload.get("metadata", {}).get("dispatch_cmax") is not None
+            else result.horizon_ub
+        )
+        logging.info(
+            "[MIP LB] Global incumbent schedule UB to beat is %s",
+            global_incumbent_ub_to_beat,
+        )
+        logging.info(
+            "[MIP LB] MIP-based dispatch window Cmax is %s",
+            mip_dispatch_cmax,
+        )
+
+        dispatched_schedule, selected_dispatch_variant = (
+            self._run_post_mip_dispatch_from_last_mip_lb_solution(
+                es_ls_local_repair_max_passes=es_ls_local_repair_max_passes
             )
-            self.last_mip_lb_stage_2_job_sequence = stage_2_job_sequence
-            dispatch_results = self._dispatch_by_stage_job_sequences(
-                stage_2_job_sequence
-            )
-            self.last_mip_lb_dispatched_schedules = dispatch_results
-            candidate_schedule = dispatch_results.get("strict_call_order")
-            if candidate_schedule is not None:
-                self.check_feasibility(candidate_schedule.get_jik_2_start_time_map())
-                dispatched_schedule = candidate_schedule
-                logging.info(
-                    "[MIP LB] strict_call_order dispatch from ES/LS windows has makespan=%s",
-                    candidate_schedule.makespan,
-                )
-        else:
-            self.last_mip_lb_stage_2_job_sequence = None
-            self.last_mip_lb_dispatched_schedules = None
+        )
 
         # Update bound if improved (apply_shdlb pattern)
         new_lb = result.certified_final_lb
@@ -1735,60 +1760,430 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     "[MIP LB] ES/LS-guided dispatched schedule improved incumbent to makespan=%s",
                     dispatched_schedule.makespan,
                 )
+        logging.info(
+            "[MIP LB] Global incumbent schedule UB after apply_mip_lb is %s",
+            self.solution_manager.best_obj_value,
+        )
         return {
             "result": result,
             "solution_payload": solution_payload,
             "dispatch_window_lookup": self.last_mip_lb_dispatch_window_lookup,
             "dispatch_candidates": self.last_mip_lb_dispatched_schedules,
             "dispatched_schedule": dispatched_schedule,
+            "selected_dispatch_variant": selected_dispatch_variant,
         }
 
-    def _get_stage_job_sequences_from_dispatch_windows(
+    def dispatch_from_saved_mip_lb(
         self,
-        dispatch_window_lookup: Mapping[tuple[int, int], Mapping[str, Any]],
-    ) -> dict[str, list[str]]:
-        stage_2_job_sequence: dict[str, list[str]] = {}
-        for stage_idx, stage_id in enumerate(self.instance.stage_id_list, start=1):
-            sortable_rows: list[tuple[float, float, int, str]] = []
-            for job_idx, job_id in enumerate(self.instance.job_id_list, start=1):
-                op_window = dispatch_window_lookup.get((stage_idx, job_idx))
-                if op_window is None:
-                    raise ValueError(
-                        f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
-                    )
-                sortable_rows.append(
-                    (
-                        float(op_window["early_start"]),
-                        float(op_window["late_start"]),
-                        job_idx,
-                        job_id,
-                    )
-                )
-            sortable_rows.sort(key=lambda row: (row[0], row[1], row[2]))
-            stage_2_job_sequence[stage_id] = [job_id for *_rest, job_id in sortable_rows]
-        return stage_2_job_sequence
-
-    def _dispatch_by_stage_job_sequences(
-        self,
-        stage_2_job_sequence: Mapping[str, Sequence[str]],
-    ) -> dict[str, HybridFlowshopLiteSchedule | None]:
-        dispatch_results: dict[str, HybridFlowshopLiteSchedule | None] = {}
-        schedule = self.create_empty_schedule_from_ins()
-        try:
-            for stage_id in self.instance.stage_id_list:
-                job_sequence = stage_2_job_sequence[stage_id]
-                schedule.dispatch_stage_by_jobs_strict_sequence(
-                    stage_id,
-                    job_sequence,
-                    self.stage_2_job_2_p_dict[stage_id],
-                )
-            dispatch_results["strict_call_order"] = schedule
-        except Exception:
-            logging.exception(
-                "[MIP LB] strict_call_order dispatch failed while constructing ES/LS-guided schedule."
+        *,
+        mip_lb_dir: str | None = None,
+        es_ls_local_repair_max_passes: int = 3,
+    ) -> dict[str, Any] | None:
+        """Reload a saved MIP-LB payload and rerun only the post-MIP dispatch logic."""
+        sub_timer = ElapsedTimer()
+        if mip_lb_dir is not None:
+            source_dir = Path(mip_lb_dir)
+        elif self._working_dir_path is not None:
+            source_dir = self._working_dir_path / "mip_lb"
+        else:
+            logging.warning(
+                "[MIP LB] No working directory is available to load a saved MIP payload."
             )
-            dispatch_results["strict_call_order"] = None
-        return dispatch_results
+            return None
+
+        solution_payload = read_solution_payload(source_dir, self.instance.name)
+        if solution_payload is None:
+            logging.warning(
+                "[MIP LB] No saved MIP payload was found for instance %s under %s.",
+                self.instance.name,
+                source_dir,
+            )
+            return None
+
+        self.last_mip_lb_result = None
+        self.last_mip_lb_solution_payload = solution_payload
+        self.last_mip_lb_dispatch_window_lookup = build_dispatch_window_lookup(
+            solution_payload["dispatch_windows"]
+        )
+
+        if self._working_dir_path is not None and source_dir != self._working_dir_path / "mip_lb":
+            mip_lb_output_dir = self._working_dir_path / "mip_lb"
+            write_solution_payload(mip_lb_output_dir, solution_payload)
+            logging.info(
+                "[MIP LB] Copied saved solution payload with dispatch windows to %s",
+                mip_lb_output_dir,
+            )
+
+        global_incumbent_ub_to_beat = self.solution_manager.best_obj_value
+        mip_dispatch_cmax = solution_payload.get("metadata", {}).get("dispatch_cmax")
+        logging.info(
+            "[MIP LB] Global incumbent schedule UB to beat is %s",
+            global_incumbent_ub_to_beat,
+        )
+        logging.info(
+            "[MIP LB] MIP-based dispatch window Cmax is %s",
+            mip_dispatch_cmax,
+        )
+
+        dispatched_schedule, selected_dispatch_variant = (
+            self._run_post_mip_dispatch_from_last_mip_lb_solution(
+                es_ls_local_repair_max_passes=es_ls_local_repair_max_passes
+            )
+        )
+
+        report = HfsSubroutineReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=(
+                float(dispatched_schedule.makespan)
+                if dispatched_schedule is not None
+                else None
+            ),
+            obj_bound=None,
+            is_init=False,
+        )
+        was_updated = self.solution_manager.register(report, dispatched_schedule)
+        if dispatched_schedule is not None:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(dispatched_schedule.makespan), is_maximize=False
+            )
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_value_is_valid=True
+            )
+            if was_updated:
+                logging.info(
+                    "[MIP LB] Saved-payload dispatch improved incumbent to makespan=%s",
+                    dispatched_schedule.makespan,
+                )
+        logging.info(
+            "[MIP LB] Global incumbent schedule UB after dispatch_from_saved_mip_lb is %s",
+            self.solution_manager.best_obj_value,
+        )
+        return {
+            "solution_payload": solution_payload,
+            "dispatch_window_lookup": self.last_mip_lb_dispatch_window_lookup,
+            "dispatch_candidates": self.last_mip_lb_dispatched_schedules,
+            "dispatched_schedule": dispatched_schedule,
+            "selected_dispatch_variant": selected_dispatch_variant,
+        }
+
+    def _run_post_mip_dispatch_from_last_mip_lb_solution(
+        self,
+        *,
+        es_ls_local_repair_max_passes: int,
+    ) -> tuple[HybridFlowshopLiteSchedule | None, str | None]:
+        dispatched_schedule = None
+        selected_dispatch_variant: str | None = None
+        self.last_mip_lb_selected_dispatch_variant = None
+        self.last_mip_lb_dispatched_schedules = None
+
+        if self.last_mip_lb_dispatch_window_lookup is not None:
+            stage_2_job_sequence = get_stage_job_sequences_from_dispatch_windows(
+                self.instance.stage_id_list,
+                self.instance.job_id_list,
+                self.last_mip_lb_dispatch_window_lookup,
+                self.stage_2_job_2_p_dict,
+            )
+            self.last_mip_lb_stage_2_job_sequence = stage_2_job_sequence
+            es_ls_job_tiebreak_rank = get_job_tiebreak_rank_from_stage_job_sequences(
+                self.instance.stage_id_list,
+                stage_2_job_sequence,
+            )
+            dispatch_candidates: dict[str, HybridFlowshopLiteSchedule | None] = {}
+            try:
+                candidate_schedule = (
+                    build_schedule_from_stage_job_sequences_strict_call_order(
+                        self.create_empty_schedule_from_ins,
+                        stage_2_job_sequence,
+                        self.stage_2_job_2_p_dict,
+                    )
+                )
+                self.check_feasibility(candidate_schedule.get_jik_2_start_time_map())
+                dispatch_candidates["strict_call_order"] = candidate_schedule
+                logging.info(
+                    "[MIP LB] strict_call_order dispatch from ES/LS windows has makespan=%s",
+                    candidate_schedule.makespan,
+                )
+            except Exception:
+                logging.exception(
+                    "[MIP LB] strict_call_order dispatch failed while constructing ES/LS-guided schedule."
+                )
+                dispatch_candidates["strict_call_order"] = None
+
+            try:
+                priority_score_schedule = (
+                    build_schedule_from_stage_job_sequences_priority_score(
+                        self.create_empty_schedule_from_ins,
+                        stage_2_job_sequence,
+                        self.stage_2_job_2_p_dict,
+                    )
+                )
+                self.check_feasibility(
+                    priority_score_schedule.get_jik_2_start_time_map()
+                )
+                dispatch_candidates["es_ls_priority_score"] = priority_score_schedule
+                logging.info(
+                    "[MIP LB] es_ls_priority_score dispatch has makespan=%s",
+                    priority_score_schedule.makespan,
+                )
+            except Exception:
+                logging.exception(
+                    "[MIP LB] es_ls_priority_score dispatch failed while constructing readiness-aware ES/LS schedule."
+                )
+                priority_score_schedule = None
+                dispatch_candidates["es_ls_priority_score"] = None
+
+            if (
+                priority_score_schedule is not None
+                and es_ls_local_repair_max_passes > 0
+            ):
+                try:
+                    repaired_priority_schedule = (
+                        improve_schedule_by_critical_adjacent_swaps(
+                            priority_score_schedule,
+                            self.stage_2_job_2_p_dict,
+                            max_passes=es_ls_local_repair_max_passes,
+                        )
+                    )
+                    self.check_feasibility(
+                        repaired_priority_schedule.get_jik_2_start_time_map()
+                    )
+                    dispatch_candidates["es_ls_priority_score_local_repair"] = (
+                        repaired_priority_schedule
+                    )
+                    logging.info(
+                        "[MIP LB] es_ls_priority_score_local_repair dispatch has makespan=%s (base=%s)",
+                        repaired_priority_schedule.makespan,
+                        priority_score_schedule.makespan,
+                    )
+                except Exception:
+                    logging.exception(
+                        "[MIP LB] es_ls_priority_score_local_repair failed during local repair."
+                    )
+                    dispatch_candidates["es_ls_priority_score_local_repair"] = None
+
+            selected_dispatch_config = self._get_selected_dispatch_config_for_post_mip()
+            heuristic_candidates = self._get_selected_dispatch_candidate_schedules(
+                left_cap_multiplier=selected_dispatch_config["left_cap_multiplier"],
+                right_cap_multiplier=selected_dispatch_config["right_cap_multiplier"],
+                left_cap_portion=selected_dispatch_config["left_cap_portion"],
+                right_cap_portion=selected_dispatch_config["right_cap_portion"],
+                normalize_by_stage_cnt=selected_dispatch_config[
+                    "normalize_by_stage_cnt"
+                ],
+                randomize_mid_all=selected_dispatch_config["randomize_mid_all"],
+                reverse_mid_all=selected_dispatch_config["reverse_mid_all"],
+                reverse_mid_even=selected_dispatch_config["reverse_mid_even"],
+                mixed_schedule_for_former_stages=selected_dispatch_config[
+                    "mixed_schedule_for_former_stages"
+                ],
+                mixed_schedule_for_later_stages=selected_dispatch_config[
+                    "mixed_schedule_for_later_stages"
+                ],
+                machine_then_job=selected_dispatch_config["machine_then_job"],
+                head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+                p_agg_method=selected_dispatch_config["p_agg_method"],
+                mi_agg_method=selected_dispatch_config["mi_agg_method"],
+                method_list=selected_dispatch_config["method_list"],
+                job_tiebreak_rank=es_ls_job_tiebreak_rank,
+            )
+            bottleneck_stage_id = max(
+                self.instance.stage_id_list,
+                key=lambda stage_id: sum(
+                    self.stage_2_job_2_p_dict[stage_id][job_id]
+                    for job_id in self.instance.job_id_list
+                )
+                / len(self.instance.stage_2_machines_map[stage_id]),
+            )
+            tail_ls_sequence = get_job_sequence_from_dispatch_windows_anchor_stage(
+                self.instance.stage_id_list,
+                self.instance.job_id_list,
+                self.last_mip_lb_dispatch_window_lookup,
+                self.stage_2_job_2_p_dict,
+                anchor_stage_id=self.instance.stage_id_list[-1],
+                sort_rule="ls_es_p_desc",
+            )
+            bottleneck_slack_sequence = (
+                get_job_sequence_from_dispatch_windows_anchor_stage(
+                    self.instance.stage_id_list,
+                    self.instance.job_id_list,
+                    self.last_mip_lb_dispatch_window_lookup,
+                    self.stage_2_job_2_p_dict,
+                    anchor_stage_id=bottleneck_stage_id,
+                    sort_rule="slack_ls_es_p_desc",
+                )
+            )
+            aggregate_es_slack_sequence = (
+                get_job_sequence_from_dispatch_windows_aggregate(
+                    self.instance.stage_id_list,
+                    self.instance.job_id_list,
+                    self.last_mip_lb_dispatch_window_lookup,
+                    self.stage_2_job_2_p_dict,
+                    aggregation_rule="sum_es_slack_p_desc",
+                )
+            )
+            aggregate_ls_slack_sequence = (
+                get_job_sequence_from_dispatch_windows_aggregate(
+                    self.instance.stage_id_list,
+                    self.instance.job_id_list,
+                    self.last_mip_lb_dispatch_window_lookup,
+                    self.stage_2_job_2_p_dict,
+                    aggregation_rule="sum_ls_slack_p_desc",
+                )
+            )
+            stronger_mixed_rank_candidates = {
+                "best_of_mixed_dispatches_tail_ls_rank": get_job_tiebreak_rank_from_job_sequence(
+                    tail_ls_sequence
+                ),
+                "best_of_mixed_dispatches_bottleneck_slack_rank": get_job_tiebreak_rank_from_job_sequence(
+                    bottleneck_slack_sequence
+                ),
+                "best_of_mixed_dispatches_aggregate_es_slack_rank": get_job_tiebreak_rank_from_job_sequence(
+                    aggregate_es_slack_sequence
+                ),
+                "best_of_mixed_dispatches_aggregate_ls_slack_rank": get_job_tiebreak_rank_from_job_sequence(
+                    aggregate_ls_slack_sequence
+                ),
+            }
+            for variant, job_tiebreak_rank in stronger_mixed_rank_candidates.items():
+                try:
+                    candidate_schedule = self._get_schedule_by_best_of_mixed_dispatches(
+                        machine_then_job=selected_dispatch_config["machine_then_job"],
+                        head_for_all_stages=selected_dispatch_config[
+                            "head_for_all_stages"
+                        ],
+                        job_tiebreak_rank=job_tiebreak_rank,
+                    )
+                    if candidate_schedule is not None:
+                        self.check_feasibility(
+                            candidate_schedule.get_jik_2_start_time_map()
+                        )
+                    dispatch_candidates[variant] = candidate_schedule
+                    logging.info(
+                        "[MIP LB] %s has makespan=%s",
+                        variant,
+                        candidate_schedule.makespan
+                        if candidate_schedule is not None
+                        else None,
+                    )
+                except Exception:
+                    logging.exception(
+                        "[MIP LB] %s failed while constructing mixed dispatch with ES/LS-derived rank.",
+                        variant,
+                    )
+                    dispatch_candidates[variant] = None
+            for variant, candidate_schedule in heuristic_candidates.items():
+                if candidate_schedule is not None:
+                    try:
+                        self.check_feasibility(
+                            candidate_schedule.get_jik_2_start_time_map()
+                        )
+                    except Exception:
+                        logging.exception(
+                            "[MIP LB] %s dispatch failed feasibility check after construction.",
+                            variant,
+                        )
+                        candidate_schedule = None
+                dispatch_candidates[variant] = candidate_schedule
+                logging.info(
+                    "[MIP LB] %s dispatch with ES/LS tie-break has makespan=%s",
+                    variant,
+                    candidate_schedule.makespan
+                    if candidate_schedule is not None
+                    else None,
+                )
+
+            self.last_mip_lb_dispatched_schedules = dispatch_candidates
+            logging.info(
+                "[MIP LB] Post-MIP dispatch candidate summary: %s",
+                {
+                    variant: (schedule.makespan if schedule is not None else None)
+                    for variant, schedule in dispatch_candidates.items()
+                },
+            )
+            feasible_candidates = [
+                (variant, schedule)
+                for variant, schedule in dispatch_candidates.items()
+                if schedule is not None
+            ]
+            if feasible_candidates:
+                selected_dispatch_variant, dispatched_schedule = min(
+                    feasible_candidates,
+                    key=lambda item: item[1].makespan,
+                )
+                self.last_mip_lb_selected_dispatch_variant = selected_dispatch_variant
+                logging.info(
+                    "[MIP LB] Selected post-MIP dispatch variant %s with makespan=%s",
+                    selected_dispatch_variant,
+                    dispatched_schedule.makespan,
+                )
+            else:
+                logging.info(
+                    "[MIP LB] No feasible post-MIP dispatch candidate was generated."
+                )
+        else:
+            self.last_mip_lb_stage_2_job_sequence = None
+            self.last_mip_lb_selected_dispatch_variant = None
+            self.last_mip_lb_dispatched_schedules = None
+
+        if self._working_dir_path is not None:
+            self._write_mip_lb_dispatch_artifacts(
+                dispatched_schedule=dispatched_schedule,
+                selected_variant=selected_dispatch_variant,
+                stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
+            )
+        return dispatched_schedule, selected_dispatch_variant
+
+    def _write_mip_lb_dispatch_artifacts(
+        self,
+        *,
+        dispatched_schedule: HybridFlowshopLiteSchedule | None,
+        selected_variant: str | None,
+        stage_2_job_sequence: Mapping[str, Sequence[str]] | None,
+    ) -> None:
+        """Write ES/LS-guided dispatch outputs under the instance mip_lb directory."""
+        if self._working_dir_path is None:
+            return
+
+        dispatch_dir = self._working_dir_path / "mip_lb" / "dispatch"
+        dispatch_dir.mkdir(parents=True, exist_ok=True)
+
+        summary_dict: dict[str, Any] = {
+            "selected_variant": selected_variant,
+            "selected_makespan": (
+                float(dispatched_schedule.makespan)
+                if dispatched_schedule is not None
+                else None
+            ),
+            "dispatch_candidates": {
+                variant: (float(schedule.makespan) if schedule is not None else None)
+                for variant, schedule in (
+                    self.last_mip_lb_dispatched_schedules or {}
+                ).items()
+            },
+        }
+        dump_yaml(summary_dict, dispatch_dir / "dispatch_summary.yaml")
+
+        if stage_2_job_sequence is not None:
+            dump_yaml(
+                {
+                    str(stage_id): [str(job_id) for job_id in job_ids]
+                    for stage_id, job_ids in stage_2_job_sequence.items()
+                },
+                dispatch_dir / "strict_call_order_stage_job_sequence.yaml",
+            )
+
+        for variant, schedule in (self.last_mip_lb_dispatched_schedules or {}).items():
+            if schedule is None:
+                continue
+            dump_yaml(
+                {
+                    "start_time_map": schedule.get_jik_2_start_time_map(),
+                    "end_time_map": schedule.get_jik_2_end_time_map(),
+                },
+                dispatch_dir / f"{variant}_solution.yaml",
+            )
 
     def initialize_by_dj_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False
@@ -3015,16 +3410,20 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         option: BN2DOption,
         draw_gantt: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
         gantt_draw_func = self.draw_gantt if draw_gantt else None
-        dispatcher = BN2DDispatcher(self.instance)
+        dispatcher = BN2DDispatcher(self.instance, job_tiebreak_rank=job_tiebreak_rank)
         schedule = dispatcher.get_schedule_by_bn2d_all_stages(
             option=option, gantt_draw_func=gantt_draw_func
         )
         if schedule is not None:
             logging.info(f"BN2D all stages: makespan={schedule.makespan}")
 
-        reversed_dispatcher = BN2DDispatcher(reverse_stages(self.instance))
+        reversed_dispatcher = BN2DDispatcher(
+            reverse_stages(self.instance),
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
         reversed_schedule = reversed_dispatcher.get_schedule_by_bn2d_all_stages(
             option=option, gantt_draw_func=gantt_draw_func
         )
@@ -3176,9 +3575,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
         # Dispatch on the original problem
-        dispatcher = MixedDispatcher(self.instance)
+        dispatcher = MixedDispatcher(self.instance, job_tiebreak_rank=job_tiebreak_rank)
         schedule = dispatcher.get_schedule_by_cds(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
@@ -3193,7 +3593,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 f"Best of mixed schedule by CDS sequence: objValue={schedule.makespan}"
             )
         # Dispatch on the reversed problem
-        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        reversed_dispatcher = MixedDispatcher(
+            reverse_stages(self.instance),
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
         reversed_schedule = reversed_dispatcher.get_schedule_by_cds(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
@@ -3267,8 +3670,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        dispatcher = MixedDispatcher(self.instance)
+        dispatcher = MixedDispatcher(self.instance, job_tiebreak_rank=job_tiebreak_rank)
         schedule = dispatcher.get_schedule_by_gupta(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
@@ -3283,7 +3687,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 f"Best of mixed schedule by Gupta sequence: makespan={schedule.makespan}"
             )
 
-        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        reversed_dispatcher = MixedDispatcher(
+            reverse_stages(self.instance),
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
         reversed_schedule = reversed_dispatcher.get_schedule_by_gupta(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
@@ -3358,8 +3765,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         use_palmer_index: bool = False,
         draw_gantt_per_step: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        dispatcher = MixedDispatcher(self.instance)
+        dispatcher = MixedDispatcher(self.instance, job_tiebreak_rank=job_tiebreak_rank)
         schedule = dispatcher.get_schedule_by_palmer(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
@@ -3374,7 +3782,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 f"Best of mixed schedule by Palmer sequence: makespan={schedule.makespan}"
             )
 
-        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        reversed_dispatcher = MixedDispatcher(
+            reverse_stages(self.instance),
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
         reversed_schedule = reversed_dispatcher.get_schedule_by_palmer(
             machine_then_job=machine_then_job,
             head_for_all_stages=head_for_all_stages,
@@ -3445,6 +3856,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         use_palmer_index: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
         schedule_gen_methods = [
             self._get_schedule_by_cds,
@@ -3462,6 +3874,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 machine_then_job=machine_then_job,
                 head_for_all_stages=head_for_all_stages,
                 use_palmer_index=use_palmer_index,
+                job_tiebreak_rank=job_tiebreak_rank,
             )
             if sch is not None:
                 obj = sch.makespan
@@ -3473,9 +3886,170 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         if best_sch is not None:
             logging.info(
-                f"Best schedule generated by {best_method_name} with makespan {best_obj}"
+                "Best mixed-dispatch schedule generated by %s with makespan %s",
+                best_method_name,
+                best_obj,
             )
         return best_sch
+
+    @staticmethod
+    def _get_default_selected_dispatch_method_list() -> list[str]:
+        return ["bn2d_all_stages", "best_of_mixed_dispatches"]
+
+    def _build_selected_dispatch_config(
+        self,
+        *,
+        left_cap_multiplier: int | None = None,
+        right_cap_multiplier: int | None = None,
+        left_cap_portion: float | None = None,
+        right_cap_portion: float | None = None,
+        normalize_by_stage_cnt: bool = False,
+        randomize_mid_all: bool = False,
+        reverse_mid_all: bool = False,
+        reverse_mid_even: bool = False,
+        mixed_schedule_for_former_stages: bool = False,
+        mixed_schedule_for_later_stages: bool = False,
+        machine_then_job: bool = False,
+        head_for_all_stages: bool = False,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "max",
+        method_list: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "left_cap_multiplier": left_cap_multiplier,
+            "right_cap_multiplier": right_cap_multiplier,
+            "left_cap_portion": left_cap_portion,
+            "right_cap_portion": right_cap_portion,
+            "normalize_by_stage_cnt": normalize_by_stage_cnt,
+            "randomize_mid_all": randomize_mid_all,
+            "reverse_mid_all": reverse_mid_all,
+            "reverse_mid_even": reverse_mid_even,
+            "mixed_schedule_for_former_stages": mixed_schedule_for_former_stages,
+            "mixed_schedule_for_later_stages": mixed_schedule_for_later_stages,
+            "machine_then_job": machine_then_job,
+            "head_for_all_stages": head_for_all_stages,
+            "p_agg_method": p_agg_method,
+            "mi_agg_method": mi_agg_method,
+            "method_list": (
+                list(method_list)
+                if method_list
+                else self._get_default_selected_dispatch_method_list()
+            ),
+        }
+
+    def _get_selected_dispatch_config_for_post_mip(self) -> dict[str, Any]:
+        saved_config = getattr(self, "last_selected_dispatch_config", None)
+        if saved_config is None:
+            return self._build_selected_dispatch_config()
+        config = dict(saved_config)
+        config["method_list"] = (
+            list(config["method_list"])
+            if config.get("method_list")
+            else self._get_default_selected_dispatch_method_list()
+        )
+        return config
+
+    def _get_selected_dispatch_candidate_schedules(
+        self,
+        *,
+        left_cap_multiplier: int | None = None,
+        right_cap_multiplier: int | None = None,
+        left_cap_portion: float | None = None,
+        right_cap_portion: float | None = None,
+        normalize_by_stage_cnt: bool = False,
+        randomize_mid_all: bool = False,
+        reverse_mid_all: bool = False,
+        reverse_mid_even: bool = False,
+        mixed_schedule_for_former_stages: bool = False,
+        mixed_schedule_for_later_stages: bool = False,
+        machine_then_job: bool = False,
+        head_for_all_stages: bool = False,
+        p_agg_method: str = "sum",
+        mi_agg_method: str = "max",
+        method_list: list[str] | None = None,
+        draw_gantt: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
+    ) -> dict[str, HybridFlowshopLiteSchedule | None]:
+        option = BN2DOption(
+            left_cap_multiplier=left_cap_multiplier,
+            right_cap_multiplier=right_cap_multiplier,
+            left_cap_portion=left_cap_portion,
+            right_cap_portion=right_cap_portion,
+            normalize_by_stage_cnt=normalize_by_stage_cnt,
+            randomize_mid_all=randomize_mid_all,
+            reverse_mid_all=reverse_mid_all,
+            reverse_mid_even=reverse_mid_even,
+            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
+            mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
+        )
+        candidate_schedules: dict[str, HybridFlowshopLiteSchedule | None] = {}
+        selected_methods = (
+            list(method_list)
+            if method_list
+            else self._get_default_selected_dispatch_method_list()
+        )
+        for method_name in selected_methods:
+            sch: HybridFlowshopLiteSchedule | None = None
+            if method_name == "bn2d_all_stages":
+                sch = self._get_schedule_by_bn2d_all_stages(
+                    option=option,
+                    draw_gantt=draw_gantt,
+                    job_tiebreak_rank=job_tiebreak_rank,
+                )
+            elif method_name == "best_of_mixed_dispatches":
+                sch = self._get_schedule_by_best_of_mixed_dispatches(
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    job_tiebreak_rank=job_tiebreak_rank,
+                )
+            elif method_name == "stage_agg_2":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=0,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_per_step=False,
+                    job_tiebreak_rank=job_tiebreak_rank,
+                )
+            elif method_name == "stage_agg_2_1":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=1,
+                    tail_stages_to_keep=1,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_per_step=False,
+                    job_tiebreak_rank=job_tiebreak_rank,
+                )
+            elif method_name == "stage_agg_2_2":
+                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
+                    stage_agg_count=2,
+                    head_stages_to_keep=2,
+                    tail_stages_to_keep=2,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    machine_then_job=machine_then_job,
+                    head_for_all_stages=head_for_all_stages,
+                    draw_gantt_per_step=False,
+                    job_tiebreak_rank=job_tiebreak_rank,
+                )
+            else:
+                logging.warning(
+                    "[MIP LB] Unknown selected dispatch method '%s'; skipping.",
+                    method_name,
+                )
+            candidate_schedules[method_name] = sch
+            logging.info(
+                "%s: makespan=%s",
+                method_name,
+                sch.makespan if sch is not None else None,
+            )
+        return candidate_schedules
 
     def initialize_by_best_of_selected_dispatches(
         self,
@@ -3499,7 +4073,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     ) -> None:
         sub_timer = ElapsedTimer()
 
-        option = BN2DOption(
+        selected_dispatch_config = self._build_selected_dispatch_config(
             left_cap_multiplier=left_cap_multiplier,
             right_cap_multiplier=right_cap_multiplier,
             left_cap_portion=left_cap_portion,
@@ -3511,86 +4085,45 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
             mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
             machine_then_job=machine_then_job,
+            head_for_all_stages=head_for_all_stages,
+            p_agg_method=p_agg_method,
+            mi_agg_method=mi_agg_method,
+            method_list=method_list,
+        )
+        self.last_selected_dispatch_config = dict(selected_dispatch_config)
+
+        candidate_schedules = self._get_selected_dispatch_candidate_schedules(
+            left_cap_multiplier=selected_dispatch_config["left_cap_multiplier"],
+            right_cap_multiplier=selected_dispatch_config["right_cap_multiplier"],
+            left_cap_portion=selected_dispatch_config["left_cap_portion"],
+            right_cap_portion=selected_dispatch_config["right_cap_portion"],
+            normalize_by_stage_cnt=selected_dispatch_config["normalize_by_stage_cnt"],
+            randomize_mid_all=selected_dispatch_config["randomize_mid_all"],
+            reverse_mid_all=selected_dispatch_config["reverse_mid_all"],
+            reverse_mid_even=selected_dispatch_config["reverse_mid_even"],
+            mixed_schedule_for_former_stages=selected_dispatch_config[
+                "mixed_schedule_for_former_stages"
+            ],
+            mixed_schedule_for_later_stages=selected_dispatch_config[
+                "mixed_schedule_for_later_stages"
+            ],
+            machine_then_job=selected_dispatch_config["machine_then_job"],
+            head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+            p_agg_method=selected_dispatch_config["p_agg_method"],
+            mi_agg_method=selected_dispatch_config["mi_agg_method"],
+            method_list=selected_dispatch_config["method_list"],
+            draw_gantt=draw_gantt,
         )
 
         best_method_name = ""
         best_sch: HybridFlowshopLiteSchedule | None = None
         best_obj: int | None = None
-
-        if not method_list:
-            method_list = ["bn2d_all_stages", "best_of_mixed_dispatches"]
-        for method_name in method_list:
-            if method_name == "bn2d_all_stages":
-                sch = self._get_schedule_by_bn2d_all_stages(
-                    option=option, draw_gantt=draw_gantt
-                )
-                obj = sch.makespan if sch is not None else None
-                logging.info(f"{method_name}: makespan={obj}")
-                if obj is not None and (best_obj is None or obj < best_obj):
-                    best_sch = sch
-                    best_obj = obj
-                    best_method_name = method_name
-            elif method_name == "best_of_mixed_dispatches":
-                sch = self._get_schedule_by_best_of_mixed_dispatches(
-                    machine_then_job=machine_then_job,
-                    head_for_all_stages=head_for_all_stages,
-                )
-                obj = sch.makespan if sch is not None else None
-                logging.info(f"{method_name}: makespan={obj}")
-                if obj is not None and (best_obj is None or obj < best_obj):
-                    best_sch = sch
-                    best_obj = obj
-                    best_method_name = method_name
-            elif method_name == "stage_agg_2":
-                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
-                    stage_agg_count=2,
-                    head_stages_to_keep=0,
-                    p_agg_method=p_agg_method,
-                    mi_agg_method=mi_agg_method,
-                    machine_then_job=machine_then_job,
-                    head_for_all_stages=head_for_all_stages,
-                    draw_gantt_per_step=False,
-                )
-                obj = sch.makespan if sch is not None else None
-                logging.info(f"{method_name}: makespan={obj}")
-                if obj is not None and (best_obj is None or obj < best_obj):
-                    best_sch = sch
-                    best_obj = obj
-                    best_method_name = method_name
-            elif method_name == "stage_agg_2_1":
-                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
-                    stage_agg_count=2,
-                    head_stages_to_keep=1,
-                    tail_stages_to_keep=1,
-                    p_agg_method=p_agg_method,
-                    mi_agg_method=mi_agg_method,
-                    machine_then_job=machine_then_job,
-                    head_for_all_stages=head_for_all_stages,
-                    draw_gantt_per_step=False,
-                )
-                obj = sch.makespan if sch is not None else None
-                logging.info(f"{method_name}: makespan={obj}")
-                if obj is not None and (best_obj is None or obj < best_obj):
-                    best_sch = sch
-                    best_obj = obj
-                    best_method_name = method_name
-            elif method_name == "stage_agg_2_2":
-                sch = self._get_schedule_by_job_sequence_from_stage_aggregated_problem(
-                    stage_agg_count=2,
-                    head_stages_to_keep=2,
-                    tail_stages_to_keep=2,
-                    p_agg_method=p_agg_method,
-                    mi_agg_method=mi_agg_method,
-                    machine_then_job=machine_then_job,
-                    head_for_all_stages=head_for_all_stages,
-                    draw_gantt_per_step=False,
-                )
-                obj = sch.makespan if sch is not None else None
-                logging.info(f"{method_name}: makespan={obj}")
-                if obj is not None and (best_obj is None or obj < best_obj):
-                    best_sch = sch
-                    best_obj = obj
-                    best_method_name = method_name
+        for method_name, sch in candidate_schedules.items():
+            obj = sch.makespan if sch is not None else None
+            if obj is not None and (best_obj is None or obj < best_obj):
+                best_sch = sch
+                best_obj = obj
+                best_method_name = method_name
 
         if best_sch is None:
             # Failed to find a solution
@@ -3693,6 +4226,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
         from hybridflowshop.schedule_lite import (
             get_bottleneck_stage_job_sequence,
@@ -3707,19 +4241,26 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             mi_agg_method=mi_agg_method,
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
+            job_tiebreak_rank=job_tiebreak_rank,
         )
         if stage_aggregated_schedule is None:
             return None
 
         job_sequences = [
-            get_bottleneck_stage_job_sequence(stage_aggregated_schedule),
-            get_midpoint_sequence(stage_aggregated_schedule),
+            get_bottleneck_stage_job_sequence(
+                stage_aggregated_schedule,
+                job_tiebreak_rank=job_tiebreak_rank,
+            ),
+            get_midpoint_sequence(
+                stage_aggregated_schedule,
+                job_tiebreak_rank=job_tiebreak_rank,
+            ),
         ]
 
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
 
-        dispatcher = MixedDispatcher(self.instance)
+        dispatcher = MixedDispatcher(self.instance, job_tiebreak_rank=job_tiebreak_rank)
         for job_sequence in job_sequences:
             dispatched_schedule = dispatcher.get_best_mixed_schedule_by_sequence(
                 job_sequence,
@@ -3734,7 +4275,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_reversed_obj: int | None = None
         best_reversed_sch: HybridFlowshopLiteSchedule | None = None
 
-        reversed_dispatcher = MixedDispatcher(reverse_stages(self.instance))
+        reversed_dispatcher = MixedDispatcher(
+            reverse_stages(self.instance),
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
         for job_sequence in job_sequences:
             dispatched_schedule = (
                 reversed_dispatcher.get_best_mixed_schedule_by_sequence(
@@ -3768,6 +4312,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         draw_gantt_per_step: bool = False,
         draw_gantt: bool = False,
+        job_tiebreak_rank: Mapping[str, int] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
         from schore.parameters_examples.parallel_shop.identical_flow import (
             create_instance_of_aggregated_stages,
@@ -3781,13 +4326,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             p_agg_method=p_agg_method,
             mi_agg_method=mi_agg_method,
         )
-        dispatcher = MixedDispatcher(stage_aggregated_instance)
+        dispatcher = MixedDispatcher(
+            stage_aggregated_instance, job_tiebreak_rank=job_tiebreak_rank
+        )
         schedule = dispatcher.get_schedule_by_cds(
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,
         )
 
-        reversed_dispatcher = MixedDispatcher(reverse_stages(stage_aggregated_instance))
+        reversed_dispatcher = MixedDispatcher(
+            reverse_stages(stage_aggregated_instance),
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
         reversed_schedule = reversed_dispatcher.get_schedule_by_cds(
             head_for_all_stages=head_for_all_stages,
             draw_gantt_per_step=draw_gantt_per_step,

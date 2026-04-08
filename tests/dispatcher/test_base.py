@@ -29,6 +29,19 @@ class TestBaseDispatcher:
         # Result: [B, A, C]
         assert sequence == ["B", "A", "C"]
 
+    def test_get_johnsons_rule_sequence_uses_tiebreak_rank_when_available(self) -> None:
+        """ES/LS rank should break Johnson-sequence ties when provided."""
+        dispatcher = BaseDispatcher.__new__(BaseDispatcher)
+        dispatcher.job_tiebreak_rank = {"A": 1, "B": 0}
+        dispatcher.job_id_2_original_index = {"A": 0, "B": 1}
+
+        sequence = dispatcher.get_johnsons_rule_sequence(
+            {"A": 2, "B": 2},
+            {"A": 5, "B": 5},
+        )
+
+        assert sequence == ["B", "A"]
+
 
 class TestDispatcherStructure:
     """Tests for dispatcher class hierarchy."""

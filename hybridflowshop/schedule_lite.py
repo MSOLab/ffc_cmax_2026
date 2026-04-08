@@ -721,7 +721,7 @@ class HybridFlowshopLiteSchedule:
             raise ValueError(f"Invalid stage ID: {stage_id}")
 
         job_priority_queue = self.get_job_priority_queue_for_stage_dispatch(
-            stage_id, job_id_seq
+            stage_id, job_id_seq, job_2_release=job_2_release
         )
 
         for job_id in job_priority_queue:
@@ -2274,7 +2274,10 @@ def _find_gap_index(gaps: list[list[int]], t: int, start_from: int = 0) -> int:
 # Sequence extraction functions
 
 
-def get_midpoint_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:
+def get_midpoint_sequence(
+    schedule: HybridFlowshopLiteSchedule,
+    job_tiebreak_rank: Mapping[str, int] | None = None,
+) -> list[str]:
     """Get job sequence based on midpoint criteria.
 
     Args:
@@ -2288,10 +2291,11 @@ def get_midpoint_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:
     end_map = schedule.get_jik_2_end_time_map()
     jobs = schedule.jobs
     idx_map = {j: idx for idx, j in enumerate(jobs)}
+    rank_map = dict(job_tiebreak_rank or {})
     first_stage = schedule.stages[0]
     last_stage = schedule.stages[-1]
 
-    seq_info: list[tuple[float, int, int, str]] = []
+    seq_info: list[tuple[float, int, int, int, str]] = []
     for j in jobs:
         # find any machine k for first and last stage
         s_first = next(
@@ -2305,14 +2309,15 @@ def get_midpoint_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:
             if job == j and stage == last_stage
         )
         midpoint = (s_first + e_last) / 2
-        seq_info.append((midpoint, s_first, idx_map[j], j))
+        seq_info.append((midpoint, s_first, rank_map.get(j, idx_map[j]), idx_map[j], j))
 
-    seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
-    return [info[3] for info in seq_info]
+    seq_info.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+    return [info[4] for info in seq_info]
 
 
 def get_bottleneck_stage_job_sequence(
     schedule: HybridFlowshopLiteSchedule,
+    job_tiebreak_rank: Mapping[str, int] | None = None,
 ) -> list[str]:
     """Get job sequence based on bottleneck stage.
 
@@ -2338,8 +2343,9 @@ def get_bottleneck_stage_job_sequence(
     end_map = schedule.get_jik_2_end_time_map()
     jobs = schedule.jobs
     idx_map = {j: idx for idx, j in enumerate(jobs)}
+    rank_map = dict(job_tiebreak_rank or {})
 
-    seq_info: list[tuple[int, float, int, str]] = []
+    seq_info: list[tuple[int, float, int, int, str]] = []
     for j in jobs:
         s_bottleneck = next(
             t
@@ -2352,10 +2358,18 @@ def get_bottleneck_stage_job_sequence(
             if job == j and stage == bottleneck_stage
         )
         midpoint = (s_bottleneck + e_bottleneck) / 2
-        seq_info.append((s_bottleneck, midpoint, idx_map[j], j))
+        seq_info.append(
+            (
+                s_bottleneck,
+                midpoint,
+                rank_map.get(j, idx_map[j]),
+                idx_map[j],
+                j,
+            )
+        )
 
-    seq_info.sort(key=lambda x: (x[0], x[1], x[2]))
-    return [info[3] for info in seq_info]
+    seq_info.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
+    return [info[4] for info in seq_info]
 
 
 def get_first_stage_start_sequence(schedule: HybridFlowshopLiteSchedule) -> list[str]:

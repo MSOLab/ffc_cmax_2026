@@ -3,15 +3,290 @@
 import pytest
 
 from hybridflowshop.dispatcher.utils import (
+    build_schedule_from_stage_job_sequences_priority_score,
+    build_schedule_from_stage_job_sequences_strict_call_order,
+    dispatch_stage_job_sequences_strict_call_order,
     dispatch_job_sequence_by_stages,
     dispatch_stages_by_job_sequence,
     from_job_sequence_get_schedule_mixed,
+    get_job_sequence_from_dispatch_windows_aggregate,
+    get_job_sequence_from_dispatch_windows_anchor_stage,
+    get_job_tiebreak_rank_from_job_sequence,
+    get_job_tiebreak_rank_from_stage_job_sequences,
+    get_stage_job_release_times_from_dispatch_windows,
+    get_stage_job_sequences_from_dispatch_windows,
+    improve_schedule_by_critical_adjacent_swaps,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
 
 # ============================================================================
 # Tests for from_job_sequence_get_schedule_mixed()
 # ============================================================================
+
+
+def test_get_job_tiebreak_rank_from_stage_job_sequences_uses_first_stage():
+    stage_2_job_sequence = {
+        "s1": ["j3", "j1", "j2"],
+        "s2": ["j2", "j1", "j3"],
+    }
+
+    rank_map = get_job_tiebreak_rank_from_stage_job_sequences(
+        ["s1", "s2"], stage_2_job_sequence
+    )
+
+    assert rank_map == {"j3": 0, "j1": 1, "j2": 2}
+
+
+def test_get_stage_job_sequences_from_dispatch_windows_uses_longer_processing_time_tiebreak():
+    dispatch_window_lookup = {
+        (1, 1): {"early_start": 10, "late_start": 20},
+        (1, 2): {"early_start": 10, "late_start": 20},
+        (1, 3): {"early_start": 10, "late_start": 21},
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 3, "j2": 7, "j3": 20},
+    }
+
+    seq = get_stage_job_sequences_from_dispatch_windows(
+        ["s1"],
+        ["j1", "j2", "j3"],
+        dispatch_window_lookup,
+        stage_2_job_2_p,
+    )
+
+    assert seq["s1"] == ["j2", "j1", "j3"]
+
+
+def test_get_stage_job_sequences_from_dispatch_windows_supports_ls_first_rule():
+    dispatch_window_lookup = {
+        (1, 1): {"early_start": 10, "late_start": 50},
+        (1, 2): {"early_start": 30, "late_start": 40},
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 3, "j2": 7},
+    }
+
+    seq = get_stage_job_sequences_from_dispatch_windows(
+        ["s1"],
+        ["j1", "j2"],
+        dispatch_window_lookup,
+        stage_2_job_2_p,
+        sort_rule="ls_es_p_desc",
+    )
+
+    assert seq["s1"] == ["j2", "j1"]
+
+
+def test_get_job_sequence_from_dispatch_windows_anchor_stage_uses_requested_stage():
+    dispatch_window_lookup = {
+        (1, 1): {"early_start": 0, "late_start": 20},
+        (1, 2): {"early_start": 5, "late_start": 10},
+        (2, 1): {"early_start": 100, "late_start": 120},
+        (2, 2): {"early_start": 20, "late_start": 30},
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 3, "j2": 7},
+        "s2": {"j1": 5, "j2": 2},
+    }
+
+    seq = get_job_sequence_from_dispatch_windows_anchor_stage(
+        ["s1", "s2"],
+        ["j1", "j2"],
+        dispatch_window_lookup,
+        stage_2_job_2_p,
+        anchor_stage_id="s2",
+        sort_rule="ls_es_p_desc",
+    )
+
+    assert seq == ["j2", "j1"]
+
+
+def test_get_job_sequence_from_dispatch_windows_aggregate_uses_sum_slack_rule():
+    dispatch_window_lookup = {
+        (1, 1): {"early_start": 0, "late_start": 10},
+        (1, 2): {"early_start": 0, "late_start": 5},
+        (2, 1): {"early_start": 10, "late_start": 30},
+        (2, 2): {"early_start": 5, "late_start": 8},
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 3, "j2": 7},
+        "s2": {"j1": 5, "j2": 2},
+    }
+
+    seq = get_job_sequence_from_dispatch_windows_aggregate(
+        ["s1", "s2"],
+        ["j1", "j2"],
+        dispatch_window_lookup,
+        stage_2_job_2_p,
+        aggregation_rule="sum_ls_slack_p_desc",
+    )
+
+    assert seq == ["j2", "j1"]
+
+
+def test_get_job_tiebreak_rank_from_job_sequence():
+    assert get_job_tiebreak_rank_from_job_sequence(["j3", "j1", "j2"]) == {
+        "j3": 0,
+        "j1": 1,
+        "j2": 2,
+    }
+
+
+def test_get_stage_job_release_times_from_dispatch_windows_uses_early_start():
+    dispatch_window_lookup = {
+        (1, 1): {"early_start": 10, "late_start": 20},
+        (1, 2): {"early_start": 5, "late_start": 8},
+    }
+
+    releases = get_stage_job_release_times_from_dispatch_windows(
+        ["s1"],
+        ["j1", "j2"],
+        dispatch_window_lookup,
+    )
+
+    assert releases == {"s1": {"j1": 10, "j2": 5}}
+
+
+def test_build_schedule_from_stage_job_sequences_priority_score_basic():
+    stage_2_job_sequence = {
+        "s1": ["j2", "j1", "j3"],
+        "s2": ["j3", "j2", "j1"],
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3, "j3": 1},
+        "s2": {"j1": 3, "j2": 2, "j3": 4},
+    }
+
+    schedule = build_schedule_from_stage_job_sequences_priority_score(
+        lambda: HybridFlowshopLiteSchedule(
+            jobs=["j1", "j2", "j3"],
+            stages=["s1", "s2"],
+            machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+        ),
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+    )
+
+    validate_schedule(schedule, stage_2_job_2_p)
+    assert [job_id for _, _, job_id in schedule.get_job_sequence("s1", "m1")] == [
+        "j2",
+        "j1",
+        "j3",
+    ]
+
+
+def test_build_schedule_from_stage_job_sequences_strict_call_order_respects_es_release():
+    stage_2_job_sequence = {
+        "s1": ["j1", "j2"],
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3},
+    }
+    stage_2_job_2_release = {
+        "s1": {"j1": 5, "j2": 0},
+    }
+
+    schedule = build_schedule_from_stage_job_sequences_strict_call_order(
+        lambda: HybridFlowshopLiteSchedule(
+            jobs=["j1", "j2"],
+            stages=["s1"],
+            machines_per_stage={"s1": ["m1"]},
+        ),
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+        stage_2_job_2_release=stage_2_job_2_release,
+    )
+
+    assert schedule.get_job_start_time("s1", "j1") >= 5
+    assert schedule.get_job_start_time("s1", "j2") >= 0
+
+
+def test_build_schedule_from_stage_job_sequences_priority_score_respects_es_release():
+    stage_2_job_sequence = {
+        "s1": ["j1", "j2"],
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3},
+    }
+    stage_2_job_2_release = {
+        "s1": {"j1": 10, "j2": 0},
+    }
+
+    schedule = build_schedule_from_stage_job_sequences_priority_score(
+        lambda: HybridFlowshopLiteSchedule(
+            jobs=["j1", "j2"],
+            stages=["s1"],
+            machines_per_stage={"s1": ["m1"]},
+        ),
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+        stage_2_job_2_release=stage_2_job_2_release,
+    )
+
+    assert schedule.get_job_start_time("s1", "j2") == 0
+    assert schedule.get_job_start_time("s1", "j1") == 10
+
+
+def test_improve_schedule_by_critical_adjacent_swaps_improves_known_case():
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 9, "j3": 7, "j4": 9},
+        "s2": {"j1": 5, "j2": 9, "j3": 4, "j4": 4},
+        "s3": {"j1": 7, "j2": 5, "j3": 8, "j4": 8},
+    }
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2", "j3", "j4"],
+        stages=["s1", "s2", "s3"],
+        machines_per_stage={"s1": ["m1", "m2"], "s2": ["m1", "m2"], "s3": ["m1", "m2"]},
+    )
+
+    schedule.add_ops_times_2_mc("s1", "m1", "j4", 0, 9)
+    schedule.add_ops_times_2_mc("s1", "m1", "j1", 9, 11)
+    schedule.add_ops_times_2_mc("s1", "m2", "j2", 0, 9)
+    schedule.add_ops_times_2_mc("s1", "m2", "j3", 9, 16)
+
+    schedule.add_ops_times_2_mc("s2", "m1", "j4", 9, 13)
+    schedule.add_ops_times_2_mc("s2", "m1", "j3", 16, 20)
+    schedule.add_ops_times_2_mc("s2", "m2", "j2", 9, 18)
+    schedule.add_ops_times_2_mc("s2", "m2", "j1", 18, 23)
+
+    schedule.add_ops_times_2_mc("s3", "m1", "j4", 13, 21)
+    schedule.add_ops_times_2_mc("s3", "m1", "j1", 23, 30)
+    schedule.add_ops_times_2_mc("s3", "m2", "j3", 20, 28)
+    schedule.add_ops_times_2_mc("s3", "m2", "j2", 28, 33)
+
+    validate_schedule(schedule, stage_2_job_2_p)
+    assert schedule.makespan == 33
+
+    improved = improve_schedule_by_critical_adjacent_swaps(
+        schedule,
+        stage_2_job_2_p,
+        max_passes=3,
+    )
+
+    validate_schedule(improved, stage_2_job_2_p)
+    assert improved.makespan == 31
+
+
+def test_improve_schedule_by_critical_adjacent_swaps_preserves_release_constraints():
+    stage_2_job_2_p = {
+        "s1": {"j1": 5, "j2": 4},
+    }
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    schedule.add_ops_times_2_mc("s1", "m1", "j2", 0, 4)
+    schedule.add_ops_times_2_mc("s1", "m1", "j1", 10, 15)
+
+    improved = improve_schedule_by_critical_adjacent_swaps(
+        schedule,
+        stage_2_job_2_p,
+        max_passes=2,
+        stage_2_job_2_release={"s1": {"j1": 10, "j2": 0}},
+    )
+
+    assert improved.get_job_start_time("s1", "j1") >= 10
 
 
 def test_from_job_sequence_get_schedule_mixed_basic():
@@ -713,3 +988,54 @@ def test_get_job_priority_queue_for_stage_dispatch():
     # j1 ends at 5 (2+3), j3 ends at 7 (3+4), j2 ends at 12
     priority = sched.get_job_priority_queue_for_stage_dispatch("s3", ["j1", "j2", "j3"])
     assert priority == ["j1", "j3", "j2"], f"Got {priority}"
+
+
+def test_get_stage_job_sequences_from_dispatch_windows():
+    dispatch_window_lookup = {
+        (1, 1): {"early_start": 5.0, "late_start": 7.0},
+        (1, 2): {"early_start": 1.0, "late_start": 9.0},
+        (1, 3): {"early_start": 5.0, "late_start": 6.0},
+        (2, 1): {"early_start": 3.0, "late_start": 4.0},
+        (2, 2): {"early_start": 3.0, "late_start": 3.0},
+        (2, 3): {"early_start": 8.0, "late_start": 8.0},
+    }
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 4, "j3": 3},
+        "s2": {"j1": 1, "j2": 5, "j3": 2},
+    }
+
+    stage_2_job_sequence = get_stage_job_sequences_from_dispatch_windows(
+        stage_id_list=["s1", "s2"],
+        job_id_list=["j1", "j2", "j3"],
+        dispatch_window_lookup=dispatch_window_lookup,
+        stage_2_job_2_p=stage_2_job_2_p,
+    )
+
+    assert stage_2_job_sequence["s1"] == ["j2", "j3", "j1"]
+    assert stage_2_job_sequence["s2"] == ["j2", "j1", "j3"]
+
+
+def test_dispatch_stage_job_sequences_strict_call_order():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1", "s2"],
+        machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
+    )
+    stage_2_job_sequence = {"s1": ["j2", "j1"], "s2": ["j1", "j2"]}
+    stage_2_job_2_p = {
+        "s1": {"j1": 2, "j2": 3},
+        "s2": {"j1": 4, "j2": 1},
+    }
+
+    dispatch_stage_job_sequences_strict_call_order(
+        sched,
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+    )
+
+    assert sched.get_job_end_time("s1", "j2") == 3
+    assert sched.get_job_end_time("s1", "j1") == 5
+    assert sched.get_job_end_time("s2", "j1") == 9
+    # strict_call_order preserves the call order, but later jobs may still be
+    # inserted into earlier idle gaps if precedence allows.
+    assert sched.get_job_end_time("s2", "j2") == 4
