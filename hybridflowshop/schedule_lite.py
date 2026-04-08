@@ -325,6 +325,30 @@ class HybridFlowshopLiteSchedule:
             raise ValueError(f"Job ID {job_id} not found in stage ID {stage_id}")
         return self.__stage_2_job_2_end_time[stage_id][job_id]
 
+    def get_job_start_time(
+        self,
+        stage_id: StageIdType,
+        job_id: JobIdType,
+        default_if_missing: int | None = None,
+    ) -> int:
+        """Return the start time of ``job_id`` at ``stage_id``."""
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+        if job_id not in self.jobs:
+            raise ValueError(f"Invalid job ID: {job_id}")
+
+        for mc_id in self.machines_per_stage[stage_id]:
+            for start_time, _end_time, scheduled_job_id in self.get_job_sequence(
+                stage_id, mc_id
+            ):
+                if scheduled_job_id == job_id:
+                    return start_time
+
+        if default_if_missing is not None:
+            return default_if_missing
+        raise ValueError(f"Job ID {job_id} not found in stage ID {stage_id}")
+        return self.__stage_2_job_2_end_time[stage_id][job_id]
+
     def get_prev_stage_end_time(
         self,
         stage_id: StageIdType,
@@ -706,6 +730,90 @@ class HybridFlowshopLiteSchedule:
             duration = job_2_duration[job_id]
             release_t = job_2_release[job_id] if job_2_release is not None else None
             self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
+
+    def dispatch_stage_by_jobs_strict_sequence(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        job_2_duration: Mapping[JobIdType, int],
+        job_2_release: Mapping[JobIdType, int] | None = None,
+    ) -> None:
+        """Dispatch multiple jobs to a stage in the exact input order.
+
+        Unlike :meth:`dispatch_stage_by_jobs`, this method does not reorder jobs by
+        readiness. It simply iterates over ``job_id_seq`` as given and places each
+        operation on the earliest feasible machine/time slot that respects:
+        - previous-stage precedence,
+        - the optional release time,
+        - machine availability.
+
+        This is useful when an upstream method has already decided the desired
+        stage-specific priority order (for example, from ES/LS windows) and we want
+        to preserve that order during dispatch.
+
+        Args:
+            stage_id (StageIdType): Stage identifier.
+            job_id_seq (Sequence[JobIdType]): Exact job order to dispatch.
+            job_2_duration (Mapping[JobIdType, int]): Mapping from job ID to duration.
+            job_2_release (Mapping[JobIdType, int] | None, optional): Optional release
+                times used as lower bounds on operation start times.
+
+        Raises:
+            ValueError: If stage_id is invalid or a duration is missing.
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+
+        for job_id in job_id_seq:
+            if job_id not in job_2_duration:
+                raise ValueError(f"Duration for job ID {job_id} not provided")
+            duration = job_2_duration[job_id]
+            release_t = job_2_release[job_id] if job_2_release is not None else None
+            self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
+
+    def dispatch_stage_by_jobs_strict_start_order(
+        self,
+        stage_id: StageIdType,
+        job_id_seq: Sequence[JobIdType],
+        job_2_duration: Mapping[JobIdType, int],
+        job_2_release: Mapping[JobIdType, int] | None = None,
+    ) -> None:
+        """Dispatch jobs so their stage start times follow the input order.
+
+        Compared with :meth:`dispatch_stage_by_jobs_strict_sequence`, this method
+        additionally enforces a strictly increasing lower bound on stage start times.
+        That means if ``job_id_seq = [j1, j2, ...]``, then the realized start times
+        on this stage satisfy:
+
+        ``start(j1) < start(j2) < ...``
+
+        under integer time. This is useful when the caller wants the final stage-wise
+        order itself (not just the call order) to respect the provided sequence.
+
+        The implementation still chooses the earliest feasible machine for each job,
+        but it raises the release lower bound for each subsequent job to at least
+        ``previous_start + 1`` so no later job can start earlier than an earlier one.
+        """
+        if stage_id not in self.stages:
+            raise ValueError(f"Invalid stage ID: {stage_id}")
+
+        next_start_lb: int | None = None
+        for job_id in job_id_seq:
+            if job_id not in job_2_duration:
+                raise ValueError(f"Duration for job ID {job_id} not provided")
+            duration = job_2_duration[job_id]
+            release_t = job_2_release[job_id] if job_2_release is not None else None
+            if next_start_lb is not None:
+                release_t = (
+                    next_start_lb
+                    if release_t is None
+                    else max(release_t, next_start_lb)
+                )
+
+            self.add_operation_2_stage(stage_id, job_id, duration, release_t=release_t)
+
+            start_time = self.get_job_start_time(stage_id, job_id)
+            next_start_lb = start_time + 1
 
     def _get_next_stage_start_time(
         self,

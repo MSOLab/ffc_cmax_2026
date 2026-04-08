@@ -3,8 +3,11 @@ import math
 import random
 from collections import Counter, deque
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
+from lb_bucket.mip.dispatch_windows import build_dispatch_window_lookup
+from lb_bucket.mip.solution_io import write_solution_payload
+from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 from routix import ElapsedTimer
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
     HybridFlowshopParameters,
@@ -37,7 +40,6 @@ from lb_bucket.mip.shared import (
     TwoBucketInstance,
     import_gurobi,
 )
-from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
@@ -1517,15 +1519,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def apply_mip_lb(
         self,
-        # Core parameters
-        preset: str = "binary_auto",
-        name: str | None = None,
-        experiments_root: Path | None = None,
-        note: str | None = None,
-        summary_csv: Path | None = None,
-        input_dir: Path | None = None,
-        solution_root: Path | None = None,
-        instances: Sequence[int] | None = None,
         # Gurobi parameters
         threads: int = 24,
         time_limit_sec: float | None = None,
@@ -1534,7 +1527,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Delta parameters
         delta: int | None = None,
         delta_pmax_plus_one: bool = False,
-        same_bucket_threshold: int | None = None,
         # Formulation parameters
         precedence_formulation: str | None = None,
         base_model_only: bool = False,
@@ -1542,10 +1534,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         disable_valid_ineq_ii: bool = False,
         disable_valid_ineq_iii: bool = False,
         disable_valid_ineq_iv: bool = False,
-        # Flow control
-        disable_ub_warm_start: bool = False,
-        resume: bool = False,
-        dry_run: bool = False,
     ) -> None:
         """
         Compute lower bound using the bucket-indexed MIP formulation with Gurobi.
@@ -1553,33 +1541,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         This method follows the same pattern as apply_shdlb, calling the MIP solver
         from lb_bucket/mip/search.py to compute a potentially stronger lower bound.
 
-        All parameters mirror the command-line arguments from lb_bucket/run_mip_experiment.py.
-
         Args:
-            preset: Named experiment preset (default: "binary_auto").
-            name: Experiment folder name. If None, uses '<preset>_<timestamp>'.
-            experiments_root: Root directory for experiment folders.
-            note: Optional description of this experiment.
-            summary_csv: Override summary CSV path.
-            input_dir: Override instance directory.
-            solution_root: Override UB warm-start solution root.
-            instances: Optional explicit list of instance IDs.
             threads: Gurobi threads (default: 24).
             time_limit_sec: Per-instance Gurobi time limit.
             display_interval_sec: Gurobi DisplayInterval.
             log_to_console: Forward Gurobi logs to console (default: False).
             delta: Fixed bucket size. If None, uses max processing time.
             delta_pmax_plus_one: If True, sets delta = max_p_ij + 1.
-            same_bucket_threshold: Override automatic delta selection threshold.
             precedence_formulation: Precedence formulation ("bucket", "d", or "e").
             base_model_only: Disable all model strengthening (default: False).
             disable_valid_ineq_i: Disable valid-inequality family (i).
             disable_valid_ineq_ii: Disable valid-inequality family (ii).
             disable_valid_ineq_iii: Disable valid-inequality family (iii).
             disable_valid_ineq_iv: Disable valid-inequality family (iv).
-            disable_ub_warm_start: Do not load UB warm-start solutions.
-            resume: Resume experiment folder if exists.
-            dry_run: Print arguments without running solver (default: False).
         """
         sub_timer = ElapsedTimer()
         instance = self.instance
@@ -1588,11 +1562,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         input_ub = self.solution_manager.best_obj_value
         if input_ub is None:
             logging.warning("[MIP LB] No upper bound available, skipping")
-            return
-
-        # Early return: dry run
-        if dry_run:
-            logging.info("[MIP LB] Dry run: would call MIP solver")
             return
 
         # Import Gurobi
@@ -1646,7 +1615,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 valid_ineq_iv=not disable_valid_ineq_iv,
             )
 
-        precedence = PrecedenceOptions(formulation=precedence_formulation or "bucket")
+        precedence = PrecedenceOptions(formulation=precedence_formulation or "d")
 
         # Create summary record
         record = SummaryBoundRecord(
@@ -1665,7 +1634,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         _time_limit_sec = self.get_remaining_time_limit(time_limit_sec)
         # Call MIP solver
-        result, _, _, _ = run_bucket_search_for_instance(
+        result, _, _, solution_payload = run_bucket_search_for_instance(
             gp,
             grb,
             two_bucket_instance,
@@ -1682,6 +1651,44 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             time_limit_sec_used=_time_limit_sec,
             ub_schedule=ub_schedule,
         )
+
+        self.last_mip_lb_result = result
+        self.last_mip_lb_solution_payload = solution_payload
+        self.last_mip_lb_dispatch_window_lookup = (
+            build_dispatch_window_lookup(solution_payload["dispatch_windows"])
+            if solution_payload is not None
+            else None
+        )
+        if solution_payload is not None and self._working_dir_path is not None:
+            mip_lb_output_dir = self._working_dir_path / "mip_lb"
+            write_solution_payload(mip_lb_output_dir, solution_payload)
+            logging.info(
+                "[MIP LB] Wrote solution payload with dispatch windows to %s",
+                mip_lb_output_dir,
+            )
+
+        dispatched_schedule = None
+        self.last_mip_lb_dispatched_schedules = None
+        if self.last_mip_lb_dispatch_window_lookup is not None:
+            stage_2_job_sequence = self._get_stage_job_sequences_from_dispatch_windows(
+                self.last_mip_lb_dispatch_window_lookup
+            )
+            self.last_mip_lb_stage_2_job_sequence = stage_2_job_sequence
+            dispatch_results = self._dispatch_by_stage_job_sequences(
+                stage_2_job_sequence
+            )
+            self.last_mip_lb_dispatched_schedules = dispatch_results
+            candidate_schedule = dispatch_results.get("strict_call_order")
+            if candidate_schedule is not None:
+                self.check_feasibility(candidate_schedule.get_jik_2_start_time_map())
+                dispatched_schedule = candidate_schedule
+                logging.info(
+                    "[MIP LB] strict_call_order dispatch from ES/LS windows has makespan=%s",
+                    candidate_schedule.makespan,
+                )
+        else:
+            self.last_mip_lb_stage_2_job_sequence = None
+            self.last_mip_lb_dispatched_schedules = None
 
         # Update bound if improved (apply_shdlb pattern)
         new_lb = result.certified_final_lb
@@ -1705,11 +1712,83 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Create report and register (apply_shdlb pattern)
         report = HfsSubroutineReport(
             elapsed_time=sub_timer.elapsed_sec,
-            obj_value=None,
+            obj_value=(
+                float(dispatched_schedule.makespan)
+                if dispatched_schedule is not None
+                else None
+            ),
             obj_bound=new_lb,
             is_init=False,
         )
-        self.solution_manager.register(report, None)
+        was_updated = self.solution_manager.register(report, dispatched_schedule)
+        if dispatched_schedule is not None:
+            log_time = self.timer.elapsed_sec
+            self.add_obj_value_log(
+                log_time, float(dispatched_schedule.makespan), is_maximize=False
+            )
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_value_is_valid=True
+            )
+            if was_updated:
+                logging.info(
+                    "[MIP LB] ES/LS-guided dispatched schedule improved incumbent to makespan=%s",
+                    dispatched_schedule.makespan,
+                )
+        return {
+            "result": result,
+            "solution_payload": solution_payload,
+            "dispatch_window_lookup": self.last_mip_lb_dispatch_window_lookup,
+            "dispatch_candidates": self.last_mip_lb_dispatched_schedules,
+            "dispatched_schedule": dispatched_schedule,
+        }
+
+    def _get_stage_job_sequences_from_dispatch_windows(
+        self,
+        dispatch_window_lookup: Mapping[tuple[int, int], Mapping[str, Any]],
+    ) -> dict[str, list[str]]:
+        stage_2_job_sequence: dict[str, list[str]] = {}
+        for stage_idx, stage_id in enumerate(self.instance.stage_id_list, start=1):
+            sortable_rows: list[tuple[float, float, int, str]] = []
+            for job_idx, job_id in enumerate(self.instance.job_id_list, start=1):
+                op_window = dispatch_window_lookup.get((stage_idx, job_idx))
+                if op_window is None:
+                    raise ValueError(
+                        f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
+                    )
+                sortable_rows.append(
+                    (
+                        float(op_window["early_start"]),
+                        float(op_window["late_start"]),
+                        job_idx,
+                        job_id,
+                    )
+                )
+            sortable_rows.sort(key=lambda row: (row[0], row[1], row[2]))
+            stage_2_job_sequence[stage_id] = [job_id for *_rest, job_id in sortable_rows]
+        return stage_2_job_sequence
+
+    def _dispatch_by_stage_job_sequences(
+        self,
+        stage_2_job_sequence: Mapping[str, Sequence[str]],
+    ) -> dict[str, HybridFlowshopLiteSchedule | None]:
+        dispatch_results: dict[str, HybridFlowshopLiteSchedule | None] = {}
+        schedule = self.create_empty_schedule_from_ins()
+        try:
+            for stage_id in self.instance.stage_id_list:
+                job_sequence = stage_2_job_sequence[stage_id]
+                schedule.dispatch_stage_by_jobs_strict_sequence(
+                    stage_id,
+                    job_sequence,
+                    self.stage_2_job_2_p_dict[stage_id],
+                )
+            dispatch_results["strict_call_order"] = schedule
+        except Exception:
+            logging.exception(
+                "[MIP LB] strict_call_order dispatch failed while constructing ES/LS-guided schedule."
+            )
+            dispatch_results["strict_call_order"] = None
+        return dispatch_results
 
     def initialize_by_dj_cds(
         self, error_if_infeasible: bool = False, draw_gantt: bool = False

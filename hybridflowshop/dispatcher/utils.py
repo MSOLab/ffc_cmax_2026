@@ -99,6 +99,33 @@ def dispatch_stages_by_job_sequence(
             )
 
 
+def dispatch_stages_by_job_sequence_strict(
+    schedule: HybridFlowshopLiteSchedule,
+    job_sequence: Sequence[JobIdType],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    from_stage: StageIdType | None = None,
+    job_2_release_t: Mapping[JobIdType, int] | None = None,
+) -> None:
+    """Dispatch stages one by one while preserving the exact given job order.
+
+    This is the strict-sequence counterpart of :func:`dispatch_stages_by_job_sequence`.
+    Each stage uses ``dispatch_stage_by_jobs_strict_sequence()`` so the provided
+    ``job_sequence`` is not reordered by readiness.
+    """
+    _stage_id_list = schedule.stages
+    if from_stage is not None:
+        from_stage_index = _stage_id_list.index(from_stage)
+        _stage_id_list = _stage_id_list[from_stage_index:]
+
+    for stage_id in _stage_id_list:
+        schedule.dispatch_stage_by_jobs_strict_sequence(
+            stage_id,
+            job_sequence,
+            stage_2_job_2_p[stage_id],
+            job_2_release=job_2_release_t,
+        )
+
+
 def from_job_sequence_get_schedule_mixed(
     schedule: HybridFlowshopLiteSchedule,
     job_sequence: Sequence[JobIdType],
