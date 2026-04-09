@@ -1955,7 +1955,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             stage_2_job_2_p_dict=self.stage_2_job_2_p_dict,
             solution_payload=self.last_mip_lb_solution_payload,
             dispatch_window_lookup=self.last_mip_lb_dispatch_window_lookup,
-            incumbent_schedule=self.solution_manager.get_incumbent(),
             es_ls_local_repair_max_passes=es_ls_local_repair_max_passes,
             dependencies=PostMipDispatchDependencies(
                 check_feasibility=self.check_feasibility,
