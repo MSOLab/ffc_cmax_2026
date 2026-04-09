@@ -34,7 +34,6 @@ from hybridflowshop.dispatcher import (
 )
 from hybridflowshop.dispatcher.utils import (
     from_job_sequence_get_schedule_mixed,
-    get_bottleneck_anchor_stage_from_solution_payload,
     improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
 )
@@ -4130,154 +4129,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         return config
 
-    def _get_relative_gap_to_best_obj_bound(
-        self,
-        obj_value: float | int | None,
-    ) -> float | None:
-        if obj_value is None:
-            return None
-        best_obj_bound = self.solution_manager.best_obj_bound
-        if best_obj_bound is None or best_obj_bound <= 0:
-            return None
-        if math.isnan(float(best_obj_bound)):
-            return None
-        return max(
-            0.0,
-            (float(obj_value) - float(best_obj_bound)) / float(best_obj_bound),
-        )
-
-    def _get_stage_adaptive_selected_dispatch_repair_target_stage_ids(
-        self,
-    ) -> Sequence[str] | None:
-        if self.instance.stage_count <= 10:
-            return None
-
-        bottleneck_anchor_stage_id = get_bottleneck_anchor_stage_from_solution_payload(
-            self.instance.stage_id_list,
-            self.stage_2_job_2_p_dict,
-            self.instance.stage_2_machines_map,
-            solution_payload=None,
-        )
-        target_stage_ids: list[str] = []
-        for stage_id in [bottleneck_anchor_stage_id, self.instance.stage_id_list[-1]]:
-            if stage_id not in target_stage_ids:
-                target_stage_ids.append(stage_id)
-        return target_stage_ids
-
-    def _should_run_selected_dispatch_init_local_repair(
-        self,
-        schedule: HybridFlowshopLiteSchedule | None,
-    ) -> bool:
-        if schedule is None:
-            return False
-
-        relative_gap_to_bound = self._get_relative_gap_to_best_obj_bound(
-            schedule.makespan
-        )
-        if self.instance.stage_count >= 15:
-            if relative_gap_to_bound is None:
-                return True
-            return relative_gap_to_bound >= 0.03
-        if relative_gap_to_bound is None:
-            return False
-        return relative_gap_to_bound >= 0.08
-
-    def _get_selected_dispatch_init_local_repair_candidates(
-        self,
-        candidate_schedules: Mapping[str, HybridFlowshopLiteSchedule | None],
-        *,
-        best_method_name: str,
-        best_schedule: HybridFlowshopLiteSchedule | None,
-    ) -> dict[str, HybridFlowshopLiteSchedule | None]:
-        if not self._should_run_selected_dispatch_init_local_repair(best_schedule):
-            if best_schedule is not None:
-                logging.info(
-                    "[INIT] Skipping selected-dispatch local repair because the starting schedule already looks strong enough."
-                )
-            return {}
-
-        target_stage_ids = (
-            self._get_stage_adaptive_selected_dispatch_repair_target_stage_ids()
-        )
-        insertion_passes = 2 if self.instance.stage_count <= 10 else 3
-        swap_passes = insertion_passes
-        max_shift = 3 if self.instance.stage_count <= 10 else 4
-        repaired_candidates: dict[str, HybridFlowshopLiteSchedule | None] = {}
-
-        if best_schedule is not None:
-            try:
-                repaired_candidates["selected_dispatch_stage_adaptive_local_repair"] = (
-                    self._repair_post_mip_dispatch_candidate(
-                        best_schedule,
-                        target_stage_ids=target_stage_ids,
-                        insertion_passes=insertion_passes,
-                        max_shift=max_shift,
-                        swap_passes=swap_passes,
-                    )
-                )
-                logging.info(
-                    "[INIT] selected_dispatch_stage_adaptive_local_repair has makespan=%s (base=%s, base_variant=%s)",
-                    (
-                        repaired_candidates[
-                            "selected_dispatch_stage_adaptive_local_repair"
-                        ].makespan
-                        if repaired_candidates[
-                            "selected_dispatch_stage_adaptive_local_repair"
-                        ]
-                        is not None
-                        else None
-                    ),
-                    best_schedule.makespan,
-                    best_method_name,
-                )
-            except Exception:
-                logging.exception(
-                    "[INIT] selected_dispatch_stage_adaptive_local_repair failed."
-                )
-                repaired_candidates[
-                    "selected_dispatch_stage_adaptive_local_repair"
-                ] = None
-
-        mixed_schedule = candidate_schedules.get("best_of_mixed_dispatches")
-        if (
-            self.instance.stage_count >= 15
-            and best_method_name != "best_of_mixed_dispatches"
-            and mixed_schedule is not None
-        ):
-            try:
-                repaired_candidates[
-                    "best_of_mixed_dispatches_stage_adaptive_local_repair"
-                ] = self._repair_post_mip_dispatch_candidate(
-                    mixed_schedule,
-                    target_stage_ids=target_stage_ids,
-                    insertion_passes=insertion_passes,
-                    max_shift=max_shift,
-                    swap_passes=swap_passes,
-                )
-                logging.info(
-                    "[INIT] best_of_mixed_dispatches_stage_adaptive_local_repair has makespan=%s (base=%s)",
-                    (
-                        repaired_candidates[
-                            "best_of_mixed_dispatches_stage_adaptive_local_repair"
-                        ].makespan
-                        if repaired_candidates[
-                            "best_of_mixed_dispatches_stage_adaptive_local_repair"
-                        ]
-                        is not None
-                        else None
-                    ),
-                    mixed_schedule.makespan,
-                )
-            except Exception:
-                logging.exception(
-                    "[INIT] best_of_mixed_dispatches_stage_adaptive_local_repair failed."
-                )
-                repaired_candidates[
-                    "best_of_mixed_dispatches_stage_adaptive_local_repair"
-                ] = None
-
-        return repaired_candidates
-
     def _get_selected_dispatch_candidate_schedules(
         self,
         *,
@@ -4453,20 +4304,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         best_method_name = ""
         best_sch: HybridFlowshopLiteSchedule | None = None
         best_obj: int | None = None
-        for method_name, sch in candidate_schedules.items():
-            obj = sch.makespan if sch is not None else None
-            if obj is not None and (best_obj is None or obj < best_obj):
-                best_sch = sch
-                best_obj = obj
-                best_method_name = method_name
-
-        candidate_schedules.update(
-            self._get_selected_dispatch_init_local_repair_candidates(
-                candidate_schedules,
-                best_method_name=best_method_name,
-                best_schedule=best_sch,
-            )
-        )
         for method_name, sch in candidate_schedules.items():
             obj = sch.makespan if sch is not None else None
             if obj is not None and (best_obj is None or obj < best_obj):
