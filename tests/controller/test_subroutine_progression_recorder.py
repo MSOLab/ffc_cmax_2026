@@ -1,4 +1,5 @@
 import datetime
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -503,6 +504,88 @@ class TestSubroutineProgressionRecorder:
             94.0,
             93.0,
         ]
+
+    def test_get_progression_data_falls_back_to_recorded_points_when_report_has_no_progress(
+        self,
+    ) -> None:
+        controller = _make_progression_controller()
+        controller._subroutine_call_meta_list = [
+            {
+                "call_index": 1,
+                "subroutine_name": "apply_mip_lb",
+                "prefixed_subroutine_name": "1-apply_mip_lb",
+                "global_start_sec": 10.0,
+                "global_end_sec": 20.0,
+                "elapsed_sec": 10.0,
+            }
+        ]
+        controller._subroutine_end_marker_list = [
+            {
+                "global_end_sec": 20.0,
+                "call_index": 1,
+                "prefixed_subroutine_name": "1-apply_mip_lb",
+                "subroutine_name": "apply_mip_lb",
+            }
+        ]
+        controller._subroutine_call_progress_map = {
+            "1-apply_mip_lb": [
+                {
+                    "global_sec": 18.0,
+                    "obj_value": 6408.0,
+                    "call_index": 1,
+                    "prefixed_subroutine_name": "1-apply_mip_lb",
+                    "local_sec": 8.0,
+                }
+            ]
+        }
+        controller._combined_progress_list = list(
+            controller._subroutine_call_progress_map["1-apply_mip_lb"]
+        )
+        controller.solution_manager.history = [
+            SimpleNamespace(
+                report=SimpleNamespace(
+                    call_context="1-apply_mip_lb",
+                    progress_obj_value_records=(),
+                    progress_time_basis="local",
+                    obj_value_records=((1.0, 6406.0),),
+                )
+            )
+        ]
+
+        data = HybridFlowShopCpLnsControllerCore.get_progression_data(controller)
+
+        apply_mip_lb_call = data["subroutine_calls"][0]
+        assert [p["obj_value"] for p in apply_mip_lb_call["local_progress_list"]] == [
+            6408.0
+        ]
+        assert [p["obj_value"] for p in data["combined_progress_list"]] == [6408.0]
+
+    def test_add_file_handler_lowers_root_level_to_capture_info(
+        self, tmp_path
+    ) -> None:
+        controller = HybridFlowShopCpLnsControllerCore.__new__(
+            HybridFlowShopCpLnsControllerCore
+        )
+        controller._working_dir_path = tmp_path
+        controller.log_handlers = []
+
+        root_logger = logging.getLogger()
+        original_level = root_logger.level
+
+        try:
+            root_logger.setLevel(logging.WARNING)
+            controller.add_file_handler(level=logging.INFO)
+            logging.info("progression-log-smoke-test")
+            controller.release_log_handlers()
+
+            log_path = tmp_path / "subroutine_controller.log"
+            assert log_path.exists()
+            assert "progression-log-smoke-test" in log_path.read_text(
+                encoding="utf-8"
+            )
+        finally:
+            controller.log_handlers = []
+            root_logger.setLevel(original_level)
 
     def test_run_tracks_top_level_subroutine_calls_for_main_loop(self) -> None:
         controller = HybridFlowShopCpLnsControllerCore.__new__(

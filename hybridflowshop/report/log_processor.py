@@ -43,6 +43,84 @@ def parse_controller_log(log_path: Path) -> list[dict]:
     return records
 
 
+def _find_progression_json_path(instance_dir: Path) -> Path | None:
+    results_json_path = instance_dir / DEFAULT_RESULTS_DIR / "subroutine_progression.json"
+    if results_json_path.exists():
+        return results_json_path
+
+    root_json_path = instance_dir / "subroutine_progression.json"
+    if root_json_path.exists():
+        return root_json_path
+
+    return None
+
+
+def _coerce_progression_time(value) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_progression_time_records(instance_dir: Path) -> list[dict]:
+    json_path = _find_progression_json_path(instance_dir)
+    if json_path is None:
+        return []
+
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            progression_data = json.load(f)
+    except Exception as e:
+        logging.warning(f"Failed to read progression JSON {json_path}: {e}")
+        return []
+
+    subroutine_calls = progression_data.get("subroutine_calls", [])
+    if not isinstance(subroutine_calls, list):
+        return []
+
+    records: list[dict] = []
+    sorted_calls = sorted(
+        subroutine_calls,
+        key=lambda call: int(call.get("call_index", -1)),
+    )
+    for call in sorted_calls:
+        if not isinstance(call, dict):
+            continue
+
+        method_name = call.get("subroutine_name")
+        call_context = call.get("prefixed_subroutine_name")
+        if not method_name or not call_context:
+            continue
+
+        start_sec = _coerce_progression_time(call.get("global_start_sec"))
+        elapsed_sec = _coerce_progression_time(call.get("elapsed_sec"))
+        end_sec = _coerce_progression_time(call.get("global_end_sec"))
+
+        if start_sec is None and end_sec is not None and elapsed_sec is not None:
+            start_sec = end_sec - elapsed_sec
+        if end_sec is None and start_sec is not None and elapsed_sec is not None:
+            end_sec = start_sec + elapsed_sec
+        if elapsed_sec is None and start_sec is not None and end_sec is not None:
+            elapsed_sec = end_sec - start_sec
+
+        if start_sec is None or elapsed_sec is None or end_sec is None:
+            continue
+
+        records.append(
+            {
+                "method": str(method_name),
+                "call_context": str(call_context),
+                "start_sec": start_sec,
+                "elapsed_sec": elapsed_sec,
+                "end_sec": end_sec,
+            }
+        )
+
+    return records
+
+
 def parse_obj_log(yaml_path: Path) -> dict:
     if not yaml_path.exists():
         logging.warning(f"Obj log file not found: {yaml_path}")
@@ -199,6 +277,14 @@ def process_instance(
 
     log_path = instance_dir / DEFAULT_CONTROLLER_LOG_NAME
     time_records = parse_controller_log(log_path)
+    if not time_records:
+        time_records = parse_progression_time_records(instance_dir)
+        if time_records:
+            logging.info(
+                "Recovered %d time records for %s from subroutine_progression.json.",
+                len(time_records),
+                instance_id,
+            )
 
     with open(instance_dir / "method_time_log.json", "w", encoding="utf-8") as f:
         json.dump(time_records, f, indent=2)

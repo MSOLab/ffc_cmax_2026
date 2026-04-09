@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import pandas as pd
 import yaml
@@ -33,6 +34,14 @@ def _write_obj_log(instance_dir: Path, data: dict, notes: dict) -> None:
         yaml.safe_dump(
             {"obj_value": {"data": data, "notes": notes}}, f, sort_keys=False
         )
+
+
+def _write_progression_json(instance_dir: Path, progression_data: dict) -> None:
+    results_dir = instance_dir / "results"
+    results_dir.mkdir(exist_ok=True)
+
+    with open(results_dir / "subroutine_progression.json", "w", encoding="utf-8") as f:
+        json.dump(progression_data, f, indent=2)
 
 
 def _create_scenario(
@@ -243,6 +252,57 @@ def test_log_processor_record_all_subroutines_blank_when_nothing_executed(
     instance_df = pd.read_csv(instance_dir / "method_end_time_and_obj_value.csv")
     assert instance_df["method_end_sec"].isna().all()
     assert instance_df["objective_value"].isna().all()
+
+
+def test_log_processor_falls_back_to_progression_json_when_controller_log_is_empty(
+    tmp_path: Path,
+) -> None:
+    scenario_dir, instance_dir = _create_scenario(
+        tmp_path=tmp_path,
+        methods=["first", "second", "third"],
+        log_entries=[],
+        obj_data={"1.0": 100.0, "3.0": 90.0},
+        obj_notes={"1.0": "1-first", "3.0": "2-second"},
+    )
+    (instance_dir / "subroutine_controller.log").write_text("", encoding="utf-8")
+    _write_progression_json(
+        instance_dir,
+        {
+            "artifact_version": 1,
+            "instance_id": "1",
+            "timelimit_sec": 10.0,
+            "subroutine_calls": [
+                {
+                    "call_index": 1,
+                    "subroutine_name": "first",
+                    "prefixed_subroutine_name": "1-first",
+                    "global_start_sec": 0.0,
+                    "global_end_sec": 1.0,
+                    "elapsed_sec": 1.0,
+                    "local_progress_list": [],
+                },
+                {
+                    "call_index": 2,
+                    "subroutine_name": "second",
+                    "prefixed_subroutine_name": "2-second",
+                    "global_start_sec": 1.0,
+                    "global_end_sec": 3.0,
+                    "elapsed_sec": 2.0,
+                    "local_progress_list": [],
+                },
+            ],
+        },
+    )
+
+    processor = LogProcessor(scenario_dir, record_all_subroutines=True)
+    summary_df = processor.create_method_end_time_and_obj_value_summary()
+
+    assert summary_df is not None
+    assert list(summary_df["end_time"]) == [1.0, 3.0, 3.0]
+    assert list(summary_df["obj_value"]) == [100.0, 90.0, 90.0]
+
+    method_time_log = pd.read_json(instance_dir / "method_time_log.json")
+    assert list(method_time_log["call_context"]) == ["1-first", "2-second"]
 
 
 def test_module_level_wrapper_matches_class_api(tmp_path: Path) -> None:

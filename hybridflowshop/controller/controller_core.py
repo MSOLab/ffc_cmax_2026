@@ -156,6 +156,8 @@ class HybridFlowShopCpLnsControllerCore(
         fmt="%(asctime)s - %(levelname)s - %(message)s",
     ):
         logger = logging.getLogger()
+        if logger.level > level:
+            logger.setLevel(level)
         _log_filename = log_filename or "subroutine_controller.log"
         if self._working_dir_path is not None:
             log_path = self._working_dir_path / _log_filename
