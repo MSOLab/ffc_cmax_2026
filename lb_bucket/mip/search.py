@@ -210,6 +210,7 @@ def run_bucket_search_for_instance(
         bucket_lb = range_base_time + z_star
         horizon_ub = range_base_time + z_star
         total_runtime_sec = solver_runtime_sec
+        wall_runtime_sec = time.perf_counter() - wall_start
         result = BucketSearchResult(
             ins_name=instance.ins_name,
             input_lb=record.input_lb,
@@ -238,12 +239,14 @@ def run_bucket_search_for_instance(
             termination_reason="OPTIMAL_RANGE_MODEL",
             status_name=status_name,
             solution_count=solution_count,
+            wall_runtime_sec=wall_runtime_sec,
+            model_build_wall_sec=model_build_wall_sec,
         )
         log_progress(
             f"Completed instance {instance.ins_name}: W*={bucket_lb:.6f}, "
             f"certified_final_lb={result.certified_final_lb:.6f}, "
             f"total_runtime_sec={total_runtime_sec:.2f}, "
-            f"wall_runtime_sec={time.perf_counter() - wall_start:.2f}, "
+            f"wall_runtime_sec={wall_runtime_sec:.2f}, "
             f"model_build_wall_sec={model_build_wall_sec:.2f}"
         )
         # Create temporary SearchTraceRow for extract_solution_payload
@@ -273,6 +276,7 @@ def run_bucket_search_for_instance(
     total_runtime_sec = solver_runtime_sec
     bucket_lb = range_base_time + objective_lb if objective_lb is not None else None
     horizon_ub = range_base_time + objective_ub if objective_ub is not None else None
+    wall_runtime_sec = time.perf_counter() - wall_start
     fallback_result = BucketSearchResult(
         ins_name=instance.ins_name,
         input_lb=record.input_lb,
@@ -308,12 +312,14 @@ def run_bucket_search_for_instance(
         ),
         status_name=status_name,
         solution_count=solution_count,
+        wall_runtime_sec=wall_runtime_sec,
+        model_build_wall_sec=model_build_wall_sec,
     )
     log_progress(
         f"Stopped instance {instance.ins_name}: status={status_name}, "
         f"bucket_lb={bucket_lb}, certified_final_lb={fallback_result.certified_final_lb:.6f}, "
         f"total_runtime_sec={total_runtime_sec:.2f}, "
-        f"wall_runtime_sec={time.perf_counter() - wall_start:.2f}, "
+        f"wall_runtime_sec={wall_runtime_sec:.2f}, "
         f"model_build_wall_sec={model_build_wall_sec:.2f}"
     )
     # Create temporary SearchTraceRow for extract_solution_payload

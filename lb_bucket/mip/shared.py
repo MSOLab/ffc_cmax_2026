@@ -91,6 +91,8 @@ class BucketSearchResult:
     termination_reason: str
     status_name: str
     solution_count: int
+    wall_runtime_sec: float | None = None
+    model_build_wall_sec: float | None = None
 
 
 @dataclass(frozen=True)

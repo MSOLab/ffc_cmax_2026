@@ -58,6 +58,10 @@ def test_solution_payload_roundtrip_preserves_dispatch_windows(tmp_path) -> None
             "ins_name": "toy",
             "delta": 10,
             "dispatch_cmax": 20.0,
+            "time_limit_sec_used": 12.0,
+            "total_runtime_sec": 1.5,
+            "wall_runtime_sec": 2.0,
+            "model_build_wall_sec": 0.4,
         },
         "a": [{"stage": 1, "job": 1, "bucket": 1, "value": 1.0}],
         "b": [{"stage": 1, "job": 1, "bucket": 1, "value": 1.0}],
@@ -109,6 +113,10 @@ def test_solution_payload_roundtrip_preserves_dispatch_windows(tmp_path) -> None
 
     assert loaded is not None
     assert loaded["metadata"]["ins_name"] == "toy"
+    assert loaded["metadata"]["time_limit_sec_used"] == 12.0
+    assert loaded["metadata"]["total_runtime_sec"] == 1.5
+    assert loaded["metadata"]["wall_runtime_sec"] == 2.0
+    assert loaded["metadata"]["model_build_wall_sec"] == 0.4
     assert loaded["dispatch_windows"][0]["early_start"] == 0.0
     assert loaded["dispatch_windows"][0]["late_start"] == 7.0
     assert loaded["dispatch_windows"][0]["x_bucket_2"] is None
