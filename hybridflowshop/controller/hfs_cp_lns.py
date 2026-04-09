@@ -1743,16 +1743,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             report_status = CpsatStatus.FEASIBLE
         else:
             report_status = CpsatStatus.UNKNOWN
-        obj_value_records: list[tuple[float, float]] = []
         obj_bound_records: list[tuple[float, float]] = []
-        ub_before = self.solution_manager.best_obj_value
         lb_before = self.solution_manager.best_obj_bound
         for runtime_sec, objective_ub, objective_lb in trace_rows:
-            if objective_ub is not None and self.solution_manager._a_is_better_obj_value(
-                objective_ub, ub_before
-            ):
-                obj_value_records.append((runtime_sec, objective_ub))
-                ub_before = objective_ub
             if objective_lb is not None and self.solution_manager._a_is_better_obj_bound(
                 objective_lb, lb_before
             ):
@@ -1793,10 +1786,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             is_init=False,
             subroutine_name="apply_mip_lb",
             call_context=self._get_call_context_of_current_method(),
-            progress_obj_value_records=tuple(obj_value_records),
+            progress_obj_value_records=(),
             progress_time_basis="local",
             status=report_status,
-            obj_value_records=obj_value_records,
+            obj_value_records=(),
             obj_bound_records=obj_bound_records,
         )
         was_updated = self.solution_manager.register(report, dispatched_schedule)
