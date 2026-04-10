@@ -53,20 +53,25 @@ class PostMipDispatchRunResult:
     pre_local_repair_selected_dispatch_makespan: float | None
 
 
-def _get_stage_adaptive_rank_repair_base_variant(stage_count: int) -> str:
-    """Choose the strongest repair seed family observed in the ff2020 runs.
-
-    Shorter flowshops benefited most from aggregate late-start rank seeds,
-    while deeper flowshops were better served by tail-stage rank seeds.
-    """
-    if stage_count <= 10:
-        return "best_of_mixed_dispatches_aggregate_ls_slack_rank"
-    return "best_of_mixed_dispatches_tail_ls_rank"
+def _get_post_mip_method_list(method_list: Sequence[str] | None) -> list[str]:
+    """Filter post-MIP candidates down to the families that still earn their keep."""
+    if method_list is None:
+        return []
+    return [method for method in method_list if method != "bn2d_all_stages"]
 
 
-def _get_stage_adaptive_direct_mixed_repair_base_variant() -> str:
-    """Prefer the stronger direct mixed aggregate seed before local repair."""
-    return "mixed_aggregate_es_slack"
+def _select_best_dispatch_candidate(
+    dispatch_candidates: Mapping[str, HybridFlowshopLiteSchedule | None],
+) -> tuple[str | None, HybridFlowshopLiteSchedule | None]:
+    best_variant: str | None = None
+    best_schedule: HybridFlowshopLiteSchedule | None = None
+    for variant, schedule in dispatch_candidates.items():
+        if schedule is None:
+            continue
+        if best_schedule is None or schedule.makespan < best_schedule.makespan:
+            best_variant = variant
+            best_schedule = schedule
+    return best_variant, best_schedule
 
 
 def run_post_mip_dispatch(
@@ -148,6 +153,7 @@ def run_post_mip_dispatch(
     selected_dispatch_config = dependencies.get_selected_dispatch_config()
     candidate_generation_timer = ElapsedTimer()
     dispatch_candidates: dict[str, HybridFlowshopLiteSchedule | None] = {}
+    target_stage_ids = [bottleneck_anchor_stage_id, instance.stage_id_list[-1]]
 
     direct_mixed_sequences = {
         "mixed_aggregate_es_slack": aggregate_es_slack_sequence,
@@ -161,10 +167,6 @@ def run_post_mip_dispatch(
                 machine_then_job=selected_dispatch_config["machine_then_job"],
                 head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
             )
-            if candidate_schedule is not None:
-                dependencies.check_feasibility(
-                    candidate_schedule.get_jik_2_start_time_map()
-                )
             dispatch_candidates[variant] = candidate_schedule
             logging.info(
                 "[MIP LB] %s has makespan=%s",
@@ -174,41 +176,6 @@ def run_post_mip_dispatch(
         except Exception:
             logging.exception(
                 "[MIP LB] %s failed while constructing direct mixed dispatch from an ES/LS-derived sequence.",
-                variant,
-            )
-            dispatch_candidates[variant] = None
-        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
-
-    for variant, base_name in {
-        "mixed_aggregate_es_slack_local_repair": _get_stage_adaptive_direct_mixed_repair_base_variant(),
-    }.items():
-        variant_timer = ElapsedTimer()
-        base_schedule = dispatch_candidates.get(base_name)
-        if base_schedule is None:
-            dispatch_candidates[variant] = None
-            dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
-            continue
-        try:
-            repaired_schedule = dependencies.repair_post_mip_dispatch_candidate(
-                base_schedule,
-                target_stage_ids=[bottleneck_anchor_stage_id, instance.stage_id_list[-1]],
-                insertion_passes=max(1, es_ls_local_repair_max_passes),
-                max_shift=4,
-                swap_passes=max(1, es_ls_local_repair_max_passes),
-            )
-            dependencies.check_feasibility(
-                repaired_schedule.get_jik_2_start_time_map()
-            )
-            dispatch_candidates[variant] = repaired_schedule
-            logging.info(
-                "[MIP LB] %s has makespan=%s (base=%s)",
-                variant,
-                repaired_schedule.makespan,
-                base_schedule.makespan,
-            )
-        except Exception:
-            logging.exception(
-                "[MIP LB] %s failed during makespan-oriented local repair.",
                 variant,
             )
             dispatch_candidates[variant] = None
@@ -233,7 +200,7 @@ def run_post_mip_dispatch(
         head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
         p_agg_method=selected_dispatch_config["p_agg_method"],
         mi_agg_method=selected_dispatch_config["mi_agg_method"],
-        method_list=selected_dispatch_config["method_list"],
+        method_list=_get_post_mip_method_list(selected_dispatch_config["method_list"]),
         job_tiebreak_rank=es_ls_job_tiebreak_rank,
         candidate_elapsed_sec_out=dispatch_candidate_elapsed_sec,
     )
@@ -260,10 +227,6 @@ def run_post_mip_dispatch(
                 head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
                 job_tiebreak_rank=job_tiebreak_rank,
             )
-            if candidate_schedule is not None:
-                dependencies.check_feasibility(
-                    candidate_schedule.get_jik_2_start_time_map()
-                )
             dispatch_candidates[variant] = candidate_schedule
             logging.info(
                 "[MIP LB] %s has makespan=%s",
@@ -278,54 +241,7 @@ def run_post_mip_dispatch(
             dispatch_candidates[variant] = None
         dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
 
-    adaptive_rank_repair_variant = (
-        "best_of_mixed_dispatches_stage_adaptive_rank_local_repair"
-    )
-    adaptive_rank_repair_base_variant = _get_stage_adaptive_rank_repair_base_variant(
-        instance.stage_count
-    )
-    base_schedule = dispatch_candidates.get(adaptive_rank_repair_base_variant)
-    if base_schedule is not None:
-        adaptive_rank_local_repair_timer = ElapsedTimer()
-        try:
-            repaired_schedule = dependencies.repair_post_mip_dispatch_candidate(
-                base_schedule,
-                target_stage_ids=[bottleneck_anchor_stage_id, instance.stage_id_list[-1]],
-                insertion_passes=max(1, es_ls_local_repair_max_passes),
-                max_shift=4,
-                swap_passes=max(1, es_ls_local_repair_max_passes),
-            )
-            dependencies.check_feasibility(repaired_schedule.get_jik_2_start_time_map())
-            dispatch_candidates[adaptive_rank_repair_variant] = repaired_schedule
-            logging.info(
-                "[MIP LB] %s has makespan=%s (base=%s, base_variant=%s)",
-                adaptive_rank_repair_variant,
-                repaired_schedule.makespan,
-                base_schedule.makespan,
-                adaptive_rank_repair_base_variant,
-            )
-        except Exception:
-            logging.exception(
-                "[MIP LB] %s failed during makespan-oriented local repair.",
-                adaptive_rank_repair_variant,
-            )
-            dispatch_candidates[adaptive_rank_repair_variant] = None
-        dispatch_candidate_elapsed_sec[adaptive_rank_repair_variant] = (
-            adaptive_rank_local_repair_timer.elapsed_sec
-        )
-
     for variant, candidate_schedule in heuristic_candidates.items():
-        if candidate_schedule is not None:
-            try:
-                dependencies.check_feasibility(
-                    candidate_schedule.get_jik_2_start_time_map()
-                )
-            except Exception:
-                logging.exception(
-                    "[MIP LB] %s dispatch failed feasibility check after construction.",
-                    variant,
-                )
-                candidate_schedule = None
         dispatch_candidates[variant] = candidate_schedule
         logging.info(
             "[MIP LB] %s dispatch with ES/LS tie-break has makespan=%s",
@@ -343,18 +259,12 @@ def run_post_mip_dispatch(
             for variant, schedule in dispatch_candidates.items()
         },
     )
-    feasible_candidates = [
-        (variant, schedule)
-        for variant, schedule in dispatch_candidates.items()
-        if schedule is not None
-    ]
     pre_local_repair_selected_dispatch_variant: str | None = None
     pre_local_repair_selected_dispatch_makespan: float | None = None
-    if feasible_candidates:
-        selected_dispatch_variant, dispatched_schedule = min(
-            feasible_candidates,
-            key=lambda item: item[1].makespan,
-        )
+    selected_dispatch_variant, dispatched_schedule = _select_best_dispatch_candidate(
+        dispatch_candidates
+    )
+    if dispatched_schedule is not None:
         pre_local_repair_selected_dispatch_variant = selected_dispatch_variant
         pre_local_repair_selected_dispatch_makespan = float(
             dispatched_schedule.makespan
@@ -365,17 +275,11 @@ def run_post_mip_dispatch(
                 repaired_selected_schedule = (
                     dependencies.repair_post_mip_dispatch_candidate(
                         dispatched_schedule,
-                        target_stage_ids=[
-                            bottleneck_anchor_stage_id,
-                            instance.stage_id_list[-1],
-                        ],
+                        target_stage_ids=target_stage_ids,
                         insertion_passes=max(1, es_ls_local_repair_max_passes),
                         max_shift=4,
                         swap_passes=max(1, es_ls_local_repair_max_passes),
                     )
-                )
-                dependencies.check_feasibility(
-                    repaired_selected_schedule.get_jik_2_start_time_map()
                 )
                 dispatch_candidates["selected_post_mip_local_repair"] = (
                     repaired_selected_schedule
@@ -386,20 +290,15 @@ def run_post_mip_dispatch(
                     dispatched_schedule.makespan,
                     selected_dispatch_variant,
                 )
-                feasible_candidates = [
-                    (variant, schedule)
-                    for variant, schedule in dispatch_candidates.items()
-                    if schedule is not None
-                ]
-                selected_dispatch_variant, dispatched_schedule = min(
-                    feasible_candidates,
-                    key=lambda item: item[1].makespan,
+                selected_dispatch_variant, dispatched_schedule = (
+                    _select_best_dispatch_candidate(dispatch_candidates)
                 )
             except Exception:
                 logging.exception("[MIP LB] selected_post_mip_local_repair failed.")
             dispatch_candidate_elapsed_sec["selected_post_mip_local_repair"] = (
                 final_local_repair_timer.elapsed_sec
             )
+        dependencies.check_feasibility(dispatched_schedule.get_jik_2_start_time_map())
         logging.info(
             "[MIP LB] Selected post-MIP dispatch variant %s with makespan=%s",
             selected_dispatch_variant,

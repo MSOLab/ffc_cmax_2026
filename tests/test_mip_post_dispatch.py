@@ -2,8 +2,7 @@ from types import SimpleNamespace
 
 from lb_bucket.mip.post_dispatch import (
     PostMipDispatchDependencies,
-    _get_stage_adaptive_direct_mixed_repair_base_variant,
-    _get_stage_adaptive_rank_repair_base_variant,
+    _get_post_mip_method_list,
     run_post_mip_dispatch,
 )
 
@@ -13,38 +12,26 @@ class _FakeSchedule:
         self.makespan = makespan
 
     def get_jik_2_start_time_map(self):
-        return {}
+        return {"makespan": self.makespan}
 
 
-def test_stage_adaptive_rank_repair_prefers_aggregate_ls_for_short_flowshops() -> None:
-    assert (
-        _get_stage_adaptive_rank_repair_base_variant(5)
-        == "best_of_mixed_dispatches_aggregate_ls_slack_rank"
-    )
-    assert (
-        _get_stage_adaptive_rank_repair_base_variant(10)
-        == "best_of_mixed_dispatches_aggregate_ls_slack_rank"
-    )
+def test_get_post_mip_method_list_filters_out_bn2d_all_stages() -> None:
+    assert _get_post_mip_method_list(
+        [
+            "bn2d_all_stages",
+            "best_of_mixed_dispatches",
+            "stage_agg_2",
+        ]
+    ) == [
+        "best_of_mixed_dispatches",
+        "stage_agg_2",
+    ]
+    assert _get_post_mip_method_list(None) == []
 
 
-def test_stage_adaptive_rank_repair_prefers_tail_rank_for_deep_flowshops() -> None:
-    assert (
-        _get_stage_adaptive_rank_repair_base_variant(15)
-        == "best_of_mixed_dispatches_tail_ls_rank"
-    )
-    assert (
-        _get_stage_adaptive_rank_repair_base_variant(20)
-        == "best_of_mixed_dispatches_tail_ls_rank"
-    )
-
-
-def test_stage_adaptive_direct_mixed_repair_uses_aggregate_es_seed() -> None:
-    assert _get_stage_adaptive_direct_mixed_repair_base_variant() == (
-        "mixed_aggregate_es_slack"
-    )
-
-
-def test_run_post_mip_dispatch_calls_direct_mixed_with_keyword_only_args() -> None:
+def test_run_post_mip_dispatch_filters_removed_variants_and_checks_feasibility_once() -> (
+    None
+):
     instance = SimpleNamespace(
         stage_id_list=["s1", "s2"],
         job_id_list=["j1", "j2"],
@@ -57,8 +44,13 @@ def test_run_post_mip_dispatch_calls_direct_mixed_with_keyword_only_args() -> No
         (2, 1): {"early_start": 2.0, "late_start": 3.0},
         (2, 2): {"early_start": 3.0, "late_start": 4.0},
     }
-    stage_2_job_2_p_dict = {"s1": {"j1": 1, "j2": 1}, "s2": {"j1": 1, "j2": 1}}
+    stage_2_job_2_p_dict = {
+        "s1": {"j1": 1, "j2": 1},
+        "s2": {"j1": 1, "j2": 1},
+    }
     direct_calls: list[tuple[list[str], bool, bool]] = []
+    selected_method_lists: list[list[str]] = []
+    feasibility_start_maps: list[dict[str, int]] = []
 
     def _get_best_mixed_schedule_from_job_sequence(
         job_sequence, *, machine_then_job=False, head_for_all_stages=False
@@ -66,7 +58,23 @@ def test_run_post_mip_dispatch_calls_direct_mixed_with_keyword_only_args() -> No
         direct_calls.append(
             (list(job_sequence), machine_then_job, head_for_all_stages)
         )
-        return _FakeSchedule(10)
+        if job_sequence[0] == "j1":
+            return _FakeSchedule(10)
+        return _FakeSchedule(9)
+
+    def _get_selected_dispatch_candidate_schedules(**kwargs):
+        method_list = list(kwargs["method_list"])
+        selected_method_lists.append(method_list)
+        return {method: _FakeSchedule(8) for method in method_list}
+
+    def _get_schedule_by_best_of_mixed_dispatches(**kwargs):
+        rank = kwargs["job_tiebreak_rank"]
+        if rank["j1"] < rank["j2"]:
+            return _FakeSchedule(7)
+        return _FakeSchedule(6)
+
+    def _repair_post_mip_dispatch_candidate(schedule, **_kwargs):
+        return _FakeSchedule(schedule.makespan + 5)
 
     result = run_post_mip_dispatch(
         instance=instance,
@@ -75,7 +83,7 @@ def test_run_post_mip_dispatch_calls_direct_mixed_with_keyword_only_args() -> No
         dispatch_window_lookup=dispatch_window_lookup,
         es_ls_local_repair_max_passes=1,
         dependencies=PostMipDispatchDependencies(
-            check_feasibility=lambda _start_map: 0.0,
+            check_feasibility=lambda start_map: feasibility_start_maps.append(start_map),
             get_selected_dispatch_config=lambda: {
                 "left_cap_multiplier": None,
                 "right_cap_multiplier": None,
@@ -91,15 +99,26 @@ def test_run_post_mip_dispatch_calls_direct_mixed_with_keyword_only_args() -> No
                 "head_for_all_stages": True,
                 "p_agg_method": "sum",
                 "mi_agg_method": "max",
-                "method_list": [],
+                "method_list": ["bn2d_all_stages", "best_of_mixed_dispatches"],
             },
             get_best_mixed_schedule_from_job_sequence=_get_best_mixed_schedule_from_job_sequence,
-            get_selected_dispatch_candidate_schedules=lambda **_kwargs: {},
-            get_schedule_by_best_of_mixed_dispatches=lambda **_kwargs: None,
-            repair_post_mip_dispatch_candidate=lambda schedule, **_kwargs: schedule,
+            get_selected_dispatch_candidate_schedules=_get_selected_dispatch_candidate_schedules,
+            get_schedule_by_best_of_mixed_dispatches=_get_schedule_by_best_of_mixed_dispatches,
+            repair_post_mip_dispatch_candidate=_repair_post_mip_dispatch_candidate,
         ),
     )
 
     assert len(direct_calls) == 2
     assert all(call[1:] == (True, True) for call in direct_calls)
-    assert result.dispatched_schedules["mixed_aggregate_es_slack"].makespan == 10
+    assert selected_method_lists == [["best_of_mixed_dispatches"]]
+    assert "bn2d_all_stages" not in result.dispatched_schedules
+    assert "mixed_aggregate_es_slack_local_repair" not in result.dispatched_schedules
+    assert (
+        "best_of_mixed_dispatches_stage_adaptive_rank_local_repair"
+        not in result.dispatched_schedules
+    )
+    assert result.selected_dispatch_variant in result.dispatched_schedules
+    assert result.dispatched_schedule is not None
+    assert result.dispatched_schedule.makespan == 7
+    assert result.dispatched_schedules["selected_post_mip_local_repair"].makespan == 12
+    assert feasibility_start_maps == [{"makespan": 7}]

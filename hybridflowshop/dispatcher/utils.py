@@ -246,9 +246,6 @@ def get_bottleneck_anchor_stage_from_solution_payload(
         delta = float(metadata.get("delta", 0.0) or 0.0)
         x_rows = list(solution_payload.get("x", []) or [])
 
-    stage_idx_to_id = {
-        stage_idx: stage_id for stage_idx, stage_id in enumerate(stage_id_list, start=1)
-    }
     stage_bucket_usage: dict[tuple[int, int], float] = {}
     for row in x_rows:
         stage_idx = int(row["stage"])
@@ -256,9 +253,12 @@ def get_bottleneck_anchor_stage_from_solution_payload(
         stage_bucket_usage[(stage_idx, bucket_idx)] = stage_bucket_usage.get(
             (stage_idx, bucket_idx), 0.0
         ) + float(row["value"])
+    stage_id_to_idx = {
+        stage_id: stage_idx for stage_idx, stage_id in enumerate(stage_id_list, start=1)
+    }
 
     def stage_key(stage_id: StageIdType) -> tuple[float, float]:
-        stage_idx = stage_id_list.index(stage_id) + 1
+        stage_idx = stage_id_to_idx[stage_id]
         machine_cnt = max(len(stage_2_machines[stage_id]), 1)
         avg_load = (
             sum(float(proc) for proc in stage_2_job_2_p[stage_id].values()) / machine_cnt
@@ -406,6 +406,10 @@ def improve_schedule_by_critical_stage_sequence_insertions(
             break
 
         current_stage_sequences = get_stage_job_sequences_from_schedule(best_schedule)
+        stage_2_job_position = {
+            stage_id: {job_id: idx for idx, job_id in enumerate(job_sequence)}
+            for stage_id, job_sequence in current_stage_sequences.items()
+        }
         best_neighbor: HybridFlowshopLiteSchedule | None = None
         best_neighbor_makespan = best_schedule.makespan
 
@@ -414,21 +418,20 @@ def improve_schedule_by_critical_stage_sequence_insertions(
                 if target_stage_id_set and stage_id not in target_stage_id_set:
                     continue
                 current_seq = current_stage_sequences.get(stage_id, [])
-                if len(current_seq) <= 1 or job_id not in current_seq:
+                current_pos = stage_2_job_position.get(stage_id, {}).get(job_id)
+                if len(current_seq) <= 1 or current_pos is None:
                     continue
-                current_pos = current_seq.index(job_id)
                 for shift in range(-max_shift, max_shift + 1):
                     if shift == 0:
                         continue
                     new_pos = current_pos + shift
                     if new_pos < 0 or new_pos >= len(current_seq):
                         continue
-                    trial_stage_sequences = {
-                        sid: list(seq) for sid, seq in current_stage_sequences.items()
-                    }
-                    stage_seq = trial_stage_sequences[stage_id]
+                    stage_seq = list(current_seq)
                     stage_seq.pop(current_pos)
                     stage_seq.insert(new_pos, job_id)
+                    trial_stage_sequences = dict(current_stage_sequences)
+                    trial_stage_sequences[stage_id] = stage_seq
                     candidate = build_schedule_from_stage_job_sequences_priority_score(
                         schedule_factory,
                         trial_stage_sequences,
