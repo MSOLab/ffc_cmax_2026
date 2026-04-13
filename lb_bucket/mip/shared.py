@@ -37,6 +37,8 @@ class TwoBucketInstance:
     stage_count: int
     machine_count_per_stage: list[int]
     processing_times_by_stage: list[list[int]]
+    stage_ids: list[str] | None = None
+    job_ids: list[str] | None = None
 
 
 @dataclass(frozen=True)

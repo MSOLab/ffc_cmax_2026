@@ -32,15 +32,17 @@ def get_stage_job_sequences_from_dispatch_windows(
                     f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
                 )
             processing_time = stage_2_job_2_p[stage_id][job_id]
-            sortable_rows.append((
-                _get_dispatch_window_sort_key(
-                    op_window,
-                    processing_time,
-                    job_idx,
-                    sort_rule=sort_rule,
-                ),
-                job_id,
-            ))
+            sortable_rows.append(
+                (
+                    _get_dispatch_window_sort_key(
+                        op_window,
+                        processing_time,
+                        job_idx,
+                        sort_rule=sort_rule,
+                    ),
+                    job_id,
+                )
+            )
         sortable_rows.sort(key=lambda row: row[0])
         stage_2_job_sequence[stage_id] = [job_id for _key, job_id in sortable_rows]
     return stage_2_job_sequence
@@ -68,15 +70,17 @@ def get_job_sequence_from_dispatch_windows_anchor_stage(
                 f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
             )
         processing_time = stage_2_job_2_p[anchor_stage_id][job_id]
-        sortable_rows.append((
-            _get_dispatch_window_sort_key(
-                op_window,
-                processing_time,
-                job_idx,
-                sort_rule=sort_rule,
-            ),
-            job_id,
-        ))
+        sortable_rows.append(
+            (
+                _get_dispatch_window_sort_key(
+                    op_window,
+                    processing_time,
+                    job_idx,
+                    sort_rule=sort_rule,
+                ),
+                job_id,
+            )
+        )
     sortable_rows.sort(key=lambda row: row[0])
     return [job_id for _key, job_id in sortable_rows]
 
@@ -109,17 +113,19 @@ def get_job_sequence_from_dispatch_windows_aggregate(
             ls_list.append(ls)
             slack_list.append(ls - es)
             total_p += processing_time
-        sortable_rows.append((
-            _get_dispatch_window_aggregate_key(
-                es_list=es_list,
-                ls_list=ls_list,
-                slack_list=slack_list,
-                total_p=total_p,
-                job_idx=job_idx,
-                aggregation_rule=aggregation_rule,
-            ),
-            job_id,
-        ))
+        sortable_rows.append(
+            (
+                _get_dispatch_window_aggregate_key(
+                    es_list=es_list,
+                    ls_list=ls_list,
+                    slack_list=slack_list,
+                    total_p=total_p,
+                    job_idx=job_idx,
+                    aggregation_rule=aggregation_rule,
+                ),
+                job_id,
+            )
+        )
     sortable_rows.sort(key=lambda row: row[0])
     return [job_id for _key, job_id in sortable_rows]
 
@@ -172,9 +178,7 @@ def _get_dispatch_window_aggregate_key(
         return (sum(ls_list), sum(slack_list), sum(es_list), -total_p, job_idx)
     if aggregation_rule == "tail_ls_sum_slack_p_desc":
         return (ls_list[-1], sum(slack_list), es_list[-1], -total_p, job_idx)
-    raise ValueError(
-        f"Unknown dispatch-window aggregation_rule: {aggregation_rule}"
-    )
+    raise ValueError(f"Unknown dispatch-window aggregation_rule: {aggregation_rule}")
 
 
 def get_stage_job_release_times_from_dispatch_windows(
@@ -195,6 +199,26 @@ def get_stage_job_release_times_from_dispatch_windows(
             job_2_release[job_id] = int(float(op_window["early_start"]))
         stage_2_job_2_release[stage_id] = job_2_release
     return stage_2_job_2_release
+
+
+def get_stage_job_latest_start_times_from_dispatch_windows(
+    stage_id_list: Sequence[StageIdType],
+    job_id_list: Sequence[JobIdType],
+    dispatch_window_lookup: Mapping[tuple[int, int], Mapping[str, Any]],
+) -> dict[StageIdType, dict[JobIdType, int]]:
+    """Build stage/job latest-start targets from MIP LS values."""
+    stage_2_job_2_latest_start: dict[StageIdType, dict[JobIdType, int]] = {}
+    for stage_idx, stage_id in enumerate(stage_id_list, start=1):
+        job_2_latest_start: dict[JobIdType, int] = {}
+        for job_idx, job_id in enumerate(job_id_list, start=1):
+            op_window = dispatch_window_lookup.get((stage_idx, job_idx))
+            if op_window is None:
+                raise ValueError(
+                    f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
+                )
+            job_2_latest_start[job_id] = int(float(op_window["late_start"]))
+        stage_2_job_2_latest_start[stage_id] = job_2_latest_start
+    return stage_2_job_2_latest_start
 
 
 def get_job_tiebreak_rank_from_stage_job_sequences(
@@ -261,13 +285,17 @@ def get_bottleneck_anchor_stage_from_solution_payload(
         stage_idx = stage_id_to_idx[stage_id]
         machine_cnt = max(len(stage_2_machines[stage_id]), 1)
         avg_load = (
-            sum(float(proc) for proc in stage_2_job_2_p[stage_id].values()) / machine_cnt
+            sum(float(proc) for proc in stage_2_job_2_p[stage_id].values())
+            / machine_cnt
         )
         if delta > 0:
             congestion = max(
                 (
                     usage / (machine_cnt * delta)
-                    for (row_stage_idx, _bucket_idx), usage in stage_bucket_usage.items()
+                    for (
+                        row_stage_idx,
+                        _bucket_idx,
+                    ), usage in stage_bucket_usage.items()
                     if row_stage_idx == stage_idx
                 ),
                 default=0.0,
@@ -317,6 +345,137 @@ def build_schedule_from_stage_job_sequences_strict_call_order(
         stage_2_job_sequence,
         stage_2_job_2_p,
         stage_2_job_2_release=stage_2_job_2_release,
+    )
+
+
+def dispatch_stage_job_sequences_strict_start_order(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Dispatch each stage while preserving the realized start-time order."""
+    for stage_id in schedule.stages:
+        if stage_id not in stage_2_job_sequence:
+            raise ValueError(f"Missing job sequence for stage {stage_id}.")
+        if stage_id not in stage_2_job_2_p:
+            raise ValueError(f"Missing duration mapping for stage {stage_id}.")
+        schedule.dispatch_stage_by_jobs_strict_start_order(
+            stage_id,
+            stage_2_job_sequence[stage_id],
+            stage_2_job_2_p[stage_id],
+            job_2_release=(
+                stage_2_job_2_release.get(stage_id)
+                if stage_2_job_2_release is not None
+                else None
+            ),
+        )
+    return schedule
+
+
+def build_schedule_from_stage_job_sequences_strict_start_order(
+    schedule_factory: Callable[[], HybridFlowshopLiteSchedule],
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Create a fresh schedule and dispatch it with strict realized start order."""
+    schedule = schedule_factory()
+    return dispatch_stage_job_sequences_strict_start_order(
+        schedule,
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+        stage_2_job_2_release=stage_2_job_2_release,
+    )
+
+
+def dispatch_stage_job_sequences_strict_lexicographic(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    *,
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+    stage_2_job_2_latest_start: Mapping[StageIdType, Mapping[JobIdType, int]]
+    | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Dispatch each stage by current feasible time, then ES, then LS.
+
+    This is the dynamic ES/LS-aware "strict" interpretation:
+    1. For every unscheduled job in the stage, compute its current earliest feasible
+       start time on the partially built schedule.
+    2. Select the lexicographically smallest key
+       ``(current_feasible_time, ES, LS, original_stage_order)``.
+    3. Place that job at its earliest feasible slot.
+
+    ES is applied as a release-time lower bound but jobs are *not* forced to start
+    exactly at ES. They start as early as the current partial schedule allows.
+    """
+    for stage_id in schedule.stages:
+        if stage_id not in stage_2_job_sequence:
+            raise ValueError(f"Missing job sequence for stage {stage_id}.")
+        if stage_id not in stage_2_job_2_p:
+            raise ValueError(f"Missing duration mapping for stage {stage_id}.")
+
+        pending_jobs = list(stage_2_job_sequence[stage_id])
+        stage_order_rank = {
+            job_id: idx for idx, job_id in enumerate(stage_2_job_sequence[stage_id])
+        }
+        job_2_release = (
+            stage_2_job_2_release.get(stage_id)
+            if stage_2_job_2_release is not None
+            else None
+        )
+        job_2_latest_start = (
+            stage_2_job_2_latest_start.get(stage_id)
+            if stage_2_job_2_latest_start is not None
+            else None
+        )
+
+        while pending_jobs:
+            next_job_id = min(
+                pending_jobs,
+                key=lambda job_id: _get_stage_dispatch_lexicographic_key(
+                    schedule,
+                    stage_id=stage_id,
+                    job_id=job_id,
+                    duration=stage_2_job_2_p[stage_id][job_id],
+                    es_release=(job_2_release.get(job_id) if job_2_release else None),
+                    latest_start=(
+                        job_2_latest_start.get(job_id)
+                        if job_2_latest_start is not None
+                        else None
+                    ),
+                    stage_order_rank=stage_order_rank[job_id],
+                ),
+            )
+            release_t = job_2_release.get(next_job_id) if job_2_release else None
+            schedule.add_operation_2_stage(
+                stage_id,
+                next_job_id,
+                stage_2_job_2_p[stage_id][next_job_id],
+                release_t=release_t,
+            )
+            pending_jobs.remove(next_job_id)
+    return schedule
+
+
+def build_schedule_from_stage_job_sequences_strict_lexicographic(
+    schedule_factory: Callable[[], HybridFlowshopLiteSchedule],
+    stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+    stage_2_job_2_p: Mapping[StageIdType, Mapping[JobIdType, int]],
+    *,
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+    stage_2_job_2_latest_start: Mapping[StageIdType, Mapping[JobIdType, int]]
+    | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Create a fresh schedule using the dynamic feasible-time/ES/LS rule."""
+    schedule = schedule_factory()
+    return dispatch_stage_job_sequences_strict_lexicographic(
+        schedule,
+        stage_2_job_sequence,
+        stage_2_job_2_p,
+        stage_2_job_2_release=stage_2_job_2_release,
+        stage_2_job_2_latest_start=stage_2_job_2_latest_start,
     )
 
 
@@ -375,6 +534,26 @@ def build_schedule_from_stage_job_sequences_priority_score(
     )
 
 
+def _get_stage_dispatch_lexicographic_key(
+    schedule: HybridFlowshopLiteSchedule,
+    *,
+    stage_id: StageIdType,
+    job_id: JobIdType,
+    duration: int,
+    es_release: int | None,
+    latest_start: int | None,
+    stage_order_rank: int,
+) -> tuple[int, int, int, int]:
+    _mc_id, feasible_start = schedule.select_machine_by_earliest_start_then_idle(
+        stage_id,
+        duration,
+        release_t=es_release,
+    )
+    es_value = es_release if es_release is not None else feasible_start
+    ls_value = latest_start if latest_start is not None else feasible_start
+    return feasible_start, es_value, ls_value, stage_order_rank
+
+
 def improve_schedule_by_critical_stage_sequence_insertions(
     schedule_factory: Callable[[], HybridFlowshopLiteSchedule],
     schedule: HybridFlowshopLiteSchedule,
@@ -383,6 +562,7 @@ def improve_schedule_by_critical_stage_sequence_insertions(
     target_stage_ids: Sequence[StageIdType] | None = None,
     max_passes: int = 2,
     max_shift: int = 3,
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
 ) -> HybridFlowshopLiteSchedule:
     """Improve a schedule by reinserting critical jobs in stage sequences.
 
@@ -436,6 +616,7 @@ def improve_schedule_by_critical_stage_sequence_insertions(
                         schedule_factory,
                         trial_stage_sequences,
                         stage_2_job_2_duration,
+                        stage_2_job_2_release=stage_2_job_2_release,
                     )
                     candidate.make_semi_active(stage_2_job_2_duration)
                     if candidate.makespan < best_neighbor_makespan:

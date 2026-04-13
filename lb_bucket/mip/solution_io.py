@@ -29,6 +29,8 @@ def extract_solution_payload(
             "ins_name": instance.ins_name,
             "job_count": instance.job_count,
             "stage_count": instance.stage_count,
+            "job_ids": list(instance.job_ids or []),
+            "stage_ids": list(instance.stage_ids or []),
             "machine_count_per_stage": instance.machine_count_per_stage,
             "delta": result.delta,
             "input_lb": result.input_lb,
@@ -67,7 +69,9 @@ def extract_solution_payload(
         value_tolerance=value_tolerance,
     )
     payload["metadata"].update(dispatch_window_payload["metadata"])
-    payload["dispatch_window_inputs"] = dispatch_window_payload["dispatch_window_inputs"]
+    payload["dispatch_window_inputs"] = dispatch_window_payload[
+        "dispatch_window_inputs"
+    ]
     payload["dispatch_windows"] = dispatch_window_payload["dispatch_windows"]
     return payload
 
