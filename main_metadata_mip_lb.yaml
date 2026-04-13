@@ -108,9 +108,9 @@ dicts_of_i_o_data_path:
   #   output_dir: "ff2020/20260408-01"
   #   description: "SHDLB->Dispatch(BN2D+mixed)->PW-CP-refine(10-35%,tl=0.01)->MIP-bucket-LB(D-form,tl_nc_mult=0.05) | Total TL=0.5*n*c, MIP phase capped at 0.05*n*c"
   - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
-    subroutine_flow_rel_path: "configs_mip_lb/20260410/subroutine_flow_20260410-02.yaml"
-    output_dir: "ff2020/20260410-02"
-    description: "SHDLB->Dispatch(BN2D+mixed)->MIP-bucket-LB(D-form,tl_nc_mult=0.01,Delta=600)->PW-CP-refine(10-35%,tl=0.01) *2 | Total TL=0.5*n*c, MIP phase capped at 0.01*n*c | 16 core"
+    subroutine_flow_rel_path: "configs_mip_lb/20260413/subroutine_flow_20260413-01.yaml"
+    output_dir: "ff2020/20260413-01"
+    description: "SHDLB->Dispatch(BN2D+mixed)->MIP-bucket-LB(D-form,tl_nc_mult=0.01,Delta=400)->PW-CP-refine(10-35%,tl=0.01) | Total TL=0.5*n*c, MIP phase capped at 0.01*n*c | 16 core"
 
 # Output and Logging configuration
 output_dir_scenarios: "Outputs_scenarios"
