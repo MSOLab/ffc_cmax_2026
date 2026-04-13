@@ -13,6 +13,7 @@ from lb_bucket.mip.post_dispatch import (
     write_post_mip_dispatch_artifacts,
 )
 from lb_bucket.mip.solution_io import read_solution_payload, write_solution_payload
+from lb_bucket.mip.visualization import write_solution_payload_visualizations
 from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 from mbls.cpsat import CpsatStatus
 from routix import DynamicDataObject, ElapsedTimer
@@ -1614,6 +1615,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             stage_count=instance.stage_count,
             machine_count_per_stage=machine_count_per_stage,
             processing_times_by_stage=processing_times_by_stage,
+            stage_ids=list(instance.stage_id_list),
+            job_ids=list(instance.job_id_list),
         )
 
         # Determine delta
@@ -1747,8 +1750,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         obj_bound_records: list[tuple[float, float]] = []
         lb_before = self.solution_manager.best_obj_bound
         for runtime_sec, objective_ub, objective_lb in trace_rows:
-            if objective_lb is not None and self.solution_manager._a_is_better_obj_bound(
-                objective_lb, lb_before
+            if (
+                objective_lb is not None
+                and self.solution_manager._a_is_better_obj_bound(
+                    objective_lb, lb_before
+                )
             ):
                 obj_bound_records.append((runtime_sec, objective_lb))
                 lb_before = objective_lb
@@ -1820,10 +1826,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if self._working_dir_path is not None and solution_payload is not None:
             mip_lb_output_dir = self._working_dir_path / "mip_lb"
             write_solution_payload(mip_lb_output_dir, solution_payload)
+            write_solution_payload_visualizations(mip_lb_output_dir, solution_payload)
             self._write_mip_lb_dispatch_artifacts(
                 dispatched_schedule=dispatched_schedule,
                 selected_variant=selected_dispatch_variant,
                 stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
+                stage_2_job_release=self.last_mip_lb_stage_2_job_release,
                 mip_result=result,
             )
             logging.info(
@@ -1931,10 +1939,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     "[MIP LB] Copied saved solution payload with dispatch windows to %s",
                     mip_lb_output_dir,
                 )
+            write_solution_payload_visualizations(mip_lb_output_dir, solution_payload)
             self._write_mip_lb_dispatch_artifacts(
                 dispatched_schedule=dispatched_schedule,
                 selected_variant=selected_dispatch_variant,
                 stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
+                stage_2_job_release=self.last_mip_lb_stage_2_job_release,
                 mip_result=None,
             )
         return {
@@ -1967,6 +1977,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
         self.last_mip_lb_stage_2_job_sequence = dispatch_result.stage_2_job_sequence
+        self.last_mip_lb_stage_2_job_release = dispatch_result.stage_2_job_release
         self.last_mip_lb_selected_dispatch_variant = (
             dispatch_result.selected_dispatch_variant
         )
@@ -1994,6 +2005,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         dispatched_schedule: HybridFlowshopLiteSchedule | None,
         selected_variant: str | None,
         stage_2_job_sequence: Mapping[str, Sequence[str]] | None,
+        stage_2_job_release: Mapping[str, Mapping[str, int]] | None,
         mip_result: Any | None,
     ) -> None:
         """Write ES/LS-guided dispatch outputs under the instance mip_lb directory."""
@@ -2013,6 +2025,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     self.last_mip_lb_dispatch_phase_elapsed_sec or {}
                 ),
                 stage_2_job_sequence=stage_2_job_sequence,
+                stage_2_job_release=stage_2_job_release,
                 pre_local_repair_selected_dispatch_variant=(
                     self.last_mip_lb_pre_local_repair_selected_dispatch_variant
                 ),
@@ -2020,6 +2033,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     self.last_mip_lb_pre_local_repair_selected_dispatch_makespan
                 ),
             ),
+            solution_payload=self.last_mip_lb_solution_payload,
             mip_result=mip_result,
             apply_mip_lb_elapsed_sec=self.last_mip_lb_apply_elapsed_sec,
             post_mip_dispatch_elapsed_sec=self.last_mip_lb_post_dispatch_elapsed_sec,
@@ -4230,9 +4244,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
             candidate_schedules[method_name] = sch
             if candidate_elapsed_sec_out is not None:
-                candidate_elapsed_sec_out[method_name] = (
-                    candidate_timer.elapsed_sec
-                )
+                candidate_elapsed_sec_out[method_name] = candidate_timer.elapsed_sec
             logging.info(
                 "%s: makespan=%s",
                 method_name,

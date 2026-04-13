@@ -92,6 +92,8 @@ def load_ff2020_instance(input_dir: Path, ins_name: str) -> TwoBucketInstance:
         stage_count=params.stage_count,
         machine_count_per_stage=machine_count_per_stage,
         processing_times_by_stage=processing_times_by_stage,
+        stage_ids=list(stage_ids),
+        job_ids=list(job_ids),
     )
 
 
