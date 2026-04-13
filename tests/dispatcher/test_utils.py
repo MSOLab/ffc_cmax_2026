@@ -5,7 +5,6 @@ import pytest
 from hybridflowshop.dispatcher.utils import (
     build_schedule_from_stage_job_sequences_priority_score,
     build_schedule_from_stage_job_sequences_strict_call_order,
-    build_schedule_from_stage_job_sequences_strict_lexicographic,
     dispatch_stage_job_sequences_strict_call_order,
     dispatch_job_sequence_by_stages,
     dispatch_stages_by_job_sequence,
@@ -264,75 +263,6 @@ def test_build_schedule_from_stage_job_sequences_priority_score_respects_es_rele
 
     assert schedule.get_job_start_time("s1", "j2") == 0
     assert schedule.get_job_start_time("s1", "j1") == 10
-
-
-def test_build_schedule_from_stage_job_sequences_strict_lexicographic_uses_current_feasible_time_first():
-    stage_2_job_sequence = {
-        "s1": ["j2", "j1"],
-        "s2": ["j1", "j2"],
-    }
-    stage_2_job_2_p = {
-        "s1": {"j1": 10, "j2": 1},
-        "s2": {"j1": 1, "j2": 1},
-    }
-    stage_2_job_2_release = {
-        "s1": {"j1": 0, "j2": 0},
-        "s2": {"j1": 0, "j2": 0},
-    }
-    stage_2_job_2_latest_start = {
-        "s1": {"j1": 100, "j2": 100},
-        "s2": {"j1": 100, "j2": 100},
-    }
-
-    schedule = build_schedule_from_stage_job_sequences_strict_lexicographic(
-        lambda: HybridFlowshopLiteSchedule(
-            jobs=["j1", "j2"],
-            stages=["s1", "s2"],
-            machines_per_stage={"s1": ["m1"], "s2": ["m1"]},
-        ),
-        stage_2_job_sequence,
-        stage_2_job_2_p,
-        stage_2_job_2_release=stage_2_job_2_release,
-        stage_2_job_2_latest_start=stage_2_job_2_latest_start,
-    )
-
-    assert [job_id for _, _, job_id in schedule.get_job_sequence("s2", "m1")] == [
-        "j2",
-        "j1",
-    ]
-
-
-def test_build_schedule_from_stage_job_sequences_strict_lexicographic_breaks_ties_by_es_then_ls():
-    stage_2_job_sequence = {
-        "s1": ["j1", "j2", "j3"],
-    }
-    stage_2_job_2_p = {
-        "s1": {"j1": 1, "j2": 1, "j3": 1},
-    }
-    stage_2_job_2_release = {
-        "s1": {"j1": 0, "j2": 0, "j3": 2},
-    }
-    stage_2_job_2_latest_start = {
-        "s1": {"j1": 9, "j2": 4, "j3": 5},
-    }
-
-    schedule = build_schedule_from_stage_job_sequences_strict_lexicographic(
-        lambda: HybridFlowshopLiteSchedule(
-            jobs=["j1", "j2", "j3"],
-            stages=["s1"],
-            machines_per_stage={"s1": ["m1"]},
-        ),
-        stage_2_job_sequence,
-        stage_2_job_2_p,
-        stage_2_job_2_release=stage_2_job_2_release,
-        stage_2_job_2_latest_start=stage_2_job_2_latest_start,
-    )
-
-    assert [job_id for _, _, job_id in schedule.get_job_sequence("s1", "m1")] == [
-        "j2",
-        "j1",
-        "j3",
-    ]
 
 
 def test_improve_schedule_by_critical_adjacent_swaps_improves_known_case():

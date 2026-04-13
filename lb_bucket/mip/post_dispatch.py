@@ -13,10 +13,6 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 )
 
 from hybridflowshop.dispatcher.utils import (
-    build_schedule_from_stage_job_sequences_priority_score,
-    build_schedule_from_stage_job_sequences_strict_call_order,
-    build_schedule_from_stage_job_sequences_strict_lexicographic,
-    build_schedule_from_stage_job_sequences_strict_start_order,
     get_bottleneck_anchor_stage_from_solution_payload,
     get_job_sequence_from_dispatch_windows_aggregate,
     get_job_sequence_from_dispatch_windows_anchor_stage,
@@ -46,7 +42,9 @@ class PostMipDispatchDependencies:
     get_schedule_by_best_of_mixed_dispatches: Callable[
         ..., HybridFlowshopLiteSchedule | None
     ]
-    repair_post_mip_dispatch_candidate: Callable[..., HybridFlowshopLiteSchedule | None]
+    repair_post_mip_dispatch_candidate: Callable[
+        ..., HybridFlowshopLiteSchedule | None
+    ]
 
 
 @dataclass(frozen=True)
@@ -81,61 +79,6 @@ def _select_best_dispatch_candidate(
             best_variant = variant
             best_schedule = schedule
     return best_variant, best_schedule
-
-
-def _build_weighted_job_tiebreak_rank(
-    *,
-    job_id_list: Sequence[str],
-    sequence_name_2_job_sequence: Mapping[str, Sequence[str]],
-    weights: Mapping[str, int | float],
-) -> dict[str, int]:
-    """Blend multiple MIP-derived job sequences into one deterministic rank map.
-
-    Jobs are primarily sorted by the weighted sum of their positions. This keeps the
-    resulting rank compatible with the controller's existing mixed-dispatch tie-break
-    interface while letting us combine bottleneck and aggregate ES/LS urgency.
-    """
-    if not weights:
-        raise ValueError("weights cannot be empty.")
-
-    ordered_keys = list(weights)
-    original_rank = {job_id: idx for idx, job_id in enumerate(job_id_list)}
-    sequence_name_2_rank = {
-        name: get_job_tiebreak_rank_from_job_sequence(sequence)
-        for name, sequence in sequence_name_2_job_sequence.items()
-    }
-    fallback_rank = len(job_id_list)
-
-    sortable_rows: list[tuple[tuple[float, ...], str]] = []
-    for job_id in job_id_list:
-        component_ranks = tuple(
-            float(
-                sequence_name_2_rank.get(name, {}).get(
-                    job_id, fallback_rank + original_rank[job_id]
-                )
-            )
-            for name in ordered_keys
-        )
-        weighted_sum = sum(
-            float(weights[name]) * component_ranks[idx]
-            for idx, name in enumerate(ordered_keys)
-        )
-        sortable_rows.append(
-            (
-                (
-                    weighted_sum,
-                    min(component_ranks),
-                    *component_ranks,
-                    float(original_rank[job_id]),
-                ),
-                job_id,
-            )
-        )
-    sortable_rows.sort(key=lambda row: row[0])
-    return {
-        job_id: rank
-        for rank, (_sort_key, job_id) in enumerate(sortable_rows)
-    }
 
 
 def run_post_mip_dispatch(
@@ -174,11 +117,6 @@ def run_post_mip_dispatch(
         stage_2_job_2_p_dict,
     )
     stage_2_job_release = get_stage_job_release_times_from_dispatch_windows(
-        instance.stage_id_list,
-        instance.job_id_list,
-        dispatch_window_lookup,
-    )
-    stage_2_job_latest_start = get_stage_job_latest_start_times_from_dispatch_windows(
         instance.stage_id_list,
         instance.job_id_list,
         dispatch_window_lookup,
@@ -229,66 +167,6 @@ def run_post_mip_dispatch(
     candidate_generation_timer = ElapsedTimer()
     dispatch_candidates: dict[str, HybridFlowshopLiteSchedule | None] = {}
     target_stage_ids = [bottleneck_anchor_stage_id, instance.stage_id_list[-1]]
-
-    def schedule_factory() -> HybridFlowshopLiteSchedule:
-        return HybridFlowshopLiteSchedule(
-            jobs=list(instance.job_id_list),
-            stages=list(instance.stage_id_list),
-            machines_per_stage={
-                stage_id: list(instance.stage_2_machines_map[stage_id])
-                for stage_id in instance.stage_id_list
-            },
-        )
-
-    stage_sequence_variants = {
-        "es_ls_stage_priority_release": (
-            build_schedule_from_stage_job_sequences_priority_score,
-            "ES/LS stage sequence with release-aware priority dispatch",
-        ),
-        "es_ls_stage_strict_call_release": (
-            build_schedule_from_stage_job_sequences_strict_call_order,
-            "ES/LS stage sequence with strict call-order dispatch",
-        ),
-        "es_ls_stage_strict_lexicographic_release": (
-            build_schedule_from_stage_job_sequences_strict_lexicographic,
-            (
-                "ES/LS stage sequence with dynamic feasible-time -> ES -> LS "
-                "lexicographic dispatch"
-            ),
-        ),
-        "es_ls_stage_strict_start_release": (
-            build_schedule_from_stage_job_sequences_strict_start_order,
-            "ES/LS stage sequence with strict realized-start-order dispatch",
-        ),
-    }
-    for variant, (builder, description) in stage_sequence_variants.items():
-        variant_timer = ElapsedTimer()
-        try:
-            builder_kwargs: dict[str, Any] = {
-                "stage_2_job_2_release": stage_2_job_release,
-            }
-            if variant == "es_ls_stage_strict_lexicographic_release":
-                builder_kwargs["stage_2_job_2_latest_start"] = stage_2_job_latest_start
-            candidate_schedule = builder(
-                schedule_factory,
-                stage_2_job_sequence,
-                stage_2_job_2_p_dict,
-                **builder_kwargs,
-            )
-            dispatch_candidates[variant] = candidate_schedule
-            logging.info(
-                "[MIP LB] %s has makespan=%s",
-                variant,
-                candidate_schedule.makespan if candidate_schedule is not None else None,
-            )
-        except Exception:
-            logging.exception(
-                "[MIP LB] %s failed while constructing %s.",
-                variant,
-                description,
-            )
-            dispatch_candidates[variant] = None
-        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
 
     direct_mixed_sequences = {
         "mixed_aggregate_es_slack": aggregate_es_slack_sequence,
@@ -353,28 +231,6 @@ def run_post_mip_dispatch(
         "best_of_mixed_dispatches_aggregate_ls_slack_rank": get_job_tiebreak_rank_from_job_sequence(
             aggregate_ls_slack_sequence
         ),
-        "best_of_mixed_dispatches_bottleneck_aggregate_es_rank": _build_weighted_job_tiebreak_rank(
-            job_id_list=instance.job_id_list,
-            sequence_name_2_job_sequence={
-                "bottleneck": bottleneck_slack_sequence,
-                "aggregate_es": aggregate_es_slack_sequence,
-            },
-            weights={
-                "bottleneck": 2,
-                "aggregate_es": 1,
-            },
-        ),
-        "best_of_mixed_dispatches_bottleneck_aggregate_ls_rank": _build_weighted_job_tiebreak_rank(
-            job_id_list=instance.job_id_list,
-            sequence_name_2_job_sequence={
-                "bottleneck": bottleneck_slack_sequence,
-                "aggregate_ls": aggregate_ls_slack_sequence,
-            },
-            weights={
-                "bottleneck": 2,
-                "aggregate_ls": 1,
-            },
-        ),
     }
     for variant, job_tiebreak_rank in stronger_mixed_rank_candidates.items():
         variant_timer = ElapsedTimer()
@@ -436,7 +292,6 @@ def run_post_mip_dispatch(
                         insertion_passes=max(1, es_ls_local_repair_max_passes),
                         max_shift=4,
                         swap_passes=max(1, es_ls_local_repair_max_passes),
-                        stage_2_job_2_release=stage_2_job_release,
                     )
                 )
                 dispatch_candidates["selected_post_mip_local_repair"] = (
@@ -819,15 +674,9 @@ def _get_dispatch_variant_short_name(variant: str) -> str:
         "best_of_mixed_dispatches_bottleneck_slack_rank": "mixed_bneck_rank",
         "best_of_mixed_dispatches_aggregate_es_slack_rank": "mixed_agg_es_rank",
         "best_of_mixed_dispatches_aggregate_ls_slack_rank": "mixed_agg_ls_rank",
-        "best_of_mixed_dispatches_bottleneck_aggregate_es_rank": "mixed_bneck_agg_es",
-        "best_of_mixed_dispatches_bottleneck_aggregate_ls_rank": "mixed_bneck_agg_ls",
         "best_of_mixed_dispatches": "best_mixed",
         "mixed_aggregate_es_slack": "mixed_agg_es",
         "mixed_aggregate_ls_slack": "mixed_agg_ls",
-        "es_ls_stage_priority_release": "esls_priority",
-        "es_ls_stage_strict_call_release": "esls_strict_call",
-        "es_ls_stage_strict_lexicographic_release": "esls_strict_lex",
-        "es_ls_stage_strict_start_release": "esls_strict_start",
         "selected_post_mip_local_repair": "local_repair",
     }
     return alias_map.get(variant, variant)

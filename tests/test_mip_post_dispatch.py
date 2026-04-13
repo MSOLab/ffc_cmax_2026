@@ -1,15 +1,14 @@
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 from lb_bucket.mip.post_dispatch import (
     PostMipDispatchDependencies,
     PostMipDispatchRunResult,
-    _build_weighted_job_tiebreak_rank,
     _get_post_mip_method_list,
     run_post_mip_dispatch,
     write_post_mip_dispatch_artifacts,
 )
-from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 
 class _FakeSchedule:
@@ -117,35 +116,16 @@ def test_run_post_mip_dispatch_filters_removed_variants_and_checks_feasibility_o
     assert all(call[1:] == (True, True) for call in direct_calls)
     assert selected_method_lists == [["best_of_mixed_dispatches"]]
     assert "bn2d_all_stages" not in result.dispatched_schedules
-    assert result.dispatched_schedules["es_ls_stage_priority_release"] is not None
-    assert result.dispatched_schedules["es_ls_stage_strict_call_release"] is not None
+    assert "mixed_aggregate_es_slack_local_repair" not in result.dispatched_schedules
     assert (
-        result.dispatched_schedules["es_ls_stage_strict_lexicographic_release"]
-        is not None
+        "best_of_mixed_dispatches_stage_adaptive_rank_local_repair"
+        not in result.dispatched_schedules
     )
-    assert result.dispatched_schedules["es_ls_stage_strict_start_release"] is not None
-    assert (
-        result.dispatched_schedules[
-            "best_of_mixed_dispatches_bottleneck_aggregate_es_rank"
-        ]
-        is not None
-    )
-    assert (
-        result.dispatched_schedules[
-            "best_of_mixed_dispatches_bottleneck_aggregate_ls_rank"
-        ]
-        is not None
-    )
-    assert result.stage_2_job_release == {
-        "s1": {"j1": 0, "j2": 1},
-        "s2": {"j1": 2, "j2": 3},
-    }
-    assert result.selected_dispatch_variant == "es_ls_stage_priority_release"
+    assert result.selected_dispatch_variant in result.dispatched_schedules
     assert result.dispatched_schedule is not None
-    assert result.dispatched_schedule.makespan == 4
-    assert result.dispatched_schedules["selected_post_mip_local_repair"].makespan == 9
-    assert len(feasibility_start_maps) == 1
-    assert any(op[0] == "j1" for op in feasibility_start_maps[0])
+    assert result.dispatched_schedule.makespan == 7
+    assert result.dispatched_schedules["selected_post_mip_local_repair"].makespan == 12
+    assert feasibility_start_maps == [{"makespan": 7}]
 
 
 def test_write_post_mip_dispatch_artifacts_writes_release_yaml_and_gantt(
@@ -169,13 +149,15 @@ def test_write_post_mip_dispatch_artifacts_writes_release_yaml_and_gantt(
 
     result = PostMipDispatchRunResult(
         dispatched_schedule=schedule,
-        selected_dispatch_variant="es_ls_stage_priority_release",
-        dispatched_schedules={"es_ls_stage_priority_release": schedule},
-        dispatch_candidate_elapsed_sec={"es_ls_stage_priority_release": 0.1},
+        selected_dispatch_variant="best_of_mixed_dispatches_tail_ls_rank",
+        dispatched_schedules={"best_of_mixed_dispatches_tail_ls_rank": schedule},
+        dispatch_candidate_elapsed_sec={
+            "best_of_mixed_dispatches_tail_ls_rank": 0.1
+        },
         dispatch_phase_elapsed_sec={"total_post_mip_dispatch_sec": 0.2},
         stage_2_job_sequence={"1": ["1", "2"], "2": ["1", "2"]},
         stage_2_job_release={"1": {"1": 0, "2": 1}, "2": {"1": 1, "2": 2}},
-        pre_local_repair_selected_dispatch_variant="es_ls_stage_priority_release",
+        pre_local_repair_selected_dispatch_variant="best_of_mixed_dispatches_tail_ls_rank",
         pre_local_repair_selected_dispatch_makespan=4.0,
     )
     solution_payload = {
@@ -283,25 +265,10 @@ def test_write_post_mip_dispatch_artifacts_writes_release_yaml_and_gantt(
     assert (tmp_path / "dispatch" / "es_ls_stage_job_release.yaml").is_file()
     assert (tmp_path / "dispatch" / "es_ls_stage_job_latest_start.yaml").is_file()
     assert (
-        tmp_path / "dispatch" / "gantt" / "es_ls_stage_priority_release.png"
+        tmp_path / "dispatch" / "gantt" / "best_of_mixed_dispatches_tail_ls_rank.png"
     ).is_file()
     overlay_root = tmp_path / "dispatch" / "dispatch_window_overlays"
     overlay_pngs = list(overlay_root.glob("*/*.png"))
     assert overlay_pngs
     overlay_info_files = list(overlay_root.glob("*/variant_info.yaml"))
     assert overlay_info_files
-
-
-def test_build_weighted_job_tiebreak_rank_prefers_weighted_consensus_then_components() -> (
-    None
-):
-    rank = _build_weighted_job_tiebreak_rank(
-        job_id_list=["j1", "j2", "j3"],
-        sequence_name_2_job_sequence={
-            "bottleneck": ["j2", "j1", "j3"],
-            "aggregate_es": ["j1", "j3", "j2"],
-        },
-        weights={"bottleneck": 2, "aggregate_es": 1},
-    )
-
-    assert rank == {"j2": 0, "j1": 1, "j3": 2}

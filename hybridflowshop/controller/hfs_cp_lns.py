@@ -2047,7 +2047,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         insertion_passes: int = 3,
         max_shift: int = 4,
         swap_passes: int = 3,
-        stage_2_job_2_release: Mapping[str, Mapping[str, int]] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
         if schedule is None:
             return None
@@ -2062,7 +2061,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 target_stage_ids=target_stage_ids,
                 max_passes=max(1, insertion_passes),
                 max_shift=max(1, max_shift),
-                stage_2_job_2_release=stage_2_job_2_release,
             )
             candidate_pool.append(inserted)
         except Exception:
@@ -2076,7 +2074,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 schedule,
                 self.stage_2_job_2_p_dict,
                 max_passes=max(1, swap_passes),
-                stage_2_job_2_release=stage_2_job_2_release,
             )
             candidate_pool.append(swapped)
         except Exception:
@@ -2090,7 +2087,6 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     inserted,
                     self.stage_2_job_2_p_dict,
                     max_passes=max(1, swap_passes),
-                    stage_2_job_2_release=stage_2_job_2_release,
                 )
                 candidate_pool.append(inserted_swapped)
             except Exception:
