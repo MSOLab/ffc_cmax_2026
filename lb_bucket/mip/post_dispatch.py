@@ -344,6 +344,7 @@ def write_post_mip_dispatch_artifacts(
     mip_result: BucketSearchResult | None,
     apply_mip_lb_elapsed_sec: float | None,
     post_mip_dispatch_elapsed_sec: float | None,
+    draw_visualizations: bool = True,
 ) -> None:
     """Write ES/LS-guided dispatch outputs under an instance mip_lb directory."""
     dispatch_dir = output_dir / "dispatch"
@@ -527,8 +528,11 @@ def write_post_mip_dispatch_artifacts(
                 dispatch_dir / "es_ls_stage_job_latest_start.yaml",
             )
 
-    gantt_dir = dispatch_dir / "gantt"
-    gantt_dir.mkdir(parents=True, exist_ok=True)
+    gantt_dir: Path | None = None
+    if draw_visualizations:
+        gantt_dir = dispatch_dir / "gantt"
+        gantt_dir.mkdir(parents=True, exist_ok=True)
+
     for variant, schedule in dispatch_result.dispatched_schedules.items():
         if schedule is None:
             continue
@@ -539,9 +543,10 @@ def write_post_mip_dispatch_artifacts(
             },
             dispatch_dir / f"{variant}_solution.yaml",
         )
-        _write_schedule_gantt(gantt_dir / f"{variant}.png", schedule)
+        if draw_visualizations and gantt_dir is not None:
+            _write_schedule_gantt(gantt_dir / f"{variant}.png", schedule)
 
-    if solution_payload is not None:
+    if draw_visualizations and solution_payload is not None:
         write_dispatch_schedule_window_visualizations(
             output_dir,
             solution_payload,

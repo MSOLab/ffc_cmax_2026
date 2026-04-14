@@ -272,3 +272,78 @@ def test_write_post_mip_dispatch_artifacts_writes_release_yaml_and_gantt(
     assert overlay_pngs
     overlay_info_files = list(overlay_root.glob("*/variant_info.yaml"))
     assert overlay_info_files
+
+
+def test_write_post_mip_dispatch_artifacts_can_skip_visualizations(
+    tmp_path: Path,
+) -> None:
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["1"],
+        stages=["1"],
+        machines_per_stage={"1": ["m1"]},
+    )
+    schedule.dispatch_stage_by_jobs_strict_sequence(
+        "1",
+        ["1"],
+        {"1": 1},
+    )
+
+    result = PostMipDispatchRunResult(
+        dispatched_schedule=schedule,
+        selected_dispatch_variant="best_of_mixed_dispatches",
+        dispatched_schedules={"best_of_mixed_dispatches": schedule},
+        dispatch_candidate_elapsed_sec={"best_of_mixed_dispatches": 0.1},
+        dispatch_phase_elapsed_sec={"total_post_mip_dispatch_sec": 0.2},
+        stage_2_job_sequence={"1": ["1"]},
+        stage_2_job_release={"1": {"1": 0}},
+        pre_local_repair_selected_dispatch_variant="best_of_mixed_dispatches",
+        pre_local_repair_selected_dispatch_makespan=1.0,
+    )
+    solution_payload = {
+        "metadata": {
+            "ins_name": "1",
+            "job_ids": ["1"],
+            "stage_ids": ["1"],
+            "delta": 10,
+            "stage_count": 1,
+            "dispatch_cmax": 1.0,
+        },
+        "dispatch_windows": [
+            {
+                "stage": 1,
+                "job": 1,
+                "processing_time": 1,
+                "a_bucket": 1,
+                "b_bucket": 1,
+                "x_bucket_1": 1,
+                "x_value_1": 1.0,
+                "x_bucket_2": None,
+                "x_value_2": None,
+                "x_at_a_bucket": 1.0,
+                "x_at_b_bucket": 1.0,
+                "spans_two_buckets": False,
+                "es_candidate": 0.0,
+                "completion_candidate": 1.0,
+                "early_start": 0.0,
+                "late_start": 0.0,
+                "slack": 0.0,
+            },
+        ],
+    }
+
+    write_post_mip_dispatch_artifacts(
+        output_dir=tmp_path,
+        dispatch_result=result,
+        solution_payload=solution_payload,
+        mip_result=None,
+        apply_mip_lb_elapsed_sec=1.0,
+        post_mip_dispatch_elapsed_sec=0.2,
+        draw_visualizations=False,
+    )
+
+    assert (tmp_path / "dispatch" / "dispatch_summary.yaml").is_file()
+    assert (tmp_path / "dispatch" / "dispatch_variant_objectives.csv").is_file()
+    assert (tmp_path / "dispatch" / "best_of_mixed_dispatches_solution.yaml").is_file()
+    assert (tmp_path / "dispatch" / "es_ls_stage_job_release.yaml").is_file()
+    assert not (tmp_path / "dispatch" / "gantt").exists()
+    assert not (tmp_path / "dispatch" / "dispatch_window_overlays").exists()
