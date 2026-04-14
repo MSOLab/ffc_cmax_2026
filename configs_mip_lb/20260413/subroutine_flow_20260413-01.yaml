@@ -24,6 +24,7 @@
   threads: 16
   tl_nc_multiplier: 0.02
   delta: 400
+  draw_mip_lb_visualizations: false
 - method: neh_cp
   added_batch_size: 10
   job_seq_by_1st_stage: false

@@ -1555,6 +1555,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         disable_valid_ineq_iv: bool = False,
         # Post-MIP dispatch parameters
         es_ls_local_repair_max_passes: int = 3,
+        draw_mip_lb_visualizations: bool = True,
     ) -> dict[str, Any] | None:
         """
         Compute lower bound using the bucket-indexed MIP formulation with Gurobi.
@@ -1580,6 +1581,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             disable_valid_ineq_iv: Disable valid-inequality family (iv).
             es_ls_local_repair_max_passes: Number of local-repair passes applied to
                 the ES/LS priority-score dispatch.
+            draw_mip_lb_visualizations: If False, skip bucket-MIP/post-dispatch PNG
+                exports while still saving the lightweight YAML/CSV artifacts.
         """
         start_t = self.timer.elapsed_sec
         sub_timer = ElapsedTimer()
@@ -1826,13 +1829,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if self._working_dir_path is not None and solution_payload is not None:
             mip_lb_output_dir = self._working_dir_path / "mip_lb"
             write_solution_payload(mip_lb_output_dir, solution_payload)
-            write_solution_payload_visualizations(mip_lb_output_dir, solution_payload)
+            if draw_mip_lb_visualizations:
+                write_solution_payload_visualizations(
+                    mip_lb_output_dir, solution_payload
+                )
+            else:
+                logging.info(
+                    "[MIP LB] Skipping bucket-MIP/post-dispatch plot export because draw_mip_lb_visualizations=false."
+                )
             self._write_mip_lb_dispatch_artifacts(
                 dispatched_schedule=dispatched_schedule,
                 selected_variant=selected_dispatch_variant,
                 stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
                 stage_2_job_release=self.last_mip_lb_stage_2_job_release,
                 mip_result=result,
+                draw_visualizations=draw_mip_lb_visualizations,
             )
             logging.info(
                 "[MIP LB] Persisted solution payload and dispatch artifacts to %s",
@@ -1852,6 +1863,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         *,
         mip_lb_dir: str | None = None,
         es_ls_local_repair_max_passes: int = 3,
+        draw_mip_lb_visualizations: bool = True,
     ) -> dict[str, Any] | None:
         """Reload a saved MIP-LB payload and rerun only the post-MIP dispatch logic."""
         sub_timer = ElapsedTimer()
@@ -1939,13 +1951,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     "[MIP LB] Copied saved solution payload with dispatch windows to %s",
                     mip_lb_output_dir,
                 )
-            write_solution_payload_visualizations(mip_lb_output_dir, solution_payload)
+            if draw_mip_lb_visualizations:
+                write_solution_payload_visualizations(
+                    mip_lb_output_dir, solution_payload
+                )
+            else:
+                logging.info(
+                    "[MIP LB] Skipping bucket-MIP/post-dispatch plot export because draw_mip_lb_visualizations=false."
+                )
             self._write_mip_lb_dispatch_artifacts(
                 dispatched_schedule=dispatched_schedule,
                 selected_variant=selected_dispatch_variant,
                 stage_2_job_sequence=self.last_mip_lb_stage_2_job_sequence,
                 stage_2_job_release=self.last_mip_lb_stage_2_job_release,
                 mip_result=None,
+                draw_visualizations=draw_mip_lb_visualizations,
             )
         return {
             "solution_payload": solution_payload,
@@ -2007,6 +2027,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         stage_2_job_sequence: Mapping[str, Sequence[str]] | None,
         stage_2_job_release: Mapping[str, Mapping[str, int]] | None,
         mip_result: Any | None,
+        draw_visualizations: bool,
     ) -> None:
         """Write ES/LS-guided dispatch outputs under the instance mip_lb directory."""
         if self._working_dir_path is None:
@@ -2037,6 +2058,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             mip_result=mip_result,
             apply_mip_lb_elapsed_sec=self.last_mip_lb_apply_elapsed_sec,
             post_mip_dispatch_elapsed_sec=self.last_mip_lb_post_dispatch_elapsed_sec,
+            draw_visualizations=draw_visualizations,
         )
 
     def _repair_post_mip_dispatch_candidate(
