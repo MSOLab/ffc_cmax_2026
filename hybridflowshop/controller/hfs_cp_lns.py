@@ -1,10 +1,19 @@
 import logging
 import math
 import random
+import time
 from collections import Counter, deque
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from lb_bucket.cp import (
+    build_retained_stage_cp_model,
+    build_retained_stage_cp_result,
+    build_trace_rows,
+    extract_retained_stage_solution_rows,
+    sanitize_optional_float,
+    write_retained_stage_cp_artifacts,
+)
 from lb_bucket.mip.dispatch_windows import build_dispatch_window_lookup
 from lb_bucket.mip.post_dispatch import (
     PostMipDispatchDependencies,
@@ -1533,6 +1542,275 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             subroutine_name="apply_shdlb",
         )
         self.solution_manager.register(report, None)
+
+    def _apply_retained_stage_cp_lb_hints(
+        self,
+        *,
+        build,
+        incumbent_schedule: HybridFlowshopLiteSchedule | None,
+    ) -> None:
+        if incumbent_schedule is None:
+            return
+
+        retained_stage_set = set(build.retained_stage_ids)
+        start_time_map = {
+            key: value
+            for key, value in incumbent_schedule.get_jik_2_start_time_map().items()
+            if key[1] in retained_stage_set
+        }
+        end_time_map = {
+            key: value
+            for key, value in incumbent_schedule.get_jik_2_end_time_map().items()
+            if key[1] in retained_stage_set
+        }
+        if not start_time_map or not end_time_map:
+            return
+
+        BaseModelBuilder.apply_start_hints_from_start_time_map(
+            build.model,
+            build.params,
+            build.variables,
+            start_time_map,
+            ignore_integrity_check=True,
+        )
+        BaseModelBuilder.apply_end_hints_from_end_time_map(
+            build.model,
+            build.params,
+            build.variables,
+            end_time_map,
+            ignore_integrity_check=True,
+        )
+
+    def apply_retained_stage_cp_lb(
+        self,
+        threads: int = 24,
+        tl_nc_multiplier: float | None = None,
+        time_limit_sec: float | None = None,
+        time_limit_n_by_c_multiplier: float | None = None,
+        retained_stage_mode: str = "first_bottleneck_last",
+        bottleneck_stage_id: str | None = None,
+        extra_bottleneck_count: int = 1,
+        quantile_count: int | None = None,
+        retained_stage_ratios: Sequence[float] | None = None,
+        save_cp_lb_artifacts: bool = True,
+    ) -> dict[str, Any] | None:
+        """
+        Compute a retained-stage CP-SAT lower bound using only a subset of stages exactly.
+
+        Supported retained stage modes:
+        - ``first_last``: retain the first and last stages exactly.
+        - ``first_bottleneck_last``: retain the first, bottleneck, and last stages.
+        - ``first_topk_bottlenecks_last``: retain the first, top-k bottlenecks, and last stages.
+        - ``first_middle_last``: retain the first, middle, and last stages.
+        - ``first_n_quantiles_last``: retain the first, n-quantile cut stages, and last stages.
+        - ``first_ratio_points_last``: retain the first, user-specified ratio stages, and last stages.
+        """
+        start_t = self.timer.elapsed_sec
+        sub_timer = ElapsedTimer()
+        self.last_retained_cp_lb_apply_elapsed_sec = None
+        self.last_retained_cp_lb_result = None
+        self.last_retained_cp_lb_trace_rows = None
+        self.last_retained_cp_lb_retained_solution_rows = None
+
+        input_ub = self.solution_manager.best_obj_value
+        if input_ub is None:
+            logging.warning("[CP LB] No upper bound available, skipping")
+            return None
+
+        input_lb = self.solution_manager.best_obj_bound
+        instance = self.instance
+        incumbent_schedule = self.solution_manager.get_incumbent()
+
+        if tl_nc_multiplier is not None:
+            _time_limit_sec = (
+                float(tl_nc_multiplier)
+                * float(instance.job_count)
+                * float(instance.stage_count)
+            )
+        elif time_limit_sec is None and time_limit_n_by_c_multiplier is not None:
+            _time_limit_sec = (
+                float(instance.job_count)
+                * float(instance.stage_count)
+                * float(time_limit_n_by_c_multiplier)
+            )
+        else:
+            _time_limit_sec = time_limit_sec
+        _time_limit_sec = self.get_remaining_time_limit(_time_limit_sec)
+
+        logging.info(
+            "[CP LB] Starting retained-stage CP-SAT at %.1f with mode=%s bottleneck_stage_id=%s "
+            "extra_bottleneck_count=%d quantile_count=%s retained_stage_ratios=%s "
+            "threads=%d time_limit_sec=%s",
+            start_t,
+            retained_stage_mode,
+            bottleneck_stage_id,
+            extra_bottleneck_count,
+            quantile_count,
+            list(retained_stage_ratios or ()),
+            threads,
+            f"{_time_limit_sec:.1f}" if _time_limit_sec is not None else "None",
+        )
+
+        model_build_wall_start = time.perf_counter()
+        build = build_retained_stage_cp_model(
+            instance,
+            input_ub=int(math.ceil(float(input_ub))),
+            retained_stage_mode=retained_stage_mode,
+            bottleneck_stage_id=bottleneck_stage_id,
+            extra_bottleneck_count=extra_bottleneck_count,
+            quantile_count=quantile_count,
+            retained_stage_ratios=retained_stage_ratios,
+        )
+        model_build_wall_sec = time.perf_counter() - model_build_wall_start
+        self._apply_retained_stage_cp_lb_hints(
+            build=build,
+            incumbent_schedule=incumbent_schedule,
+        )
+
+        solver_report = self.solve_cp_model_2(
+            build.model,
+            _time_limit_sec,
+            threads,
+            obj_value_is_valid=False,
+            obj_bound_is_valid=False,
+            e_timer=sub_timer,
+            log_search_progress=False,
+        )
+        self.last_retained_cp_lb_apply_elapsed_sec = sub_timer.elapsed_sec
+
+        objective_ub = None
+        if solver_report.status.is_feasible:
+            objective_ub = sanitize_optional_float(
+                getattr(self.solver, "objective_value", None)
+            )
+            if objective_ub is None:
+                objective_ub = sanitize_optional_float(solver_report.obj_value)
+
+        objective_lb = sanitize_optional_float(
+            getattr(self.solver, "best_objective_bound", None)
+        )
+        if objective_lb is None and solver_report.status.is_feasible:
+            objective_lb = sanitize_optional_float(solver_report.obj_bound)
+        if objective_lb is None and solver_report.status == CpsatStatus.OPTIMAL:
+            objective_lb = objective_ub
+
+        solver_runtime_sec = sanitize_optional_float(
+            getattr(self.solver, "wall_time", None)
+        )
+        if solver_runtime_sec is None:
+            solver_runtime_sec = sub_timer.elapsed_sec
+
+        trace_rows = build_trace_rows(
+            solver_report.obj_value_records,
+            solver_report.obj_bound_records,
+            final_runtime_sec=solver_runtime_sec,
+            final_objective_ub=objective_ub,
+            final_objective_lb=objective_lb,
+        )
+        retained_solution_rows: list[dict[str, Any]] = []
+        if solver_report.status.is_feasible:
+            retained_solution_rows = extract_retained_stage_solution_rows(
+                self.solver,
+                build,
+            )
+
+        result = build_retained_stage_cp_result(
+            ins_name=instance.name,
+            input_lb=input_lb,
+            input_ub=float(input_ub),
+            retained_stage_mode=retained_stage_mode,
+            retained_stage_ids=build.retained_stage_ids,
+            bottleneck_stage_id=build.bottleneck_stage_id,
+            selected_bottleneck_stage_ids=build.selected_bottleneck_stage_ids,
+            retained_stage_ratios=build.retained_stage_ratios,
+            quantile_count=build.quantile_count,
+            job_count=instance.job_count,
+            stage_count=instance.stage_count,
+            machine_count_per_stage=instance.machine_count_per_stage,
+            status=solver_report.status,
+            objective_ub=objective_ub,
+            objective_lb=objective_lb,
+            time_limit_sec_used=_time_limit_sec,
+            solver_runtime_sec=solver_runtime_sec,
+            wall_runtime_sec=sub_timer.elapsed_sec,
+            model_build_wall_sec=model_build_wall_sec,
+        )
+        self.last_retained_cp_lb_result = result
+        self.last_retained_cp_lb_trace_rows = trace_rows
+        self.last_retained_cp_lb_retained_solution_rows = retained_solution_rows
+
+        current_bound = self.solution_manager.best_obj_bound
+        improved_bound_logged = False
+        for row in trace_rows:
+            trace_runtime = sanitize_optional_float(row.get("runtime_sec"))
+            trace_lb = sanitize_optional_float(row.get("objective_lb"))
+            if trace_runtime is None or trace_lb is None:
+                continue
+            if self.solution_manager._a_is_better_obj_bound(trace_lb, current_bound):
+                global_time = start_t + trace_runtime
+                self.add_obj_bound_log(global_time, trace_lb, is_maximize=False)
+                current_bound = trace_lb
+                improved_bound_logged = True
+
+        report = HfsCpsatSolverReport(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=None,
+            obj_bound=result.certified_final_lb,
+            is_init=False,
+            subroutine_name="apply_retained_stage_cp_lb",
+            call_context=self._get_call_context_of_current_method(),
+            progress_obj_value_records=(),
+            progress_time_basis="local",
+            status=solver_report.status,
+            obj_value_records=(),
+            obj_bound_records=[
+                (
+                    float(row["runtime_sec"]),
+                    float(row["objective_lb"]),
+                )
+                for row in trace_rows
+                if sanitize_optional_float(row.get("runtime_sec")) is not None
+                and sanitize_optional_float(row.get("objective_lb")) is not None
+            ],
+        )
+        self.solution_manager.register(report, None)
+
+        if improved_bound_logged:
+            self.obj_store.add_last_timestamp_note(
+                self._get_call_context_of_current_method(),
+                obj_bound_is_valid=True,
+            )
+
+        logging.info(
+            "[CP LB] Finished retained-stage CP-SAT with status=%s objective_ub=%s objective_lb=%s",
+            result.status_name,
+            result.objective_ub,
+            result.objective_lb,
+        )
+
+        if self._working_dir_path is not None and save_cp_lb_artifacts:
+            write_retained_stage_cp_artifacts(
+                self._working_dir_path / "cp_lb",
+                result=result,
+                build=build,
+                trace_rows=trace_rows,
+                retained_solution_rows=retained_solution_rows,
+            )
+            logging.info(
+                "[CP LB] Persisted retained-stage CP artifacts to %s",
+                self._working_dir_path / "cp_lb",
+            )
+
+        return {
+            "result": result,
+            "trace_rows": trace_rows,
+            "retained_solution_rows": retained_solution_rows,
+            "retained_stage_ids": build.retained_stage_ids,
+            "bottleneck_stage_id": build.bottleneck_stage_id,
+            "selected_bottleneck_stage_ids": build.selected_bottleneck_stage_ids,
+            "retained_stage_ratios": build.retained_stage_ratios,
+            "quantile_count": build.quantile_count,
+        }
 
     def apply_mip_lb(
         self,
