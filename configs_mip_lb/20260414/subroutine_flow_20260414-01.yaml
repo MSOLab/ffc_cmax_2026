@@ -22,9 +22,8 @@
 - method: apply_mip_lb
   precedence_formulation: "d"
   threads: 16
-  tl_nc_multiplier: 0.02
+  tl_nc_multiplier: 0.005
   delta: 400
-  draw_mip_lb_visualizations: false
 - method: neh_cp
   added_batch_size: 10
   job_seq_by_1st_stage: false

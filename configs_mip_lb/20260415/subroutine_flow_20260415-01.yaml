@@ -22,7 +22,7 @@
 - method: apply_mip_lb
   precedence_formulation: "d"
   threads: 16
-  tl_nc_multiplier: 0.02
+  tl_nc_multiplier: 0.01
   delta: 400
   draw_mip_lb_visualizations: false
 - method: neh_cp
@@ -40,6 +40,26 @@
   solver_thread_cnt: 16
 - method: incremental_pw_cp
   batch_size_ratio: 0.05
+  unfixed_batch_count_min: 2
+  unfixed_batch_count_max: 7
+  increment_unfixed_batch_count_flag: always
+  non_time_fixed_op_time_limit_multiplier: 0.01
+  lr_profile_fixed_batch_count: 1
+  enable_promotion_profile_fixed: true
+  solver_thread_cnt: 16
+  use_lns_only: false
+- method: incremental_pw_cp
+  batch_size_ratio: 0.1
+  unfixed_batch_count_min: 2
+  unfixed_batch_count_max: 7
+  increment_unfixed_batch_count_flag: always
+  non_time_fixed_op_time_limit_multiplier: 0.01
+  lr_profile_fixed_batch_count: 1
+  enable_promotion_profile_fixed: true
+  solver_thread_cnt: 16
+  use_lns_only: false
+- method: incremental_pw_cp
+  batch_size_ratio: 0.2
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 7
   increment_unfixed_batch_count_flag: always
