@@ -38,6 +38,9 @@ def test_hfs_summary_save_includes_extra_outputs(tmp_path: Path) -> None:
             "mipLbBound": 1234,
             "mipLbStatus": "TIME_LIMIT",
             "mipLbApplyElapsedSec": 12.3,
+            "retainedCpBound": 1200,
+            "retainedCpStatus": "FEASIBLE",
+            "retainedCpApplyElapsedSec": 4.5,
         },
     )
 
@@ -47,6 +50,9 @@ def test_hfs_summary_save_includes_extra_outputs(tmp_path: Path) -> None:
     assert list(df["mipLbBound"]) == [1234]
     assert list(df["mipLbStatus"]) == ["TIME_LIMIT"]
     assert list(df["mipLbApplyElapsedSec"]) == [12.3]
+    assert list(df["retainedCpBound"]) == [1200]
+    assert list(df["retainedCpStatus"]) == ["FEASIBLE"]
+    assert list(df["retainedCpApplyElapsedSec"]) == [4.5]
 
 
 def test_create_summary_row_includes_mip_lb_columns(tmp_path: Path) -> None:
@@ -71,6 +77,14 @@ def test_create_summary_row_includes_mip_lb_columns(tmp_path: Path) -> None:
                 "mipLbApplyElapsedSec": 8.1,
                 "mipLbDispatchCmax": 980,
                 "mipLbSelectedDispatchVariant": "best_of_mixed_dispatches",
+                "retainedCpBound": 860,
+                "retainedCpStatus": "FEASIBLE",
+                "retainedCpMode": "first_bottleneck_last",
+                "retainedCpStages": "i0 i1 i2",
+                "retainedCpBottleneckStage": "i1",
+                "retainedCpSolverRuntimeSec": 3.5,
+                "retainedCpApplyElapsedSec": 3.9,
+                "retainedCpBestObj": 875,
             }
         ]
     ).to_csv(summary_path, index=False)
@@ -99,3 +113,11 @@ def test_create_summary_row_includes_mip_lb_columns(tmp_path: Path) -> None:
         summary_row["mipLbSelectedDispatchVariant"]
         == "best_of_mixed_dispatches"
     )
+    assert summary_row["retainedCpBound"] == 860
+    assert summary_row["retainedCpStatus"] == "FEASIBLE"
+    assert summary_row["retainedCpMode"] == "first_bottleneck_last"
+    assert summary_row["retainedCpStages"] == "i0 i1 i2"
+    assert summary_row["retainedCpBottleneckStage"] == "i1"
+    assert summary_row["retainedCpSolverRuntimeSec"] == 3.5
+    assert summary_row["retainedCpApplyElapsedSec"] == 3.9
+    assert summary_row["retainedCpBestObj"] == 875

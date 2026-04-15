@@ -45,6 +45,16 @@ class HfsSingleInstanceRunner(
         "mipLbDispatchCmax",
         "mipLbSelectedDispatchVariant",
     )
+    RETAINED_CP_LB_SUMMARY_COLUMNS = (
+        "retainedCpBound",
+        "retainedCpStatus",
+        "retainedCpMode",
+        "retainedCpStages",
+        "retainedCpBottleneckStage",
+        "retainedCpSolverRuntimeSec",
+        "retainedCpApplyElapsedSec",
+        "retainedCpBestObj",
+    )
 
     # Optional member variables for RunMode.RESUME
     resume_start_time_map: dict | None = None
@@ -257,7 +267,10 @@ class HfsSingleInstanceRunner(
                     "reportCount"
                 ),
             }
-            for column_name in self.MIP_LB_SUMMARY_COLUMNS:
+            for column_name in (
+                *self.MIP_LB_SUMMARY_COLUMNS,
+                *self.RETAINED_CP_LB_SUMMARY_COLUMNS,
+            ):
                 summary_row[column_name] = last_row.get(column_name)
 
             return summary_row
@@ -309,17 +322,23 @@ class HfsSingleInstanceRunner(
                 timelimit=self.stopping_criteria.timelimit,
             ),
             outputs=stats,
-            extra_outputs=self._build_mip_lb_summary_fields(),
+            extra_outputs=self._build_extra_summary_fields(),
         )
         summary.save(self.summary_path, encoding=encoding)
 
-    def _build_mip_lb_summary_fields(self) -> dict[str, Any]:
+    def _build_extra_summary_fields(self) -> dict[str, Any]:
         mip_result = getattr(self.ctrlr, "last_mip_lb_result", None)
         solution_payload = getattr(self.ctrlr, "last_mip_lb_solution_payload", None)
         payload_metadata = (
             dict(solution_payload.get("metadata", {}) or {})
             if isinstance(solution_payload, dict)
             else {}
+        )
+        retained_cp_result = getattr(self.ctrlr, "last_retained_cp_lb_result", None)
+        retained_cp_stage_ids = (
+            list(getattr(retained_cp_result, "retained_stage_ids", ()) or [])
+            if retained_cp_result is not None
+            else []
         )
         return {
             "mipLbBound": (
@@ -346,6 +365,44 @@ class HfsSingleInstanceRunner(
             "mipLbDispatchCmax": payload_metadata.get("dispatch_cmax"),
             "mipLbSelectedDispatchVariant": getattr(
                 self.ctrlr, "last_mip_lb_selected_dispatch_variant", None
+            ),
+            "retainedCpBound": (
+                getattr(retained_cp_result, "certified_final_lb", None)
+                if retained_cp_result is not None
+                else None
+            ),
+            "retainedCpStatus": (
+                getattr(retained_cp_result, "status_name", None)
+                if retained_cp_result is not None
+                else None
+            ),
+            "retainedCpMode": (
+                getattr(retained_cp_result, "retained_stage_mode", None)
+                if retained_cp_result is not None
+                else None
+            ),
+            "retainedCpStages": (
+                " ".join(str(stage_id) for stage_id in retained_cp_stage_ids)
+                if retained_cp_stage_ids
+                else None
+            ),
+            "retainedCpBottleneckStage": (
+                getattr(retained_cp_result, "bottleneck_stage_id", None)
+                if retained_cp_result is not None
+                else None
+            ),
+            "retainedCpSolverRuntimeSec": (
+                getattr(retained_cp_result, "solver_runtime_sec", None)
+                if retained_cp_result is not None
+                else None
+            ),
+            "retainedCpApplyElapsedSec": getattr(
+                self.ctrlr, "last_retained_cp_lb_apply_elapsed_sec", None
+            ),
+            "retainedCpBestObj": (
+                getattr(retained_cp_result, "objective_ub", None)
+                if retained_cp_result is not None
+                else None
             ),
         }
 
