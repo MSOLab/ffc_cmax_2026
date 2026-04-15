@@ -36,6 +36,16 @@ from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 class HfsSingleInstanceRunner(
     SingleInstanceRunner[HybridFlowshopParameters, HybridFlowShopCpLnsController]
 ):
+    MIP_LB_SUMMARY_COLUMNS = (
+        "mipLbBound",
+        "mipLbStatus",
+        "mipLbDelta",
+        "mipLbSolverRuntimeSec",
+        "mipLbApplyElapsedSec",
+        "mipLbDispatchCmax",
+        "mipLbSelectedDispatchVariant",
+    )
+
     # Optional member variables for RunMode.RESUME
     resume_start_time_map: dict | None = None
     """Start time map loaded from a resume solution file, if applicable."""
@@ -247,6 +257,8 @@ class HfsSingleInstanceRunner(
                     "reportCount"
                 ),
             }
+            for column_name in self.MIP_LB_SUMMARY_COLUMNS:
+                summary_row[column_name] = last_row.get(column_name)
 
             return summary_row
         except Exception as e:
@@ -297,8 +309,45 @@ class HfsSingleInstanceRunner(
                 timelimit=self.stopping_criteria.timelimit,
             ),
             outputs=stats,
+            extra_outputs=self._build_mip_lb_summary_fields(),
         )
         summary.save(self.summary_path, encoding=encoding)
+
+    def _build_mip_lb_summary_fields(self) -> dict[str, Any]:
+        mip_result = getattr(self.ctrlr, "last_mip_lb_result", None)
+        solution_payload = getattr(self.ctrlr, "last_mip_lb_solution_payload", None)
+        payload_metadata = (
+            dict(solution_payload.get("metadata", {}) or {})
+            if isinstance(solution_payload, dict)
+            else {}
+        )
+        return {
+            "mipLbBound": (
+                getattr(mip_result, "certified_final_lb", None)
+                if mip_result is not None
+                else None
+            ),
+            "mipLbStatus": (
+                getattr(mip_result, "status_name", None)
+                if mip_result is not None
+                else None
+            ),
+            "mipLbDelta": (
+                getattr(mip_result, "delta", None) if mip_result is not None else None
+            ),
+            "mipLbSolverRuntimeSec": (
+                getattr(mip_result, "total_runtime_sec", None)
+                if mip_result is not None
+                else None
+            ),
+            "mipLbApplyElapsedSec": getattr(
+                self.ctrlr, "last_mip_lb_apply_elapsed_sec", None
+            ),
+            "mipLbDispatchCmax": payload_metadata.get("dispatch_cmax"),
+            "mipLbSelectedDispatchVariant": getattr(
+                self.ctrlr, "last_mip_lb_selected_dispatch_variant", None
+            ),
+        }
 
     def save_solution(self, encoding: str = "utf-8") -> None:
         incumbent_solution = self.ctrlr.solution_manager.get_incumbent()

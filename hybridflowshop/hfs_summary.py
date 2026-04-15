@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from .hfs_input_summary import HfsInputSummary
 from .report import HfsSubroutineReportStatistics
@@ -7,22 +8,39 @@ from .report import HfsSubroutineReportStatistics
 class HfsSummary:
     inputs: HfsInputSummary
     outputs: HfsSubroutineReportStatistics
+    extra_outputs: dict[str, Any]
 
-    def __init__(self, inputs: HfsInputSummary, outputs: HfsSubroutineReportStatistics):
+    def __init__(
+        self,
+        inputs: HfsInputSummary,
+        outputs: HfsSubroutineReportStatistics,
+        extra_outputs: dict[str, Any] | None = None,
+    ):
         self.inputs = inputs
         self.outputs = outputs
+        self.extra_outputs = dict(extra_outputs or {})
+
+    def _stringified_output_dict(self) -> dict[str, str]:
+        output_dict = dict(self.outputs.to_string_dict())
+        output_dict.update(
+            {
+                key: "" if value is None else str(value)
+                for key, value in self.extra_outputs.items()
+            }
+        )
+        return output_dict
 
     def comma_separated_values_header(self) -> str:
         """Returns the header for the comma-separated values."""
         inputs_header_str = self.inputs.header()
-        outputs_headers = self.outputs.to_string_dict().keys()
+        outputs_headers = self._stringified_output_dict().keys()
         outputs_header_str = ",".join(str(header) for header in outputs_headers)
         return f"{inputs_header_str},{outputs_header_str}"
 
     def comma_seperated_values(self) -> str:
         """Returns a string with comma-separated values of the summary."""
         inputs_value_str = self.inputs.comma_separated_values()
-        outputs_values = self.outputs.to_string_dict().values()
+        outputs_values = self._stringified_output_dict().values()
         outputs_value_str = ",".join(str(value) for value in outputs_values)
         return f"\n{inputs_value_str},{outputs_value_str}"
 
