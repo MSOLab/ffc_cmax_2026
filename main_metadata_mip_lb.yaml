@@ -140,6 +140,22 @@ dicts_of_i_o_data_path:
     subroutine_flow_rel_path: "configs_mip_lb/20260417/subroutine_flow_20260417-04.yaml"
     output_dir: "ff2020/20260417-05-bottleneck-band-r2"
     description: "SHDLB->Dispatch init->Retained-CP-LB(first_bottleneck_band_last,r=2)->Two-way dispatch"
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260417/subroutine_flow_20260417-05.yaml"
+    output_dir: "ff2020/20260417-06-middle-band-r1-t005"
+    description: "SHDLB->Dispatch init->Retained-CP-LB(first_middle_band_last,r=1,tl=0.05nc)->Two-way dispatch"
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260417/subroutine_flow_20260417-06.yaml"
+    output_dir: "ff2020/20260417-07-middle-band-r2-t005"
+    description: "SHDLB->Dispatch init->Retained-CP-LB(first_middle_band_last,r=2,tl=0.05nc)->Two-way dispatch"
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260417/subroutine_flow_20260417-07.yaml"
+    output_dir: "ff2020/20260417-08-bottleneck-band-r1-t005"
+    description: "SHDLB->Dispatch init->Retained-CP-LB(first_bottleneck_band_last,r=1,tl=0.05nc)->Two-way dispatch"
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_halfnc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260417/subroutine_flow_20260417-08.yaml"
+    output_dir: "ff2020/20260417-09-bottleneck-band-r2-t005"
+    description: "SHDLB->Dispatch init->Retained-CP-LB(first_bottleneck_band_last,r=2,tl=0.05nc)->Two-way dispatch"
 
 
 # Output and Logging configuration
