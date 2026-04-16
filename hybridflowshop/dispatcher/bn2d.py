@@ -4,7 +4,7 @@ BN2DDispatcher class for BN2D (Bottleneck-based Two-Way Dispatching) methods.
 
 import math
 import random
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Sequence
 
 from schore.parameters_examples import HybridFlowshopParameters
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
@@ -442,7 +442,149 @@ class BN2DDispatcher(BaseDispatcher):
                     stage_id, mc_id, job_id, start_time, start_time + duration
                 )
 
-        schedule.make_semi_active(self.stage_2_job_2_p)
+        return schedule
+
+    def get_schedule_by_two_way_stage_band(
+        self,
+        anchor_stage_ids: Sequence[StageIdType],
+        stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
+        option: BN2DOption,
+        stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+    ) -> HybridFlowshopLiteSchedule:
+        """Dispatch around a fixed contiguous anchor band using BN2D-style two-way logic.
+
+        The anchor band is scheduled first, stage by stage, while preserving the
+        exact per-stage job order provided by ``stage_2_job_sequence``. The anchor
+        stages act as the fixed middle of the schedule. Then:
+
+        1. later stages are dispatched forward from the last anchor stage's end times,
+        2. former stages are dispatched on a reversed sub-instance from the first
+           anchor stage's start times, and
+        3. the anchor+later partial schedule is right-shifted if needed so the
+           former-stage schedule fits before the anchor block.
+
+        This is meant for post-processing a retained-stage CP solution where a
+        contiguous middle block of stages has a trusted stage-wise order.
+        """
+        if not anchor_stage_ids:
+            raise ValueError("anchor_stage_ids cannot be empty.")
+
+        anchor_stage_ids = list(anchor_stage_ids)
+        anchor_stage_indices = [self.stage_id_list.index(stage_id) for stage_id in anchor_stage_ids]
+        expected_indices = list(
+            range(anchor_stage_indices[0], anchor_stage_indices[0] + len(anchor_stage_ids))
+        )
+        if anchor_stage_indices != expected_indices:
+            raise ValueError(
+                "anchor_stage_ids must form a contiguous block in stage order."
+            )
+
+        first_anchor_stage_id = anchor_stage_ids[0]
+        last_anchor_stage_id = anchor_stage_ids[-1]
+        first_anchor_stage_index = anchor_stage_indices[0]
+        last_anchor_stage_index = anchor_stage_indices[-1]
+
+        anchor_schedule = self._create_empty_schedule()
+        for stage_id in anchor_stage_ids:
+            if stage_id not in stage_2_job_sequence:
+                raise ValueError(f"Missing anchor job sequence for stage {stage_id}.")
+            anchor_schedule.dispatch_stage_by_jobs_strict_start_order(
+                stage_id,
+                stage_2_job_sequence[stage_id],
+                self.stage_2_job_2_p[stage_id],
+                job_2_release=(
+                    stage_2_job_2_release.get(stage_id)
+                    if stage_2_job_2_release is not None
+                    else None
+                ),
+            )
+
+        job_2_first_anchor_start_time = self._get_job_2_start_time_map(
+            anchor_schedule, first_anchor_stage_id
+        )
+        job_2_last_anchor_end_time = self._get_job_2_end_time_map(
+            anchor_schedule, last_anchor_stage_id
+        )
+        anchor_cmax = max(job_2_last_anchor_end_time.values(), default=0)
+
+        schedule = anchor_schedule.deepcopy()
+
+        later_stage_list = self.stage_id_list[last_anchor_stage_index + 1 :]
+        if later_stage_list:
+            sorted_j_list = sorted(
+                self.job_id_list,
+                key=lambda j: (
+                    job_2_last_anchor_end_time.get(j, 0),
+                    self._get_rank_tiebreak_key(j),
+                ),
+            )
+
+            if option.mixed_schedule_for_later_stages:
+                mixed_schedule = self.mixed_dispatcher.get_best_mixed_schedule_by_sequence(
+                    sorted_j_list,
+                    schedule=anchor_schedule.deepcopy(),
+                    from_stage=later_stage_list[0],
+                    job_2_release_t=job_2_last_anchor_end_time,
+                    machine_then_job=option.machine_then_job,
+                    draw_gantt_per_step=False,
+                )
+                if mixed_schedule is None:
+                    raise ValueError("Failed to get mixed schedule for later stages.")
+                schedule = mixed_schedule
+            else:
+                later_ds_schedule = anchor_schedule.deepcopy()
+                for stage_id in later_stage_list:
+                    later_ds_schedule.dispatch_stage_by_jobs(
+                        stage_id,
+                        sorted_j_list,
+                        self.stage_2_job_2_p[stage_id],
+                        job_2_release=job_2_last_anchor_end_time,
+                    )
+
+                later_dj_schedule = anchor_schedule.deepcopy()
+                for job_id in sorted_j_list:
+                    later_dj_schedule.dispatch_job_by_stages(
+                        job_id,
+                        self.job_2_stage_2_p[job_id],
+                        from_stage=later_stage_list[0],
+                        release_t=job_2_last_anchor_end_time[job_id],
+                    )
+
+                if later_ds_schedule.makespan <= later_dj_schedule.makespan:
+                    schedule = later_ds_schedule
+                else:
+                    schedule = later_dj_schedule
+
+        before_stage_list = self.stage_id_list[:first_anchor_stage_index]
+        if before_stage_list:
+            instance_for_former_stages, job_2_release_t = (
+                self._create_reversed_instance_for_former_stages(
+                    before_stage_list,
+                    job_2_first_anchor_start_time,
+                    anchor_cmax,
+                )
+            )
+            former_schedule = self._dispatch_former_stages(
+                instance_for_former_stages,
+                job_2_release_t,
+                get_mixed_schedule=option.mixed_schedule_for_former_stages,
+                machine_then_job=option.machine_then_job,
+            )
+
+            former_schedule_makespan = former_schedule.makespan
+            discrepancy = max(former_schedule_makespan - anchor_cmax, 0)
+            if discrepancy > 0:
+                schedule.right_shift(discrepancy)
+
+            former_schedule_end_time_map = former_schedule.get_jik_2_end_time_map()
+            for op, end_time in former_schedule_end_time_map.items():
+                job_id, stage_id, mc_id = op
+                start_time = former_schedule_makespan - end_time
+                duration = self.job_2_stage_2_p[job_id][stage_id]
+                schedule.add_ops_times_2_mc(
+                    stage_id, mc_id, job_id, start_time, start_time + duration
+                )
+
         return schedule
 
     # Public methods

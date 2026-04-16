@@ -13,6 +13,7 @@ class RetainedStageSelection:
     retained_stage_ids: list[str]
     bottleneck_stage_id: str | None
     selected_bottleneck_stage_ids: list[str]
+    bottleneck_band_radius: int | None
     retained_stage_ratios: list[float]
     quantile_count: int | None
 
@@ -35,6 +36,7 @@ class RetainedStageCpBuild:
     retained_stage_indices: list[int]
     bottleneck_stage_id: str | None
     selected_bottleneck_stage_ids: list[str]
+    bottleneck_band_radius: int | None
     retained_stage_ratios: list[float]
     quantile_count: int | None
     head_by_job_stage: dict[tuple[str, str], int]

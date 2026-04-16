@@ -28,6 +28,7 @@ class RetainedStageCpResult:
     retained_stage_ids: tuple[str, ...]
     bottleneck_stage_id: str | None
     selected_bottleneck_stage_ids: tuple[str, ...]
+    bottleneck_band_radius: int | None
     retained_stage_ratios: tuple[float, ...]
     quantile_count: int | None
     job_count: int
@@ -109,6 +110,7 @@ def build_retained_stage_cp_result(
     retained_stage_ids: Sequence[StageIdType],
     bottleneck_stage_id: str | None,
     selected_bottleneck_stage_ids: Sequence[StageIdType] | None,
+    bottleneck_band_radius: int | None,
     retained_stage_ratios: Sequence[float] | None,
     quantile_count: int | None,
     job_count: int,
@@ -132,6 +134,7 @@ def build_retained_stage_cp_result(
         selected_bottleneck_stage_ids=tuple(
             str(stage_id) for stage_id in (selected_bottleneck_stage_ids or ())
         ),
+        bottleneck_band_radius=bottleneck_band_radius,
         retained_stage_ratios=tuple(
             float(ratio) for ratio in (retained_stage_ratios or ())
         ),

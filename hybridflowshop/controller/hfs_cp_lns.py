@@ -1590,6 +1590,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         retained_stage_mode: str = "first_bottleneck_last",
         bottleneck_stage_id: str | None = None,
         extra_bottleneck_count: int = 1,
+        bottleneck_band_radius: int = 1,
         quantile_count: int | None = None,
         retained_stage_ratios: Sequence[float] | None = None,
         save_cp_lb_artifacts: bool = True,
@@ -1600,6 +1601,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         Supported retained stage modes:
         - ``first_last``: retain the first and last stages exactly.
         - ``first_bottleneck_last``: retain the first, bottleneck, and last stages.
+        - ``first_bottleneck_band_last``: retain the first, last, and the stages
+          within ``bottleneck_band_radius`` of a representative bottleneck stage.
         - ``first_topk_bottlenecks_last``: retain the first, top-k bottlenecks, and last stages.
         - ``first_middle_last``: retain the first, middle, and last stages.
         - ``first_n_quantiles_last``: retain the first, n-quantile cut stages, and last stages.
@@ -1639,12 +1642,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         logging.info(
             "[CP LB] Starting retained-stage CP-SAT at %.1f with mode=%s bottleneck_stage_id=%s "
-            "extra_bottleneck_count=%d quantile_count=%s retained_stage_ratios=%s "
+            "extra_bottleneck_count=%d bottleneck_band_radius=%d quantile_count=%s retained_stage_ratios=%s "
             "threads=%d time_limit_sec=%s",
             start_t,
             retained_stage_mode,
             bottleneck_stage_id,
             extra_bottleneck_count,
+            bottleneck_band_radius,
             quantile_count,
             list(retained_stage_ratios or ()),
             threads,
@@ -1658,6 +1662,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             retained_stage_mode=retained_stage_mode,
             bottleneck_stage_id=bottleneck_stage_id,
             extra_bottleneck_count=extra_bottleneck_count,
+            bottleneck_band_radius=bottleneck_band_radius,
             quantile_count=quantile_count,
             retained_stage_ratios=retained_stage_ratios,
         )
@@ -1722,6 +1727,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             retained_stage_ids=build.retained_stage_ids,
             bottleneck_stage_id=build.bottleneck_stage_id,
             selected_bottleneck_stage_ids=build.selected_bottleneck_stage_ids,
+            bottleneck_band_radius=build.bottleneck_band_radius,
             retained_stage_ratios=build.retained_stage_ratios,
             quantile_count=build.quantile_count,
             job_count=instance.job_count,
@@ -1810,6 +1816,220 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             "selected_bottleneck_stage_ids": build.selected_bottleneck_stage_ids,
             "retained_stage_ratios": build.retained_stage_ratios,
             "quantile_count": build.quantile_count,
+        }
+
+    def _resolve_anchor_stage_ids_from_last_retained_cp_lb(self) -> list[str]:
+        result = getattr(self, "last_retained_cp_lb_result", None)
+        if result is None:
+            return []
+
+        stage_id_list = list(self.instance.stage_id_list)
+        if not stage_id_list:
+            return []
+
+        if (
+            result.retained_stage_mode == "first_bottleneck_band_last"
+            and result.bottleneck_stage_id is not None
+        ):
+            anchor_idx = stage_id_list.index(result.bottleneck_stage_id)
+            radius = int(result.bottleneck_band_radius or 0)
+            left_idx = max(0, anchor_idx - radius)
+            right_idx = min(len(stage_id_list), anchor_idx + radius + 1)
+            return stage_id_list[left_idx:right_idx]
+
+        first_stage_id = stage_id_list[0]
+        last_stage_id = stage_id_list[-1]
+        internal_retained_stage_ids = [
+            stage_id
+            for stage_id in result.retained_stage_ids
+            if stage_id not in {first_stage_id, last_stage_id}
+        ]
+        if not internal_retained_stage_ids:
+            return []
+
+        stage_2_index = {stage_id: idx for idx, stage_id in enumerate(stage_id_list)}
+        sorted_internal_stage_ids = sorted(
+            internal_retained_stage_ids, key=lambda stage_id: stage_2_index[stage_id]
+        )
+
+        contiguous_blocks: list[list[str]] = []
+        current_block: list[str] = []
+        former_idx: int | None = None
+        for stage_id in sorted_internal_stage_ids:
+            stage_idx = stage_2_index[stage_id]
+            if former_idx is None or stage_idx == former_idx + 1:
+                current_block.append(stage_id)
+            else:
+                contiguous_blocks.append(current_block)
+                current_block = [stage_id]
+            former_idx = stage_idx
+        if current_block:
+            contiguous_blocks.append(current_block)
+
+        if not contiguous_blocks:
+            return []
+        if result.bottleneck_stage_id is not None:
+            for block in contiguous_blocks:
+                if result.bottleneck_stage_id in block:
+                    return block
+        return max(contiguous_blocks, key=lambda block: (len(block), -stage_2_index[block[0]]))
+
+    def _extract_anchor_stage_sequence_from_last_retained_cp_lb(
+        self,
+        anchor_stage_ids: Sequence[str],
+    ) -> tuple[dict[str, list[str]], dict[str, dict[str, int]]]:
+        retained_solution_rows = getattr(
+            self, "last_retained_cp_lb_retained_solution_rows", None
+        )
+        if not retained_solution_rows:
+            raise ValueError("No retained-stage CP solution rows are available.")
+
+        anchor_stage_id_set = set(anchor_stage_ids)
+        stage_2_rows: dict[str, list[dict[str, Any]]] = {
+            stage_id: [] for stage_id in anchor_stage_ids
+        }
+        for row in retained_solution_rows:
+            stage_id = str(row["stage_id"])
+            if stage_id in anchor_stage_id_set:
+                stage_2_rows[stage_id].append(dict(row))
+
+        stage_2_job_sequence: dict[str, list[str]] = {}
+        stage_2_job_2_release: dict[str, dict[str, int]] = {}
+        for stage_id in anchor_stage_ids:
+            rows = stage_2_rows.get(stage_id, [])
+            if not rows:
+                raise ValueError(
+                    f"Missing retained-stage CP rows for anchor stage {stage_id}."
+                )
+            rows.sort(
+                key=lambda row: (
+                    int(row["start"]),
+                    int(row["end"]),
+                    str(row["job_id"]),
+                )
+            )
+            stage_2_job_sequence[stage_id] = [str(row["job_id"]) for row in rows]
+            stage_2_job_2_release[stage_id] = {
+                str(row["job_id"]): int(row["start"]) for row in rows
+            }
+        return stage_2_job_sequence, stage_2_job_2_release
+
+    def dispatch_from_retained_cp_two_way(
+        self,
+        *,
+        mixed_schedule_for_former_stages: bool = True,
+        mixed_schedule_for_later_stages: bool = True,
+        machine_then_job: bool = False,
+        respect_anchor_stage_release_lb: bool = True,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> dict[str, Any] | None:
+        """Dispatch from the last retained-stage CP solution using a two-way anchor band.
+
+        The internal contiguous retained-stage block is used as the fixed middle of a
+        BN2D-style two-way dispatch:
+        - anchor stages: exact per-stage order from the retained CP incumbent
+        - later stages: forward dispatch after the anchor block
+        - former stages: reverse dispatch before the anchor block
+
+        For non-contiguous retained-stage modes, the longest contiguous internal
+        block is used; if the retained set contains a bottleneck stage, the block
+        containing that stage is preferred.
+        """
+        sub_timer = ElapsedTimer()
+        self.last_retained_cp_dispatch_obj = None
+        self.last_retained_cp_dispatch_anchor_stage_ids = None
+        self.last_retained_cp_dispatch_elapsed_sec = None
+        self.last_retained_cp_dispatch_was_incumbent_update = None
+        retained_result = getattr(self, "last_retained_cp_lb_result", None)
+        retained_solution_rows = getattr(
+            self, "last_retained_cp_lb_retained_solution_rows", None
+        )
+        if retained_result is None or not retained_solution_rows:
+            logging.warning(
+                "[CP LB] No retained-stage CP incumbent is available for two-way dispatch."
+            )
+            return None
+
+        anchor_stage_ids = self._resolve_anchor_stage_ids_from_last_retained_cp_lb()
+        if not anchor_stage_ids:
+            logging.warning(
+                "[CP LB] Could not resolve a contiguous anchor block from the last retained-stage CP solution."
+            )
+            return None
+
+        stage_2_job_sequence, stage_2_job_2_release = (
+            self._extract_anchor_stage_sequence_from_last_retained_cp_lb(anchor_stage_ids)
+        )
+        job_tiebreak_rank = {
+            job_id: idx
+            for idx, job_id in enumerate(stage_2_job_sequence[anchor_stage_ids[0]])
+        }
+        option = BN2DOption(
+            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
+            mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
+        )
+        dispatcher = self._create_dispatcher_with_optional_job_tiebreak(
+            BN2DDispatcher,
+            self.instance,
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
+        schedule = dispatcher.get_schedule_by_two_way_stage_band(
+            anchor_stage_ids,
+            stage_2_job_sequence,
+            option,
+            stage_2_job_2_release=(
+                stage_2_job_2_release if respect_anchor_stage_release_lb else None
+            ),
+        )
+        if error_if_infeasible:
+            self.check_feasibility(schedule.get_jik_2_start_time_map())
+
+        incumbent_before = self.solution_manager.best_obj_value
+        best_obj = schedule.makespan
+
+        is_init = self.solution_manager.get_incumbent() is None
+        report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=is_init,
+            subroutine_name="dispatch_from_retained_cp_two_way",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
+        )
+        was_updated = self.solution_manager.register(report, schedule)
+        self.last_retained_cp_dispatch_obj = best_obj
+        self.last_retained_cp_dispatch_anchor_stage_ids = list(anchor_stage_ids)
+        self.last_retained_cp_dispatch_elapsed_sec = sub_timer.elapsed_sec
+        self.last_retained_cp_dispatch_was_incumbent_update = bool(was_updated)
+
+        logging.info(
+            "[CP LB] Two-way dispatch from retained anchor stages %s produced makespan=%s "
+            "(cp_ub=%s, cp_lb=%s, incumbent_before=%s, updated_incumbent=%s)",
+            anchor_stage_ids,
+            best_obj,
+            getattr(retained_result, "objective_ub", None),
+            getattr(retained_result, "certified_final_lb", None),
+            incumbent_before,
+            was_updated,
+        )
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(best_obj), is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+        return {
+            "schedule": schedule,
+            "anchor_stage_ids": anchor_stage_ids,
+            "stage_2_job_sequence": stage_2_job_sequence,
+            "stage_2_job_2_release": stage_2_job_2_release,
         }
 
     def apply_mip_lb(
