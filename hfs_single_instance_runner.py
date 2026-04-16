@@ -54,6 +54,10 @@ class HfsSingleInstanceRunner(
         "retainedCpSolverRuntimeSec",
         "retainedCpApplyElapsedSec",
         "retainedCpBestObj",
+        "retainedCpDispatchObj",
+        "retainedCpDispatchAnchorStages",
+        "retainedCpDispatchElapsedSec",
+        "retainedCpDispatchUpdatedIncumbent",
     )
 
     # Optional member variables for RunMode.RESUME
@@ -403,6 +407,24 @@ class HfsSingleInstanceRunner(
                 getattr(retained_cp_result, "objective_ub", None)
                 if retained_cp_result is not None
                 else None
+            ),
+            "retainedCpDispatchObj": getattr(
+                self.ctrlr, "last_retained_cp_dispatch_obj", None
+            ),
+            "retainedCpDispatchAnchorStages": (
+                " ".join(
+                    str(stage_id)
+                    for stage_id in getattr(
+                        self.ctrlr, "last_retained_cp_dispatch_anchor_stage_ids", ()
+                    )
+                )
+                or None
+            ),
+            "retainedCpDispatchElapsedSec": getattr(
+                self.ctrlr, "last_retained_cp_dispatch_elapsed_sec", None
+            ),
+            "retainedCpDispatchUpdatedIncumbent": getattr(
+                self.ctrlr, "last_retained_cp_dispatch_was_incumbent_update", None
             ),
         }
 
