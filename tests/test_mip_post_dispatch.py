@@ -1,6 +1,8 @@
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
+from hybridflowshop.controller.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 from lb_bucket.mip.post_dispatch import (
     PostMipDispatchDependencies,
@@ -31,6 +33,16 @@ def test_get_post_mip_method_list_filters_out_bn2d_all_stages() -> None:
         "stage_agg_2",
     ]
     assert _get_post_mip_method_list(None) == []
+
+
+def test_mip_lb_entry_points_disable_local_repair_by_default() -> None:
+    apply_signature = inspect.signature(HybridFlowShopCpLnsController.apply_mip_lb)
+    dispatch_signature = inspect.signature(
+        HybridFlowShopCpLnsController.dispatch_from_saved_mip_lb
+    )
+
+    assert apply_signature.parameters["es_ls_local_repair_max_passes"].default == 0
+    assert dispatch_signature.parameters["es_ls_local_repair_max_passes"].default == 0
 
 
 def test_run_post_mip_dispatch_filters_removed_variants_and_checks_feasibility_once() -> (
@@ -116,6 +128,14 @@ def test_run_post_mip_dispatch_filters_removed_variants_and_checks_feasibility_o
     assert all(call[1:] == (True, True) for call in direct_calls)
     assert selected_method_lists == [["best_of_mixed_dispatches"]]
     assert "bn2d_all_stages" not in result.dispatched_schedules
+    assert (
+        "best_of_mixed_dispatches_aggregate_es_slack_rank"
+        not in result.dispatched_schedules
+    )
+    assert (
+        "best_of_mixed_dispatches_aggregate_ls_slack_rank"
+        not in result.dispatched_schedules
+    )
     assert "mixed_aggregate_es_slack_local_repair" not in result.dispatched_schedules
     assert (
         "best_of_mixed_dispatches_stage_adaptive_rank_local_repair"

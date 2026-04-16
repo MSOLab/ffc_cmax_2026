@@ -1832,7 +1832,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         disable_valid_ineq_iii: bool = False,
         disable_valid_ineq_iv: bool = False,
         # Post-MIP dispatch parameters
-        es_ls_local_repair_max_passes: int = 3,
+        es_ls_local_repair_max_passes: int = 0,
         draw_mip_lb_visualizations: bool = True,
     ) -> dict[str, Any] | None:
         """
@@ -1857,8 +1857,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             disable_valid_ineq_ii: Disable valid-inequality family (ii).
             disable_valid_ineq_iii: Disable valid-inequality family (iii).
             disable_valid_ineq_iv: Disable valid-inequality family (iv).
-            es_ls_local_repair_max_passes: Number of local-repair passes applied to
-                the ES/LS priority-score dispatch.
+            es_ls_local_repair_max_passes: Number of post-MIP local-repair passes
+                applied to the currently best dispatch candidate.
             draw_mip_lb_visualizations: If False, skip bucket-MIP/post-dispatch PNG
                 exports while still saving the lightweight YAML/CSV artifacts.
         """
@@ -2140,7 +2140,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         *,
         mip_lb_dir: str | None = None,
-        es_ls_local_repair_max_passes: int = 3,
+        es_ls_local_repair_max_passes: int = 0,
         draw_mip_lb_visualizations: bool = True,
     ) -> dict[str, Any] | None:
         """Reload a saved MIP-LB payload and rerun only the post-MIP dispatch logic."""
