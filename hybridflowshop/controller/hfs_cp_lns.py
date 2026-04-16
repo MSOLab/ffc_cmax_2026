@@ -1832,7 +1832,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         disable_valid_ineq_iii: bool = False,
         disable_valid_ineq_iv: bool = False,
         # Post-MIP dispatch parameters
-        es_ls_local_repair_max_passes: int = 0,
+        es_ls_local_repair_max_passes: int = 3,
         draw_mip_lb_visualizations: bool = True,
     ) -> dict[str, Any] | None:
         """
@@ -2140,7 +2140,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         *,
         mip_lb_dir: str | None = None,
-        es_ls_local_repair_max_passes: int = 0,
+        es_ls_local_repair_max_passes: int = 3,
         draw_mip_lb_visualizations: bool = True,
     ) -> dict[str, Any] | None:
         """Reload a saved MIP-LB payload and rerun only the post-MIP dispatch logic."""

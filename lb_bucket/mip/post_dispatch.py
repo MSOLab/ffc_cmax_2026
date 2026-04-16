@@ -218,15 +218,18 @@ def run_post_mip_dispatch(
         candidate_elapsed_sec_out=dispatch_candidate_elapsed_sec,
     )
 
-    # Keep the post-MIP candidate pool conservative: drop only the slow rank
-    # variants that underperformed in the 240-instance delta=400 study, while
-    # retaining the stronger/faster families.
     stronger_mixed_rank_candidates = {
         "best_of_mixed_dispatches_tail_ls_rank": get_job_tiebreak_rank_from_job_sequence(
             tail_ls_sequence
         ),
         "best_of_mixed_dispatches_bottleneck_slack_rank": get_job_tiebreak_rank_from_job_sequence(
             bottleneck_slack_sequence
+        ),
+        "best_of_mixed_dispatches_aggregate_es_slack_rank": get_job_tiebreak_rank_from_job_sequence(
+            aggregate_es_slack_sequence
+        ),
+        "best_of_mixed_dispatches_aggregate_ls_slack_rank": get_job_tiebreak_rank_from_job_sequence(
+            aggregate_ls_slack_sequence
         ),
     }
     for variant, job_tiebreak_rank in stronger_mixed_rank_candidates.items():
