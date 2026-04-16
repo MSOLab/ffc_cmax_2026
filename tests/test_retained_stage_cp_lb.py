@@ -134,6 +134,12 @@ def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stag
         retained_stage_mode="first_bottleneck_band_last",
         bottleneck_band_radius=1,
     )
+    middle_band = build_retained_stage_cp_model(
+        instance,
+        input_ub=200,
+        retained_stage_mode="first_middle_band_last",
+        middle_band_radius=1,
+    )
     explicit_ratios = build_retained_stage_cp_model(
         instance,
         input_ub=200,
@@ -150,6 +156,9 @@ def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stag
     assert bottleneck_band.retained_stage_ids == ["i0", "i3", "i4", "i5", "i6"]
     assert bottleneck_band.bottleneck_stage_id == "i4"
     assert bottleneck_band.bottleneck_band_radius == 1
+    assert middle_band.retained_stage_ids == ["i0", "i2", "i3", "i4", "i6"]
+    assert middle_band.middle_band_radius == 1
+    assert middle_band.retained_stage_ratios == [0.5]
     assert explicit_ratios.retained_stage_ids == ["i0", "i2", "i4", "i6"]
 
 
@@ -185,6 +194,7 @@ def test_write_retained_stage_cp_artifacts_writes_expected_files(
         bottleneck_stage_id=build.bottleneck_stage_id,
         selected_bottleneck_stage_ids=build.selected_bottleneck_stage_ids,
         bottleneck_band_radius=build.bottleneck_band_radius,
+        middle_band_radius=build.middle_band_radius,
         retained_stage_ratios=build.retained_stage_ratios,
         quantile_count=build.quantile_count,
         job_count=instance.job_count,

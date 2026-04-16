@@ -106,12 +106,32 @@ def _resolve_bottleneck_band_stage_ids(
     return list(params.i_list[left_index : right_index + 1])
 
 
+def _resolve_middle_band_stage_ids(
+    params: Params,
+    radius: int,
+) -> list[str]:
+    if radius < 0:
+        raise ValueError(
+            "middle_band_radius must be non-negative. "
+            f"Received {radius}."
+        )
+    if not params.i_list:
+        raise ValueError("params.i_list cannot be empty")
+
+    center_stage_id = _resolve_ratio_stage_ids(params, [0.5])[0]
+    center_index = params.i_list.index(center_stage_id)
+    left_index = max(0, center_index - radius)
+    right_index = min(len(params.i_list) - 1, center_index + radius)
+    return list(params.i_list[left_index : right_index + 1])
+
+
 def resolve_retained_stage_ids(
     params: Params,
     retained_stage_mode: str,
     bottleneck_stage_id: str | None = None,
     extra_bottleneck_count: int = 1,
     bottleneck_band_radius: int = 1,
+    middle_band_radius: int = 1,
     quantile_count: int | None = None,
     retained_stage_ratios: Sequence[float] | None = None,
 ) -> RetainedStageSelection:
@@ -128,12 +148,14 @@ def resolve_retained_stage_ids(
             bottleneck_stage_id=None,
             selected_bottleneck_stage_ids=[],
             bottleneck_band_radius=None,
+            middle_band_radius=None,
             retained_stage_ratios=[],
             quantile_count=None,
         )
 
     selected_bottleneck_stage_ids: list[str] = []
     resolved_bottleneck_band_radius: int | None = None
+    resolved_middle_band_radius: int | None = None
     resolved_ratios: list[float] = []
 
     if retained_stage_mode == "first_bottleneck_last":
@@ -207,6 +229,14 @@ def resolve_retained_stage_ids(
             *_resolve_ratio_stage_ids(params, resolved_ratios),
             last_stage_id,
         ]
+    elif retained_stage_mode == "first_middle_band_last":
+        resolved_ratios = [0.5]
+        resolved_middle_band_radius = int(middle_band_radius)
+        retained = [
+            first_stage_id,
+            *_resolve_middle_band_stage_ids(params, resolved_middle_band_radius),
+            last_stage_id,
+        ]
     elif retained_stage_mode == "first_n_quantiles_last":
         if quantile_count is None or quantile_count < 2:
             raise ValueError(
@@ -238,7 +268,8 @@ def resolve_retained_stage_ids(
             "retained_stage_mode must be one of "
             "'first_last', 'first_bottleneck_last', "
             "'first_bottleneck_band_last', 'first_topk_bottlenecks_last', "
-            "'first_middle_last', 'first_n_quantiles_last', or "
+            "'first_middle_last', 'first_middle_band_last', "
+            "'first_n_quantiles_last', or "
             "'first_ratio_points_last'. "
             f"Received: {retained_stage_mode!r}"
         )
@@ -263,6 +294,7 @@ def resolve_retained_stage_ids(
         ),
         selected_bottleneck_stage_ids=normalized_bottleneck_stage_ids,
         bottleneck_band_radius=resolved_bottleneck_band_radius,
+        middle_band_radius=resolved_middle_band_radius,
         retained_stage_ratios=resolved_ratios,
         quantile_count=quantile_count,
     )
@@ -316,6 +348,7 @@ def build_retained_stage_cp_model(
     bottleneck_stage_id: str | None = None,
     extra_bottleneck_count: int = 1,
     bottleneck_band_radius: int = 1,
+    middle_band_radius: int = 1,
     quantile_count: int | None = None,
     retained_stage_ratios: Sequence[float] | None = None,
 ) -> RetainedStageCpBuild:
@@ -331,6 +364,7 @@ def build_retained_stage_cp_model(
         bottleneck_stage_id=bottleneck_stage_id,
         extra_bottleneck_count=extra_bottleneck_count,
         bottleneck_band_radius=bottleneck_band_radius,
+        middle_band_radius=middle_band_radius,
         quantile_count=quantile_count,
         retained_stage_ratios=retained_stage_ratios,
     )
@@ -444,6 +478,7 @@ def build_retained_stage_cp_model(
         bottleneck_stage_id=retained_stage_selection.bottleneck_stage_id,
         selected_bottleneck_stage_ids=retained_stage_selection.selected_bottleneck_stage_ids,
         bottleneck_band_radius=retained_stage_selection.bottleneck_band_radius,
+        middle_band_radius=retained_stage_selection.middle_band_radius,
         retained_stage_ratios=retained_stage_selection.retained_stage_ratios,
         quantile_count=retained_stage_selection.quantile_count,
         head_by_job_stage=head_by_job_stage,

@@ -1591,6 +1591,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         bottleneck_stage_id: str | None = None,
         extra_bottleneck_count: int = 1,
         bottleneck_band_radius: int = 1,
+        middle_band_radius: int = 1,
         quantile_count: int | None = None,
         retained_stage_ratios: Sequence[float] | None = None,
         save_cp_lb_artifacts: bool = True,
@@ -1605,6 +1606,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
           within ``bottleneck_band_radius`` of a representative bottleneck stage.
         - ``first_topk_bottlenecks_last``: retain the first, top-k bottlenecks, and last stages.
         - ``first_middle_last``: retain the first, middle, and last stages.
+        - ``first_middle_band_last``: retain the first, last, and the stages
+          within ``middle_band_radius`` of the middle stage.
         - ``first_n_quantiles_last``: retain the first, n-quantile cut stages, and last stages.
         - ``first_ratio_points_last``: retain the first, user-specified ratio stages, and last stages.
         """
@@ -1642,13 +1645,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         logging.info(
             "[CP LB] Starting retained-stage CP-SAT at %.1f with mode=%s bottleneck_stage_id=%s "
-            "extra_bottleneck_count=%d bottleneck_band_radius=%d quantile_count=%s retained_stage_ratios=%s "
+            "extra_bottleneck_count=%d bottleneck_band_radius=%d middle_band_radius=%d quantile_count=%s retained_stage_ratios=%s "
             "threads=%d time_limit_sec=%s",
             start_t,
             retained_stage_mode,
             bottleneck_stage_id,
             extra_bottleneck_count,
             bottleneck_band_radius,
+            middle_band_radius,
             quantile_count,
             list(retained_stage_ratios or ()),
             threads,
@@ -1663,6 +1667,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             bottleneck_stage_id=bottleneck_stage_id,
             extra_bottleneck_count=extra_bottleneck_count,
             bottleneck_band_radius=bottleneck_band_radius,
+            middle_band_radius=middle_band_radius,
             quantile_count=quantile_count,
             retained_stage_ratios=retained_stage_ratios,
         )
@@ -1728,6 +1733,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             bottleneck_stage_id=build.bottleneck_stage_id,
             selected_bottleneck_stage_ids=build.selected_bottleneck_stage_ids,
             bottleneck_band_radius=build.bottleneck_band_radius,
+            middle_band_radius=build.middle_band_radius,
             retained_stage_ratios=build.retained_stage_ratios,
             quantile_count=build.quantile_count,
             job_count=instance.job_count,
