@@ -55,6 +55,7 @@ class HfsSingleInstanceRunner(
         "retainedCpApplyElapsedSec",
         "retainedCpBestObj",
         "retainedCpDispatchObj",
+        "retainedCpSelectedDispatchVariant",
         "retainedCpDispatchAnchorStages",
         "retainedCpDispatchElapsedSec",
         "retainedCpDispatchUpdatedIncumbent",
@@ -410,6 +411,9 @@ class HfsSingleInstanceRunner(
             ),
             "retainedCpDispatchObj": getattr(
                 self.ctrlr, "last_retained_cp_dispatch_obj", None
+            ),
+            "retainedCpSelectedDispatchVariant": getattr(
+                self.ctrlr, "last_retained_cp_selected_dispatch_variant", None
             ),
             "retainedCpDispatchAnchorStages": (
                 " ".join(

@@ -396,3 +396,41 @@ class TestBN2DDispatcher:
 
             for job_id, release_t in stage_2_job_2_release[stage_id].items():
                 assert schedule.get_job_start_time(stage_id, job_id) >= release_t
+
+    def test_get_schedule_by_two_way_stage_band_supports_strict_call_mode(
+        self,
+        five_stage_hfs_instance,
+    ) -> None:
+        dispatcher = BN2DDispatcher(five_stage_hfs_instance)
+        option = BN2DOption(
+            mixed_schedule_for_former_stages=False,
+            mixed_schedule_for_later_stages=False,
+        )
+        jobs = list(five_stage_hfs_instance.job_id_list)
+        anchor_stage_ids = five_stage_hfs_instance.stage_id_list[1:4]
+        stage_2_job_sequence = {
+            anchor_stage_ids[0]: [jobs[2], jobs[0], jobs[3], jobs[1]],
+            anchor_stage_ids[1]: [jobs[1], jobs[3], jobs[0], jobs[2]],
+            anchor_stage_ids[2]: [jobs[3], jobs[1], jobs[2], jobs[0]],
+        }
+
+        schedule = dispatcher.get_schedule_by_two_way_stage_band(
+            anchor_stage_ids,
+            stage_2_job_sequence,
+            option,
+            anchor_dispatch_mode="strict_call",
+        )
+
+        assert schedule is not None
+        for job_id in five_stage_hfs_instance.job_id_list:
+            for stage_id in five_stage_hfs_instance.stage_id_list:
+                assert schedule.get_job_end_time(stage_id, job_id) is not None
+
+        first_anchor_observed = [
+            job_id
+            for _mc_id, _start, _end, job_id in sorted(
+                schedule.iter_operations_on_stage(anchor_stage_ids[0]),
+                key=lambda row: (row[1], row[2], row[3]),
+            )
+        ]
+        assert first_anchor_observed == stage_2_job_sequence[anchor_stage_ids[0]]

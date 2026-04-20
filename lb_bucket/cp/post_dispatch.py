@@ -1,0 +1,974 @@
+from __future__ import annotations
+
+import csv
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Mapping, Sequence
+
+from routix import ElapsedTimer
+from routix.io.yaml import dump_yaml
+from schore.parameters_examples.parallel_shop.identical_flow import (
+    HybridFlowshopParameters,
+)
+
+from hybridflowshop.dispatcher.utils import get_job_tiebreak_rank_from_job_sequence
+from hybridflowshop.painter.gantt import GanttPlotter
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, OperationType
+from lb_bucket.cp.search import RetainedStageCpResult
+
+
+@dataclass(frozen=True)
+class PostRetainedCpDispatchDependencies:
+    check_feasibility: Callable[[dict[OperationType, int]], float]
+    get_selected_dispatch_config: Callable[[], dict[str, Any]]
+    get_best_mixed_schedule_from_job_sequence: Callable[
+        [Sequence[str], bool, bool], HybridFlowshopLiteSchedule | None
+    ]
+    get_schedule_by_best_of_mixed_dispatches: Callable[
+        ..., HybridFlowshopLiteSchedule | None
+    ]
+    get_two_way_schedule_by_stage_band: Callable[
+        ...,
+        HybridFlowshopLiteSchedule | None,
+    ]
+    repair_post_retained_cp_dispatch_candidate: Callable[
+        ...,
+        HybridFlowshopLiteSchedule | None,
+    ]
+
+
+@dataclass(frozen=True)
+class PostRetainedCpDispatchRunResult:
+    dispatched_schedule: HybridFlowshopLiteSchedule | None
+    selected_dispatch_variant: str | None
+    dispatched_schedules: dict[str, HybridFlowshopLiteSchedule | None]
+    dispatch_candidate_elapsed_sec: dict[str, float]
+    dispatch_phase_elapsed_sec: dict[str, float]
+    anchor_blocks: Mapping[str, Sequence[str]]
+    anchor_stage_sequences: Mapping[str, Mapping[str, Sequence[str]]]
+    anchor_stage_releases: Mapping[str, Mapping[str, Mapping[str, int]]]
+    variant_2_anchor_stage_ids: Mapping[str, Sequence[str]]
+    pre_local_repair_selected_dispatch_variant: str | None
+    pre_local_repair_selected_dispatch_makespan: float | None
+
+
+def run_post_retained_cp_dispatch(
+    *,
+    instance: HybridFlowshopParameters,
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    cp_local_repair_max_passes: int,
+    include_release_anchor_candidates: bool,
+    dependencies: PostRetainedCpDispatchDependencies,
+) -> PostRetainedCpDispatchRunResult:
+    total_timer = ElapsedTimer()
+    dispatch_phase_elapsed_sec: dict[str, float] = {}
+    dispatch_candidate_elapsed_sec: dict[str, float] = {}
+    variant_2_anchor_stage_ids: dict[str, list[str]] = {}
+
+    setup_timer = ElapsedTimer()
+    selected_dispatch_config = dependencies.get_selected_dispatch_config()
+    anchor_blocks = _resolve_anchor_blocks(
+        instance.stage_id_list,
+        retained_cp_result,
+    )
+    anchor_stage_sequences: dict[str, dict[str, list[str]]] = {}
+    anchor_stage_releases: dict[str, dict[str, dict[str, int]]] = {}
+    for anchor_key, anchor_stage_ids in anchor_blocks.items():
+        stage_2_job_sequence, stage_2_job_2_release = (
+            _extract_anchor_stage_sequence_from_retained_rows(
+                retained_solution_rows,
+                anchor_stage_ids,
+            )
+        )
+        anchor_stage_sequences[anchor_key] = stage_2_job_sequence
+        anchor_stage_releases[anchor_key] = stage_2_job_2_release
+
+    preferred_anchor_key = "preferred" if "preferred" in anchor_blocks else None
+    preferred_anchor_stage_ids = list(anchor_blocks.get(preferred_anchor_key, []))
+    preferred_anchor_first_stage_id = (
+        preferred_anchor_stage_ids[0] if preferred_anchor_stage_ids else None
+    )
+    preferred_anchor_last_stage_id = (
+        preferred_anchor_stage_ids[-1] if preferred_anchor_stage_ids else None
+    )
+    bottleneck_stage_id = _resolve_retained_bottleneck_stage_id(
+        instance.stage_id_list,
+        retained_cp_result,
+        retained_solution_rows,
+    )
+    direct_sequences = _build_direct_mixed_sequences(
+        instance=instance,
+        retained_cp_result=retained_cp_result,
+        retained_solution_rows=retained_solution_rows,
+        preferred_anchor_first_stage_id=preferred_anchor_first_stage_id,
+        preferred_anchor_last_stage_id=preferred_anchor_last_stage_id,
+        bottleneck_stage_id=bottleneck_stage_id,
+    )
+    dispatch_phase_elapsed_sec["sequence_setup_sec"] = setup_timer.elapsed_sec
+
+    dispatch_candidates: dict[str, HybridFlowshopLiteSchedule | None] = {}
+    candidate_generation_timer = ElapsedTimer()
+
+    if preferred_anchor_key is not None:
+        _evaluate_anchor_band_candidates(
+            dispatch_candidates=dispatch_candidates,
+            dispatch_candidate_elapsed_sec=dispatch_candidate_elapsed_sec,
+            variant_2_anchor_stage_ids=variant_2_anchor_stage_ids,
+            dependencies=dependencies,
+            option_kwargs=selected_dispatch_config,
+            anchor_key=preferred_anchor_key,
+            anchor_stage_ids=preferred_anchor_stage_ids,
+            stage_2_job_sequence=anchor_stage_sequences[preferred_anchor_key],
+            stage_2_job_2_release=anchor_stage_releases[preferred_anchor_key],
+            include_release_candidates=include_release_anchor_candidates,
+        )
+
+    for anchor_key, anchor_stage_ids in anchor_blocks.items():
+        if anchor_key == preferred_anchor_key:
+            continue
+        variant = f"cp_band_{anchor_key}_strict_start_release"
+        variant_timer = ElapsedTimer()
+        try:
+            schedule = dependencies.get_two_way_schedule_by_stage_band(
+                anchor_stage_ids=anchor_stage_ids,
+                stage_2_job_sequence=anchor_stage_sequences[anchor_key],
+                mixed_schedule_for_former_stages=selected_dispatch_config[
+                    "mixed_schedule_for_former_stages"
+                ],
+                mixed_schedule_for_later_stages=selected_dispatch_config[
+                    "mixed_schedule_for_later_stages"
+                ],
+                machine_then_job=selected_dispatch_config["machine_then_job"],
+                stage_2_job_2_release=anchor_stage_releases[anchor_key],
+                anchor_dispatch_mode="strict_start",
+            )
+        except Exception:
+            logging.exception(
+                "[CP LB] %s failed while constructing anchor-band dispatch.",
+                variant,
+            )
+            schedule = None
+        dispatch_candidates[variant] = schedule
+        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
+        variant_2_anchor_stage_ids[variant] = list(anchor_stage_ids)
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            variant,
+            schedule.makespan if schedule is not None else None,
+        )
+
+    for variant, job_sequence in direct_sequences.items():
+        variant_timer = ElapsedTimer()
+        try:
+            schedule = dependencies.get_best_mixed_schedule_from_job_sequence(
+                job_sequence,
+                machine_then_job=selected_dispatch_config["machine_then_job"],
+                head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+            )
+        except Exception:
+            logging.exception(
+                "[CP LB] %s failed while constructing direct mixed dispatch from retained-CP sequence.",
+                variant,
+            )
+            schedule = None
+        dispatch_candidates[variant] = schedule
+        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            variant,
+            schedule.makespan if schedule is not None else None,
+        )
+
+    rank_candidates = {
+        "best_of_mixed_dispatches_cp_first_anchor_rank": (
+            direct_sequences.get("mixed_cp_first_anchor")
+        ),
+        "best_of_mixed_dispatches_cp_last_anchor_rank": (
+            direct_sequences.get("mixed_cp_last_anchor")
+        ),
+        "best_of_mixed_dispatches_cp_bottleneck_rank": (
+            direct_sequences.get("mixed_cp_bottleneck_anchor")
+        ),
+        "best_of_mixed_dispatches_cp_aggregate_start_slack_rank": (
+            direct_sequences.get("mixed_cp_aggregate_start_slack")
+        ),
+    }
+    for variant, job_sequence in rank_candidates.items():
+        if not job_sequence:
+            continue
+        variant_timer = ElapsedTimer()
+        try:
+            schedule = dependencies.get_schedule_by_best_of_mixed_dispatches(
+                machine_then_job=selected_dispatch_config["machine_then_job"],
+                head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+                job_tiebreak_rank=get_job_tiebreak_rank_from_job_sequence(job_sequence),
+            )
+        except Exception:
+            logging.exception(
+                "[CP LB] %s failed while constructing mixed dispatch with retained-CP rank.",
+                variant,
+            )
+            schedule = None
+        dispatch_candidates[variant] = schedule
+        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            variant,
+            schedule.makespan if schedule is not None else None,
+        )
+
+    baseline_timer = ElapsedTimer()
+    baseline_schedule = dependencies.get_schedule_by_best_of_mixed_dispatches(
+        machine_then_job=selected_dispatch_config["machine_then_job"],
+        head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+        job_tiebreak_rank=None,
+    )
+    dispatch_candidates["best_of_mixed_dispatches_cp_baseline"] = baseline_schedule
+    dispatch_candidate_elapsed_sec["best_of_mixed_dispatches_cp_baseline"] = (
+        baseline_timer.elapsed_sec
+    )
+    logging.info(
+        "[CP LB] %s has makespan=%s",
+        "best_of_mixed_dispatches_cp_baseline",
+        baseline_schedule.makespan if baseline_schedule is not None else None,
+    )
+
+    dispatch_phase_elapsed_sec["candidate_generation_sec"] = (
+        candidate_generation_timer.elapsed_sec
+    )
+    logging.info(
+        "[CP LB] Post-retained-CP dispatch candidate summary: %s",
+        {
+            variant: (schedule.makespan if schedule is not None else None)
+            for variant, schedule in dispatch_candidates.items()
+        },
+    )
+
+    pre_local_repair_selected_dispatch_variant: str | None = None
+    pre_local_repair_selected_dispatch_makespan: float | None = None
+    selected_dispatch_variant, dispatched_schedule = _select_best_dispatch_candidate(
+        dispatch_candidates
+    )
+    if dispatched_schedule is not None:
+        pre_local_repair_selected_dispatch_variant = selected_dispatch_variant
+        pre_local_repair_selected_dispatch_makespan = float(
+            dispatched_schedule.makespan
+        )
+        if cp_local_repair_max_passes > 0:
+            local_repair_timer = ElapsedTimer()
+            try:
+                repair_anchor_stage_ids = list(
+                    variant_2_anchor_stage_ids.get(
+                        str(selected_dispatch_variant),
+                        preferred_anchor_stage_ids,
+                    )
+                )
+                repair_release = (
+                    anchor_stage_releases.get(preferred_anchor_key, {})
+                    if preferred_anchor_key is not None
+                    else None
+                )
+                repaired_schedule = dependencies.repair_post_retained_cp_dispatch_candidate(
+                    dispatched_schedule,
+                    target_stage_ids=repair_anchor_stage_ids,
+                    insertion_passes=max(1, cp_local_repair_max_passes),
+                    max_shift=4,
+                    swap_passes=max(1, cp_local_repair_max_passes),
+                    stage_2_job_2_release=repair_release,
+                )
+                dispatch_candidates["selected_post_retained_cp_local_repair"] = (
+                    repaired_schedule
+                )
+                dispatch_candidate_elapsed_sec["selected_post_retained_cp_local_repair"] = (
+                    local_repair_timer.elapsed_sec
+                )
+                if repair_anchor_stage_ids:
+                    variant_2_anchor_stage_ids["selected_post_retained_cp_local_repair"] = (
+                        repair_anchor_stage_ids
+                    )
+                selected_dispatch_variant, dispatched_schedule = (
+                    _select_best_dispatch_candidate(dispatch_candidates)
+                )
+            except Exception:
+                logging.exception(
+                    "[CP LB] selected_post_retained_cp_local_repair failed."
+                )
+                dispatch_candidate_elapsed_sec["selected_post_retained_cp_local_repair"] = (
+                    local_repair_timer.elapsed_sec
+                )
+        dependencies.check_feasibility(dispatched_schedule.get_jik_2_start_time_map())
+        logging.info(
+            "[CP LB] Selected post-retained-CP dispatch variant %s with makespan=%s",
+            selected_dispatch_variant,
+            dispatched_schedule.makespan,
+        )
+    else:
+        logging.info(
+            "[CP LB] No feasible post-retained-CP dispatch candidate was generated."
+        )
+
+    dispatch_phase_elapsed_sec["total_post_retained_cp_dispatch_sec"] = (
+        total_timer.elapsed_sec
+    )
+    return PostRetainedCpDispatchRunResult(
+        dispatched_schedule=dispatched_schedule,
+        selected_dispatch_variant=selected_dispatch_variant,
+        dispatched_schedules=dispatch_candidates,
+        dispatch_candidate_elapsed_sec=dispatch_candidate_elapsed_sec,
+        dispatch_phase_elapsed_sec=dispatch_phase_elapsed_sec,
+        anchor_blocks=anchor_blocks,
+        anchor_stage_sequences=anchor_stage_sequences,
+        anchor_stage_releases=anchor_stage_releases,
+        variant_2_anchor_stage_ids=variant_2_anchor_stage_ids,
+        pre_local_repair_selected_dispatch_variant=pre_local_repair_selected_dispatch_variant,
+        pre_local_repair_selected_dispatch_makespan=pre_local_repair_selected_dispatch_makespan,
+    )
+
+
+def write_post_retained_cp_dispatch_artifacts(
+    *,
+    cp_lb_dir: Path,
+    dispatch_result: PostRetainedCpDispatchRunResult,
+    retained_cp_result: RetainedStageCpResult | None,
+    apply_elapsed_sec: float | None,
+    dispatch_elapsed_sec: float | None,
+    draw_visualizations: bool = True,
+) -> None:
+    dispatch_dir = cp_lb_dir / "dispatch"
+    dispatch_dir.mkdir(parents=True, exist_ok=True)
+
+    dispatch_candidates = {
+        variant: (float(schedule.makespan) if schedule is not None else None)
+        for variant, schedule in dispatch_result.dispatched_schedules.items()
+    }
+    candidate_elapsed_sec = {
+        str(variant): float(elapsed_sec)
+        for variant, elapsed_sec in dispatch_result.dispatch_candidate_elapsed_sec.items()
+    }
+    best_candidate_makespan = min(
+        (makespan for makespan in dispatch_candidates.values() if makespan is not None),
+        default=None,
+    )
+    candidate_rankings = []
+    for variant, makespan in sorted(
+        dispatch_candidates.items(),
+        key=lambda item: (
+            item[1] is None,
+            float("inf") if item[1] is None else item[1],
+            item[0],
+        ),
+    ):
+        candidate_rankings.append(
+            {
+                "variant": variant,
+                "makespan": makespan,
+                "gap_to_best": (
+                    None
+                    if best_candidate_makespan is None or makespan is None
+                    else float(makespan - best_candidate_makespan)
+                ),
+                "elapsed_sec": candidate_elapsed_sec.get(variant),
+                "is_selected": variant == dispatch_result.selected_dispatch_variant,
+                "anchor_stages": " ".join(
+                    str(stage_id)
+                    for stage_id in dispatch_result.variant_2_anchor_stage_ids.get(
+                        variant, ()
+                    )
+                ),
+            }
+        )
+
+    summary_dict: dict[str, Any] = {
+        "selected_variant": dispatch_result.selected_dispatch_variant,
+        "selected_makespan": (
+            float(dispatch_result.dispatched_schedule.makespan)
+            if dispatch_result.dispatched_schedule is not None
+            else None
+        ),
+        "selected_pre_final_local_repair_variant": (
+            dispatch_result.pre_local_repair_selected_dispatch_variant
+        ),
+        "selected_pre_final_local_repair_makespan": (
+            dispatch_result.pre_local_repair_selected_dispatch_makespan
+        ),
+        "dispatch_candidates": dispatch_candidates,
+        "dispatch_candidate_elapsed_sec": candidate_elapsed_sec,
+        "dispatch_candidate_rankings": candidate_rankings,
+        "dispatch_phase_elapsed_sec": dispatch_result.dispatch_phase_elapsed_sec,
+        "anchor_blocks": {
+            key: [str(stage_id) for stage_id in stage_ids]
+            for key, stage_ids in dispatch_result.anchor_blocks.items()
+        },
+        "timing": {
+            "retained_cp_apply_elapsed_sec": apply_elapsed_sec,
+            "post_retained_cp_dispatch_elapsed_sec": dispatch_elapsed_sec,
+            "retained_cp_solver_runtime_sec": (
+                getattr(retained_cp_result, "solver_runtime_sec", None)
+                if retained_cp_result is not None
+                else None
+            ),
+            "retained_cp_time_limit_sec_used": (
+                getattr(retained_cp_result, "time_limit_sec_used", None)
+                if retained_cp_result is not None
+                else None
+            ),
+        },
+    }
+    dump_yaml(summary_dict, dispatch_dir / "dispatch_summary.yaml")
+
+    variant_metadata = _build_dispatch_variant_metadata(
+        candidate_rankings=candidate_rankings,
+        selected_variant=dispatch_result.selected_dispatch_variant,
+        pre_local_repair_selected_variant=(
+            dispatch_result.pre_local_repair_selected_dispatch_variant
+        ),
+    )
+    dump_yaml(variant_metadata, dispatch_dir / "dispatch_variant_manifest.yaml")
+
+    with (dispatch_dir / "dispatch_variant_objectives.csv").open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=(
+                "rank",
+                "artifact_slug",
+                "variant",
+                "short_name",
+                "primary_role",
+                "status_summary",
+                "status_tags_text",
+                "makespan",
+                "gap_to_best",
+                "elapsed_sec",
+                "anchor_stages",
+                "is_selected_final",
+                "is_pre_repair_base",
+                "is_local_repair_variant",
+                "repair_base_variant",
+                "repair_base_short_name",
+            ),
+        )
+        writer.writeheader()
+        for variant, metadata in variant_metadata.items():
+            writer.writerow(
+                {
+                    "rank": metadata["rank"],
+                    "artifact_slug": metadata["artifact_slug"],
+                    "variant": metadata["variant"],
+                    "short_name": metadata["short_name"],
+                    "primary_role": metadata["primary_role"],
+                    "status_summary": metadata["status_summary"],
+                    "status_tags_text": metadata["status_tags_text"],
+                    "makespan": metadata["makespan"],
+                    "gap_to_best": metadata["gap_to_best"],
+                    "elapsed_sec": metadata["elapsed_sec"],
+                    "anchor_stages": " ".join(
+                        str(stage_id)
+                        for stage_id in dispatch_result.variant_2_anchor_stage_ids.get(
+                            variant, ()
+                        )
+                    ),
+                    "is_selected_final": metadata["is_selected_final"],
+                    "is_pre_repair_base": metadata["is_pre_repair_base"],
+                    "is_local_repair_variant": metadata["is_local_repair_variant"],
+                    "repair_base_variant": metadata["repair_base_variant"],
+                    "repair_base_short_name": metadata["repair_base_short_name"],
+                }
+            )
+
+    dump_yaml(
+        {
+            key: [str(stage_id) for stage_id in stage_ids]
+            for key, stage_ids in dispatch_result.anchor_blocks.items()
+        },
+        dispatch_dir / "dispatch_anchor_blocks.yaml",
+    )
+    for anchor_key, stage_2_job_sequence in dispatch_result.anchor_stage_sequences.items():
+        dump_yaml(
+            {
+                str(stage_id): [str(job_id) for job_id in job_ids]
+                for stage_id, job_ids in stage_2_job_sequence.items()
+            },
+            dispatch_dir / f"anchor_{anchor_key}_stage_job_sequence.yaml",
+        )
+    for anchor_key, stage_2_job_release in dispatch_result.anchor_stage_releases.items():
+        dump_yaml(
+            {
+                str(stage_id): {
+                    str(job_id): int(release_t)
+                    for job_id, release_t in job_2_release.items()
+                }
+                for stage_id, job_2_release in stage_2_job_release.items()
+            },
+            dispatch_dir / f"anchor_{anchor_key}_stage_job_release.yaml",
+        )
+
+    gantt_dir: Path | None = None
+    if draw_visualizations:
+        gantt_dir = dispatch_dir / "gantt"
+        gantt_dir.mkdir(parents=True, exist_ok=True)
+
+    for variant, schedule in dispatch_result.dispatched_schedules.items():
+        if schedule is None:
+            continue
+        dump_yaml(
+            {
+                "start_time_map": schedule.get_jik_2_start_time_map(),
+                "end_time_map": schedule.get_jik_2_end_time_map(),
+            },
+            dispatch_dir / f"{variant}_solution.yaml",
+        )
+        if draw_visualizations and gantt_dir is not None:
+            _write_schedule_gantt(gantt_dir / f"{variant}.png", schedule)
+
+
+def _resolve_anchor_blocks(
+    stage_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+) -> dict[str, list[str]]:
+    if not stage_id_list:
+        return {}
+
+    first_stage_id = stage_id_list[0]
+    last_stage_id = stage_id_list[-1]
+    internal_retained_stage_ids = [
+        str(stage_id)
+        for stage_id in retained_cp_result.retained_stage_ids
+        if str(stage_id) not in {first_stage_id, last_stage_id}
+    ]
+    blocks = _get_contiguous_stage_blocks(stage_id_list, internal_retained_stage_ids)
+    if not blocks:
+        return {}
+
+    preferred_block = _select_preferred_anchor_block(
+        blocks,
+        stage_id_list=stage_id_list,
+        bottleneck_stage_id=retained_cp_result.bottleneck_stage_id,
+    )
+
+    named_blocks: list[tuple[str, list[str]]] = [("preferred", preferred_block)]
+    named_blocks.append(("first", blocks[0]))
+    named_blocks.append(("last", blocks[-1]))
+
+    anchor_blocks: dict[str, list[str]] = {}
+    seen_stage_tuples: set[tuple[str, ...]] = set()
+    for anchor_key, stage_ids in named_blocks:
+        stage_tuple = tuple(stage_ids)
+        if stage_tuple in seen_stage_tuples:
+            continue
+        seen_stage_tuples.add(stage_tuple)
+        anchor_blocks[anchor_key] = list(stage_ids)
+    return anchor_blocks
+
+
+def _get_contiguous_stage_blocks(
+    stage_id_list: Sequence[str],
+    retained_stage_ids: Sequence[str],
+) -> list[list[str]]:
+    if not retained_stage_ids:
+        return []
+
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+    sorted_retained_stage_ids = sorted(
+        [str(stage_id) for stage_id in retained_stage_ids],
+        key=lambda stage_id: stage_2_index[stage_id],
+    )
+    blocks: list[list[str]] = []
+    current_block: list[str] = []
+    former_idx: int | None = None
+    for stage_id in sorted_retained_stage_ids:
+        stage_idx = stage_2_index[stage_id]
+        if former_idx is None or stage_idx == former_idx + 1:
+            current_block.append(stage_id)
+        else:
+            blocks.append(current_block)
+            current_block = [stage_id]
+        former_idx = stage_idx
+    if current_block:
+        blocks.append(current_block)
+    return blocks
+
+
+def _select_preferred_anchor_block(
+    blocks: Sequence[Sequence[str]],
+    *,
+    stage_id_list: Sequence[str],
+    bottleneck_stage_id: str | None,
+) -> list[str]:
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+    if bottleneck_stage_id is not None:
+        for block in blocks:
+            if str(bottleneck_stage_id) in block:
+                return list(block)
+    return list(
+        max(
+            blocks,
+            key=lambda block: (len(block), -stage_2_index[str(block[0])]),
+        )
+    )
+
+
+def _extract_anchor_stage_sequence_from_retained_rows(
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    anchor_stage_ids: Sequence[str],
+) -> tuple[dict[str, list[str]], dict[str, dict[str, int]]]:
+    anchor_stage_id_set = set(anchor_stage_ids)
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {
+        str(stage_id): [] for stage_id in anchor_stage_ids
+    }
+    for row in retained_solution_rows:
+        stage_id = str(row["stage_id"])
+        if stage_id in anchor_stage_id_set:
+            stage_2_rows[stage_id].append(row)
+
+    stage_2_job_sequence: dict[str, list[str]] = {}
+    stage_2_job_2_release: dict[str, dict[str, int]] = {}
+    for stage_id in anchor_stage_ids:
+        rows = list(stage_2_rows.get(str(stage_id), []))
+        if not rows:
+            raise ValueError(
+                f"Missing retained-stage CP rows for anchor stage {stage_id}."
+            )
+        rows.sort(
+            key=lambda row: (
+                int(row["start"]),
+                int(row["end"]),
+                str(row["job_id"]),
+            )
+        )
+        stage_2_job_sequence[str(stage_id)] = [str(row["job_id"]) for row in rows]
+        stage_2_job_2_release[str(stage_id)] = {
+            str(row["job_id"]): int(row["start"]) for row in rows
+        }
+    return stage_2_job_sequence, stage_2_job_2_release
+
+
+def _resolve_retained_bottleneck_stage_id(
+    stage_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+) -> str | None:
+    retained_stage_set = {str(row["stage_id"]) for row in retained_solution_rows}
+    if (
+        retained_cp_result.bottleneck_stage_id is not None
+        and str(retained_cp_result.bottleneck_stage_id) in retained_stage_set
+    ):
+        return str(retained_cp_result.bottleneck_stage_id)
+    for stage_id in retained_cp_result.selected_bottleneck_stage_ids:
+        if str(stage_id) in retained_stage_set:
+            return str(stage_id)
+    for stage_id in stage_id_list:
+        if stage_id in retained_stage_set:
+            return str(stage_id)
+    return None
+
+
+def _build_direct_mixed_sequences(
+    *,
+    instance: HybridFlowshopParameters,
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_first_stage_id: str | None,
+    preferred_anchor_last_stage_id: str | None,
+    bottleneck_stage_id: str | None,
+) -> dict[str, list[str]]:
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {}
+    for row in retained_solution_rows:
+        stage_id = str(row["stage_id"])
+        stage_2_rows.setdefault(stage_id, []).append(row)
+
+    def stage_sequence(stage_id: str | None) -> list[str] | None:
+        if stage_id is None:
+            return None
+        rows = list(stage_2_rows.get(str(stage_id), []))
+        if not rows:
+            return None
+        rows.sort(
+            key=lambda row: (
+                int(row["start"]),
+                int(row["end"]),
+                str(row["job_id"]),
+            )
+        )
+        return [str(row["job_id"]) for row in rows]
+
+    aggregate_sequence = _get_job_sequence_from_retained_rows_aggregate(
+        job_id_list=instance.job_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_solution_rows=retained_solution_rows,
+    )
+
+    sequence_map: dict[str, list[str]] = {}
+    maybe_first = stage_sequence(preferred_anchor_first_stage_id)
+    if maybe_first:
+        sequence_map["mixed_cp_first_anchor"] = maybe_first
+    maybe_last = stage_sequence(preferred_anchor_last_stage_id)
+    if maybe_last:
+        sequence_map["mixed_cp_last_anchor"] = maybe_last
+    maybe_bottleneck = stage_sequence(bottleneck_stage_id)
+    if maybe_bottleneck:
+        sequence_map["mixed_cp_bottleneck_anchor"] = maybe_bottleneck
+    sequence_map["mixed_cp_aggregate_start_slack"] = aggregate_sequence
+    return sequence_map
+
+
+def _get_job_sequence_from_retained_rows_aggregate(
+    *,
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    objective_ub = (
+        float(retained_cp_result.objective_ub)
+        if retained_cp_result.objective_ub is not None
+        else None
+    )
+    job_2_metrics: dict[str, dict[str, float]] = {
+        str(job_id): {
+            "sum_start": 0.0,
+            "sum_head": 0.0,
+            "sum_latest_start": 0.0,
+            "sum_slack": 0.0,
+            "total_p": 0.0,
+        }
+        for job_id in job_id_list
+    }
+    for row in retained_solution_rows:
+        job_id = str(row["job_id"])
+        start_t = float(row["start"])
+        processing_time = float(row["processing_time"])
+        head_t = float(row["head"])
+        tail_t = float(row["tail"])
+        latest_start = (
+            max(head_t, objective_ub - tail_t - processing_time)
+            if objective_ub is not None
+            else start_t
+        )
+        slack = latest_start - head_t
+        metrics = job_2_metrics[job_id]
+        metrics["sum_start"] += start_t
+        metrics["sum_head"] += head_t
+        metrics["sum_latest_start"] += latest_start
+        metrics["sum_slack"] += slack
+        metrics["total_p"] += processing_time
+
+    sortable_rows: list[tuple[tuple[float, ...], str]] = []
+    for job_idx, job_id in enumerate(job_id_list):
+        metrics = job_2_metrics[str(job_id)]
+        sortable_rows.append(
+            (
+                (
+                    metrics["sum_start"],
+                    metrics["sum_latest_start"],
+                    metrics["sum_slack"],
+                    -metrics["total_p"],
+                    float(job_idx),
+                ),
+                str(job_id),
+            )
+        )
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
+def _evaluate_anchor_band_candidates(
+    *,
+    dispatch_candidates: dict[str, HybridFlowshopLiteSchedule | None],
+    dispatch_candidate_elapsed_sec: dict[str, float],
+    variant_2_anchor_stage_ids: dict[str, list[str]],
+    dependencies: PostRetainedCpDispatchDependencies,
+    option_kwargs: Mapping[str, Any],
+    anchor_key: str,
+    anchor_stage_ids: Sequence[str],
+    stage_2_job_sequence: Mapping[str, Sequence[str]],
+    stage_2_job_2_release: Mapping[str, Mapping[str, int]],
+    include_release_candidates: bool,
+) -> None:
+    variant_specs: list[tuple[str, str, Mapping[str, Mapping[str, int]] | None]] = [
+        ("strict_start_release", "strict_start", stage_2_job_2_release),
+        ("strict_start_no_release", "strict_start", None),
+        ("strict_call_release", "strict_call", stage_2_job_2_release),
+        ("priority_release", "priority", stage_2_job_2_release),
+    ]
+    if not include_release_candidates:
+        variant_specs = [
+            ("strict_start_no_release", "strict_start", None),
+        ]
+
+    for suffix, anchor_dispatch_mode, release_map in variant_specs:
+        variant = f"cp_band_{anchor_key}_{suffix}"
+        variant_timer = ElapsedTimer()
+        try:
+            schedule = dependencies.get_two_way_schedule_by_stage_band(
+                anchor_stage_ids=anchor_stage_ids,
+                stage_2_job_sequence=stage_2_job_sequence,
+                mixed_schedule_for_former_stages=option_kwargs[
+                    "mixed_schedule_for_former_stages"
+                ],
+                mixed_schedule_for_later_stages=option_kwargs[
+                    "mixed_schedule_for_later_stages"
+                ],
+                machine_then_job=option_kwargs["machine_then_job"],
+                stage_2_job_2_release=release_map,
+                anchor_dispatch_mode=anchor_dispatch_mode,
+            )
+        except Exception:
+            logging.exception(
+                "[CP LB] %s failed while constructing anchor-band dispatch.",
+                variant,
+            )
+            schedule = None
+        dispatch_candidates[variant] = schedule
+        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
+        variant_2_anchor_stage_ids[variant] = list(anchor_stage_ids)
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            variant,
+            schedule.makespan if schedule is not None else None,
+        )
+
+
+def _select_best_dispatch_candidate(
+    dispatch_candidates: Mapping[str, HybridFlowshopLiteSchedule | None],
+) -> tuple[str | None, HybridFlowshopLiteSchedule | None]:
+    best_variant: str | None = None
+    best_schedule: HybridFlowshopLiteSchedule | None = None
+    for variant, schedule in dispatch_candidates.items():
+        if schedule is None:
+            continue
+        if best_schedule is None or schedule.makespan < best_schedule.makespan:
+            best_variant = variant
+            best_schedule = schedule
+    return best_variant, best_schedule
+
+
+def _write_schedule_gantt(
+    output_path: Path,
+    schedule: HybridFlowshopLiteSchedule,
+) -> None:
+    plotter = GanttPlotter()
+    plotter.export_hybrid_flowshop_plot(
+        output_path,
+        schedule.get_jik_2_start_time_map(),
+        schedule.get_jik_2_end_time_map(),
+        job_list=list(schedule.jobs),
+        stage_list=list(schedule.stages),
+        machine_list_per_stage={
+            stage_id: list(schedule.machines_per_stage[stage_id])
+            for stage_id in schedule.stages
+        },
+        all_job_list=list(schedule.jobs),
+    )
+
+
+def _build_dispatch_variant_metadata(
+    *,
+    candidate_rankings: Sequence[Mapping[str, Any]],
+    selected_variant: str | None,
+    pre_local_repair_selected_variant: str | None,
+) -> dict[str, dict[str, Any]]:
+    metadata_by_variant: dict[str, dict[str, Any]] = {}
+    for rank, ranking in enumerate(candidate_rankings, start=1):
+        variant = str(ranking["variant"])
+        makespan = ranking["makespan"]
+        gap_to_best = ranking.get("gap_to_best")
+        is_selected = variant == selected_variant
+        is_pre_repair_base = variant == pre_local_repair_selected_variant
+        is_local_repair = variant == "selected_post_retained_cp_local_repair"
+        ties_best = float(gap_to_best or 0.0) == 0.0
+
+        tags: list[str] = []
+        if is_selected:
+            tags.append("FINAL_SELECTED")
+        if is_pre_repair_base:
+            tags.append("PRE_REPAIR_BASE")
+        if is_local_repair:
+            tags.append("LOCAL_REPAIR")
+        if ties_best:
+            tags.append("TIES_BEST")
+        if not tags:
+            tags.append("CANDIDATE")
+
+        if is_selected:
+            primary_role = "selected"
+        elif is_local_repair:
+            primary_role = "repair"
+        elif is_pre_repair_base:
+            primary_role = "base"
+        else:
+            primary_role = "cand"
+
+        short_name = _get_dispatch_variant_short_name(variant)
+        status_slug_parts: list[str] = []
+        if is_selected:
+            status_slug_parts.append("SELECTED")
+        if is_pre_repair_base:
+            status_slug_parts.append("BASE")
+        if is_local_repair:
+            status_slug_parts.append("REPAIR")
+        if ties_best:
+            status_slug_parts.append("BEST")
+        if not status_slug_parts:
+            status_slug_parts.append("CAND")
+        status_slug = "+".join(status_slug_parts)
+        obj_token = f"obj{int(float(makespan))}" if makespan is not None else "objNA"
+        gap_token = (
+            f"gap{int(float(gap_to_best))}" if gap_to_best is not None else "gapNA"
+        )
+        artifact_slug = (
+            f"{rank:02d}_{status_slug}__{short_name}__{obj_token}_{gap_token}"
+        )
+        metadata_by_variant[variant] = {
+            "rank": rank,
+            "variant": variant,
+            "artifact_slug": artifact_slug,
+            "short_name": short_name,
+            "primary_role": primary_role,
+            "status_tags": list(tags),
+            "status_tags_text": " | ".join(tags),
+            "status_summary": " | ".join(tags),
+            "is_selected_final": is_selected,
+            "is_pre_repair_base": is_pre_repair_base,
+            "is_local_repair_variant": is_local_repair,
+            "repair_base_variant": (
+                pre_local_repair_selected_variant if is_local_repair else None
+            ),
+            "repair_base_short_name": (
+                _get_dispatch_variant_short_name(pre_local_repair_selected_variant)
+                if is_local_repair and pre_local_repair_selected_variant is not None
+                else None
+            ),
+            "makespan": makespan,
+            "gap_to_best": gap_to_best,
+            "elapsed_sec": ranking.get("elapsed_sec"),
+        }
+    return metadata_by_variant
+
+
+def _get_dispatch_variant_short_name(variant: str | None) -> str | None:
+    if variant is None:
+        return None
+    alias_map = {
+        "cp_band_preferred_strict_start_release": "band_pref_start_rel",
+        "cp_band_preferred_strict_start_no_release": "band_pref_start_free",
+        "cp_band_preferred_strict_call_release": "band_pref_call_rel",
+        "cp_band_preferred_priority_release": "band_pref_prio_rel",
+        "cp_band_first_strict_start_release": "band_first_start_rel",
+        "cp_band_last_strict_start_release": "band_last_start_rel",
+        "mixed_cp_first_anchor": "mixed_cp_first",
+        "mixed_cp_last_anchor": "mixed_cp_last",
+        "mixed_cp_bottleneck_anchor": "mixed_cp_bneck",
+        "mixed_cp_aggregate_start_slack": "mixed_cp_agg",
+        "best_of_mixed_dispatches_cp_first_anchor_rank": "best_mixed_cp_first",
+        "best_of_mixed_dispatches_cp_last_anchor_rank": "best_mixed_cp_last",
+        "best_of_mixed_dispatches_cp_bottleneck_rank": "best_mixed_cp_bneck",
+        "best_of_mixed_dispatches_cp_aggregate_start_slack_rank": "best_mixed_cp_agg",
+        "best_of_mixed_dispatches_cp_baseline": "best_mixed_base",
+        "selected_post_retained_cp_local_repair": "local_repair",
+    }
+    return alias_map.get(variant, variant)

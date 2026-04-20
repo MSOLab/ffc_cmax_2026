@@ -403,6 +403,7 @@ def improve_schedule_by_critical_stage_sequence_insertions(
     target_stage_ids: Sequence[StageIdType] | None = None,
     max_passes: int = 2,
     max_shift: int = 3,
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
 ) -> HybridFlowshopLiteSchedule:
     """Improve a schedule by reinserting critical jobs in stage sequences.
 
@@ -456,6 +457,7 @@ def improve_schedule_by_critical_stage_sequence_insertions(
                         schedule_factory,
                         trial_stage_sequences,
                         stage_2_job_2_duration,
+                        stage_2_job_2_release=stage_2_job_2_release,
                     )
                     candidate.make_semi_active(stage_2_job_2_duration)
                     if candidate.makespan < best_neighbor_makespan:

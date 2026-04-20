@@ -14,6 +14,11 @@ from lb_bucket.cp import (
     sanitize_optional_float,
     write_retained_stage_cp_artifacts,
 )
+from lb_bucket.cp.post_dispatch import (
+    PostRetainedCpDispatchDependencies,
+    run_post_retained_cp_dispatch,
+    write_post_retained_cp_dispatch_artifacts,
+)
 from lb_bucket.mip.dispatch_windows import build_dispatch_window_lookup
 from lb_bucket.mip.post_dispatch import (
     PostMipDispatchDependencies,
@@ -1920,6 +1925,40 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             }
         return stage_2_job_sequence, stage_2_job_2_release
 
+    def _get_schedule_by_retained_cp_two_way_stage_band(
+        self,
+        *,
+        anchor_stage_ids: Sequence[str],
+        stage_2_job_sequence: Mapping[str, Sequence[str]],
+        mixed_schedule_for_former_stages: bool,
+        mixed_schedule_for_later_stages: bool,
+        machine_then_job: bool,
+        stage_2_job_2_release: Mapping[str, Mapping[str, int]] | None,
+        anchor_dispatch_mode: str,
+    ) -> HybridFlowshopLiteSchedule:
+        first_anchor_stage_id = str(anchor_stage_ids[0])
+        first_anchor_sequence = list(stage_2_job_sequence[first_anchor_stage_id])
+        job_tiebreak_rank = {
+            str(job_id): idx for idx, job_id in enumerate(first_anchor_sequence)
+        }
+        option = BN2DOption(
+            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
+            mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
+        )
+        dispatcher = self._create_dispatcher_with_optional_job_tiebreak(
+            BN2DDispatcher,
+            self.instance,
+            job_tiebreak_rank=job_tiebreak_rank,
+        )
+        return dispatcher.get_schedule_by_two_way_stage_band(
+            anchor_stage_ids,
+            stage_2_job_sequence,
+            option,
+            stage_2_job_2_release=stage_2_job_2_release,
+            anchor_dispatch_mode=anchor_dispatch_mode,
+        )
+
     def dispatch_from_retained_cp_two_way(
         self,
         *,
@@ -1927,23 +1966,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         mixed_schedule_for_later_stages: bool = True,
         machine_then_job: bool = False,
         respect_anchor_stage_release_lb: bool = True,
+        cp_local_repair_max_passes: int = 3,
+        save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> dict[str, Any] | None:
-        """Dispatch from the last retained-stage CP solution using a two-way anchor band.
-
-        The internal contiguous retained-stage block is used as the fixed middle of a
-        BN2D-style two-way dispatch:
-        - anchor stages: exact per-stage order from the retained CP incumbent
-        - later stages: forward dispatch after the anchor block
-        - former stages: reverse dispatch before the anchor block
-
-        For non-contiguous retained-stage modes, the longest contiguous internal
-        block is used; if the retained set contains a bottleneck stage, the block
-        containing that stage is preferred.
-        """
+        """Dispatch from the last retained-stage CP solution with multiple CP-guided candidates."""
         sub_timer = ElapsedTimer()
         self.last_retained_cp_dispatch_obj = None
+        self.last_retained_cp_selected_dispatch_variant = None
         self.last_retained_cp_dispatch_anchor_stage_ids = None
         self.last_retained_cp_dispatch_elapsed_sec = None
         self.last_retained_cp_dispatch_was_incumbent_update = None
@@ -1957,38 +1988,27 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
             return None
 
-        anchor_stage_ids = self._resolve_anchor_stage_ids_from_last_retained_cp_lb()
-        if not anchor_stage_ids:
-            logging.warning(
-                "[CP LB] Could not resolve a contiguous anchor block from the last retained-stage CP solution."
-            )
-            return None
-
-        stage_2_job_sequence, stage_2_job_2_release = (
-            self._extract_anchor_stage_sequence_from_last_retained_cp_lb(anchor_stage_ids)
-        )
-        job_tiebreak_rank = {
-            job_id: idx
-            for idx, job_id in enumerate(stage_2_job_sequence[anchor_stage_ids[0]])
-        }
-        option = BN2DOption(
-            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
-            mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
-            machine_then_job=machine_then_job,
-        )
-        dispatcher = self._create_dispatcher_with_optional_job_tiebreak(
-            BN2DDispatcher,
-            self.instance,
-            job_tiebreak_rank=job_tiebreak_rank,
-        )
-        schedule = dispatcher.get_schedule_by_two_way_stage_band(
-            anchor_stage_ids,
-            stage_2_job_sequence,
-            option,
-            stage_2_job_2_release=(
-                stage_2_job_2_release if respect_anchor_stage_release_lb else None
+        dispatch_result = run_post_retained_cp_dispatch(
+            instance=self.instance,
+            retained_cp_result=retained_result,
+            retained_solution_rows=retained_solution_rows,
+            cp_local_repair_max_passes=cp_local_repair_max_passes,
+            include_release_anchor_candidates=respect_anchor_stage_release_lb,
+            dependencies=PostRetainedCpDispatchDependencies(
+                check_feasibility=self.check_feasibility,
+                get_selected_dispatch_config=self._get_selected_dispatch_config_for_post_mip,
+                get_best_mixed_schedule_from_job_sequence=self._get_best_mixed_schedule_from_job_sequence,
+                get_schedule_by_best_of_mixed_dispatches=self._get_schedule_by_best_of_mixed_dispatches,
+                get_two_way_schedule_by_stage_band=self._get_schedule_by_retained_cp_two_way_stage_band,
+                repair_post_retained_cp_dispatch_candidate=self._repair_post_mip_dispatch_candidate,
             ),
         )
+        schedule = dispatch_result.dispatched_schedule
+        if schedule is None:
+            logging.warning(
+                "[CP LB] No feasible post-retained-CP dispatch schedule was generated."
+            )
+            return None
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
@@ -2006,14 +2026,23 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         was_updated = self.solution_manager.register(report, schedule)
         self.last_retained_cp_dispatch_obj = best_obj
-        self.last_retained_cp_dispatch_anchor_stage_ids = list(anchor_stage_ids)
+        self.last_retained_cp_selected_dispatch_variant = (
+            dispatch_result.selected_dispatch_variant
+        )
+        self.last_retained_cp_dispatch_anchor_stage_ids = list(
+            dispatch_result.variant_2_anchor_stage_ids.get(
+                str(dispatch_result.selected_dispatch_variant),
+                (),
+            )
+        )
         self.last_retained_cp_dispatch_elapsed_sec = sub_timer.elapsed_sec
         self.last_retained_cp_dispatch_was_incumbent_update = bool(was_updated)
 
         logging.info(
-            "[CP LB] Two-way dispatch from retained anchor stages %s produced makespan=%s "
+            "[CP LB] Post-retained-CP dispatch selected %s on anchor stages %s with makespan=%s "
             "(cp_ub=%s, cp_lb=%s, incumbent_before=%s, updated_incumbent=%s)",
-            anchor_stage_ids,
+            dispatch_result.selected_dispatch_variant,
+            self.last_retained_cp_dispatch_anchor_stage_ids,
             best_obj,
             getattr(retained_result, "objective_ub", None),
             getattr(retained_result, "certified_final_lb", None),
@@ -2028,14 +2057,33 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             _last_timestamp_note, obj_value_is_valid=True
         )
 
+        if save_cp_dispatch_artifacts:
+            write_post_retained_cp_dispatch_artifacts(
+                cp_lb_dir=self._working_dir_path / "cp_lb",
+                dispatch_result=dispatch_result,
+                retained_cp_result=retained_result,
+                apply_elapsed_sec=getattr(
+                    self, "last_retained_cp_lb_apply_elapsed_sec", None
+                ),
+                dispatch_elapsed_sec=sub_timer.elapsed_sec,
+                draw_visualizations=draw_gantt,
+            )
+
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
         return {
             "schedule": schedule,
-            "anchor_stage_ids": anchor_stage_ids,
-            "stage_2_job_sequence": stage_2_job_sequence,
-            "stage_2_job_2_release": stage_2_job_2_release,
+            "selected_dispatch_variant": dispatch_result.selected_dispatch_variant,
+            "anchor_stage_ids": list(self.last_retained_cp_dispatch_anchor_stage_ids),
+            "dispatch_candidates": {
+                variant: (
+                    candidate_schedule.makespan
+                    if candidate_schedule is not None
+                    else None
+                )
+                for variant, candidate_schedule in dispatch_result.dispatched_schedules.items()
+            },
         }
 
     def apply_mip_lb(
@@ -2573,6 +2621,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         insertion_passes: int = 3,
         max_shift: int = 4,
         swap_passes: int = 3,
+        stage_2_job_2_release: Mapping[str, Mapping[str, int]] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
         if schedule is None:
             return None
@@ -2587,6 +2636,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 target_stage_ids=target_stage_ids,
                 max_passes=max(1, insertion_passes),
                 max_shift=max(1, max_shift),
+                stage_2_job_2_release=stage_2_job_2_release,
             )
             candidate_pool.append(inserted)
         except Exception:
@@ -2600,6 +2650,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 schedule,
                 self.stage_2_job_2_p_dict,
                 max_passes=max(1, swap_passes),
+                stage_2_job_2_release=stage_2_job_2_release,
             )
             candidate_pool.append(swapped)
         except Exception:
@@ -2613,6 +2664,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     inserted,
                     self.stage_2_job_2_p_dict,
                     max_passes=max(1, swap_passes),
+                    stage_2_job_2_release=stage_2_job_2_release,
                 )
                 candidate_pool.append(inserted_swapped)
             except Exception:

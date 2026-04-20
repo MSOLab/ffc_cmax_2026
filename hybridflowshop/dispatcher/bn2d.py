@@ -450,6 +450,7 @@ class BN2DDispatcher(BaseDispatcher):
         stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
         option: BN2DOption,
         stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+        anchor_dispatch_mode: str = "strict_start",
     ) -> HybridFlowshopLiteSchedule:
         """Dispatch around a fixed contiguous anchor band using BN2D-style two-way logic.
 
@@ -488,15 +489,16 @@ class BN2DDispatcher(BaseDispatcher):
         for stage_id in anchor_stage_ids:
             if stage_id not in stage_2_job_sequence:
                 raise ValueError(f"Missing anchor job sequence for stage {stage_id}.")
-            anchor_schedule.dispatch_stage_by_jobs_strict_start_order(
+            self._dispatch_anchor_stage(
+                anchor_schedule,
                 stage_id,
                 stage_2_job_sequence[stage_id],
-                self.stage_2_job_2_p[stage_id],
                 job_2_release=(
                     stage_2_job_2_release.get(stage_id)
                     if stage_2_job_2_release is not None
                     else None
                 ),
+                anchor_dispatch_mode=anchor_dispatch_mode,
             )
 
         job_2_first_anchor_start_time = self._get_job_2_start_time_map(
@@ -586,6 +588,57 @@ class BN2DDispatcher(BaseDispatcher):
                 )
 
         return schedule
+
+    def _dispatch_anchor_stage(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        stage_id: StageIdType,
+        job_sequence: Sequence[JobIdType],
+        *,
+        job_2_release: Mapping[JobIdType, int] | None,
+        anchor_dispatch_mode: str,
+    ) -> None:
+        if anchor_dispatch_mode == "strict_start":
+            schedule.dispatch_stage_by_jobs_strict_start_order(
+                stage_id,
+                job_sequence,
+                self.stage_2_job_2_p[stage_id],
+                job_2_release=job_2_release,
+            )
+            return
+        if anchor_dispatch_mode == "strict_call":
+            schedule.dispatch_stage_by_jobs_strict_sequence(
+                stage_id,
+                job_sequence,
+                self.stage_2_job_2_p[stage_id],
+                job_2_release=job_2_release,
+            )
+            return
+        if anchor_dispatch_mode == "priority":
+            priority_queue = schedule.get_job_priority_queue_for_stage_dispatch(
+                stage_id,
+                job_sequence,
+                job_2_release=job_2_release,
+            )
+            for job_id in priority_queue:
+                duration = self.stage_2_job_2_p[stage_id][job_id]
+                release_t = (
+                    job_2_release[job_id]
+                    if job_2_release is not None and job_id in job_2_release
+                    else None
+                )
+                schedule.add_operation_2_stage(
+                    stage_id,
+                    job_id,
+                    duration,
+                    release_t=release_t,
+                )
+            return
+        raise ValueError(
+            "anchor_dispatch_mode must be one of "
+            "'strict_start', 'strict_call', or 'priority'. "
+            f"Received {anchor_dispatch_mode!r}."
+        )
 
     # Public methods
 
