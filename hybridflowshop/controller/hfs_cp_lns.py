@@ -1959,7 +1959,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             anchor_dispatch_mode=anchor_dispatch_mode,
         )
 
-    def dispatch_from_retained_cp_two_way(
+    def dispatch_from_retained_cp(
         self,
         *,
         mixed_schedule_for_former_stages: bool = True,
@@ -1971,7 +1971,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> dict[str, Any] | None:
-        """Dispatch from the last retained-stage CP solution with multiple CP-guided candidates."""
+        """Dispatch from the last retained-stage CP solution with CP-guided candidate evaluation."""
         sub_timer = ElapsedTimer()
         self.last_retained_cp_dispatch_obj = None
         self.last_retained_cp_selected_dispatch_variant = None
@@ -2021,7 +2021,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_value=best_obj,
             obj_bound=None,
             is_init=is_init,
-            subroutine_name="dispatch_from_retained_cp_two_way",
+            subroutine_name="dispatch_from_retained_cp",
             progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
         )
         was_updated = self.solution_manager.register(report, schedule)
@@ -2085,6 +2085,30 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 for variant, candidate_schedule in dispatch_result.dispatched_schedules.items()
             },
         }
+
+    def dispatch_from_retained_cp_two_way(
+        self,
+        *,
+        mixed_schedule_for_former_stages: bool = True,
+        mixed_schedule_for_later_stages: bool = True,
+        machine_then_job: bool = False,
+        respect_anchor_stage_release_lb: bool = True,
+        cp_local_repair_max_passes: int = 3,
+        save_cp_dispatch_artifacts: bool = True,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> dict[str, Any] | None:
+        """Backward-compatible alias for dispatch_from_retained_cp()."""
+        return self.dispatch_from_retained_cp(
+            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
+            mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
+            respect_anchor_stage_release_lb=respect_anchor_stage_release_lb,
+            cp_local_repair_max_passes=cp_local_repair_max_passes,
+            save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
 
     def apply_mip_lb(
         self,

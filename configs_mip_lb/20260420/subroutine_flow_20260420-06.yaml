@@ -24,7 +24,7 @@
   threads: 16
   tl_nc_multiplier: 0.01
   save_cp_lb_artifacts: true
-- method: dispatch_from_retained_cp_two_way
+- method: dispatch_from_retained_cp
   mixed_schedule_for_former_stages: true
   mixed_schedule_for_later_stages: true
   machine_then_job: false
