@@ -235,6 +235,33 @@ def test_apply_retained_cp_bottleneck_band_stage_operator_frees_band_ops(monkeyp
     }
 
 
+def test_retained_cp_bottleneck_band_stage_ns_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
+
+    captured = {}
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+
+    ctrl.retained_cp_bottleneck_band_stage_ns(
+        solver_thread_cnt=8,
+        computational_time=999,
+        tl_nc_multiplier=0.5,
+    )
+
+    assert captured["computational_time"] == 20.0
+    assert captured["solver_thread_cnt"] == 8
+
+
 def test_select_critical_jobs_caps_at_total_candidate_jobs(monkeypatch):
     ctrl = _make_controller()
     schedule = FakeCriticalSchedule(
@@ -332,6 +359,34 @@ def test_apply_critical_tail_job_operator_frees_all_ops_of_selected_jobs(monkeyp
         ("J2", "S3", "M1"),
         ("J2", "S4", "M1"),
     }
+
+
+def test_critical_tail_job_ns_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=12, stage_count=5)
+
+    captured = {}
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+
+    ctrl.critical_tail_job_ns(
+        job_count=3,
+        solver_thread_cnt=6,
+        computational_time=999,
+        tl_nc_multiplier=0.25,
+    )
+
+    assert captured["computational_time"] == 15.0
+    assert captured["solver_thread_cnt"] == 6
 
 
 def test_select_critical_jobs_logs_warning_and_falls_back_when_no_critical_blocks(

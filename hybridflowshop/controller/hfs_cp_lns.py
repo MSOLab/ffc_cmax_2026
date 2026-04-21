@@ -218,7 +218,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def _fix_profile_solve_reset(
         self,
         profile_fixing_method: Callable,
-        computational_time: float,
+        computational_time: float | None,
         solver_thread_cnt: int,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
@@ -237,7 +237,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         Args:
             profile_fixing_method (Callable): A callable that applies the profile fixing method to the CP model.
-            computational_time (float): The maximum computational time in seconds.
+            computational_time (float | None): The maximum computational time in seconds.
+                If None, uses the remaining time limit.
             solver_thread_cnt (int): The number of parallel workers (i.e. threads) to use during search.
             no_improvement_timelimit (float | None, optional): If there is no improvement in this
                 amount of time, the search will be stopped. If None, no timeout is set.
@@ -437,6 +438,22 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             _last_timestamp_note,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
+        )
+
+    def _resolve_tl_nc_computational_time(
+        self,
+        *,
+        computational_time: float | None,
+        tl_nc_multiplier: float | None,
+    ) -> float | None:
+        if tl_nc_multiplier is None:
+            return computational_time
+        if tl_nc_multiplier <= 0:
+            raise ValueError("tl_nc_multiplier must be > 0")
+        return (
+            float(tl_nc_multiplier)
+            * float(self.instance.job_count)
+            * float(self.instance.stage_count)
         )
 
     def _fix_operations_profile(
@@ -838,8 +855,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     def retained_cp_bottleneck_band_stage_ns(
         self,
-        computational_time: float,
         solver_thread_cnt: int,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
         radius: int = 2,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
@@ -850,13 +868,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
+        resolved_computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
         self._fix_profile_solve_reset(
             lambda: self.apply_retained_cp_bottleneck_band_stage_operator(
                 radius=radius,
                 profile_fix_by_machine=profile_fix_by_machine,
                 machine_precedence_stride=machine_precedence_stride,
             ),
-            computational_time,
+            resolved_computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
@@ -1482,8 +1504,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def critical_tail_job_ns(
         self,
         job_count: int,
-        computational_time: float,
         solver_thread_cnt: int,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
         tail_stage_count: int | None = None,
         tail_stage_ratio: float | None = None,
         no_improvement_timelimit: float | None = None,
@@ -1496,6 +1519,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
+        resolved_computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
         self._fix_profile_solve_reset(
             lambda: self.apply_critical_tail_job_operator(
                 job_count=job_count,
@@ -1505,7 +1532,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 profile_fix_by_machine=profile_fix_by_machine,
                 machine_precedence_stride=machine_precedence_stride,
             ),
-            computational_time,
+            resolved_computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,

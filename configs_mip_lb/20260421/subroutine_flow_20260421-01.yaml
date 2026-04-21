@@ -38,14 +38,14 @@
   error_if_infeasible: false
   draw_gantt: false
 - method: retained_cp_bottleneck_band_stage_ns
-  computational_time: 30
   solver_thread_cnt: 16
+  tl_nc_multiplier: 0.05
   radius: 2
   use_lns_only: false
   draw_gantt: false
 - method: critical_tail_job_ns
-  computational_time: 30
   solver_thread_cnt: 16
+  tl_nc_multiplier: 0.05
   job_count: 16
   tail_stage_ratio: 0.3
   job_selection_policy: "critical_adjacency"

@@ -127,7 +127,7 @@ dicts_of_i_o_data_path:
   - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_2nc.yaml"
     subroutine_flow_rel_path: "configs_mip_lb/20260421/subroutine_flow_20260421-01.yaml"
     output_dir: "ff2020/20260421-01-bneck-band-r2-t005-plus-combo"
-    description: "SHDLB->Dispatch init->Retained-CP-LB(first_bottleneck_band_last,r=2,tl=0.05nc)->Post-retained-CP dispatch->Bottleneck-band-stage-NS->Critical-tail-job-NS->NEH-CP(LNS)->PW-CP(5%,2~7)->PW-CP(10%,2~7)->Base-CP(LNS) | Total TL=2nc, 16core x 6 workers"
+    description: "SHDLB->Dispatch init->Retained-CP-LB(first_bottleneck_band_last,r=2,tl=0.05nc)->Post-retained-CP dispatch->Bottleneck-band-stage-NS(tl=0.05nc)->Critical-tail-job-NS(tl=0.05nc)->NEH-CP(LNS)->PW-CP(5%,2~7)->PW-CP(10%,2~7)->Base-CP(LNS) | Total TL=2nc, 16core x 6 workers"
 
 
 # Output and Logging configuration
