@@ -139,6 +139,8 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         del machine_then_job
         del stage_2_job_sequence
         base = 100 if anchor_stage_ids == ["s4"] else 95
+        if len(anchor_stage_ids) > 2:
+            base += 8
         if anchor_dispatch_mode == "strict_call":
             base -= 7
         elif anchor_dispatch_mode == "priority":
@@ -158,6 +160,9 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         retained_solution_rows=retained_solution_rows,
         cp_local_repair_max_passes=1,
         include_release_anchor_candidates=True,
+        include_consensus_rank=True,
+        include_tail_bottleneck_rank=True,
+        include_dynamic_priority=False,
         dependencies=PostRetainedCpDispatchDependencies(
             check_feasibility=lambda start_map: feasibility_calls.append(start_map),
             get_selected_dispatch_config=lambda: {
@@ -180,6 +185,14 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
     assert "cp_band_preferred_priority_release" in result.dispatched_schedules
     assert "cp_band_first_strict_start_release" in result.dispatched_schedules
     assert "mixed_cp_aggregate_start_slack" in result.dispatched_schedules
+    assert "mixed_cp_consensus" in result.dispatched_schedules
+    assert "mixed_cp_tail_bottleneck" in result.dispatched_schedules
+    assert "best_of_mixed_dispatches_cp_consensus_rank" in result.dispatched_schedules
+    assert (
+        "best_of_mixed_dispatches_cp_tail_bottleneck_rank"
+        in result.dispatched_schedules
+    )
+    assert "cp_dynamic_priority_soft_release" not in result.dispatched_schedules
     assert (
         "best_of_mixed_dispatches_cp_aggregate_start_slack_rank"
         in result.dispatched_schedules

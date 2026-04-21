@@ -1,8 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from hybridflowshop.controller.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
@@ -67,6 +65,24 @@ def _build_actual_schedule():
         "S2": {"J1": 1, "J2": 1, "J3": 1},
     }
     return sched, duration
+
+
+def _build_stage_band_schedule():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["J1", "J2"],
+        stages=["S0", "S1", "S2", "S3", "S4"],
+        machines_per_stage={
+            "S0": ["M1"],
+            "S1": ["M1"],
+            "S2": ["M1"],
+            "S3": ["M1"],
+            "S4": ["M1"],
+        },
+    )
+    for stage_idx, stage_id in enumerate(sched.stages):
+        sched.add_ops_times_2_mc(stage_id, "M1", "J1", start_time=stage_idx * 2, end_time=stage_idx * 2 + 1)
+        sched.add_ops_times_2_mc(stage_id, "M1", "J2", start_time=stage_idx * 2 + 1, end_time=stage_idx * 2 + 2)
+    return sched
 
 
 def test_select_critical_jobs_uses_weighted_block_occurrence_counts(monkeypatch):
@@ -181,6 +197,44 @@ def test_apply_critical_job_operator_frees_all_ops_of_selected_jobs(monkeypatch)
     }
 
 
+def test_apply_retained_cp_bottleneck_band_stage_operator_frees_band_ops(monkeypatch):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {
+            stage_id: {"J1": 1, "J2": 1}
+            for stage_id in schedule.stages
+        }
+    )
+    ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
+    ctrl.solution_manager = SimpleNamespace(
+        has_incumbent=lambda: True,
+        get_incumbent=lambda: schedule,
+    )
+    ctrl.last_retained_cp_lb_result = SimpleNamespace(
+        selected_bottleneck_stage_ids=["S2"],
+        bottleneck_stage_id="S2",
+    )
+
+    captured = {}
+
+    def fake_fix(selected_ops, **_kwargs):
+        captured["selected_ops"] = selected_ops
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+
+    selected_stages = ctrl.apply_retained_cp_bottleneck_band_stage_operator(radius=1)
+
+    assert selected_stages == ["S1", "S2", "S3"]
+    assert captured["selected_ops"] == {
+        ("J1", "S1", "M1"),
+        ("J2", "S1", "M1"),
+        ("J1", "S2", "M1"),
+        ("J2", "S2", "M1"),
+        ("J1", "S3", "M1"),
+        ("J2", "S3", "M1"),
+    }
+
+
 def test_select_critical_jobs_caps_at_total_candidate_jobs(monkeypatch):
     ctrl = _make_controller()
     schedule = FakeCriticalSchedule(
@@ -200,6 +254,84 @@ def test_select_critical_jobs_caps_at_total_candidate_jobs(monkeypatch):
 
     assert set(selected) == {"J1", "J2", "J3"}
     assert len(selected) == 3
+
+
+def test_select_critical_tail_jobs_uses_only_tail_stage_blocks(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(stage_id_list=["S1", "S2", "S3"])
+    schedule = FakeCriticalSchedule(
+        critical_blocks=[
+            [("J1", "S1", "M1"), ("J2", "S1", "M1")],
+            [("J3", "S3", "M1"), ("J4", "S3", "M1")],
+        ],
+        jobs=["J1", "J2", "J3", "J4"],
+        stages=["S1", "S2", "S3"],
+        start_map={
+            ("J1", "S1", "M1"): 0,
+            ("J2", "S1", "M1"): 1,
+            ("J3", "S3", "M1"): 2,
+            ("J4", "S3", "M1"): 3,
+        },
+        end_map={
+            ("J1", "S1", "M1"): 1,
+            ("J2", "S1", "M1"): 2,
+            ("J3", "S3", "M1"): 3,
+            ("J4", "S3", "M1"): 4,
+        },
+    )
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.choices",
+        lambda population, weights, k: [population[0]],
+    )
+
+    selected, tail_stages = ctrl._select_critical_tail_jobs(
+        schedule,
+        1,
+        tail_stage_count=1,
+        job_selection_policy="weighted_random",
+    )
+
+    assert tail_stages == ["S3"]
+    assert selected == ["J3"]
+
+
+def test_apply_critical_tail_job_operator_frees_all_ops_of_selected_jobs(monkeypatch):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {
+            stage_id: {"J1": 1, "J2": 1}
+            for stage_id in schedule.stages
+        }
+    )
+    ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
+    ctrl.solution_manager = SimpleNamespace(
+        has_incumbent=lambda: True,
+        get_incumbent=lambda: schedule,
+    )
+
+    monkeypatch.setattr(
+        ctrl,
+        "_select_critical_tail_jobs",
+        lambda *args, **kwargs: (["J2"], ["S3", "S4"]),
+    )
+
+    captured = {}
+
+    def fake_fix(selected_ops, **_kwargs):
+        captured["selected_ops"] = selected_ops
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+
+    selected_jobs = ctrl.apply_critical_tail_job_operator(job_count=1, tail_stage_count=2)
+
+    assert selected_jobs == ["J2"]
+    assert captured["selected_ops"] == {
+        ("J2", "S0", "M1"),
+        ("J2", "S1", "M1"),
+        ("J2", "S2", "M1"),
+        ("J2", "S3", "M1"),
+        ("J2", "S4", "M1"),
+    }
 
 
 def test_select_critical_jobs_logs_warning_and_falls_back_when_no_critical_blocks(

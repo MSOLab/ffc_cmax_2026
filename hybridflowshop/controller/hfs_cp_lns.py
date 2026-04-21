@@ -12,6 +12,7 @@ from lb_bucket.cp import (
     build_trace_rows,
     extract_retained_stage_solution_rows,
     sanitize_optional_float,
+    select_bottleneck_stage_by_average_load,
     write_retained_stage_cp_artifacts,
 )
 from lb_bucket.cp.post_dispatch import (
@@ -57,6 +58,7 @@ from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
     JobIdType,
     OperationType,
+    StageIdType,
 )
 from lb_bucket.mip.search import run_bucket_search_for_instance
 from lb_bucket.mip.shared import (
@@ -758,6 +760,138 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             machine_precedence_stride=machine_precedence_stride,
         )
 
+    def _apply_stage_selection_operator(
+        self,
+        selected_stages: Sequence[StageIdType],
+        *,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+    ) -> list[str]:
+        if not self.solution_manager.has_incumbent():
+            raise ValueError("No incumbent solution available for stage selection.")
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError("Incumbent solution is not a HybridFlowshopLiteSchedule.")
+
+        stage_order = list(self.instance.stage_id_list)
+        selected_stage_ids = sorted(
+            {str(stage_id) for stage_id in selected_stages if str(stage_id) in stage_order},
+            key=stage_order.index,
+        )
+        if not selected_stage_ids:
+            raise ValueError("selected_stages must contain at least one valid stage ID.")
+
+        all_ops = list(incumbent_solution.get_jik_2_start_time_map().keys())
+        selected_stage_set = set(selected_stage_ids)
+        selected_ops = {op for op in all_ops if op[1] in selected_stage_set}
+        logging.info(
+            "Stage-selection operator freeing %d stages and %d ops: %s",
+            len(selected_stage_ids),
+            len(selected_ops),
+            selected_stage_ids,
+        )
+        self._fix_operations_profile_except_selected(
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+        )
+        return selected_stage_ids
+
+    def _resolve_bottleneck_stage_id_for_targeted_ns(self) -> str:
+        retained_result = getattr(self, "last_retained_cp_lb_result", None)
+        if retained_result is not None:
+            selected_bottleneck_stage_ids = list(
+                getattr(retained_result, "selected_bottleneck_stage_ids", ()) or ()
+            )
+            if selected_bottleneck_stage_ids:
+                return str(selected_bottleneck_stage_ids[0])
+            bottleneck_stage_id = getattr(retained_result, "bottleneck_stage_id", None)
+            if bottleneck_stage_id is not None:
+                return str(bottleneck_stage_id)
+
+        params = BaseModelBuilder.make_params(self.instance)
+        internal_stage_ids = list(params.i_list[1:-1]) or list(params.i_list)
+        return str(
+            select_bottleneck_stage_by_average_load(
+                params,
+                stage_ids=internal_stage_ids,
+            )
+        )
+
+    def _resolve_stage_band_ids(
+        self,
+        center_stage_id: StageIdType,
+        *,
+        radius: int,
+    ) -> list[str]:
+        if radius < 0:
+            raise ValueError(
+                f"radius must be non-negative for stage band selection. Received {radius}."
+            )
+        stage_id_list = list(self.instance.stage_id_list)
+        if str(center_stage_id) not in stage_id_list:
+            raise ValueError(f"Unknown stage_id={center_stage_id!r} for stage band.")
+        center_idx = stage_id_list.index(str(center_stage_id))
+        left_idx = max(0, center_idx - radius)
+        right_idx = min(len(stage_id_list) - 1, center_idx + radius)
+        return stage_id_list[left_idx : right_idx + 1]
+
+    def retained_cp_bottleneck_band_stage_ns(
+        self,
+        computational_time: float,
+        solver_thread_cnt: int,
+        radius: int = 2,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        self._fix_profile_solve_reset(
+            lambda: self.apply_retained_cp_bottleneck_band_stage_operator(
+                radius=radius,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            ),
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def apply_retained_cp_bottleneck_band_stage_operator(
+        self,
+        radius: int = 2,
+        *,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+    ) -> list[str]:
+        bottleneck_stage_id = self._resolve_bottleneck_stage_id_for_targeted_ns()
+        selected_stage_ids = self._resolve_stage_band_ids(
+            bottleneck_stage_id,
+            radius=radius,
+        )
+        logging.info(
+            "Applying retained-CP bottleneck-band stage operator: bottleneck_stage=%s radius=%d stages=%s",
+            bottleneck_stage_id,
+            radius,
+            selected_stage_ids,
+        )
+        return self._apply_stage_selection_operator(
+            selected_stage_ids,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+        )
+
     # Subroutine: Job-block neighbor search
 
     def job_block_ns(
@@ -1180,15 +1314,35 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         normalized_job_count = self._normalize_job_count(job_count)
         critical_blocks = self._find_critical_blocks_for_critical_job_ns(schedule)
         all_jobs = sorted(schedule.jobs)
-        if not critical_blocks:
-            logging.warning(
+        return self._select_critical_jobs_from_blocks(
+            critical_blocks,
+            all_jobs=all_jobs,
+            normalized_job_count=normalized_job_count,
+            job_selection_policy=job_selection_policy,
+            log_prefix="Critical-job",
+            fallback_log_message=(
                 "No critical blocks found for critical-job selection; falling back to uniform random selection. "
-                "schedule makespan=%s jobs=%d stages=%d",
-                schedule.makespan,
-                len(schedule.jobs),
-                len(schedule.stages),
+                f"schedule makespan={schedule.makespan} jobs={len(schedule.jobs)} stages={len(schedule.stages)}"
+            ),
+        )
+
+    def _select_critical_jobs_from_blocks(
+        self,
+        critical_blocks: Sequence[Sequence[OperationType]],
+        *,
+        all_jobs: Sequence[JobIdType],
+        normalized_job_count: int,
+        job_selection_policy: str,
+        log_prefix: str,
+        fallback_log_message: str,
+    ) -> list[JobIdType]:
+        candidate_pool = list(all_jobs)
+        if not critical_blocks:
+            logging.warning(fallback_log_message)
+            return random.sample(
+                candidate_pool,
+                k=min(normalized_job_count, len(candidate_pool)),
             )
-            return random.sample(all_jobs, k=min(normalized_job_count, len(all_jobs)))
 
         job_weights = self._get_critical_job_weights(critical_blocks)
         candidate_jobs = sorted(job_weights)
@@ -1202,7 +1356,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
         if job_selection_policy != "critical_adjacency":
             raise ValueError(
-                "Unsupported job_selection_policy for critical_job_ns: "
+                "Unsupported job_selection_policy for critical-job selection: "
                 f"{job_selection_policy}"
             )
 
@@ -1212,7 +1366,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             1,
         )[0]
         logging.info(
-            "Critical-job adjacency seed selected: seed_job=%s target_count=%d candidates=%d",
+            "%s adjacency seed selected: seed_job=%s target_count=%d candidates=%d",
+            log_prefix,
             seed_job,
             target_count,
             len(candidate_jobs),
@@ -1239,8 +1394,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             ]
             if remaining_jobs:
                 logging.warning(
-                    "Critical-job adjacency expansion exhausted before target; "
+                    "%s adjacency expansion exhausted before target; "
                     "backfilling weighted-random jobs. selected=%d target=%d candidates=%d",
+                    log_prefix,
                     len(selected_jobs),
                     target_count,
                     len(candidate_jobs),
@@ -1253,6 +1409,167 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     )
                 )
 
+        return selected_jobs
+
+    def _resolve_tail_stage_ids(
+        self,
+        *,
+        tail_stage_count: int | None = None,
+        tail_stage_ratio: float | None = None,
+    ) -> list[str]:
+        stage_id_list = list(self.instance.stage_id_list)
+        if not stage_id_list:
+            raise ValueError("instance.stage_id_list cannot be empty.")
+        if tail_stage_count is None:
+            resolved_ratio = 0.3 if tail_stage_ratio is None else float(tail_stage_ratio)
+            if not math.isfinite(resolved_ratio) or resolved_ratio <= 0.0:
+                raise ValueError(
+                    "tail_stage_ratio must be positive when tail_stage_count is not provided."
+                )
+            tail_stage_count = max(1, math.ceil(len(stage_id_list) * resolved_ratio))
+        if tail_stage_count <= 0:
+            raise ValueError(
+                f"tail_stage_count must be positive. Received {tail_stage_count}."
+            )
+        count = min(int(tail_stage_count), len(stage_id_list))
+        return stage_id_list[-count:]
+
+    def _select_critical_tail_jobs(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        job_count: int,
+        *,
+        tail_stage_count: int | None = None,
+        tail_stage_ratio: float | None = None,
+        job_selection_policy: str = "critical_adjacency",
+    ) -> tuple[list[JobIdType], list[str]]:
+        normalized_job_count = self._normalize_job_count(job_count)
+        tail_stage_ids = self._resolve_tail_stage_ids(
+            tail_stage_count=tail_stage_count,
+            tail_stage_ratio=tail_stage_ratio,
+        )
+        tail_stage_set = set(tail_stage_ids)
+        critical_blocks = self._find_critical_blocks_for_critical_job_ns(schedule)
+        tail_critical_blocks = [
+            [op for op in block if op[1] in tail_stage_set]
+            for block in critical_blocks
+        ]
+        tail_critical_blocks = [block for block in tail_critical_blocks if block]
+
+        tail_jobs = sorted(
+            {
+                job_id
+                for (job_id, stage_id, _mc_id) in schedule.get_jik_2_start_time_map()
+                if stage_id in tail_stage_set
+            }
+        )
+        if not tail_jobs:
+            tail_jobs = sorted(schedule.jobs)
+
+        selected_jobs = self._select_critical_jobs_from_blocks(
+            tail_critical_blocks,
+            all_jobs=tail_jobs,
+            normalized_job_count=normalized_job_count,
+            job_selection_policy=job_selection_policy,
+            log_prefix="Critical-tail-job",
+            fallback_log_message=(
+                "No tail critical blocks found for critical-tail-job selection; "
+                f"falling back to uniform random selection over tail stages {tail_stage_ids}."
+            ),
+        )
+        return selected_jobs, tail_stage_ids
+
+    def critical_tail_job_ns(
+        self,
+        job_count: int,
+        computational_time: float,
+        solver_thread_cnt: int,
+        tail_stage_count: int | None = None,
+        tail_stage_ratio: float | None = None,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        job_selection_policy: str = "critical_adjacency",
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        self._fix_profile_solve_reset(
+            lambda: self.apply_critical_tail_job_operator(
+                job_count=job_count,
+                tail_stage_count=tail_stage_count,
+                tail_stage_ratio=tail_stage_ratio,
+                job_selection_policy=job_selection_policy,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            ),
+            computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def apply_critical_tail_job_operator(
+        self,
+        job_count: int,
+        *,
+        tail_stage_count: int | None = None,
+        tail_stage_ratio: float | None = None,
+        job_selection_policy: str = "critical_adjacency",
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+    ) -> list[JobIdType]:
+        normalized_job_count = self._normalize_job_count(job_count)
+        logging.info(
+            "Applying critical-tail-job operator with job_count=%d policy=%s tail_stage_count=%s tail_stage_ratio=%s",
+            normalized_job_count,
+            job_selection_policy,
+            tail_stage_count,
+            tail_stage_ratio,
+        )
+        if not self.solution_manager.has_incumbent():
+            raise ValueError(
+                "No incumbent solution available for critical-tail-job operator."
+            )
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError(
+                "Incumbent solution is not a HybridFlowshopLiteSchedule"
+                f"; is of type {type(incumbent_solution)}."
+            )
+
+        selected_jobs, tail_stage_ids = self._select_critical_tail_jobs(
+            incumbent_solution,
+            normalized_job_count,
+            tail_stage_count=tail_stage_count,
+            tail_stage_ratio=tail_stage_ratio,
+            job_selection_policy=job_selection_policy,
+        )
+        all_ops = list(incumbent_solution.get_jik_2_start_time_map().keys())
+        selected_job_set = set(selected_jobs)
+        selected_ops = {op for op in all_ops if op[0] in selected_job_set}
+        logging.info(
+            "Critical-tail-job operator selected %d jobs and %d ops over tail stages %s (target=%d): %s",
+            len(selected_job_set),
+            len(selected_ops),
+            tail_stage_ids,
+            normalized_job_count,
+            selected_jobs,
+        )
+
+        self._fix_operations_profile_except_selected(
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+        )
         return selected_jobs
 
     def apply_critical_job_operator(
@@ -1967,6 +2284,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         respect_anchor_stage_release_lb: bool = True,
         cp_local_repair_max_passes: int = 3,
+        include_consensus_rank: bool = True,
+        include_tail_bottleneck_rank: bool = True,
+        include_dynamic_priority: bool = False,
         save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -1994,6 +2314,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             retained_solution_rows=retained_solution_rows,
             cp_local_repair_max_passes=cp_local_repair_max_passes,
             include_release_anchor_candidates=respect_anchor_stage_release_lb,
+            include_consensus_rank=include_consensus_rank,
+            include_tail_bottleneck_rank=include_tail_bottleneck_rank,
+            include_dynamic_priority=include_dynamic_priority,
             dependencies=PostRetainedCpDispatchDependencies(
                 check_feasibility=self.check_feasibility,
                 get_selected_dispatch_config=self._get_selected_dispatch_config_for_post_mip,
@@ -2094,6 +2417,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         respect_anchor_stage_release_lb: bool = True,
         cp_local_repair_max_passes: int = 3,
+        include_consensus_rank: bool = True,
+        include_tail_bottleneck_rank: bool = True,
+        include_dynamic_priority: bool = False,
         save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -2105,6 +2431,77 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             machine_then_job=machine_then_job,
             respect_anchor_stage_release_lb=respect_anchor_stage_release_lb,
             cp_local_repair_max_passes=cp_local_repair_max_passes,
+            include_consensus_rank=include_consensus_rank,
+            include_tail_bottleneck_rank=include_tail_bottleneck_rank,
+            include_dynamic_priority=include_dynamic_priority,
+            save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def dispatch_from_saved_retained_cp(
+        self,
+        *,
+        cp_lb_dir: str | None = None,
+        cp_lb_source_scenario_dir: str | None = None,
+        mixed_schedule_for_former_stages: bool = True,
+        mixed_schedule_for_later_stages: bool = True,
+        machine_then_job: bool = False,
+        respect_anchor_stage_release_lb: bool = True,
+        cp_local_repair_max_passes: int = 3,
+        include_consensus_rank: bool = True,
+        include_tail_bottleneck_rank: bool = True,
+        include_dynamic_priority: bool = False,
+        save_cp_dispatch_artifacts: bool = True,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> dict[str, Any] | None:
+        """Reload a saved retained-CP incumbent and rerun only the post-retained-CP dispatch logic."""
+        from lb_bucket.cp.solution_io import read_retained_stage_cp_artifacts
+
+        if cp_lb_dir is not None:
+            source_dir = Path(cp_lb_dir)
+        elif cp_lb_source_scenario_dir is not None:
+            source_dir = (
+                Path(cp_lb_source_scenario_dir) / str(self.instance.name) / "cp_lb"
+            )
+        elif self._working_dir_path is not None:
+            source_dir = self._working_dir_path / "cp_lb"
+        else:
+            logging.warning(
+                "[CP LB] No working directory is available to load a saved retained-CP payload."
+            )
+            return None
+
+        retained_result, retained_solution_rows = read_retained_stage_cp_artifacts(
+            source_dir
+        )
+        if retained_result is None or not retained_solution_rows:
+            logging.warning(
+                "[CP LB] No saved retained-CP payload was found for instance %s under %s.",
+                self.instance.name,
+                source_dir,
+            )
+            return None
+
+        self.last_retained_cp_lb_result = retained_result
+        self.last_retained_cp_lb_retained_solution_rows = retained_solution_rows
+        self.last_retained_cp_lb_apply_elapsed_sec = None
+        logging.info(
+            "[CP LB] Reloaded saved retained-CP payload from %s (cp_ub=%s, cp_lb=%s)",
+            source_dir,
+            retained_result.objective_ub,
+            retained_result.certified_final_lb,
+        )
+        return self.dispatch_from_retained_cp(
+            mixed_schedule_for_former_stages=mixed_schedule_for_former_stages,
+            mixed_schedule_for_later_stages=mixed_schedule_for_later_stages,
+            machine_then_job=machine_then_job,
+            respect_anchor_stage_release_lb=respect_anchor_stage_release_lb,
+            cp_local_repair_max_passes=cp_local_repair_max_passes,
+            include_consensus_rank=include_consensus_rank,
+            include_tail_bottleneck_rank=include_tail_bottleneck_rank,
+            include_dynamic_priority=include_dynamic_priority,
             save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import fields
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from routix.io.yaml import load_yaml
 from routix.io.yaml import dump_yaml
 
 from .search import RetainedStageCpResult
@@ -93,3 +95,38 @@ def _write_csv_rows(
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field) for field in fieldnames})
+
+
+def read_retained_stage_cp_artifacts(
+    output_dir: Path,
+) -> tuple[RetainedStageCpResult | None, list[dict[str, Any]]]:
+    summary_path = output_dir / "summary.yaml"
+    retained_solution_path = output_dir / "retained_solution.csv"
+    if not summary_path.is_file() or not retained_solution_path.is_file():
+        return None, []
+
+    summary_raw = load_yaml(summary_path, encoding="utf-8")
+    if not isinstance(summary_raw, dict):
+        return None, []
+    result_field_names = {field.name for field in fields(RetainedStageCpResult)}
+    result_payload = {
+        key: value for key, value in summary_raw.items() if key in result_field_names
+    }
+    result = RetainedStageCpResult(**result_payload)
+
+    rows: list[dict[str, Any]] = []
+    with retained_solution_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            rows.append(
+                {
+                    "stage_id": str(row["stage_id"]),
+                    "job_id": str(row["job_id"]),
+                    "start": int(row["start"]),
+                    "end": int(row["end"]),
+                    "processing_time": int(row["processing_time"]),
+                    "head": int(row["head"]),
+                    "tail": int(row["tail"]),
+                }
+            )
+    return result, rows

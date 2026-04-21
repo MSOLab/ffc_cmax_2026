@@ -60,6 +60,9 @@ def run_post_retained_cp_dispatch(
     retained_solution_rows: Sequence[Mapping[str, Any]],
     cp_local_repair_max_passes: int,
     include_release_anchor_candidates: bool,
+    include_consensus_rank: bool = True,
+    include_tail_bottleneck_rank: bool = True,
+    include_dynamic_priority: bool = False,
     dependencies: PostRetainedCpDispatchDependencies,
 ) -> PostRetainedCpDispatchRunResult:
     total_timer = ElapsedTimer()
@@ -105,6 +108,29 @@ def run_post_retained_cp_dispatch(
         preferred_anchor_first_stage_id=preferred_anchor_first_stage_id,
         preferred_anchor_last_stage_id=preferred_anchor_last_stage_id,
         bottleneck_stage_id=bottleneck_stage_id,
+    )
+    consensus_sequence = _get_job_sequence_from_retained_rows_consensus(
+        stage_id_list=instance.stage_id_list,
+        job_id_list=instance.job_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_solution_rows=retained_solution_rows,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+    tail_bottleneck_sequence = _get_job_sequence_from_retained_rows_tail_bottleneck(
+        stage_id_list=instance.stage_id_list,
+        job_id_list=instance.job_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_solution_rows=retained_solution_rows,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+    if include_consensus_rank:
+        direct_sequences["mixed_cp_consensus"] = consensus_sequence
+    if include_tail_bottleneck_rank:
+        direct_sequences["mixed_cp_tail_bottleneck"] = tail_bottleneck_sequence
+    propagated_stage_sequences = _build_full_stage_sequences_from_retained_rows(
+        stage_id_list=instance.stage_id_list,
+        retained_solution_rows=retained_solution_rows,
+        fallback_job_sequence=consensus_sequence,
     )
     dispatch_phase_elapsed_sec["sequence_setup_sec"] = setup_timer.elapsed_sec
 
@@ -178,6 +204,72 @@ def run_post_retained_cp_dispatch(
         logging.info(
             "[CP LB] %s has makespan=%s",
             variant,
+            schedule.makespan if schedule is not None else None,
+        )
+
+    extra_rank_sequences: dict[str, list[str]] = {}
+    if include_consensus_rank:
+        extra_rank_sequences["best_of_mixed_dispatches_cp_consensus_rank"] = (
+            consensus_sequence
+        )
+    if include_tail_bottleneck_rank:
+        extra_rank_sequences["best_of_mixed_dispatches_cp_tail_bottleneck_rank"] = (
+            tail_bottleneck_sequence
+        )
+    for variant, job_sequence in extra_rank_sequences.items():
+        variant_timer = ElapsedTimer()
+        try:
+            schedule = dependencies.get_schedule_by_best_of_mixed_dispatches(
+                machine_then_job=selected_dispatch_config["machine_then_job"],
+                head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+                job_tiebreak_rank=get_job_tiebreak_rank_from_job_sequence(job_sequence),
+            )
+        except Exception:
+            logging.exception(
+                "[CP LB] %s failed while constructing mixed dispatch with specialized retained-CP rank.",
+                variant,
+            )
+            schedule = None
+        dispatch_candidates[variant] = schedule
+        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            variant,
+            schedule.makespan if schedule is not None else None,
+        )
+
+    if include_dynamic_priority:
+        dynamic_priority_timer = ElapsedTimer()
+        try:
+            schedule = dependencies.get_two_way_schedule_by_stage_band(
+                anchor_stage_ids=list(instance.stage_id_list),
+                stage_2_job_sequence=propagated_stage_sequences,
+                mixed_schedule_for_former_stages=selected_dispatch_config[
+                    "mixed_schedule_for_former_stages"
+                ],
+                mixed_schedule_for_later_stages=selected_dispatch_config[
+                    "mixed_schedule_for_later_stages"
+                ],
+                machine_then_job=selected_dispatch_config["machine_then_job"],
+                stage_2_job_2_release=None,
+                anchor_dispatch_mode="priority",
+            )
+        except Exception:
+            logging.exception(
+                "[CP LB] %s failed while constructing dynamic full-stage priority dispatch.",
+                "cp_dynamic_priority_soft_release",
+            )
+            schedule = None
+        dispatch_candidates["cp_dynamic_priority_soft_release"] = schedule
+        dispatch_candidate_elapsed_sec["cp_dynamic_priority_soft_release"] = (
+            dynamic_priority_timer.elapsed_sec
+        )
+        variant_2_anchor_stage_ids["cp_dynamic_priority_soft_release"] = list(
+            instance.stage_id_list
+        )
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            "cp_dynamic_priority_soft_release",
             schedule.makespan if schedule is not None else None,
         )
 
@@ -717,6 +809,253 @@ def _build_direct_mixed_sequences(
     return sequence_map
 
 
+def _build_full_stage_sequences_from_retained_rows(
+    *,
+    stage_id_list: Sequence[str],
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    fallback_job_sequence: Sequence[str],
+) -> dict[str, list[str]]:
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {}
+    for row in retained_solution_rows:
+        stage_id = str(row["stage_id"])
+        stage_2_rows.setdefault(stage_id, []).append(row)
+
+    retained_stage_ids = [
+        stage_id for stage_id in stage_id_list if stage_id in stage_2_rows
+    ]
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+
+    retained_stage_sequences: dict[str, list[str]] = {}
+    for stage_id in retained_stage_ids:
+        rows = list(stage_2_rows[stage_id])
+        rows.sort(
+            key=lambda row: (
+                int(row["start"]),
+                int(row["end"]),
+                str(row["job_id"]),
+            )
+        )
+        retained_stage_sequences[stage_id] = [str(row["job_id"]) for row in rows]
+
+    full_stage_sequences: dict[str, list[str]] = {}
+    for stage_id in stage_id_list:
+        if stage_id in retained_stage_sequences:
+            full_stage_sequences[str(stage_id)] = list(retained_stage_sequences[stage_id])
+            continue
+        if retained_stage_ids:
+            nearest_retained_stage_id = min(
+                retained_stage_ids,
+                key=lambda retained_stage_id: (
+                    abs(stage_2_index[stage_id] - stage_2_index[retained_stage_id]),
+                    stage_2_index[retained_stage_id],
+                ),
+            )
+            full_stage_sequences[str(stage_id)] = list(
+                retained_stage_sequences[nearest_retained_stage_id]
+            )
+        else:
+            full_stage_sequences[str(stage_id)] = list(fallback_job_sequence)
+    return full_stage_sequences
+
+
+def _get_retained_stage_weights(
+    *,
+    stage_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_stage_ids: Sequence[str],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> dict[str, float]:
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+    denominator = max(len(stage_id_list) - 1, 1)
+    preferred_set = {str(stage_id) for stage_id in preferred_anchor_stage_ids}
+    bottleneck_set = {
+        str(stage_id) for stage_id in retained_cp_result.selected_bottleneck_stage_ids
+    }
+    if retained_cp_result.bottleneck_stage_id is not None:
+        bottleneck_set.add(str(retained_cp_result.bottleneck_stage_id))
+
+    weights: dict[str, float] = {}
+    for stage_id in retained_stage_ids:
+        idx = stage_2_index[str(stage_id)]
+        tail_bonus = idx / denominator
+        weight = 1.0 + tail_bonus
+        if str(stage_id) in preferred_set:
+            weight += 0.75
+        if str(stage_id) in bottleneck_set:
+            weight += 1.75
+        weights[str(stage_id)] = weight
+    return weights
+
+
+def _get_job_sequence_from_retained_rows_consensus(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> list[str]:
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {}
+    for row in retained_solution_rows:
+        stage_2_rows.setdefault(str(row["stage_id"]), []).append(row)
+    retained_stage_ids = [
+        stage_id for stage_id in stage_id_list if stage_id in stage_2_rows
+    ]
+    stage_weights = _get_retained_stage_weights(
+        stage_id_list=stage_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_stage_ids=retained_stage_ids,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+
+    job_2_score = {str(job_id): 0.0 for job_id in job_id_list}
+    job_2_weight = {str(job_id): 0.0 for job_id in job_id_list}
+    job_2_latest_start = {str(job_id): 0.0 for job_id in job_id_list}
+    job_2_slack = {str(job_id): 0.0 for job_id in job_id_list}
+    objective_ub = (
+        float(retained_cp_result.objective_ub)
+        if retained_cp_result.objective_ub is not None
+        else None
+    )
+
+    for stage_id in retained_stage_ids:
+        rows = list(stage_2_rows[str(stage_id)])
+        rows.sort(
+            key=lambda row: (
+                int(row["start"]),
+                int(row["end"]),
+                str(row["job_id"]),
+            )
+        )
+        stage_weight = stage_weights[str(stage_id)]
+        for rank, row in enumerate(rows):
+            job_id = str(row["job_id"])
+            p = float(row["processing_time"])
+            head_t = float(row["head"])
+            tail_t = float(row["tail"])
+            latest_start = (
+                max(head_t, objective_ub - tail_t - p)
+                if objective_ub is not None
+                else float(row["start"])
+            )
+            slack = latest_start - head_t
+            job_2_score[job_id] += stage_weight * float(rank)
+            job_2_weight[job_id] += stage_weight
+            job_2_latest_start[job_id] += stage_weight * latest_start
+            job_2_slack[job_id] += stage_weight * slack
+
+    sortable_rows: list[tuple[tuple[float, ...], str]] = []
+    for job_idx, job_id in enumerate(job_id_list):
+        total_weight = max(job_2_weight[str(job_id)], 1e-9)
+        sortable_rows.append(
+            (
+                (
+                    job_2_score[str(job_id)] / total_weight,
+                    job_2_latest_start[str(job_id)] / total_weight,
+                    job_2_slack[str(job_id)] / total_weight,
+                    float(job_idx),
+                ),
+                str(job_id),
+            )
+        )
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
+def _get_job_sequence_from_retained_rows_tail_bottleneck(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> list[str]:
+    objective_ub = (
+        float(retained_cp_result.objective_ub)
+        if retained_cp_result.objective_ub is not None
+        else None
+    )
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {}
+    for row in retained_solution_rows:
+        stage_2_rows.setdefault(str(row["stage_id"]), []).append(row)
+    retained_stage_ids = [
+        stage_id for stage_id in stage_id_list if stage_id in stage_2_rows
+    ]
+    if not retained_stage_ids:
+        return list(job_id_list)
+    stage_weights = _get_retained_stage_weights(
+        stage_id_list=stage_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_stage_ids=retained_stage_ids,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+    last_retained_stage_id = max(
+        retained_stage_ids, key=lambda stage_id: stage_2_index[str(stage_id)]
+    )
+    bottleneck_stage_id = _resolve_retained_bottleneck_stage_id(
+        stage_id_list,
+        retained_cp_result,
+        retained_solution_rows,
+    )
+
+    job_2_metrics: dict[str, dict[str, float]] = {
+        str(job_id): {
+            "weighted_start": 0.0,
+            "weighted_latest_start": 0.0,
+            "weighted_slack": 0.0,
+            "tail_latest_start": 0.0,
+            "bneck_latest_start": 0.0,
+            "total_p": 0.0,
+        }
+        for job_id in job_id_list
+    }
+
+    for row in retained_solution_rows:
+        stage_id = str(row["stage_id"])
+        job_id = str(row["job_id"])
+        start_t = float(row["start"])
+        p = float(row["processing_time"])
+        head_t = float(row["head"])
+        tail_t = float(row["tail"])
+        latest_start = (
+            max(head_t, objective_ub - tail_t - p)
+            if objective_ub is not None
+            else start_t
+        )
+        slack = latest_start - head_t
+        weight = stage_weights.get(stage_id, 1.0)
+        metrics = job_2_metrics[job_id]
+        metrics["weighted_start"] += weight * start_t
+        metrics["weighted_latest_start"] += weight * latest_start
+        metrics["weighted_slack"] += weight * slack
+        metrics["total_p"] += p
+        if stage_id == last_retained_stage_id:
+            metrics["tail_latest_start"] = latest_start
+        if bottleneck_stage_id is not None and stage_id == bottleneck_stage_id:
+            metrics["bneck_latest_start"] = latest_start
+
+    sortable_rows: list[tuple[tuple[float, ...], str]] = []
+    for job_idx, job_id in enumerate(job_id_list):
+        metrics = job_2_metrics[str(job_id)]
+        sortable_rows.append(
+            (
+                (
+                    metrics["tail_latest_start"],
+                    metrics["bneck_latest_start"],
+                    metrics["weighted_latest_start"],
+                    metrics["weighted_slack"],
+                    metrics["weighted_start"],
+                    -metrics["total_p"],
+                    float(job_idx),
+                ),
+                str(job_id),
+            )
+        )
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
 def _get_job_sequence_from_retained_rows_aggregate(
     *,
     job_id_list: Sequence[str],
@@ -964,6 +1303,11 @@ def _get_dispatch_variant_short_name(variant: str | None) -> str | None:
         "mixed_cp_last_anchor": "mixed_cp_last",
         "mixed_cp_bottleneck_anchor": "mixed_cp_bneck",
         "mixed_cp_aggregate_start_slack": "mixed_cp_agg",
+        "mixed_cp_consensus": "mixed_cp_cons",
+        "mixed_cp_tail_bottleneck": "mixed_cp_tailbn",
+        "best_of_mixed_dispatches_cp_consensus_rank": "best_mixed_cp_cons",
+        "best_of_mixed_dispatches_cp_tail_bottleneck_rank": "best_mixed_cp_tailbn",
+        "cp_dynamic_priority_soft_release": "cp_dyn_prio",
         "best_of_mixed_dispatches_cp_first_anchor_rank": "best_mixed_cp_first",
         "best_of_mixed_dispatches_cp_last_anchor_rank": "best_mixed_cp_last",
         "best_of_mixed_dispatches_cp_bottleneck_rank": "best_mixed_cp_bneck",
