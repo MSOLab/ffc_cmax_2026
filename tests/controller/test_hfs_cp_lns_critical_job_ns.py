@@ -389,6 +389,55 @@ def test_critical_tail_job_ns_uses_tl_nc_multiplier(monkeypatch):
     assert captured["solver_thread_cnt"] == 6
 
 
+def test_fix_profile_solve_reset_initializes_base_cp_model_when_missing(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(stage_id_list=["S1"])
+    ctrl.base_cp_model_is_set = False
+    ctrl.solution_manager = SimpleNamespace(
+        register=lambda report, solution: False,
+        get_incumbent=lambda: None,
+    )
+    ctrl.obj_store = SimpleNamespace(
+        get_last_obj_value=lambda: None,
+        get_last_obj_bound=lambda: None,
+        add_last_timestamp_note=lambda *args, **kwargs: None,
+    )
+    ctrl.timer = SimpleNamespace(elapsed_sec=0.0)
+    ctrl._get_call_context_of_current_method = lambda: "test-call"
+
+    events = []
+
+    def fake_set_cp_model_as_base_cp_model():
+        events.append("set_cp_model")
+        ctrl.base_cp_model_is_set = True
+        ctrl.cp_model = SimpleNamespace(
+            delete_added_constraints=lambda: events.append("delete_added_constraints")
+        )
+
+    def fake_profile_fixing_method():
+        assert hasattr(ctrl, "cp_model")
+        events.append("profile_fix")
+
+    monkeypatch.setattr(ctrl, "set_cp_model_as_base_cp_model", fake_set_cp_model_as_base_cp_model)
+    monkeypatch.setattr(
+        ctrl,
+        "solve_with_initial_solution",
+        lambda *args, **kwargs: ("report", "solution"),
+    )
+
+    ctrl._fix_profile_solve_reset(
+        fake_profile_fixing_method,
+        computational_time=1.0,
+        solver_thread_cnt=1,
+    )
+
+    assert events == [
+        "set_cp_model",
+        "profile_fix",
+        "delete_added_constraints",
+    ]
+
+
 def test_select_critical_jobs_logs_warning_and_falls_back_when_no_critical_blocks(
     monkeypatch, caplog
 ):

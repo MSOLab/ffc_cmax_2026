@@ -254,6 +254,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt (bool, optional): If True, draws the Gantt chart of the solution.
                 Defaults to False.
         """
+        if getattr(self, "base_cp_model_is_set", False):
+            self.cp_model.delete_added_constraints()
+        else:
+            self.set_cp_model_as_base_cp_model()
+
         last_stage = self.instance.stage_id_list[-1]  # 또는 ref_schedule.stages[-1]
         if swap_before_cp:
             swap_timer = ElapsedTimer()
