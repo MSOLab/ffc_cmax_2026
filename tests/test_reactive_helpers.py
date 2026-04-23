@@ -15,6 +15,7 @@ from hybridflowshop.controller.reactive.reactive_param_tuner import (
     ReactiveParamTuner,
     TunerParams,
 )
+from hybridflowshop.report import HfsCpsatSolverReport
 
 
 def test_report_entry_row_and_header():
@@ -213,6 +214,77 @@ def test_reactive_looper_supports_radius_and_tl_nc_multiplier():
         ),
     )
     assert tuner.get_current_value("radius") == 1
+
+
+def test_reactive_looper_call_subroutine_uses_controller_timer_interface():
+    class FakeSolutionManager:
+        def __init__(self):
+            self.best_obj_value = 1300.0
+            self._last_report = None
+
+        def _a_is_better_obj_value(self, a, b):
+            return a < b
+
+        def get_last_report(self):
+            return self._last_report
+
+    class FakeCtrl:
+        def __init__(self):
+            self.instance = SimpleNamespace(job_count=10, stage_count=4)
+            self.solution_manager = FakeSolutionManager()
+            self.timer = SimpleNamespace(elapsed_sec=5.0)
+            self.stopping_criteria = SimpleNamespace(timelimit=100.0)
+            self.obj_store = SimpleNamespace(get_last_gap=lambda: None)
+            self.called_kwargs = None
+
+        def get_remaining_sec(self):
+            return 95.0
+
+        def is_stopping_condition(self):
+            return False
+
+        def random_stage_band_stage_ns(
+            self,
+            radius: int = 0,
+            tl_nc_multiplier: float = 0.01,
+        ):
+            self.called_kwargs = {
+                "radius": radius,
+                "tl_nc_multiplier": tl_nc_multiplier,
+            }
+            self.solution_manager._last_report = HfsCpsatSolverReport(
+                elapsed_time=0.25,
+                obj_value=1290.0,
+                obj_bound=1280.0,
+                status=CpsatStatus.FEASIBLE,
+                is_init=False,
+                subroutine_name="random_stage_band_stage_ns",
+            )
+
+    ctrl = FakeCtrl()
+    looper = ReactiveLooper(
+        cast(HybridFlowShopCpLnsControllerCore, ctrl),
+        [
+            {
+                "method": "random_stage_band_stage_ns",
+                "radius": 0,
+                "tl_nc_multiplier": 0.01,
+            },
+        ],
+        {
+            "radius": {"step_size": 1, "min": 0, "max": 2},
+            "tl_nc_multiplier": {"step_size": 0.005, "min": 0.005, "max": 0.03},
+        },
+        {"max_loop_count": 1},
+    )
+
+    looper.initialize_states()
+    looper._call_subroutine("random_stage_band_stage_ns")
+
+    assert ctrl.called_kwargs == {"radius": 0, "tl_nc_multiplier": 0.01}
+    assert len(looper.report_entries) == 1
+    assert looper.report_entries[0].time_start == 5.0
+    assert looper.report_entries[0].time_elapsed == 0.25
 
 
 def test_reactive_looper_writes_reports(tmp_path):

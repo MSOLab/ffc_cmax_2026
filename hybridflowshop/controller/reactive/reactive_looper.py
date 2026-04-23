@@ -123,6 +123,26 @@ class ReactiveLooper:
             raise ValueError(f"Subroutine {subroutine_name} is not recognized.")
         return self.time_param_name_by_subroutine[subroutine_name]
 
+    def _get_elapsed_sec(self) -> float:
+        timer = self.ctrlr.timer
+        if hasattr(timer, "elapsed_sec"):
+            return float(timer.elapsed_sec)
+        if hasattr(timer, "get_elapsed_sec"):
+            return float(timer.get_elapsed_sec())
+        raise AttributeError("Controller timer must expose 'elapsed_sec'.")
+
+    def _get_remaining_sec(self) -> float:
+        if hasattr(self.ctrlr, "get_remaining_sec"):
+            return float(self.ctrlr.get_remaining_sec())
+
+        timer = self.ctrlr.timer
+        global_timelimit = self.ctrlr.stopping_criteria.timelimit
+        if hasattr(timer, "get_remaining_sec"):
+            return float(timer.get_remaining_sec(global_timelimit))
+        raise AttributeError(
+            "Controller must expose 'get_remaining_sec()' or timer.get_remaining_sec(...)."
+        )
+
     def _get_nc_scale(self) -> float:
         instance = getattr(self.ctrlr, "instance", None)
         if instance is None:
@@ -191,7 +211,7 @@ class ReactiveLooper:
         return self.stopping_criteria.is_loop_stopping_condition(
             self.loop_count,
             self.no_improvement_step_series_lth,
-            self.ctrlr.timer.get_remaining_sec(global_timelimit),
+            self._get_remaining_sec(),
             self.ctrlr.obj_store.get_last_gap(),
             global_timelimit,
             log_reason_if_true=log_reason_if_true,
@@ -206,12 +226,10 @@ class ReactiveLooper:
         # capture snapshot of parameters and objective before call
         kwargs_snapshot = tuner.current_kwargs.copy()
         prev_obj = self.obj_value_before_step
-        time_start = self.ctrlr.timer.get_elapsed_sec()
+        time_start = self._get_elapsed_sec()
 
         # timelimit by global - offset
-        global_remaining = self.ctrlr.timer.get_remaining_sec(
-            self.ctrlr.stopping_criteria.timelimit
-        )
+        global_remaining = self._get_remaining_sec()
         timelimit_by_global = self.stopping_criteria.get_subroutine_timelimit(
             global_remaining, global_timelimit=self.ctrlr.stopping_criteria.timelimit
         )
@@ -261,7 +279,7 @@ class ReactiveLooper:
             elapsed = (
                 report.elapsed_time
                 if hasattr(report, "elapsed_time") and report.elapsed_time is not None
-                else (self.ctrlr.timer.get_elapsed_sec() - time_start)
+                else (self._get_elapsed_sec() - time_start)
             )
 
             # create and store report entry
