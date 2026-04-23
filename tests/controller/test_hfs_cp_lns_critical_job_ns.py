@@ -262,6 +262,107 @@ def test_retained_cp_bottleneck_band_stage_ns_uses_tl_nc_multiplier(monkeypatch)
     assert captured["solver_thread_cnt"] == 8
 
 
+def test_stage_block_ns_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
+
+    captured = {}
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+
+    ctrl.stage_block_ns(
+        rho=0.25,
+        solver_thread_cnt=8,
+        computational_time=999,
+        tl_nc_multiplier=0.5,
+    )
+
+    assert captured["computational_time"] == 20.0
+    assert captured["solver_thread_cnt"] == 8
+
+
+def test_random_stage_band_operator_selects_random_center_band(monkeypatch):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {
+            stage_id: {"J1": 1, "J2": 1}
+            for stage_id in schedule.stages
+        }
+    )
+    ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
+    ctrl.solution_manager = SimpleNamespace(
+        has_incumbent=lambda: True,
+        get_incumbent=lambda: schedule,
+    )
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.choice",
+        lambda seq: "S2",
+    )
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.randint",
+        lambda _low, _high: 1,
+    )
+
+    captured = {}
+
+    def fake_fix(selected_ops, **_kwargs):
+        captured["selected_ops"] = selected_ops
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+
+    selected_stages = ctrl.apply_random_stage_band_stage_operator(
+        radius=2,
+        min_radius=0,
+    )
+
+    assert selected_stages == ["S1", "S2", "S3"]
+    assert captured["selected_ops"] == {
+        ("J1", "S1", "M1"),
+        ("J2", "S1", "M1"),
+        ("J1", "S2", "M1"),
+        ("J2", "S2", "M1"),
+        ("J1", "S3", "M1"),
+        ("J2", "S3", "M1"),
+    }
+
+
+def test_random_stage_band_stage_ns_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=12, stage_count=5)
+
+    captured = {}
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+
+    ctrl.random_stage_band_stage_ns(
+        solver_thread_cnt=6,
+        computational_time=999,
+        tl_nc_multiplier=0.25,
+        radius=2,
+    )
+
+    assert captured["computational_time"] == 15.0
+    assert captured["solver_thread_cnt"] == 6
+
+
 def test_select_critical_jobs_caps_at_total_candidate_jobs(monkeypatch):
     ctrl = _make_controller()
     schedule = FakeCriticalSchedule(

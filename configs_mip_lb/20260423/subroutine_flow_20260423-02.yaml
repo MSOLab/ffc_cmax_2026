@@ -40,10 +40,10 @@
 - method: neh_cp
   added_batch_size: 10
   job_seq_by_1st_stage: false
-  cp_tl_nc_multiplier: 0.016
+  cp_tl_nc_multiplier: 0.01
   profile_fix_by_machine: false
   minimize_sum_ci_lex: true
-  cp_tl_nc_multiplier_2nd_obj: 0.004
+  cp_tl_nc_multiplier_2nd_obj: 0.0025
   minimize_sum_ci_lin: false
   tighten_ranges: false
   link_job_completion: false
@@ -53,47 +53,55 @@
 - method: incremental_pw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
-  unfixed_batch_count_max: 7
-  increment_unfixed_batch_count_flag: always
-  non_time_fixed_op_time_limit_multiplier: 0.01
+  unfixed_batch_count_max: 5
+  increment_unfixed_batch_count_flag: if_no_improvement
+  non_time_fixed_op_time_limit_multiplier: 0.008
   lr_profile_fixed_batch_count: 1
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 16
   use_lns_only: false
-- method: incremental_pw_cp
-  batch_size_ratio: 0.1
-  unfixed_batch_count_min: 2
-  unfixed_batch_count_max: 7
-  increment_unfixed_batch_count_flag: always
-  non_time_fixed_op_time_limit_multiplier: 0.01
-  lr_profile_fixed_batch_count: 1
-  enable_promotion_profile_fixed: true
-  solver_thread_cnt: 16
-  use_lns_only: false
-- method: repeat_while_improvement
-  n_repeats: 10
-  max_no_improve: 1
+- method: run_reactive_loop
   routine_data:
     - method: random_stage_band_stage_ns
       solver_thread_cnt: 16
-      tl_nc_multiplier: 0.025
-      radius: 2
+      tl_nc_multiplier: 0.01
+      radius: 0
       min_radius: 0
       use_lns_only: false
       draw_gantt: false
     - method: critical_tail_job_ns
       solver_thread_cnt: 16
-      tl_nc_multiplier: 0.025
-      job_count: 16
-      tail_stage_ratio: 0.3
+      tl_nc_multiplier: 0.015
+      job_count: 12
+      tail_stage_ratio: 0.35
       job_selection_policy: "critical_adjacency"
       use_lns_only: false
       draw_gantt: false
-    - method: critical_cross_machine_insertion_ls
-      max_passes: 1
-      tl_nc_multiplier: 0.015
-      target_stage_mode: bottleneck_band
-      bottleneck_band_radius: 1
+  reactive_param_tuner_dict:
+    tl_nc_multiplier:
+      step_size: 0.005
+      min: 0.005
+      max: 0.03
+    radius:
+      step_size: 1
+      min: 0
+      max: 2
+    job_count:
+      step_size: 8
+      min: 8
+      max: 60
+  stopping_criteria:
+    max_loop_count: 18
+    max_no_improvement_steps: 6
+    stop_at_global_timelimit_minus_percent: 0.25
+    rho_hits_ub: true
+    tl_hits_ub: true
+- method: critical_cross_machine_insertion_ls
+  max_passes: 1
+  tl_nc_multiplier: 0.015
+  target_stage_mode: bottleneck_band
+  bottleneck_band_radius: 1
+  max_machine_candidates_per_op: 3
 - method: solve_base_cp_model
   computational_time: null
   solver_thread_cnt: 16

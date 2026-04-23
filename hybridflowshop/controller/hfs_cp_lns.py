@@ -652,8 +652,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def stage_block_ns(
         self,
         rho: float,
-        computational_time: float,
         solver_thread_cnt: int,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
         no_improvement_timelimit: float | None = None,
         swap_before_cp: bool = False,
         seed_stage_from_non_singleton_cb: bool = False,
@@ -664,6 +665,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
+        resolved_computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
         self._fix_profile_solve_reset(
             lambda: self.apply_stage_operator(
                 rho,
@@ -671,7 +676,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 profile_fix_by_machine=profile_fix_by_machine,
                 machine_precedence_stride=machine_precedence_stride,
             ),
-            computational_time,
+            resolved_computational_time,
             solver_thread_cnt,
             no_improvement_timelimit=no_improvement_timelimit,
             swap_before_cp=swap_before_cp,
@@ -779,6 +784,88 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         # Fix out-of-block operations' profile
         self._fix_operations_profile_except_selected(
             selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+        )
+
+    def random_stage_band_stage_ns(
+        self,
+        solver_thread_cnt: int,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
+        radius: int = 1,
+        min_radius: int | None = None,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Free a random consecutive stage band and re-optimize it with CP."""
+
+        resolved_computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
+        self._fix_profile_solve_reset(
+            lambda: self.apply_random_stage_band_stage_operator(
+                radius=radius,
+                min_radius=min_radius,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+            ),
+            resolved_computational_time,
+            solver_thread_cnt,
+            no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=False,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
+    def apply_random_stage_band_stage_operator(
+        self,
+        radius: int = 1,
+        *,
+        min_radius: int | None = None,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+    ) -> list[str]:
+        if radius < 0:
+            raise ValueError(f"radius must be non-negative. Received {radius}.")
+        resolved_min_radius = radius if min_radius is None else int(min_radius)
+        if resolved_min_radius < 0:
+            raise ValueError(
+                f"min_radius must be non-negative. Received {resolved_min_radius}."
+            )
+        if resolved_min_radius > radius:
+            raise ValueError(
+                f"min_radius must be <= radius. Received {resolved_min_radius} > {radius}."
+            )
+
+        stage_id_list = list(self.instance.stage_id_list)
+        if not stage_id_list:
+            raise ValueError("instance.stage_id_list cannot be empty.")
+        chosen_radius = random.randint(resolved_min_radius, radius)
+        center_stage_id = random.choice(stage_id_list)
+        selected_stage_ids = self._resolve_stage_band_ids(
+            center_stage_id,
+            radius=chosen_radius,
+        )
+        logging.info(
+            "Applying random stage-band operator: center_stage=%s radius=%d stages=%s",
+            center_stage_id,
+            chosen_radius,
+            selected_stage_ids,
+        )
+        return self._apply_stage_selection_operator(
+            selected_stage_ids,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
         )
