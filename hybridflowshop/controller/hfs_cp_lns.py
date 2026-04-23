@@ -99,6 +99,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         computational_time: float | None,
         solver_thread_cnt: int,
+        tl_nc_multiplier: float | None = None,
         make_semi_active_after_cp: bool = False,
         is_initial_solution: bool = False,
         encode_cumulative_as_reservoir: bool | None = None,
@@ -141,10 +142,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         _should_be_init: bool = self.solution_manager.get_incumbent() is None
         _is_init: bool = _should_be_init or is_initial_solution
-        _computational_time = computational_time
-        if computational_time is not None:
+        _computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
+        if _computational_time is not None:
             # Subtract model handling time from subroutine time limit
-            _computational_time = max(0.0, computational_time - sub_timer.elapsed_sec)
+            _computational_time = max(
+                0.0, _computational_time - sub_timer.elapsed_sec
+            )
 
         if _is_init:
             report, solution = self.solve_current_cp_remaining_time_limit(

@@ -507,6 +507,8 @@ def test_critical_cross_machine_insertion_ls_uses_tl_nc_multiplier(monkeypatch):
     )
     ctrl.timer = SimpleNamespace(elapsed_sec=0.0)
     ctrl.obj_store = SimpleNamespace(
+        get_last_obj_value=lambda: None,
+        get_last_obj_bound=lambda: None,
         add_last_timestamp_note=lambda *args, **kwargs: None,
     )
     ctrl._make_subroutine_report = lambda **kwargs: SimpleNamespace(**kwargs)
@@ -537,6 +539,54 @@ def test_critical_cross_machine_insertion_ls_uses_tl_nc_multiplier(monkeypatch):
     )
 
     assert captured["computational_time"] == 20.0
+
+
+def test_solve_base_cp_model_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
+    ctrl.base_cp_model_is_set = True
+    ctrl.cp_model = SimpleNamespace(delete_added_constraints=lambda: None)
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: None,
+        register=lambda report, solution: False,
+    )
+    ctrl.timer = SimpleNamespace(elapsed_sec=0.0)
+    ctrl.obj_store = SimpleNamespace(
+        get_last_obj_value=lambda: None,
+        get_last_obj_bound=lambda: None,
+        add_last_timestamp_note=lambda *args, **kwargs: None,
+    )
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "test-call"
+
+    captured = {}
+
+    def fake_solve_current_cp_remaining_time_limit(
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+        return (
+            SimpleNamespace(status="ok", obj_value=20.0, obj_bound=20.0),
+            "solution",
+        )
+
+    monkeypatch.setattr(
+        ctrl,
+        "solve_current_cp_remaining_time_limit",
+        fake_solve_current_cp_remaining_time_limit,
+    )
+
+    ctrl.solve_base_cp_model(
+        computational_time=999.0,
+        tl_nc_multiplier=0.5,
+        solver_thread_cnt=6,
+    )
+
+    assert captured["computational_time"] == 20.0
+    assert captured["solver_thread_cnt"] == 6
 
 
 def test_fix_profile_solve_reset_initializes_base_cp_model_when_missing(monkeypatch):
