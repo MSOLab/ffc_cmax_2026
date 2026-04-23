@@ -36,6 +36,7 @@ from .utils import (
     get_stage_job_sequences_from_dispatch_windows,
     improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
+    improve_schedule_by_critical_cross_machine_insertions,
     reverse_even_positions,
 )
 
@@ -63,5 +64,6 @@ __all__ = [
     "get_stage_job_sequences_from_dispatch_windows",
     "improve_schedule_by_critical_stage_sequence_insertions",
     "improve_schedule_by_critical_adjacent_swaps",
+    "improve_schedule_by_critical_cross_machine_insertions",
     "reverse_even_positions",
 ]

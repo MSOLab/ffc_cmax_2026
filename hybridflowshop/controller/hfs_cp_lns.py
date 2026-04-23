@@ -50,6 +50,7 @@ from hybridflowshop.dispatcher import (
 )
 from hybridflowshop.dispatcher.utils import (
     from_job_sequence_get_schedule_mixed,
+    improve_schedule_by_critical_cross_machine_insertions,
     improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
 )
@@ -1604,6 +1605,101 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         return selected_jobs
 
+    def _resolve_target_stage_ids_for_critical_machine_ls(
+        self,
+        *,
+        target_stage_mode: str,
+        bottleneck_band_radius: int,
+        tail_stage_count: int | None,
+        tail_stage_ratio: float | None,
+    ) -> list[str] | None:
+        if target_stage_mode == "all":
+            return None
+        if target_stage_mode == "bottleneck":
+            return [self._resolve_bottleneck_stage_id_for_targeted_ns()]
+        if target_stage_mode == "bottleneck_band":
+            bottleneck_stage_id = self._resolve_bottleneck_stage_id_for_targeted_ns()
+            return self._resolve_stage_band_ids(
+                bottleneck_stage_id,
+                radius=bottleneck_band_radius,
+            )
+        if target_stage_mode == "tail":
+            return self._resolve_tail_stage_ids(
+                tail_stage_count=tail_stage_count,
+                tail_stage_ratio=tail_stage_ratio,
+            )
+        raise ValueError(
+            "target_stage_mode must be one of "
+            "{'all', 'bottleneck', 'bottleneck_band', 'tail'}."
+        )
+
+    def critical_cross_machine_insertion_ls(
+        self,
+        max_passes: int = 2,
+        target_stage_mode: str = "bottleneck_band",
+        bottleneck_band_radius: int = 1,
+        tail_stage_count: int | None = None,
+        tail_stage_ratio: float | None = None,
+        max_machine_candidates_per_op: int | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Apply a critical-path cross-machine local search to the incumbent."""
+        sub_timer = ElapsedTimer()
+        if max_passes <= 0:
+            raise ValueError("max_passes must be positive.")
+
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError(
+                "No incumbent HybridFlowshopLiteSchedule is available for "
+                "critical_cross_machine_insertion_ls."
+            )
+
+        target_stage_ids = self._resolve_target_stage_ids_for_critical_machine_ls(
+            target_stage_mode=target_stage_mode,
+            bottleneck_band_radius=bottleneck_band_radius,
+            tail_stage_count=tail_stage_count,
+            tail_stage_ratio=tail_stage_ratio,
+        )
+        logging.info(
+            "Running critical_cross_machine_insertion_ls with max_passes=%d target_stage_mode=%s target_stage_ids=%s",
+            max_passes,
+            target_stage_mode,
+            target_stage_ids,
+        )
+
+        improved_schedule = improve_schedule_by_critical_cross_machine_insertions(
+            incumbent_solution,
+            self.stage_2_job_2_p_dict,
+            target_stage_ids=target_stage_ids,
+            max_passes=max_passes,
+            max_machine_candidates_per_op=max_machine_candidates_per_op,
+        )
+        if error_if_infeasible:
+            self.check_feasibility(improved_schedule.get_jik_2_start_time_map())
+
+        obj_value = float(improved_schedule.makespan)
+        report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=False,
+            subroutine_name="critical_cross_machine_insertion_ls",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
+        )
+        was_updated = self.solution_manager.register(report, improved_schedule)
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
     def apply_critical_job_operator(
         self,
         job_count: int,
@@ -3099,6 +3195,21 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             inserted = None
 
         try:
+            reassigned = improve_schedule_by_critical_cross_machine_insertions(
+                schedule,
+                self.stage_2_job_2_p_dict,
+                target_stage_ids=target_stage_ids,
+                max_passes=max(1, insertion_passes),
+                stage_2_job_2_release=stage_2_job_2_release,
+            )
+            candidate_pool.append(reassigned)
+        except Exception:
+            logging.exception(
+                "[MIP LB] Cross-machine critical-op repair failed for a post-MIP dispatch candidate."
+            )
+            reassigned = None
+
+        try:
             swapped = improve_schedule_by_critical_adjacent_swaps(
                 schedule,
                 self.stage_2_job_2_p_dict,
@@ -3123,6 +3234,20 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             except Exception:
                 logging.exception(
                     "[MIP LB] Adjacent-swap after insertion repair failed for a post-MIP dispatch candidate."
+                )
+
+        if reassigned is not None:
+            try:
+                reassigned_swapped = improve_schedule_by_critical_adjacent_swaps(
+                    reassigned,
+                    self.stage_2_job_2_p_dict,
+                    max_passes=max(1, swap_passes),
+                    stage_2_job_2_release=stage_2_job_2_release,
+                )
+                candidate_pool.append(reassigned_swapped)
+            except Exception:
+                logging.exception(
+                    "[MIP LB] Adjacent-swap after cross-machine repair failed for a post-MIP dispatch candidate."
                 )
 
         best_schedule = min(candidate_pool, key=lambda sch: sch.makespan)

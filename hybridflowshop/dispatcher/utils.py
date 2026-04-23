@@ -1,3 +1,4 @@
+import bisect
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -551,6 +552,200 @@ def improve_schedule_by_critical_adjacent_swaps(
             if candidate_makespan < best_neighbor_makespan:
                 best_neighbor = candidate
                 best_neighbor_makespan = candidate_makespan
+
+        if best_neighbor is None:
+            break
+
+        best_schedule = best_neighbor
+
+    return best_schedule
+
+
+def _schedule_respects_stage_release_times(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None,
+) -> bool:
+    if stage_2_job_2_release is None:
+        return True
+    for stage_id, job_2_release in stage_2_job_2_release.items():
+        for job_id, release_t in job_2_release.items():
+            if schedule.get_job_start_time(stage_id, job_id) < release_t:
+                return False
+    return True
+
+
+def _get_stage_machine_job_sequences(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_id: StageIdType,
+) -> dict[str, list[JobIdType]]:
+    return {
+        mc_id: [job_id for _start, _end, job_id in schedule.get_job_sequence(stage_id, mc_id)]
+        for mc_id in schedule.machines_per_stage[stage_id]
+    }
+
+
+def _rewrite_stage_machine_sequences(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_id: StageIdType,
+    stage_mc_2_job_sequence: Mapping[str, Sequence[JobIdType]],
+) -> None:
+    removed_ops = {
+        (job_id, stage_id, mc_id)
+        for mc_id in schedule.machines_per_stage[stage_id]
+        for _start, _end, job_id in schedule.get_job_sequence(stage_id, mc_id)
+    }
+    schedule.remove_operations(removed_ops)
+
+    for mc_id in schedule.machines_per_stage[stage_id]:
+        dummy_start = 0
+        for job_id in stage_mc_2_job_sequence[mc_id]:
+            schedule.add_ops_times_2_mc(
+                stage_id,
+                mc_id,
+                job_id,
+                dummy_start,
+                dummy_start + 1,
+            )
+            dummy_start += 1
+
+
+def _get_temporal_insert_indices(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_id: StageIdType,
+    mc_id: str,
+    pivot_start: int,
+) -> list[int]:
+    machine_rows = schedule.get_job_sequence(stage_id, mc_id)
+    if not machine_rows:
+        return [0]
+
+    starts = [start for start, _end, _job_id in machine_rows]
+    base_idx = bisect.bisect_right(starts, pivot_start)
+    candidate_indices = {
+        0,
+        len(machine_rows),
+        base_idx,
+        max(0, base_idx - 1),
+    }
+    return sorted(
+        idx for idx in candidate_indices if 0 <= idx <= len(machine_rows)
+    )
+
+
+def improve_schedule_by_critical_cross_machine_insertions(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_job_2_duration: Mapping[StageIdType, Mapping[JobIdType, int]],
+    *,
+    target_stage_ids: Sequence[StageIdType] | None = None,
+    max_passes: int = 2,
+    max_machine_candidates_per_op: int | None = None,
+    stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+) -> HybridFlowshopLiteSchedule:
+    """Improve a schedule by moving critical operations to alternative machines.
+
+    This is a light-weight cross-machine neighborhood inspired by critical-path
+    ``k``-insertion moves. For each critical operation, we try a small set of
+    plausible insertion positions on other machines of the same stage, then
+    retime the schedule from that stage onward.
+    """
+    if max_passes <= 0:
+        return schedule.deepcopy()
+
+    best_schedule = schedule.deepcopy()
+    best_schedule.make_semi_active(stage_2_job_2_duration)
+    if not _schedule_respects_stage_release_times(
+        best_schedule, stage_2_job_2_release
+    ):
+        return schedule.deepcopy()
+
+    target_stage_id_set = set(target_stage_ids or [])
+
+    for _pass_idx in range(max_passes):
+        critical_blocks = best_schedule.find_critical_blocks(
+            stage_2_job_2_duration,
+            include_singletons=False,
+        )
+        if not critical_blocks:
+            break
+
+        best_neighbor: HybridFlowshopLiteSchedule | None = None
+        best_neighbor_makespan = best_schedule.makespan
+        seen_moves: set[tuple[str, str, str, str, int]] = set()
+
+        for block in critical_blocks:
+            for job_id, stage_id, source_mc in block:
+                if target_stage_id_set and stage_id not in target_stage_id_set:
+                    continue
+
+                machine_ids = list(best_schedule.machines_per_stage[stage_id])
+                if len(machine_ids) <= 1:
+                    continue
+
+                pivot_start = best_schedule.get_job_start_time(stage_id, job_id)
+                machine_last_end_map = best_schedule.get_stage_2_mc_2_last_end_time_map()[
+                    stage_id
+                ]
+                candidate_target_mcs = [
+                    mc_id for mc_id in machine_ids if mc_id != source_mc
+                ]
+                candidate_target_mcs.sort(
+                    key=lambda mc_id: (machine_last_end_map[mc_id], mc_id)
+                )
+                if max_machine_candidates_per_op is not None:
+                    candidate_target_mcs = candidate_target_mcs[
+                        : max_machine_candidates_per_op
+                    ]
+
+                for target_mc in candidate_target_mcs:
+                    insert_indices = _get_temporal_insert_indices(
+                        best_schedule,
+                        stage_id,
+                        target_mc,
+                        pivot_start,
+                    )
+                    for insert_idx in insert_indices:
+                        move_key = (
+                            str(stage_id),
+                            str(job_id),
+                            str(source_mc),
+                            str(target_mc),
+                            insert_idx,
+                        )
+                        if move_key in seen_moves:
+                            continue
+                        seen_moves.add(move_key)
+
+                        stage_mc_2_job_sequence = _get_stage_machine_job_sequences(
+                            best_schedule,
+                            stage_id,
+                        )
+                        source_sequence = stage_mc_2_job_sequence[source_mc]
+                        if job_id not in source_sequence:
+                            continue
+                        source_sequence.remove(job_id)
+
+                        target_sequence = stage_mc_2_job_sequence[target_mc]
+                        bounded_insert_idx = min(insert_idx, len(target_sequence))
+                        target_sequence.insert(bounded_insert_idx, job_id)
+
+                        candidate = best_schedule.deepcopy()
+                        _rewrite_stage_machine_sequences(
+                            candidate,
+                            stage_id,
+                            stage_mc_2_job_sequence,
+                        )
+                        candidate.make_semi_active(
+                            stage_2_job_2_duration,
+                            start_from_stage=stage_id,
+                        )
+                        if not _schedule_respects_stage_release_times(
+                            candidate,
+                            stage_2_job_2_release,
+                        ):
+                            continue
+                        if candidate.makespan < best_neighbor_makespan:
+                            best_neighbor = candidate
+                            best_neighbor_makespan = candidate.makespan
 
         if best_neighbor is None:
             break

@@ -19,6 +19,7 @@ from hybridflowshop.dispatcher.utils import (
     get_stage_job_sequences_from_dispatch_windows,
     improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
+    improve_schedule_by_critical_cross_machine_insertions,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
 
@@ -353,6 +354,50 @@ def test_improve_schedule_by_critical_adjacent_swaps_preserves_release_constrain
     schedule.add_ops_times_2_mc("s1", "m1", "j1", 10, 15)
 
     improved = improve_schedule_by_critical_adjacent_swaps(
+        schedule,
+        stage_2_job_2_p,
+        max_passes=2,
+        stage_2_job_2_release={"s1": {"j1": 10, "j2": 0}},
+    )
+
+    assert improved.get_job_start_time("s1", "j1") >= 10
+
+
+def test_improve_schedule_by_critical_cross_machine_insertions_improves_known_case():
+    stage_2_job_2_p = {
+        "s1": {"j1": 5, "j2": 5},
+    }
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    schedule.add_ops_times_2_mc("s1", "m1", "j1", 0, 5)
+    schedule.add_ops_times_2_mc("s1", "m1", "j2", 5, 10)
+
+    improved = improve_schedule_by_critical_cross_machine_insertions(
+        schedule,
+        stage_2_job_2_p,
+        max_passes=2,
+    )
+
+    validate_schedule(improved, stage_2_job_2_p)
+    assert improved.makespan == 5
+
+
+def test_improve_schedule_by_critical_cross_machine_insertions_preserves_release_constraints():
+    stage_2_job_2_p = {
+        "s1": {"j1": 4, "j2": 4},
+    }
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    schedule.add_ops_times_2_mc("s1", "m1", "j2", 0, 4)
+    schedule.add_ops_times_2_mc("s1", "m1", "j1", 10, 14)
+
+    improved = improve_schedule_by_critical_cross_machine_insertions(
         schedule,
         stage_2_job_2_p,
         max_passes=2,
