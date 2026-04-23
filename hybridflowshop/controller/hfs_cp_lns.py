@@ -1636,6 +1636,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def critical_cross_machine_insertion_ls(
         self,
         max_passes: int = 2,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
         target_stage_mode: str = "bottleneck_band",
         bottleneck_band_radius: int = 1,
         tail_stage_count: int | None = None,
@@ -1648,6 +1650,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         sub_timer = ElapsedTimer()
         if max_passes <= 0:
             raise ValueError("max_passes must be positive.")
+        resolved_computational_time = self.get_remaining_time_limit(
+            self._resolve_tl_nc_computational_time(
+                computational_time=computational_time,
+                tl_nc_multiplier=tl_nc_multiplier,
+            )
+        )
 
         incumbent_solution = self.solution_manager.get_incumbent()
         if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
@@ -1663,8 +1671,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             tail_stage_ratio=tail_stage_ratio,
         )
         logging.info(
-            "Running critical_cross_machine_insertion_ls with max_passes=%d target_stage_mode=%s target_stage_ids=%s",
+            "Running critical_cross_machine_insertion_ls with max_passes=%d computational_time=%s target_stage_mode=%s target_stage_ids=%s",
             max_passes,
+            f"{resolved_computational_time:.3f}",
             target_stage_mode,
             target_stage_ids,
         )
@@ -1675,6 +1684,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             target_stage_ids=target_stage_ids,
             max_passes=max_passes,
             max_machine_candidates_per_op=max_machine_candidates_per_op,
+            computational_time=resolved_computational_time,
         )
         if error_if_infeasible:
             self.check_feasibility(improved_schedule.get_jik_2_start_time_map())

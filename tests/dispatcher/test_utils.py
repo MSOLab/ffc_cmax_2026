@@ -407,6 +407,29 @@ def test_improve_schedule_by_critical_cross_machine_insertions_preserves_release
     assert improved.get_job_start_time("s1", "j1") >= 10
 
 
+def test_improve_schedule_by_critical_cross_machine_insertions_respects_zero_time_limit():
+    stage_2_job_2_p = {
+        "s1": {"j1": 5, "j2": 5},
+    }
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+    schedule.add_ops_times_2_mc("s1", "m1", "j1", 0, 5)
+    schedule.add_ops_times_2_mc("s1", "m1", "j2", 5, 10)
+
+    improved = improve_schedule_by_critical_cross_machine_insertions(
+        schedule,
+        stage_2_job_2_p,
+        max_passes=2,
+        computational_time=0.0,
+    )
+
+    validate_schedule(improved, stage_2_job_2_p)
+    assert improved.makespan == 10
+
+
 def test_from_job_sequence_get_schedule_mixed_basic():
     """Test basic k=2 dispatch strategy."""
     sched = HybridFlowshopLiteSchedule(

@@ -389,6 +389,55 @@ def test_critical_tail_job_ns_uses_tl_nc_multiplier(monkeypatch):
     assert captured["solver_thread_cnt"] == 6
 
 
+def test_critical_cross_machine_insertion_ls_uses_tl_nc_multiplier(monkeypatch):
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["J1", "J2"],
+        stages=["S1"],
+        machines_per_stage={"S1": ["M1", "M2"]},
+    )
+    schedule.add_ops_times_2_mc("S1", "M1", "J1", start_time=0, end_time=5)
+    schedule.add_ops_times_2_mc("S1", "M1", "J2", start_time=5, end_time=10)
+
+    ctrl = _make_controller({"S1": {"J1": 5, "J2": 5}})
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: schedule,
+        register=lambda report, solution: False,
+    )
+    ctrl.timer = SimpleNamespace(elapsed_sec=0.0)
+    ctrl.obj_store = SimpleNamespace(
+        add_last_timestamp_note=lambda *args, **kwargs: None,
+    )
+    ctrl._make_subroutine_report = lambda **kwargs: SimpleNamespace(**kwargs)
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "test-call"
+    ctrl.get_remaining_time_limit = lambda subroutine_time_limit: subroutine_time_limit
+
+    captured = {}
+
+    def fake_improve_schedule_by_critical_cross_machine_insertions(
+        *_args,
+        computational_time,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        return schedule
+
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.improve_schedule_by_critical_cross_machine_insertions",
+        fake_improve_schedule_by_critical_cross_machine_insertions,
+    )
+
+    ctrl.critical_cross_machine_insertion_ls(
+        max_passes=2,
+        computational_time=999.0,
+        tl_nc_multiplier=0.5,
+        target_stage_mode="all",
+    )
+
+    assert captured["computational_time"] == 20.0
+
+
 def test_fix_profile_solve_reset_initializes_base_cp_model_when_missing(monkeypatch):
     ctrl = _make_controller({"S1": {"J1": 1}})
     ctrl.instance = SimpleNamespace(stage_id_list=["S1"])

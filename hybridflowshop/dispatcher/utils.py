@@ -1,4 +1,5 @@
 import bisect
+import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -639,6 +640,7 @@ def improve_schedule_by_critical_cross_machine_insertions(
     target_stage_ids: Sequence[StageIdType] | None = None,
     max_passes: int = 2,
     max_machine_candidates_per_op: int | None = None,
+    computational_time: float | None = None,
     stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
 ) -> HybridFlowshopLiteSchedule:
     """Improve a schedule by moving critical operations to alternative machines.
@@ -650,9 +652,22 @@ def improve_schedule_by_critical_cross_machine_insertions(
     """
     if max_passes <= 0:
         return schedule.deepcopy()
+    if computational_time is not None and computational_time <= 0:
+        return schedule.deepcopy()
+
+    deadline = None
+    if computational_time is not None:
+        deadline = time.perf_counter() + float(computational_time)
+
+    def _time_is_up() -> bool:
+        return deadline is not None and time.perf_counter() >= deadline
 
     best_schedule = schedule.deepcopy()
+    if _time_is_up():
+        return best_schedule
     best_schedule.make_semi_active(stage_2_job_2_duration)
+    if _time_is_up():
+        return best_schedule
     if not _schedule_respects_stage_release_times(
         best_schedule, stage_2_job_2_release
     ):
@@ -661,6 +676,8 @@ def improve_schedule_by_critical_cross_machine_insertions(
     target_stage_id_set = set(target_stage_ids or [])
 
     for _pass_idx in range(max_passes):
+        if _time_is_up():
+            break
         critical_blocks = best_schedule.find_critical_blocks(
             stage_2_job_2_duration,
             include_singletons=False,
@@ -671,9 +688,16 @@ def improve_schedule_by_critical_cross_machine_insertions(
         best_neighbor: HybridFlowshopLiteSchedule | None = None
         best_neighbor_makespan = best_schedule.makespan
         seen_moves: set[tuple[str, str, str, str, int]] = set()
+        stop_after_this_pass = False
 
         for block in critical_blocks:
+            if _time_is_up():
+                stop_after_this_pass = True
+                break
             for job_id, stage_id, source_mc in block:
+                if _time_is_up():
+                    stop_after_this_pass = True
+                    break
                 if target_stage_id_set and stage_id not in target_stage_id_set:
                     continue
 
@@ -697,6 +721,9 @@ def improve_schedule_by_critical_cross_machine_insertions(
                     ]
 
                 for target_mc in candidate_target_mcs:
+                    if _time_is_up():
+                        stop_after_this_pass = True
+                        break
                     insert_indices = _get_temporal_insert_indices(
                         best_schedule,
                         stage_id,
@@ -704,6 +731,9 @@ def improve_schedule_by_critical_cross_machine_insertions(
                         pivot_start,
                     )
                     for insert_idx in insert_indices:
+                        if _time_is_up():
+                            stop_after_this_pass = True
+                            break
                         move_key = (
                             str(stage_id),
                             str(job_id),
@@ -746,11 +776,19 @@ def improve_schedule_by_critical_cross_machine_insertions(
                         if candidate.makespan < best_neighbor_makespan:
                             best_neighbor = candidate
                             best_neighbor_makespan = candidate.makespan
+                    if stop_after_this_pass:
+                        break
+                if stop_after_this_pass:
+                    break
+            if stop_after_this_pass:
+                break
 
         if best_neighbor is None:
             break
 
         best_schedule = best_neighbor
+        if stop_after_this_pass:
+            break
 
     return best_schedule
 
