@@ -59,6 +59,7 @@ def run_post_retained_cp_dispatch(
     retained_cp_result: RetainedStageCpResult,
     retained_solution_rows: Sequence[Mapping[str, Any]],
     cp_local_repair_max_passes: int,
+    cp_local_repair_top_k: int = 1,
     include_release_anchor_candidates: bool,
     include_consensus_rank: bool = True,
     include_tail_bottleneck_rank: bool = True,
@@ -349,47 +350,92 @@ def run_post_retained_cp_dispatch(
             dispatched_schedule.makespan
         )
         if cp_local_repair_max_passes > 0:
-            local_repair_timer = ElapsedTimer()
-            try:
-                repair_anchor_stage_ids = list(
-                    variant_2_anchor_stage_ids.get(
-                        str(selected_dispatch_variant),
-                        preferred_anchor_stage_ids,
-                    )
+            repair_top_k = max(1, int(cp_local_repair_top_k))
+            sorted_repair_seed_variants = [
+                (variant, schedule)
+                for variant, schedule in sorted(
+                    dispatch_candidates.items(),
+                    key=lambda item: (
+                        item[1] is None,
+                        float("inf") if item[1] is None else item[1].makespan,
+                        item[0],
+                    ),
                 )
-                repair_release = (
-                    anchor_stage_releases.get(preferred_anchor_key, {})
-                    if preferred_anchor_key is not None
-                    else None
-                )
-                repaired_schedule = dependencies.repair_post_retained_cp_dispatch_candidate(
+                if schedule is not None
+            ]
+            repair_seed_variants = [
+                (
+                    str(pre_local_repair_selected_dispatch_variant),
                     dispatched_schedule,
-                    target_stage_ids=repair_anchor_stage_ids,
-                    insertion_passes=max(1, cp_local_repair_max_passes),
-                    max_shift=4,
-                    swap_passes=max(1, cp_local_repair_max_passes),
-                    stage_2_job_2_release=repair_release,
                 )
-                dispatch_candidates["selected_post_retained_cp_local_repair"] = (
-                    repaired_schedule
+            ]
+            for seed_variant, seed_schedule in sorted_repair_seed_variants:
+                if seed_variant == pre_local_repair_selected_dispatch_variant:
+                    continue
+                if len(repair_seed_variants) >= repair_top_k:
+                    break
+                repair_seed_variants.append((seed_variant, seed_schedule))
+            for repair_rank, (seed_variant, seed_schedule) in enumerate(
+                repair_seed_variants, start=1
+            ):
+                local_repair_timer = ElapsedTimer()
+                repair_variant = (
+                    "selected_post_retained_cp_local_repair"
+                    if repair_rank == 1
+                    and seed_variant == pre_local_repair_selected_dispatch_variant
+                    else "post_retained_cp_local_repair__"
+                    + _get_dispatch_variant_short_name(seed_variant)
                 )
-                dispatch_candidate_elapsed_sec["selected_post_retained_cp_local_repair"] = (
-                    local_repair_timer.elapsed_sec
-                )
-                if repair_anchor_stage_ids:
-                    variant_2_anchor_stage_ids["selected_post_retained_cp_local_repair"] = (
-                        repair_anchor_stage_ids
+                try:
+                    repair_anchor_stage_ids = list(
+                        variant_2_anchor_stage_ids.get(
+                            str(seed_variant),
+                            preferred_anchor_stage_ids,
+                        )
                     )
-                selected_dispatch_variant, dispatched_schedule = (
-                    _select_best_dispatch_candidate(dispatch_candidates)
-                )
-            except Exception:
-                logging.exception(
-                    "[CP LB] selected_post_retained_cp_local_repair failed."
-                )
-                dispatch_candidate_elapsed_sec["selected_post_retained_cp_local_repair"] = (
-                    local_repair_timer.elapsed_sec
-                )
+                    repair_release = _get_anchor_stage_release_by_stage_ids(
+                        anchor_stage_releases=anchor_stage_releases,
+                        anchor_stage_ids=repair_anchor_stage_ids,
+                    )
+                    repaired_schedule = dependencies.repair_post_retained_cp_dispatch_candidate(
+                        seed_schedule,
+                        target_stage_ids=repair_anchor_stage_ids,
+                        insertion_passes=max(1, cp_local_repair_max_passes),
+                        max_shift=4,
+                        swap_passes=max(1, cp_local_repair_max_passes),
+                        stage_2_job_2_release=repair_release,
+                    )
+                    dispatch_candidates[repair_variant] = repaired_schedule
+                    dispatch_candidate_elapsed_sec[repair_variant] = (
+                        local_repair_timer.elapsed_sec
+                    )
+                    if repair_anchor_stage_ids:
+                        variant_2_anchor_stage_ids[repair_variant] = (
+                            repair_anchor_stage_ids
+                        )
+                    logging.info(
+                        "[CP LB] %s repaired %s from makespan=%s to %s",
+                        repair_variant,
+                        seed_variant,
+                        seed_schedule.makespan,
+                        (
+                            repaired_schedule.makespan
+                            if repaired_schedule is not None
+                            else None
+                        ),
+                    )
+                except Exception:
+                    logging.exception(
+                        "[CP LB] %s failed while repairing %s.",
+                        repair_variant,
+                        seed_variant,
+                    )
+                    dispatch_candidate_elapsed_sec[repair_variant] = (
+                        local_repair_timer.elapsed_sec
+                    )
+            selected_dispatch_variant, dispatched_schedule = (
+                _select_best_dispatch_candidate(dispatch_candidates)
+            )
         dependencies.check_feasibility(dispatched_schedule.get_jik_2_start_time_map())
         logging.info(
             "[CP LB] Selected post-retained-CP dispatch variant %s with makespan=%s",
@@ -1186,6 +1232,23 @@ def _select_best_dispatch_candidate(
     return best_variant, best_schedule
 
 
+def _get_anchor_stage_release_by_stage_ids(
+    *,
+    anchor_stage_releases: Mapping[str, Mapping[str, Mapping[str, int]]],
+    anchor_stage_ids: Sequence[str],
+) -> Mapping[str, Mapping[str, int]] | None:
+    if not anchor_stage_ids:
+        return None
+    anchor_stage_id_tuple = tuple(str(stage_id) for stage_id in anchor_stage_ids)
+    for stage_2_job_2_release in anchor_stage_releases.values():
+        release_stage_id_tuple = tuple(
+            str(stage_id) for stage_id in stage_2_job_2_release
+        )
+        if release_stage_id_tuple == anchor_stage_id_tuple:
+            return stage_2_job_2_release
+    return None
+
+
 def _write_schedule_gantt(
     output_path: Path,
     schedule: HybridFlowshopLiteSchedule,
@@ -1218,7 +1281,9 @@ def _build_dispatch_variant_metadata(
         gap_to_best = ranking.get("gap_to_best")
         is_selected = variant == selected_variant
         is_pre_repair_base = variant == pre_local_repair_selected_variant
-        is_local_repair = variant == "selected_post_retained_cp_local_repair"
+        is_local_repair = variant == "selected_post_retained_cp_local_repair" or variant.startswith(
+            "post_retained_cp_local_repair__"
+        )
         ties_best = float(gap_to_best or 0.0) == 0.0
 
         tags: list[str] = []

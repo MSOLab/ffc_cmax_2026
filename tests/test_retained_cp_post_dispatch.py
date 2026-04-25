@@ -200,6 +200,84 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
     assert feasibility_calls == [{"makespan": 87}]
 
 
+def test_run_post_retained_cp_dispatch_repairs_top_k_candidates() -> None:
+    instance = SimpleNamespace(
+        stage_id_list=["s1", "s2", "s3", "s4", "s5"],
+        job_id_list=["j1", "j2", "j3"],
+    )
+    retained_solution_rows = [
+        {
+            "stage_id": stage_id,
+            "job_id": job_id,
+            "start": start,
+            "end": start + 2,
+            "processing_time": 2,
+            "head": 0,
+            "tail": 5,
+        }
+        for stage_id, rows in {
+            "s2": [("j1", 1), ("j2", 3), ("j3", 5)],
+            "s4": [("j2", 10), ("j1", 12), ("j3", 14)],
+        }.items()
+        for job_id, start in rows
+    ]
+
+    def _get_best_mixed_schedule_from_job_sequence(
+        job_sequence, *, machine_then_job=False, head_for_all_stages=False
+    ):
+        del job_sequence, machine_then_job, head_for_all_stages
+        return _FakeSchedule(94)
+
+    def _get_schedule_by_best_of_mixed_dispatches(
+        *, machine_then_job=False, head_for_all_stages=False, job_tiebreak_rank=None
+    ):
+        del machine_then_job, head_for_all_stages
+        if job_tiebreak_rank is None:
+            return _FakeSchedule(98)
+        if job_tiebreak_rank.get("j2", 99) == 0:
+            return _FakeSchedule(89)
+        return _FakeSchedule(91)
+
+    def _get_two_way_schedule_by_stage_band(**_kwargs):
+        return _FakeSchedule(97)
+
+    def _repair_post_retained_cp_dispatch_candidate(schedule, **_kwargs):
+        if schedule.makespan == 91:
+            return _FakeSchedule(80)
+        return _FakeSchedule(schedule.makespan - 1)
+
+    result = run_post_retained_cp_dispatch(
+        instance=instance,
+        retained_cp_result=_make_retained_cp_result(),
+        retained_solution_rows=retained_solution_rows,
+        cp_local_repair_max_passes=1,
+        cp_local_repair_top_k=6,
+        include_release_anchor_candidates=True,
+        include_consensus_rank=True,
+        include_tail_bottleneck_rank=True,
+        include_dynamic_priority=False,
+        dependencies=PostRetainedCpDispatchDependencies(
+            check_feasibility=lambda _start_map: None,
+            get_selected_dispatch_config=lambda: {
+                "mixed_schedule_for_former_stages": True,
+                "mixed_schedule_for_later_stages": True,
+                "machine_then_job": True,
+                "head_for_all_stages": True,
+            },
+            get_best_mixed_schedule_from_job_sequence=_get_best_mixed_schedule_from_job_sequence,
+            get_schedule_by_best_of_mixed_dispatches=_get_schedule_by_best_of_mixed_dispatches,
+            get_two_way_schedule_by_stage_band=_get_two_way_schedule_by_stage_band,
+            repair_post_retained_cp_dispatch_candidate=_repair_post_retained_cp_dispatch_candidate,
+        ),
+    )
+
+    assert result.dispatched_schedule is not None
+    assert result.dispatched_schedule.makespan == 80
+    assert str(result.selected_dispatch_variant).startswith(
+        "post_retained_cp_local_repair__"
+    )
+
+
 def test_write_post_retained_cp_dispatch_artifacts_writes_expected_files(
     tmp_path: Path,
 ) -> None:

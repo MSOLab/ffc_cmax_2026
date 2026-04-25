@@ -220,6 +220,177 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound_is_valid=obj_bound_is_valid,
         )
 
+    def solve_base_cp_model_with_retained_hint(
+        self,
+        computational_time: float | None,
+        solver_thread_cnt: int,
+        tl_nc_multiplier: float | None = None,
+        retained_stage_scope: str = "all",
+        retained_stage_ids: Sequence[str] | None = None,
+        cp_lb_dir: str | None = None,
+        cp_lb_source_scenario_dir: str | None = None,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool | None = None,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Solve base CP with retained-stage CP times as soft solution hints."""
+        sub_timer = ElapsedTimer()
+        if cp_lb_dir is not None or cp_lb_source_scenario_dir is not None:
+            from lb_bucket.cp.solution_io import read_retained_stage_cp_artifacts
+
+            if cp_lb_dir is not None:
+                source_dir = Path(cp_lb_dir)
+            else:
+                source_dir = (
+                    Path(str(cp_lb_source_scenario_dir))
+                    / str(self.instance.name)
+                    / "cp_lb"
+                )
+
+            retained_result, retained_solution_rows = (
+                read_retained_stage_cp_artifacts(source_dir)
+            )
+            if retained_result is None or not retained_solution_rows:
+                logging.warning(
+                    "[CP Hint] No saved retained-stage CP artifacts found under %s.",
+                    source_dir,
+                )
+                return
+            self.last_retained_cp_lb_result = retained_result
+            self.last_retained_cp_lb_retained_solution_rows = retained_solution_rows
+            self.last_retained_cp_lb_apply_elapsed_sec = None
+            logging.info(
+                "[CP Hint] Loaded saved retained-stage CP artifacts from %s.",
+                source_dir,
+            )
+
+        retained_solution_rows = getattr(
+            self, "last_retained_cp_lb_retained_solution_rows", None
+        )
+        if not retained_solution_rows:
+            logging.warning("[CP Hint] No retained-stage CP solution rows available.")
+            return
+
+        selected_stage_ids = self._resolve_retained_completion_stage_ids(
+            retained_stage_scope=retained_stage_scope,
+            retained_stage_ids=retained_stage_ids,
+        )
+        if not selected_stage_ids:
+            logging.warning("[CP Hint] No retained stages selected for hinting.")
+            return
+
+        if self.base_cp_model_is_set:
+            self.cp_model.delete_added_constraints()
+        else:
+            self.set_cp_model_as_base_cp_model()
+
+        selected_stage_id_set = set(selected_stage_ids)
+        start_hint_by_ji: dict[tuple[str, str], int] = {}
+        end_hint_by_ji: dict[tuple[str, str], int] = {}
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            for (job_id, stage_id, _), start_time in (
+                incumbent_solution.get_jik_2_start_time_map().items()
+            ):
+                start_hint_by_ji[str(job_id), str(stage_id)] = int(start_time)
+            for (job_id, stage_id, _), end_time in (
+                incumbent_solution.get_jik_2_end_time_map().items()
+            ):
+                end_hint_by_ji[str(job_id), str(stage_id)] = int(end_time)
+
+        retained_hint_count = 0
+        for row in retained_solution_rows:
+            stage_id = str(row["stage_id"])
+            if stage_id not in selected_stage_id_set:
+                continue
+            job_id = str(row["job_id"])
+            if (job_id, stage_id) not in self.vars.op_start:
+                continue
+            start_hint_by_ji[job_id, stage_id] = int(row["start"])
+            end_hint_by_ji[job_id, stage_id] = int(row["end"])
+            retained_hint_count += 1
+
+        self.cp_model.clear_hints()
+        start_hint_count = 0
+        for (job_id, stage_id), start_time in start_hint_by_ji.items():
+            if (job_id, stage_id) in self.vars.op_start:
+                self.cp_model.add_hint(self.vars.op_start[job_id, stage_id], start_time)
+                start_hint_count += 1
+        end_hint_count = 0
+        for (job_id, stage_id), end_time in end_hint_by_ji.items():
+            if (job_id, stage_id) in self.vars.op_end:
+                self.cp_model.add_hint(self.vars.op_end[job_id, stage_id], end_time)
+                end_hint_count += 1
+        if isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            self.cp_model.add_hint(self.vars.makespan, incumbent_solution.makespan)
+
+        logging.info(
+            "[CP Hint] Solving base CP with retained hints: scope=%s stages=%s "
+            "retained_hints=%d start_hints=%d end_hints=%d.",
+            retained_stage_scope,
+            selected_stage_ids,
+            retained_hint_count,
+            start_hint_count,
+            end_hint_count,
+        )
+
+        _computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
+        if _computational_time is not None:
+            _computational_time = max(0.0, _computational_time - sub_timer.elapsed_sec)
+
+        report, solution = self.solve_current_cp_remaining_time_limit(
+            _computational_time,
+            solver_thread_cnt,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            obj_value_is_valid=True,
+            obj_bound_is_valid=True,
+            is_initial_solution=incumbent_solution is None,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
+            log_search_progress=log_search_progress,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+        logging.info(
+            "Solved base CP model with retained hints: %s with objValue=%s "
+            "& objBound=%s",
+            report.status,
+            report.obj_value,
+            report.obj_bound,
+        )
+        if not report.is_feasible or solution is None:
+            logging.warning(
+                "[CP Hint] Retained-hint base CP did not produce a feasible "
+                "solution; keeping the existing incumbent and skipping report "
+                "registration."
+            )
+            return
+        self.solution_manager.register(report, solution)
+
+        log_time = self.timer.elapsed_sec
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        obj_value = self.obj_store.get_last_obj_value()
+        obj_value_is_valid = False
+        if obj_value is not None:
+            self.add_obj_value_log(log_time, obj_value, is_maximize=None)
+            obj_value_is_valid = True
+        obj_bound = self.obj_store.get_last_obj_bound()
+        obj_bound_is_valid = False
+        if obj_bound is not None:
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=None)
+            obj_bound_is_valid = True
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note,
+            obj_value_is_valid=obj_value_is_valid,
+            obj_bound_is_valid=obj_bound_is_valid,
+        )
+
     # Helper method for LNS-CP
 
     def _fix_profile_solve_reset(
@@ -1803,6 +1974,156 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
+    def critical_schedule_repair_ls(
+        self,
+        max_rounds: int = 2,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
+        target_stage_mode: str = "bottleneck_band",
+        bottleneck_band_radius: int = 1,
+        tail_stage_count: int | None = None,
+        tail_stage_ratio: float | None = None,
+        stage_insertion_passes: int = 2,
+        stage_insertion_max_shift: int = 4,
+        machine_insertion_passes: int = 2,
+        max_machine_candidates_per_op: int | None = None,
+        adjacent_swap_passes: int = 2,
+        max_adjacent_pairs_per_pass: int | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Apply a portfolio of lightweight critical-path repairs to the incumbent."""
+        sub_timer = ElapsedTimer()
+        if max_rounds <= 0:
+            raise ValueError("max_rounds must be positive.")
+
+        resolved_computational_time = self.get_remaining_time_limit(
+            self._resolve_tl_nc_computational_time(
+                computational_time=computational_time,
+                tl_nc_multiplier=tl_nc_multiplier,
+            )
+        )
+        deadline = (
+            time.perf_counter() + float(resolved_computational_time)
+            if resolved_computational_time is not None
+            else None
+        )
+
+        def time_is_up() -> bool:
+            return deadline is not None and time.perf_counter() >= deadline
+
+        def remaining_time() -> float | None:
+            if deadline is None:
+                return None
+            return max(0.0, deadline - time.perf_counter())
+
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError(
+                "No incumbent HybridFlowshopLiteSchedule is available for "
+                "critical_schedule_repair_ls."
+            )
+
+        target_stage_ids = self._resolve_target_stage_ids_for_critical_machine_ls(
+            target_stage_mode=target_stage_mode,
+            bottleneck_band_radius=bottleneck_band_radius,
+            tail_stage_count=tail_stage_count,
+            tail_stage_ratio=tail_stage_ratio,
+        )
+        logging.info(
+            "Running critical_schedule_repair_ls with max_rounds=%d computational_time=%s "
+            "target_stage_mode=%s target_stage_ids=%s",
+            max_rounds,
+            f"{resolved_computational_time:.3f}"
+            if resolved_computational_time is not None
+            else None,
+            target_stage_mode,
+            target_stage_ids,
+        )
+
+        best_schedule = incumbent_solution
+        for _round_idx in range(max_rounds):
+            if time_is_up():
+                break
+
+            candidate_pool = [best_schedule]
+            if stage_insertion_passes > 0:
+                try:
+                    inserted = improve_schedule_by_critical_stage_sequence_insertions(
+                        self.create_empty_schedule_from_ins,
+                        best_schedule,
+                        self.stage_2_job_2_p_dict,
+                        target_stage_ids=target_stage_ids,
+                        max_passes=stage_insertion_passes,
+                        max_shift=max(1, stage_insertion_max_shift),
+                    )
+                    candidate_pool.append(inserted)
+                except Exception:
+                    logging.exception(
+                        "Stage-sequence insertion failed in critical_schedule_repair_ls."
+                    )
+
+            if not time_is_up() and machine_insertion_passes > 0:
+                try:
+                    reassigned = improve_schedule_by_critical_cross_machine_insertions(
+                        best_schedule,
+                        self.stage_2_job_2_p_dict,
+                        target_stage_ids=target_stage_ids,
+                        max_passes=machine_insertion_passes,
+                        max_machine_candidates_per_op=max_machine_candidates_per_op,
+                        computational_time=remaining_time(),
+                    )
+                    candidate_pool.append(reassigned)
+                except Exception:
+                    logging.exception(
+                        "Cross-machine insertion failed in critical_schedule_repair_ls."
+                    )
+
+            if not time_is_up() and adjacent_swap_passes > 0:
+                for base_schedule in tuple(candidate_pool):
+                    try:
+                        swapped = improve_schedule_by_critical_adjacent_swaps(
+                            base_schedule,
+                            self.stage_2_job_2_p_dict,
+                            max_passes=adjacent_swap_passes,
+                            max_adjacent_pairs_per_pass=max_adjacent_pairs_per_pass,
+                        )
+                        candidate_pool.append(swapped)
+                    except Exception:
+                        logging.exception(
+                            "Adjacent swap failed in critical_schedule_repair_ls."
+                        )
+
+            round_best = min(candidate_pool, key=lambda sch: sch.makespan)
+            if round_best.makespan >= best_schedule.makespan:
+                break
+            best_schedule = round_best
+
+        best_schedule.make_semi_active(self.stage_2_job_2_p_dict)
+        if error_if_infeasible:
+            self.check_feasibility(best_schedule.get_jik_2_start_time_map())
+
+        obj_value = float(best_schedule.makespan)
+        report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=obj_value,
+            obj_bound=None,
+            is_init=False,
+            subroutine_name="critical_schedule_repair_ls",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, obj_value)],
+        )
+        was_updated = self.solution_manager.register(report, best_schedule)
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, obj_value, is_maximize=False)
+        self.obj_store.add_last_timestamp_note(
+            self._get_call_context_of_current_method(),
+            obj_value_is_valid=True,
+        )
+
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
     def apply_critical_job_operator(
         self,
         job_count: int,
@@ -2515,6 +2836,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         respect_anchor_stage_release_lb: bool = True,
         cp_local_repair_max_passes: int = 3,
+        cp_local_repair_top_k: int = 1,
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
@@ -2544,6 +2866,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             retained_cp_result=retained_result,
             retained_solution_rows=retained_solution_rows,
             cp_local_repair_max_passes=cp_local_repair_max_passes,
+            cp_local_repair_top_k=cp_local_repair_top_k,
             include_release_anchor_candidates=respect_anchor_stage_release_lb,
             include_consensus_rank=include_consensus_rank,
             include_tail_bottleneck_rank=include_tail_bottleneck_rank,
@@ -2648,6 +2971,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         respect_anchor_stage_release_lb: bool = True,
         cp_local_repair_max_passes: int = 3,
+        cp_local_repair_top_k: int = 1,
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
@@ -2662,12 +2986,256 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             machine_then_job=machine_then_job,
             respect_anchor_stage_release_lb=respect_anchor_stage_release_lb,
             cp_local_repair_max_passes=cp_local_repair_max_passes,
+            cp_local_repair_top_k=cp_local_repair_top_k,
             include_consensus_rank=include_consensus_rank,
             include_tail_bottleneck_rank=include_tail_bottleneck_rank,
             include_dynamic_priority=include_dynamic_priority,
             save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
+        )
+
+    def complete_from_retained_cp(
+        self,
+        solver_thread_cnt: int,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
+        retained_stage_scope: str = "all",
+        retained_stage_ids: Sequence[str] | None = None,
+        time_slack: int = 0,
+        cp_lb_dir: str | None = None,
+        cp_lb_source_scenario_dir: str | None = None,
+        use_lns_only: bool | None = False,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Complete the last retained-stage CP solution by solving the full CP model.
+
+        Retained-stage CP gives start times for a relaxed subset of stages. This
+        subroutine uses those retained start times as hard anchor windows, then
+        asks the full HFS CP model to schedule the omitted stages around them.
+        """
+        sub_timer = ElapsedTimer()
+        if cp_lb_dir is not None or cp_lb_source_scenario_dir is not None:
+            from lb_bucket.cp.solution_io import read_retained_stage_cp_artifacts
+
+            if cp_lb_dir is not None:
+                source_dir = Path(cp_lb_dir)
+            else:
+                source_dir = (
+                    Path(str(cp_lb_source_scenario_dir))
+                    / str(self.instance.name)
+                    / "cp_lb"
+                )
+
+            retained_result, retained_solution_rows = (
+                read_retained_stage_cp_artifacts(source_dir)
+            )
+            if retained_result is None or not retained_solution_rows:
+                logging.warning(
+                    "[CP Complete] No saved retained-stage CP artifacts found "
+                    "under %s.",
+                    source_dir,
+                )
+                return
+
+            self.last_retained_cp_lb_result = retained_result
+            self.last_retained_cp_lb_retained_solution_rows = retained_solution_rows
+            self.last_retained_cp_lb_apply_elapsed_sec = None
+            logging.info(
+                "[CP Complete] Loaded saved retained-stage CP artifacts from %s.",
+                source_dir,
+            )
+
+        retained_solution_rows = getattr(
+            self, "last_retained_cp_lb_retained_solution_rows", None
+        )
+        if not retained_solution_rows:
+            logging.warning(
+                "[CP Complete] No retained-stage CP solution rows are available."
+            )
+            return
+
+        selected_stage_ids = self._resolve_retained_completion_stage_ids(
+            retained_stage_scope=retained_stage_scope,
+            retained_stage_ids=retained_stage_ids,
+        )
+        if not selected_stage_ids:
+            logging.warning(
+                "[CP Complete] No retained stages selected for completion."
+            )
+            return
+
+        if self.base_cp_model_is_set:
+            self.cp_model.delete_added_constraints()
+        else:
+            self.set_cp_model_as_base_cp_model()
+
+        selected_stage_id_set = set(selected_stage_ids)
+        slack = max(0, int(time_slack))
+        added_anchor_count = 0
+        for row in retained_solution_rows:
+            stage_id = str(row["stage_id"])
+            job_id = str(row["job_id"])
+            if stage_id not in selected_stage_id_set:
+                continue
+            if (job_id, stage_id) not in self.vars.op_start:
+                continue
+
+            start_time = int(row["start"])
+            lower = max(0, start_time - slack)
+            upper = start_time + slack
+            self.cp_model.add(self.vars.op_start[job_id, stage_id] >= lower)
+            self.cp_model.add(self.vars.op_start[job_id, stage_id] <= upper)
+            added_anchor_count += 1
+
+        if added_anchor_count == 0:
+            logging.warning(
+                "[CP Complete] Retained-stage rows produced no valid full-CP anchors."
+            )
+            return
+
+        logging.info(
+            "[CP Complete] Solving full CP with %d retained-stage anchors "
+            "(scope=%s stages=%s time_slack=%d).",
+            added_anchor_count,
+            retained_stage_scope,
+            selected_stage_ids,
+            slack,
+        )
+
+        _computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
+        if _computational_time is not None:
+            _computational_time = max(0.0, _computational_time - sub_timer.elapsed_sec)
+
+        if self.solution_manager.get_incumbent() is None:
+            report, solution = self.solve_current_cp_remaining_time_limit(
+                _computational_time,
+                solver_thread_cnt,
+                obj_value_is_valid=True,
+                obj_bound_is_valid=False,
+                is_initial_solution=True,
+                use_lns_only=use_lns_only,
+                cp_model_probing_level=cp_model_probing_level,
+                log_search_progress=log_search_progress,
+                error_if_infeasible=error_if_infeasible,
+                draw_gantt=draw_gantt,
+            )
+        else:
+            report, solution = self.solve_with_initial_solution(
+                _computational_time,
+                solver_thread_cnt,
+                obj_value_is_valid=True,
+                obj_bound_is_valid=False,
+                use_lns_only=use_lns_only,
+                cp_model_probing_level=cp_model_probing_level,
+                log_search_progress=log_search_progress,
+                error_if_infeasible=error_if_infeasible,
+                draw_gantt=draw_gantt,
+            )
+
+        if solution is None:
+            logging.info(
+                "[CP Complete] Full-CP completion did not produce a feasible "
+                "schedule (status=%s).",
+                report.status,
+            )
+            return
+
+        report = report.copy(
+            elapsed_time=sub_timer.elapsed_sec,
+            subroutine_name="complete_from_retained_cp",
+            call_context=self._get_call_context_of_current_method(),
+        )
+        was_updated = self.solution_manager.register(report, solution)
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(solution.makespan), is_maximize=False)
+        self.obj_store.add_last_timestamp_note(
+            self._get_call_context_of_current_method(),
+            obj_value_is_valid=True,
+        )
+        logging.info(
+            "[CP Complete] Completed retained-stage full CP with makespan=%s "
+            "updated_incumbent=%s.",
+            solution.makespan,
+            was_updated,
+        )
+
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _resolve_retained_completion_stage_ids(
+        self,
+        *,
+        retained_stage_scope: str,
+        retained_stage_ids: Sequence[str] | None,
+    ) -> list[str]:
+        if retained_stage_ids is not None:
+            explicit_ids = [str(stage_id) for stage_id in retained_stage_ids]
+            unknown_ids = [
+                stage_id
+                for stage_id in explicit_ids
+                if stage_id not in self.instance.stage_id_list
+            ]
+            if unknown_ids:
+                raise ValueError(
+                    f"Unknown retained_stage_ids for completion: {unknown_ids}."
+                )
+            return explicit_ids
+
+        result = getattr(self, "last_retained_cp_lb_result", None)
+        if result is None:
+            return []
+
+        stage_id_list = list(self.instance.stage_id_list)
+        retained_ids = [str(stage_id) for stage_id in result.retained_stage_ids]
+        if retained_stage_scope == "all":
+            return retained_ids
+
+        if retained_stage_scope == "preferred_anchor":
+            return self._resolve_anchor_stage_ids_from_last_retained_cp_lb()
+
+        if retained_stage_scope == "bottlenecks":
+            selected = [
+                str(stage_id)
+                for stage_id in (
+                    getattr(result, "selected_bottleneck_stage_ids", ()) or ()
+                )
+            ]
+            if selected:
+                return selected
+            bottleneck_stage_id = getattr(result, "bottleneck_stage_id", None)
+            return [str(bottleneck_stage_id)] if bottleneck_stage_id is not None else []
+
+        if retained_stage_scope == "first_last":
+            if not stage_id_list:
+                return []
+            return [
+                stage_id
+                for stage_id in (stage_id_list[0], stage_id_list[-1])
+                if stage_id in retained_ids
+            ]
+
+        if retained_stage_scope == "first_bottlenecks_last":
+            selected = [
+                str(stage_id)
+                for stage_id in (
+                    getattr(result, "selected_bottleneck_stage_ids", ()) or ()
+                )
+            ]
+            candidates = [stage_id_list[0], *selected, stage_id_list[-1]]
+            return [stage_id for stage_id in candidates if stage_id in retained_ids]
+
+        raise ValueError(
+            "retained_stage_scope must be one of "
+            "{'all', 'preferred_anchor', 'bottlenecks', "
+            "'first_last', 'first_bottlenecks_last'}."
         )
 
     def dispatch_from_saved_retained_cp(
@@ -2680,6 +3248,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         machine_then_job: bool = False,
         respect_anchor_stage_release_lb: bool = True,
         cp_local_repair_max_passes: int = 3,
+        cp_local_repair_top_k: int = 1,
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
@@ -2730,6 +3299,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             machine_then_job=machine_then_job,
             respect_anchor_stage_release_lb=respect_anchor_stage_release_lb,
             cp_local_repair_max_passes=cp_local_repair_max_passes,
+            cp_local_repair_top_k=cp_local_repair_top_k,
             include_consensus_rank=include_consensus_rank,
             include_tail_bottleneck_rank=include_tail_bottleneck_rank,
             include_dynamic_priority=include_dynamic_priority,
@@ -5610,6 +6180,218 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
         # Draw Gantt chart if the solution is an improvement
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def initialize_by_dispatch_portfolio(
+        self,
+        portfolio: str = "balanced",
+        include_stage_agg: bool = True,
+        cap_portions: Sequence[float] | None = None,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Initialize from a compact portfolio of dispatch and aggregation variants."""
+        sub_timer = ElapsedTimer()
+        core_methods = ["bn2d_all_stages", "best_of_mixed_dispatches"]
+        stage_agg_methods = [
+            "bn2d_all_stages",
+            "best_of_mixed_dispatches",
+            "stage_agg_2",
+            "stage_agg_2_1",
+            "stage_agg_2_2",
+        ]
+        if portfolio not in {"compact", "balanced", "wide"}:
+            raise ValueError("portfolio must be one of {'compact', 'balanced', 'wide'}.")
+
+        base_caps = list(cap_portions) if cap_portions is not None else [0.25]
+        extra_caps = [] if cap_portions is not None else [0.2, 0.3]
+        wide_caps = [] if cap_portions is not None else [0.15, 0.35]
+
+        config_rows: list[dict[str, Any]] = []
+        seen_keys: set[tuple[Any, ...]] = set()
+
+        def add_config(
+            *,
+            cap: float,
+            machine_then_job: bool,
+            head_for_all_stages: bool,
+            normalize_by_stage_cnt: bool,
+            method_list: list[str],
+            p_agg_method: str = "sum",
+            mi_agg_method: str = "max",
+        ) -> None:
+            key = (
+                round(float(cap), 6),
+                machine_then_job,
+                head_for_all_stages,
+                normalize_by_stage_cnt,
+                tuple(method_list),
+                p_agg_method,
+                mi_agg_method,
+            )
+            if key in seen_keys:
+                return
+            seen_keys.add(key)
+            config_rows.append(
+                {
+                    "left_cap_portion": float(cap),
+                    "right_cap_portion": float(cap),
+                    "normalize_by_stage_cnt": normalize_by_stage_cnt,
+                    "randomize_mid_all": False,
+                    "reverse_mid_all": False,
+                    "reverse_mid_even": False,
+                    "mixed_schedule_for_former_stages": True,
+                    "mixed_schedule_for_later_stages": True,
+                    "machine_then_job": machine_then_job,
+                    "head_for_all_stages": head_for_all_stages,
+                    "p_agg_method": p_agg_method,
+                    "mi_agg_method": mi_agg_method,
+                    "method_list": method_list,
+                }
+            )
+
+        for cap in base_caps:
+            add_config(
+                cap=cap,
+                machine_then_job=True,
+                head_for_all_stages=False,
+                normalize_by_stage_cnt=False,
+                method_list=core_methods,
+            )
+            add_config(
+                cap=cap,
+                machine_then_job=True,
+                head_for_all_stages=True,
+                normalize_by_stage_cnt=False,
+                method_list=core_methods,
+            )
+            add_config(
+                cap=cap,
+                machine_then_job=False,
+                head_for_all_stages=True,
+                normalize_by_stage_cnt=False,
+                method_list=core_methods,
+            )
+            if portfolio in {"balanced", "wide"}:
+                add_config(
+                    cap=cap,
+                    machine_then_job=True,
+                    head_for_all_stages=True,
+                    normalize_by_stage_cnt=True,
+                    method_list=core_methods,
+                )
+
+        if portfolio in {"balanced", "wide"}:
+            for cap in extra_caps:
+                add_config(
+                    cap=cap,
+                    machine_then_job=True,
+                    head_for_all_stages=True,
+                    normalize_by_stage_cnt=False,
+                    method_list=core_methods,
+                )
+
+        if portfolio == "wide":
+            for cap in wide_caps:
+                for machine_then_job in (True, False):
+                    add_config(
+                        cap=cap,
+                        machine_then_job=machine_then_job,
+                        head_for_all_stages=True,
+                        normalize_by_stage_cnt=False,
+                        method_list=core_methods,
+                    )
+
+        if include_stage_agg:
+            agg_pairs = [("sum", "max")]
+            if portfolio in {"balanced", "wide"}:
+                agg_pairs.append(("sum", "min"))
+            if portfolio == "wide":
+                agg_pairs.append(("sum", "max"))
+            for p_agg_method, mi_agg_method in agg_pairs:
+                for cap in base_caps:
+                    add_config(
+                        cap=cap,
+                        machine_then_job=True,
+                        head_for_all_stages=True,
+                        normalize_by_stage_cnt=False,
+                        method_list=stage_agg_methods,
+                        p_agg_method=p_agg_method,
+                        mi_agg_method=mi_agg_method,
+                    )
+                    if portfolio in {"balanced", "wide"}:
+                        add_config(
+                            cap=cap,
+                            machine_then_job=False,
+                            head_for_all_stages=True,
+                            normalize_by_stage_cnt=False,
+                            method_list=stage_agg_methods,
+                            p_agg_method=p_agg_method,
+                            mi_agg_method=mi_agg_method,
+                        )
+
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_obj: int | None = None
+        best_config_idx = -1
+        best_method_name = ""
+        for config_idx, config in enumerate(config_rows, start=1):
+            try:
+                candidate_schedules = self._get_selected_dispatch_candidate_schedules(
+                    **config,
+                    draw_gantt=False,
+                )
+            except Exception:
+                logging.exception(
+                    "[Dispatch Portfolio] Candidate config %d/%d failed: %s",
+                    config_idx,
+                    len(config_rows),
+                    config,
+                )
+                continue
+            for method_name, sch in candidate_schedules.items():
+                if sch is None:
+                    continue
+                obj = sch.makespan
+                if best_obj is None or obj < best_obj:
+                    best_sch = sch
+                    best_obj = obj
+                    best_config_idx = config_idx
+                    best_method_name = method_name
+
+        if best_sch is None:
+            logging.warning("[Dispatch Portfolio] No feasible dispatch candidate found.")
+            return
+        logging.info(
+            "[Dispatch Portfolio] Best init makespan=%s from config %d/%d method=%s",
+            best_obj,
+            best_config_idx,
+            len(config_rows),
+            best_method_name,
+        )
+
+        if error_if_infeasible:
+            self.check_feasibility(best_sch.get_jik_2_start_time_map())
+
+        report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(best_sch.makespan),
+            obj_bound=None,
+            is_init=self.solution_manager.get_incumbent() is None,
+            subroutine_name="initialize_by_dispatch_portfolio",
+            progress_obj_value_records=[
+                (sub_timer.elapsed_sec, float(best_sch.makespan))
+            ],
+        )
+        was_updated = self.solution_manager.register(report, best_sch)
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(best_sch.makespan), is_maximize=False)
+        self.obj_store.add_last_timestamp_note(
+            self._get_call_context_of_current_method(),
+            obj_value_is_valid=True,
+        )
+
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
