@@ -3670,6 +3670,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
+        randomized_mixed_rank_trials: int = 0,
         use_retained_cp_snapshot_portfolio: bool = False,
         retained_cp_snapshot_top_k: int = 0,
         retained_cp_dispatch_selection_strategy: str = "best_makespan",
@@ -3781,6 +3782,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 include_consensus_rank=include_consensus_rank,
                 include_tail_bottleneck_rank=include_tail_bottleneck_rank,
                 include_dynamic_priority=include_dynamic_priority,
+                randomized_mixed_rank_trials=randomized_mixed_rank_trials,
                 dependencies=dependencies,
             )
             source_schedule = dispatch_result_for_source.dispatched_schedule
@@ -4018,6 +4020,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
+        randomized_mixed_rank_trials: int = 0,
         save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -4033,6 +4036,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             include_consensus_rank=include_consensus_rank,
             include_tail_bottleneck_rank=include_tail_bottleneck_rank,
             include_dynamic_priority=include_dynamic_priority,
+            randomized_mixed_rank_trials=randomized_mixed_rank_trials,
             save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -4295,6 +4299,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
+        randomized_mixed_rank_trials: int = 0,
         save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -4346,6 +4351,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             include_consensus_rank=include_consensus_rank,
             include_tail_bottleneck_rank=include_tail_bottleneck_rank,
             include_dynamic_priority=include_dynamic_priority,
+            randomized_mixed_rank_trials=randomized_mixed_rank_trials,
             save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -7007,11 +7013,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if saved_config is None:
             return self._build_selected_dispatch_config()
         config = dict(saved_config)
-        config["method_list"] = (
+        method_list = (
             list(config["method_list"])
             if config.get("method_list")
             else self._get_default_selected_dispatch_method_list()
         )
+        if method_list == ["bn2d_all_stages"]:
+            method_list = self._get_default_selected_dispatch_method_list()
+        config["method_list"] = method_list
         return config
 
     def _get_selected_dispatch_candidate_schedules(
@@ -7233,6 +7242,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cap_portions: Sequence[float] | None = None,
         include_mid_order_variants: bool = False,
         randomized_mid_trials: int = 0,
+        randomized_tiebreak_trials: int = 0,
         selection_strategy: str = "best",
         selection_obj_slack: float = 0.0,
         error_if_infeasible: bool = False,
@@ -7241,9 +7251,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """Initialize from a compact portfolio of dispatch and aggregation variants."""
         sub_timer = ElapsedTimer()
         core_methods = ["bn2d_all_stages", "best_of_mixed_dispatches"]
+        bn2d_methods = ["bn2d_all_stages"]
+        mixed_methods = ["best_of_mixed_dispatches"]
         stage_agg_methods = [
             "bn2d_all_stages",
             "best_of_mixed_dispatches",
+            "stage_agg_2",
+            "stage_agg_2_1",
+            "stage_agg_2_2",
+        ]
+        stage_agg_only_methods = [
             "stage_agg_2",
             "stage_agg_2_1",
             "stage_agg_2_2",
@@ -7277,6 +7294,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             reverse_mid_all: bool = False,
             reverse_mid_even: bool = False,
             random_trial_idx: int | None = None,
+            job_tiebreak_rank: Mapping[str, int] | None = None,
+            random_tiebreak_trial_idx: int | None = None,
         ) -> None:
             key = (
                 round(float(cap), 6),
@@ -7287,6 +7306,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 reverse_mid_all,
                 reverse_mid_even,
                 random_trial_idx,
+                random_tiebreak_trial_idx,
                 tuple(method_list),
                 p_agg_method,
                 mi_agg_method,
@@ -7310,6 +7330,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     "mi_agg_method": mi_agg_method,
                     "method_list": method_list,
                     "_random_trial_idx": random_trial_idx,
+                    "_job_tiebreak_rank": dict(job_tiebreak_rank or {}),
+                    "_random_tiebreak_trial_idx": random_tiebreak_trial_idx,
                 }
             )
 
@@ -7322,7 +7344,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     machine_then_job=True,
                     head_for_all_stages=True,
                     normalize_by_stage_cnt=False,
-                    method_list=method_list,
+                    method_list=bn2d_methods,
                     reverse_mid_even=reverse_mid_even,
                     reverse_mid_all=reverse_mid_all,
                 )
@@ -7332,9 +7354,37 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     machine_then_job=True,
                     head_for_all_stages=True,
                     normalize_by_stage_cnt=False,
-                    method_list=method_list,
+                    method_list=bn2d_methods,
                     randomize_mid_all=True,
                     random_trial_idx=trial_idx,
+                )
+
+        def add_random_tiebreak_variants(
+            *,
+            cap: float,
+            method_list: list[str],
+            p_agg_method: str = "sum",
+            mi_agg_method: str = "max",
+        ) -> None:
+            if randomized_tiebreak_trials <= 0 or not method_list:
+                return
+            jobs = [str(job_id) for job_id in self.instance.job_id_list]
+            for trial_idx in range(max(0, int(randomized_tiebreak_trials))):
+                shuffled_jobs = list(jobs)
+                random.shuffle(shuffled_jobs)
+                job_tiebreak_rank = {
+                    job_id: idx for idx, job_id in enumerate(shuffled_jobs)
+                }
+                add_config(
+                    cap=cap,
+                    machine_then_job=True,
+                    head_for_all_stages=True,
+                    normalize_by_stage_cnt=False,
+                    method_list=method_list,
+                    p_agg_method=p_agg_method,
+                    mi_agg_method=mi_agg_method,
+                    job_tiebreak_rank=job_tiebreak_rank,
+                    random_tiebreak_trial_idx=trial_idx,
                 )
 
         for cap in base_caps:
@@ -7368,6 +7418,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     method_list=core_methods,
                 )
             add_mid_order_variants(cap=cap, method_list=core_methods)
+            add_random_tiebreak_variants(cap=cap, method_list=mixed_methods)
 
         if portfolio in {"balanced", "wide"}:
             for cap in extra_caps:
@@ -7379,6 +7430,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     method_list=core_methods,
                 )
                 add_mid_order_variants(cap=cap, method_list=core_methods)
+                add_random_tiebreak_variants(cap=cap, method_list=mixed_methods)
 
         if portfolio == "wide":
             for cap in wide_caps:
@@ -7391,6 +7443,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                         method_list=core_methods,
                     )
                 add_mid_order_variants(cap=cap, method_list=core_methods)
+                add_random_tiebreak_variants(cap=cap, method_list=mixed_methods)
 
         if include_stage_agg:
             agg_pairs = [("sum", "max")]
@@ -7420,6 +7473,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                             mi_agg_method=mi_agg_method,
                         )
                     add_mid_order_variants(cap=cap, method_list=stage_agg_methods)
+                    add_random_tiebreak_variants(
+                        cap=cap,
+                        method_list=stage_agg_only_methods,
+                        p_agg_method=p_agg_method,
+                        mi_agg_method=mi_agg_method,
+                    )
 
         best_sch: HybridFlowshopLiteSchedule | None = None
         best_obj: int | None = None
@@ -7433,6 +7492,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 HybridFlowshopLiteSchedule,
                 dict[str, Any],
                 int | None,
+                int | None,
             ]
         ] = []
         for config_idx, config in enumerate(config_rows, start=1):
@@ -7440,8 +7500,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 dispatch_config = {
                     key: value for key, value in config.items() if not key.startswith("_")
                 }
+                job_tiebreak_rank = config.get("_job_tiebreak_rank") or None
                 candidate_schedules = self._get_selected_dispatch_candidate_schedules(
                     **dispatch_config,
+                    job_tiebreak_rank=job_tiebreak_rank,
                     draw_gantt=False,
                 )
             except Exception:
@@ -7464,6 +7526,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                         sch,
                         dict(dispatch_config),
                         config.get("_random_trial_idx"),
+                        config.get("_random_tiebreak_trial_idx"),
                     )
                 )
                 if best_obj is None or obj < best_obj:
@@ -7473,12 +7536,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     best_method_name = method_name
                     logging.info(
                         "[Dispatch Portfolio] New best init makespan=%s from "
-                        "config %d/%d method=%s random_trial=%s config=%s",
+                        "config %d/%d method=%s random_mid_trial=%s "
+                        "random_tiebreak_trial=%s config=%s",
                         best_obj,
                         best_config_idx,
                         len(config_rows),
                         best_method_name,
                         config.get("_random_trial_idx"),
+                        config.get("_random_tiebreak_trial_idx"),
                         dispatch_config,
                     )
 
@@ -7491,6 +7556,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         selected_sch = best_sch
         selected_dispatch_config: dict[str, Any] | None = None
         selected_random_trial_idx: int | None = None
+        selected_random_tiebreak_trial_idx: int | None = None
         if selection_strategy == "earliest_within_slack":
             threshold = float(best_obj) + float(selection_obj_slack)
             for (
@@ -7500,6 +7566,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 sch,
                 dispatch_config,
                 random_trial_idx,
+                random_tiebreak_trial_idx,
             ) in candidate_records:
                 if float(obj) <= threshold:
                     selected_config_idx = config_idx
@@ -7508,6 +7575,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     selected_sch = sch
                     selected_dispatch_config = dispatch_config
                     selected_random_trial_idx = random_trial_idx
+                    selected_random_tiebreak_trial_idx = random_tiebreak_trial_idx
                     break
         if selected_dispatch_config is None:
             for (
@@ -7517,6 +7585,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 _sch,
                 dispatch_config,
                 random_trial_idx,
+                random_tiebreak_trial_idx,
             ) in candidate_records:
                 if (
                     config_idx == selected_config_idx
@@ -7525,6 +7594,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 ):
                     selected_dispatch_config = dispatch_config
                     selected_random_trial_idx = random_trial_idx
+                    selected_random_tiebreak_trial_idx = random_tiebreak_trial_idx
                     break
 
         self.last_selected_dispatch_config = dict(selected_dispatch_config or {})
@@ -7537,12 +7607,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         logging.info(
             "[Dispatch Portfolio] Selected init makespan=%s from config %d/%d "
-            "method=%s random_trial=%s strategy=%s slack=%s",
+            "method=%s random_mid_trial=%s random_tiebreak_trial=%s "
+            "strategy=%s slack=%s",
             selected_obj,
             selected_config_idx,
             len(config_rows),
             selected_method_name,
             selected_random_trial_idx,
+            selected_random_tiebreak_trial_idx,
             selection_strategy,
             selection_obj_slack,
         )

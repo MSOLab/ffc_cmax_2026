@@ -134,7 +134,10 @@ def test_initialize_by_dispatch_portfolio_can_select_earlier_near_best(
 
     call_idx = {"value": 0}
 
+    call_configs = []
+
     def fake_get_candidates_with_trial_score(**config):
+        call_configs.append(dict(config))
         call_idx["value"] += 1
         if config["randomize_mid_all"]:
             config["_fake_trial_offset"] = call_idx["value"]
@@ -159,6 +162,65 @@ def test_initialize_by_dispatch_portfolio_can_select_earlier_near_best(
     assert report.subroutine_name == "initialize_by_dispatch_portfolio"
     assert solution.makespan == 83
     assert ctrl.last_selected_dispatch_config["randomize_mid_all"] is True
+    mid_order_calls = [
+        config
+        for config in call_configs
+        if config["randomize_mid_all"]
+        or config["reverse_mid_even"]
+        or config["reverse_mid_all"]
+    ]
+    assert mid_order_calls
+    assert all(
+        config["method_list"] == ["bn2d_all_stages"]
+        for config in mid_order_calls
+    )
+
+
+def test_initialize_by_dispatch_portfolio_can_randomize_non_bn2d_tie_breaks(
+    monkeypatch,
+) -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    _wire_common_controller(ctrl)
+    ctrl.instance = SimpleNamespace(job_id_list=["A", "B", "C"])
+    ctrl.solution_manager = _RecorderSolutionManager()
+    call_configs = []
+
+    def fake_get_candidates(**config):
+        call_configs.append(dict(config))
+        if config.get("job_tiebreak_rank"):
+            return {"fake": _FakeSchedule(80)}
+        return {"fake": _FakeSchedule(100)}
+
+    monkeypatch.setattr(
+        ctrl,
+        "_get_selected_dispatch_candidate_schedules",
+        fake_get_candidates,
+    )
+
+    ctrl.initialize_by_dispatch_portfolio(
+        portfolio="compact",
+        include_stage_agg=False,
+        randomized_tiebreak_trials=2,
+    )
+
+    random_rank_calls = [
+        config for config in call_configs if config.get("job_tiebreak_rank")
+    ]
+    assert len(random_rank_calls) == 2
+    assert all(
+        config["method_list"] == ["best_of_mixed_dispatches"]
+        for config in random_rank_calls
+    )
+    assert ctrl.solution_manager.get_incumbent().makespan == 80
+
+
+def test_post_mip_config_restores_mixed_dispatch_after_bn2d_only_init() -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    ctrl.last_selected_dispatch_config = {"method_list": ["bn2d_all_stages"]}
+
+    config = ctrl._get_selected_dispatch_config_for_post_mip()
+
+    assert config["method_list"] == ["bn2d_all_stages", "best_of_mixed_dispatches"]
 
 
 def test_initialize_by_sequence_insertion_portfolio_registers_best_candidate(
@@ -264,19 +326,29 @@ def test_dispatch_from_retained_cp_keeps_better_incumbent(monkeypatch) -> None:
         certified_final_lb=2894.0,
     )
 
-    monkeypatch.setattr(
-        "hybridflowshop.controller.hfs_cp_lns.run_post_retained_cp_dispatch",
-        lambda **_kwargs: SimpleNamespace(
+    captured_kwargs = {}
+
+    def fake_run_post_retained_cp_dispatch(**kwargs):
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(
             dispatched_schedule=_FakeSchedule(3211),
             selected_dispatch_variant="mixed_cp_consensus",
             dispatched_schedules={"mixed_cp_consensus": _FakeSchedule(3211)},
             variant_2_anchor_stage_ids={"mixed_cp_consensus": []},
-        ),
+        )
+
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.run_post_retained_cp_dispatch",
+        fake_run_post_retained_cp_dispatch,
     )
 
-    result = ctrl.dispatch_from_retained_cp(save_cp_dispatch_artifacts=False)
+    result = ctrl.dispatch_from_retained_cp(
+        randomized_mixed_rank_trials=7,
+        save_cp_dispatch_artifacts=False,
+    )
 
     assert result is not None
+    assert captured_kwargs["randomized_mixed_rank_trials"] == 7
     assert result["schedule"] is incumbent
     assert result["selected_dispatch_variant"] == "incumbent_before_retained_cp"
     assert result["post_cp_selected_dispatch_variant"] == "mixed_cp_consensus"

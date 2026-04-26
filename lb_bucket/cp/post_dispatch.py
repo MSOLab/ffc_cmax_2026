@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -64,6 +65,7 @@ def run_post_retained_cp_dispatch(
     include_consensus_rank: bool = True,
     include_tail_bottleneck_rank: bool = True,
     include_dynamic_priority: bool = False,
+    randomized_mixed_rank_trials: int = 0,
     dependencies: PostRetainedCpDispatchDependencies,
 ) -> PostRetainedCpDispatchRunResult:
     total_timer = ElapsedTimer()
@@ -327,6 +329,33 @@ def run_post_retained_cp_dispatch(
         "best_of_mixed_dispatches_cp_baseline",
         baseline_schedule.makespan if baseline_schedule is not None else None,
     )
+
+    for trial_idx in range(max(0, int(randomized_mixed_rank_trials))):
+        variant = f"best_of_mixed_dispatches_random_rank_{trial_idx + 1}"
+        variant_timer = ElapsedTimer()
+        shuffled_jobs = [str(job_id) for job_id in instance.job_id_list]
+        random.shuffle(shuffled_jobs)
+        try:
+            schedule = dependencies.get_schedule_by_best_of_mixed_dispatches(
+                machine_then_job=selected_dispatch_config["machine_then_job"],
+                head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+                job_tiebreak_rank=get_job_tiebreak_rank_from_job_sequence(
+                    shuffled_jobs
+                ),
+            )
+        except Exception:
+            logging.exception(
+                "[CP LB] %s failed while constructing mixed dispatch with random rank.",
+                variant,
+            )
+            schedule = None
+        dispatch_candidates[variant] = schedule
+        dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            variant,
+            schedule.makespan if schedule is not None else None,
+        )
 
     dispatch_phase_elapsed_sec["candidate_generation_sec"] = (
         candidate_generation_timer.elapsed_sec
