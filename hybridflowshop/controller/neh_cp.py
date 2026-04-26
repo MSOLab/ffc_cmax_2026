@@ -223,6 +223,8 @@ class NehCpConstructor:
             current_job_id_list=[],
             full_sol=ref_schedule,
         )
+        best_full_sol = ref_schedule
+        best_full_obj = ref_schedule.makespan
 
         # Determine job sequence
         # Priority: job_seq_by_1st_stage > job_seq_by_bottleneck_stage > midpoint (default)
@@ -339,6 +341,13 @@ class NehCpConstructor:
                     st.full_sol = _temp_sol
             else:
                 st.full_sol = st.partial_sol
+            if st.full_sol.makespan < best_full_obj:
+                best_full_obj = st.full_sol.makespan
+                best_full_sol = st.full_sol.deepcopy()
+                logging.info(
+                    "NEH-CP best feasible full schedule improved to %d.",
+                    best_full_obj,
+                )
 
             # Obj. value of dispatched solution as a value
             sub_obj_store.add_obj_value(
@@ -357,12 +366,12 @@ class NehCpConstructor:
             )
 
         if error_if_infeasible:
-            self.ctx.check_feasibility(st.full_sol.get_jik_2_start_time_map())
+            self.ctx.check_feasibility(best_full_sol.get_jik_2_start_time_map())
 
         return NehCpResult(
-            schedule=st.full_sol,
+            schedule=best_full_sol,
             sub_obj_store=sub_obj_store,
-            last_obj_value=st.full_sol.makespan,
+            last_obj_value=best_full_obj,
         )
 
     def _create_sub_cp_model(
