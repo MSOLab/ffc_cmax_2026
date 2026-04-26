@@ -881,6 +881,7 @@ class HybridFlowShopCpLnsControllerCore(
         log_level_obj_value: int = logging.INFO,
         log_level_obj_bound: int = logging.INFO,
         last_timestamp_note: Any | None = None,
+        solution_callback: ObjectiveValueRecorder | None = None,
     ) -> CpsatSolverReport:
         start_time = self.timer.elapsed_sec
         if e_timer is None:
@@ -903,11 +904,13 @@ class HybridFlowShopCpLnsControllerCore(
             cp_model_probing_level=cp_model_probing_level,
         )
         self.solver = configure_solver(solve_cfg)
-        obj_value_recorder = ObjectiveValueRecorder(
-            e_timer,
-            print_on_record=print_on_obj_value_update,
-            log_level_on_record=log_level_obj_value,
-        )
+        obj_value_recorder = solution_callback
+        if obj_value_recorder is None:
+            obj_value_recorder = ObjectiveValueRecorder(
+                e_timer,
+                print_on_record=print_on_obj_value_update,
+                log_level_on_record=log_level_obj_value,
+            )
 
         obj_bound_recorder = ObjectiveBoundRecorder(
             e_timer,

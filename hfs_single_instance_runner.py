@@ -55,10 +55,13 @@ class HfsSingleInstanceRunner(
         "retainedCpApplyElapsedSec",
         "retainedCpBestObj",
         "retainedCpDispatchObj",
+        "retainedCpPostDispatchObj",
         "retainedCpSelectedDispatchVariant",
+        "retainedCpPostSelectedDispatchVariant",
         "retainedCpDispatchAnchorStages",
         "retainedCpDispatchElapsedSec",
         "retainedCpDispatchUpdatedIncumbent",
+        "retainedCpDispatchKeptIncumbent",
     )
 
     # Optional member variables for RunMode.RESUME
@@ -412,8 +415,14 @@ class HfsSingleInstanceRunner(
             "retainedCpDispatchObj": getattr(
                 self.ctrlr, "last_retained_cp_dispatch_obj", None
             ),
+            "retainedCpPostDispatchObj": getattr(
+                self.ctrlr, "last_retained_cp_post_dispatch_obj", None
+            ),
             "retainedCpSelectedDispatchVariant": getattr(
                 self.ctrlr, "last_retained_cp_selected_dispatch_variant", None
+            ),
+            "retainedCpPostSelectedDispatchVariant": getattr(
+                self.ctrlr, "last_retained_cp_post_selected_dispatch_variant", None
             ),
             "retainedCpDispatchAnchorStages": (
                 " ".join(
@@ -429,6 +438,9 @@ class HfsSingleInstanceRunner(
             ),
             "retainedCpDispatchUpdatedIncumbent": getattr(
                 self.ctrlr, "last_retained_cp_dispatch_was_incumbent_update", None
+            ),
+            "retainedCpDispatchKeptIncumbent": getattr(
+                self.ctrlr, "last_retained_cp_dispatch_kept_incumbent", None
             ),
         }
 

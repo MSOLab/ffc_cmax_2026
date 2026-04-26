@@ -3,6 +3,7 @@ import math
 import random
 import time
 from collections import Counter, deque
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -17,6 +18,7 @@ from lb_bucket.cp import (
 )
 from lb_bucket.cp.post_dispatch import (
     PostRetainedCpDispatchDependencies,
+    PostRetainedCpDispatchRunResult,
     run_post_retained_cp_dispatch,
     write_post_retained_cp_dispatch_artifacts,
 )
@@ -30,7 +32,7 @@ from lb_bucket.mip.post_dispatch import (
 from lb_bucket.mip.solution_io import read_solution_payload, write_solution_payload
 from lb_bucket.mip.visualization import write_solution_payload_visualizations
 from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
-from mbls.cpsat import CpsatStatus
+from mbls.cpsat import CpsatStatus, ObjectiveValueRecorder
 from routix import DynamicDataObject, ElapsedTimer
 from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
     HybridFlowshopParameters,
@@ -72,6 +74,79 @@ from lb_bucket.mip.shared import (
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
+
+
+class _RetainedStageSnapshotRecorder(ObjectiveValueRecorder):
+    def __init__(
+        self,
+        *,
+        build: Any,
+        snapshot_limit: int,
+        e_timer: ElapsedTimer,
+        print_on_record: bool = False,
+        log_level_on_record: int | None = None,
+    ) -> None:
+        super().__init__(
+            e_timer=e_timer,
+            print_on_record=print_on_record,
+            log_level_on_record=log_level_on_record,
+        )
+        self._build = build
+        self._snapshot_limit = max(0, int(snapshot_limit))
+        self._seen_objectives: set[float] = set()
+        self.snapshots: list[dict[str, Any]] = []
+
+    def on_solution_callback(self) -> None:
+        super().on_solution_callback()
+        if self._snapshot_limit <= 0:
+            return
+
+        objective_ub = sanitize_optional_float(self.objective_value)
+        if objective_ub is None:
+            return
+        objective_key = round(objective_ub, 9)
+        if objective_key in self._seen_objectives:
+            return
+        self._seen_objectives.add(objective_key)
+
+        runtime_sec = None
+        objective_lb = sanitize_optional_float(self.best_objective_bound)
+        if self.entries:
+            runtime_sec = sanitize_optional_float(self.entries[-1][0])
+            objective_lb = sanitize_optional_float(self.entries[-1][1].bound)
+
+        rows: list[dict[str, Any]] = []
+        for stage_id in self._build.retained_stage_ids:
+            for job_id in self._build.params.j_list:
+                rows.append(
+                    {
+                        "stage_id": stage_id,
+                        "job_id": job_id,
+                        "start": int(
+                            self.Value(
+                                self._build.variables.op_start[job_id, stage_id]
+                            )
+                        ),
+                        "end": int(
+                            self.Value(self._build.variables.op_end[job_id, stage_id])
+                        ),
+                        "processing_time": self._build.params.p[job_id, stage_id],
+                        "head": self._build.head_by_job_stage[job_id, stage_id],
+                        "tail": self._build.tail_by_job_stage[job_id, stage_id],
+                    }
+                )
+
+        if len(self.snapshots) >= self._snapshot_limit:
+            self.snapshots.pop(0)
+        self.snapshots.append(
+            {
+                "snapshot_index": len(self.snapshots),
+                "runtime_sec": runtime_sec,
+                "objective_ub": objective_ub,
+                "objective_lb": objective_lb,
+                "retained_solution_rows": rows,
+            }
+        )
 
 
 class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
@@ -659,6 +734,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         rescheduled_ops: set[tuple[str, str, str]],
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        fix_start_times: bool = False,
     ) -> None:
         """
         Helper to deep-copy incumbent solution and remove operations to be rescheduled,
@@ -688,6 +764,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
         )
+        if fix_start_times:
+            BaseModelBuilder.add_start_time_freezed_operation_constraints(
+                self.cp_model,
+                self.vars,
+                out_of_block_ops_sch.get_jik_2_start_time_map(),
+            )
 
     # Subroutine: Operation-block neighbor search (Block operator in 2025 EJOR paper)
 
@@ -823,6 +905,732 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     def open_intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
         """Check if two open time intervals overlap."""
         return not (e1 < s2 or e2 < s1)
+
+    def _resolve_time_window_size(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        window_size: int | None,
+        window_size_ratio: float | None,
+    ) -> int:
+        horizon = max(1, int(schedule.makespan))
+        if window_size is not None:
+            if window_size <= 0:
+                raise ValueError("window_size must be positive.")
+            if window_size_ratio is not None:
+                logging.info(
+                    "Ignoring window_size_ratio=%s because explicit window_size=%s was provided.",
+                    window_size_ratio,
+                    window_size,
+                )
+            return min(int(window_size), horizon)
+        if window_size_ratio is not None:
+            if window_size_ratio <= 0:
+                raise ValueError("window_size_ratio must be positive.")
+            return min(max(1, int(math.ceil(horizon * window_size_ratio))), horizon)
+        return min(max(1, int(math.ceil(horizon * 0.10))), horizon)
+
+    def _resolve_time_window_step_size(
+        self,
+        *,
+        horizon: int,
+        window_size: int,
+        step_size: int | None,
+        step_size_ratio: float | None,
+    ) -> int:
+        if step_size is not None:
+            if step_size <= 0:
+                raise ValueError("step_size must be positive.")
+            if step_size_ratio is not None:
+                logging.info(
+                    "Ignoring step_size_ratio=%s because explicit step_size=%s was provided.",
+                    step_size_ratio,
+                    step_size,
+                )
+            return int(step_size)
+        if step_size_ratio is not None:
+            if step_size_ratio <= 0:
+                raise ValueError("step_size_ratio must be positive.")
+            return max(1, int(math.ceil(max(1, horizon) * step_size_ratio)))
+        return max(1, window_size // 2)
+
+    @staticmethod
+    def _subsample_evenly(
+        items: Sequence[tuple[int, int]],
+        max_count: int | None,
+    ) -> list[tuple[int, int]]:
+        item_list = list(items)
+        if max_count is None or max_count >= len(item_list):
+            return item_list
+        if max_count <= 0:
+            raise ValueError("max_window_count must be positive when provided.")
+        if max_count == 1:
+            return [item_list[len(item_list) // 2]]
+        last_idx = len(item_list) - 1
+        selected_indices = {
+            int(round(idx * last_idx / (max_count - 1)))
+            for idx in range(max_count)
+        }
+        return [item_list[idx] for idx in sorted(selected_indices)]
+
+    def _build_time_window_sweep_windows(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        window_size: int | None,
+        window_size_ratio: float | None,
+        step_size: int | None,
+        step_size_ratio: float | None,
+        max_window_count: int | None,
+    ) -> list[tuple[int, int]]:
+        horizon = max(1, int(schedule.makespan))
+        resolved_window_size = self._resolve_time_window_size(
+            schedule,
+            window_size=window_size,
+            window_size_ratio=window_size_ratio,
+        )
+        if resolved_window_size >= horizon:
+            return [(0, horizon)]
+
+        resolved_step_size = self._resolve_time_window_step_size(
+            horizon=horizon,
+            window_size=resolved_window_size,
+            step_size=step_size,
+            step_size_ratio=step_size_ratio,
+        )
+        last_start = horizon - resolved_window_size
+        starts = list(range(0, last_start + 1, resolved_step_size))
+        if not starts or starts[-1] != last_start:
+            starts.append(last_start)
+        windows = [
+            (start, min(horizon, start + resolved_window_size)) for start in starts
+        ]
+        return self._subsample_evenly(windows, max_window_count)
+
+    def _resolve_time_window_stage_shift(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        stage_shift_per_stage: int | None,
+        stage_shift_ratio_per_stage: float | None,
+    ) -> int:
+        if stage_shift_per_stage is not None:
+            if stage_shift_ratio_per_stage is not None:
+                logging.info(
+                    "Ignoring stage_shift_ratio_per_stage=%s because explicit "
+                    "stage_shift_per_stage=%s was provided.",
+                    stage_shift_ratio_per_stage,
+                    stage_shift_per_stage,
+                )
+            return int(stage_shift_per_stage)
+        if stage_shift_ratio_per_stage is None:
+            return 0
+        horizon = max(1, int(schedule.makespan))
+        return int(round(horizon * float(stage_shift_ratio_per_stage)))
+
+    def _resolve_time_window_padding(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        padding: int | None,
+        padding_ratio: float | None,
+    ) -> int:
+        if padding is not None:
+            if padding < 0:
+                raise ValueError("selection_window_padding must be non-negative.")
+            if padding_ratio is not None:
+                logging.info(
+                    "Ignoring selection_window_padding_ratio=%s because explicit "
+                    "selection_window_padding=%s was provided.",
+                    padding_ratio,
+                    padding,
+                )
+            return int(padding)
+        if padding_ratio is None:
+            return 0
+        if padding_ratio < 0:
+            raise ValueError("selection_window_padding_ratio must be non-negative.")
+        horizon = max(1, int(schedule.makespan))
+        return int(math.ceil(horizon * float(padding_ratio)))
+
+    def _resolve_time_window_start_tolerance(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        start_time_tolerance: int | None,
+        start_time_tolerance_ratio: float | None,
+        label: str,
+    ) -> int | None:
+        if start_time_tolerance is not None:
+            if start_time_tolerance < 0:
+                raise ValueError(f"{label} must be non-negative.")
+            if start_time_tolerance_ratio is not None:
+                logging.info(
+                    "Ignoring %s_ratio=%s because explicit %s=%s was provided.",
+                    label,
+                    start_time_tolerance_ratio,
+                    label,
+                    start_time_tolerance,
+                )
+            return int(start_time_tolerance)
+        if start_time_tolerance_ratio is None:
+            return None
+        if start_time_tolerance_ratio < 0:
+            raise ValueError(f"{label}_ratio must be non-negative.")
+        horizon = max(1, int(schedule.makespan))
+        return int(math.ceil(horizon * float(start_time_tolerance_ratio)))
+
+    def _build_slanted_time_window_sweep_windows(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        window_size: int | None,
+        window_size_ratio: float | None,
+        step_size: int | None,
+        step_size_ratio: float | None,
+        max_window_count: int | None,
+        stage_shift_per_stage: int,
+    ) -> list[tuple[int, int]]:
+        horizon = max(1, int(schedule.makespan))
+        resolved_window_size = self._resolve_time_window_size(
+            schedule,
+            window_size=window_size,
+            window_size_ratio=window_size_ratio,
+        )
+        resolved_step_size = self._resolve_time_window_step_size(
+            horizon=horizon,
+            window_size=resolved_window_size,
+            step_size=step_size,
+            step_size_ratio=step_size_ratio,
+        )
+        stage_count = len(getattr(schedule, "stages", [])) or int(
+            getattr(self.instance, "stage_count", 1)
+        )
+        stage_offsets = [
+            stage_idx * int(stage_shift_per_stage) for stage_idx in range(stage_count)
+        ]
+        min_base_start = -max(stage_offsets)
+        max_base_time = horizon - min(stage_offsets)
+        last_start = max_base_time - resolved_window_size
+        if last_start <= min_base_start:
+            return [(min_base_start, min_base_start + resolved_window_size)]
+
+        starts = list(range(min_base_start, last_start + 1, resolved_step_size))
+        if not starts or starts[-1] != last_start:
+            starts.append(last_start)
+        windows = [
+            (start, start + resolved_window_size)
+            for start in starts
+        ]
+        return self._subsample_evenly(windows, max_window_count)
+
+    @staticmethod
+    def _get_schedule_stage_index_map(
+        schedule: HybridFlowshopLiteSchedule,
+    ) -> dict[StageIdType, int]:
+        return {stage_id: idx for idx, stage_id in enumerate(schedule.stages)}
+
+    def _add_start_time_range_constraints_for_ops(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        ops: set[OperationType],
+        *,
+        tolerance: int,
+        label: str,
+    ) -> None:
+        if tolerance < 0:
+            raise ValueError("tolerance must be non-negative.")
+        start_time_map = schedule.get_jik_2_start_time_map()
+        horizon = max(1, int(math.ceil(self.get_horizon())))
+        constrained_count = 0
+        for op in ops:
+            if op not in start_time_map:
+                continue
+            j, i, _ = op
+            incumbent_start = int(start_time_map[op])
+            lb = max(0, incumbent_start - tolerance)
+            ub = min(horizon, incumbent_start + tolerance)
+            self.cp_model.add(self.vars.op_start[j, i] >= lb)
+            self.cp_model.add(self.vars.op_start[j, i] <= ub)
+            constrained_count += 1
+        logging.info(
+            "Time-window %s start ranges constrained for %d ops with tolerance=%d.",
+            label,
+            constrained_count,
+            tolerance,
+        )
+
+    def _fix_time_window_profile_except_selected(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        selected_ops: set[OperationType],
+        *,
+        profile_fix_by_machine: bool,
+        machine_precedence_stride: int,
+        fix_outside_start_times: bool,
+        selected_start_time_tolerance: int | None,
+        outside_start_time_tolerance: int | None,
+    ) -> None:
+        outside_start_ranges_enabled = outside_start_time_tolerance is not None
+        self._fix_operations_profile_except_selected(
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+            fix_start_times=fix_outside_start_times
+            and not outside_start_ranges_enabled,
+        )
+        if selected_start_time_tolerance is not None:
+            self._add_start_time_range_constraints_for_ops(
+                schedule,
+                selected_ops,
+                tolerance=selected_start_time_tolerance,
+                label="selected",
+            )
+        if outside_start_time_tolerance is not None:
+            outside_ops = set(schedule.get_jik_2_start_time_map()) - selected_ops
+            self._add_start_time_range_constraints_for_ops(
+                schedule,
+                outside_ops,
+                tolerance=outside_start_time_tolerance,
+                label="outside",
+            )
+
+    def _select_ops_overlapping_time_window(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        window_start: int,
+        window_end: int,
+        overlap_mode: str = "intersect",
+    ) -> set[OperationType]:
+        if window_end <= window_start:
+            raise ValueError("window_end must be greater than window_start.")
+        if overlap_mode not in {"intersect", "start", "contained"}:
+            raise ValueError(
+                "overlap_mode must be one of {'intersect', 'start', 'contained'}."
+            )
+
+        selected_ops: set[OperationType] = set()
+        for op, start_time in schedule.get_jik_2_start_time_map().items():
+            end_time = schedule.get_jik_2_end_time_map()[op]
+            if overlap_mode == "intersect":
+                selected = not (end_time <= window_start or window_end <= start_time)
+            elif overlap_mode == "start":
+                selected = window_start <= start_time < window_end
+            else:
+                selected = window_start <= start_time and end_time <= window_end
+            if selected:
+                selected_ops.add(op)
+        return selected_ops
+
+    def _select_ops_overlapping_slanted_time_window(
+        self,
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        window_start: int,
+        window_end: int,
+        stage_shift_per_stage: int,
+        overlap_mode: str = "intersect",
+    ) -> set[OperationType]:
+        if window_end <= window_start:
+            raise ValueError("window_end must be greater than window_start.")
+        if overlap_mode not in {"intersect", "start", "contained"}:
+            raise ValueError(
+                "overlap_mode must be one of {'intersect', 'start', 'contained'}."
+            )
+
+        stage_index_map = self._get_schedule_stage_index_map(schedule)
+        selected_ops: set[OperationType] = set()
+        start_time_map = schedule.get_jik_2_start_time_map()
+        end_time_map = schedule.get_jik_2_end_time_map()
+        for op, start_time in start_time_map.items():
+            stage_id = op[1]
+            stage_idx = stage_index_map[stage_id]
+            stage_shift = stage_idx * int(stage_shift_per_stage)
+            shifted_window_start = window_start + stage_shift
+            shifted_window_end = window_end + stage_shift
+            end_time = end_time_map[op]
+            if overlap_mode == "intersect":
+                selected = not (
+                    end_time <= shifted_window_start
+                    or shifted_window_end <= start_time
+                )
+            elif overlap_mode == "start":
+                selected = shifted_window_start <= start_time < shifted_window_end
+            else:
+                selected = (
+                    shifted_window_start <= start_time
+                    and end_time <= shifted_window_end
+                )
+            if selected:
+                selected_ops.add(op)
+        return selected_ops
+
+    def apply_time_window_operation_operator(
+        self,
+        window_start: int,
+        window_end: int,
+        *,
+        overlap_mode: str = "intersect",
+        stage_shift_per_stage: int = 0,
+        selection_window_padding: int | None = None,
+        selection_window_padding_ratio: float | None = None,
+        profile_fix_by_machine: bool = True,
+        machine_precedence_stride: int = 1,
+        fix_outside_start_times: bool = True,
+        selected_start_time_tolerance: int | None = None,
+        selected_start_time_tolerance_ratio: float | None = None,
+        outside_start_time_tolerance: int | None = None,
+        outside_start_time_tolerance_ratio: float | None = None,
+    ) -> set[OperationType]:
+        """Free every operation overlapping one rectangular or slanted time window."""
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
+            )
+        resolved_padding = self._resolve_time_window_padding(
+            incumbent_solution,
+            padding=selection_window_padding,
+            padding_ratio=selection_window_padding_ratio,
+        )
+        selection_window_start = window_start - resolved_padding
+        selection_window_end = window_end + resolved_padding
+        resolved_selected_tolerance = self._resolve_time_window_start_tolerance(
+            incumbent_solution,
+            start_time_tolerance=selected_start_time_tolerance,
+            start_time_tolerance_ratio=selected_start_time_tolerance_ratio,
+            label="selected_start_time_tolerance",
+        )
+        resolved_outside_tolerance = self._resolve_time_window_start_tolerance(
+            incumbent_solution,
+            start_time_tolerance=outside_start_time_tolerance,
+            start_time_tolerance_ratio=outside_start_time_tolerance_ratio,
+            label="outside_start_time_tolerance",
+        )
+        if stage_shift_per_stage:
+            selected_ops = self._select_ops_overlapping_slanted_time_window(
+                incumbent_solution,
+                window_start=selection_window_start,
+                window_end=selection_window_end,
+                stage_shift_per_stage=stage_shift_per_stage,
+                overlap_mode=overlap_mode,
+            )
+        else:
+            selected_ops = self._select_ops_overlapping_time_window(
+                incumbent_solution,
+                window_start=selection_window_start,
+                window_end=selection_window_end,
+                overlap_mode=overlap_mode,
+            )
+        if not selected_ops:
+            raise ValueError(
+                f"No operations overlap time window [{window_start}, {window_end})."
+            )
+        logging.info(
+            "Time-window operator freeing %d ops in [%d, %d) "
+            "(selection=[%d, %d), padding=%d) with overlap_mode=%s "
+            "stage_shift_per_stage=%d.",
+            len(selected_ops),
+            window_start,
+            window_end,
+            selection_window_start,
+            selection_window_end,
+            resolved_padding,
+            overlap_mode,
+            stage_shift_per_stage,
+        )
+        self._fix_time_window_profile_except_selected(
+            incumbent_solution,
+            selected_ops,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+            fix_outside_start_times=fix_outside_start_times,
+            selected_start_time_tolerance=resolved_selected_tolerance,
+            outside_start_time_tolerance=resolved_outside_tolerance,
+        )
+        return selected_ops
+
+    def time_window_ns(
+        self,
+        solver_thread_cnt: int,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
+        window_start: int | None = None,
+        window_end: int | None = None,
+        window_start_ratio: float | None = None,
+        window_end_ratio: float | None = None,
+        window_size: int | None = None,
+        window_size_ratio: float | None = None,
+        overlap_mode: str = "intersect",
+        stage_shift_per_stage: int | None = None,
+        stage_shift_ratio_per_stage: float | None = None,
+        selection_window_padding: int | None = None,
+        selection_window_padding_ratio: float | None = None,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        profile_fix_by_machine: bool = True,
+        machine_precedence_stride: int = 1,
+        fix_outside_start_times: bool = True,
+        selected_start_time_tolerance: int | None = None,
+        selected_start_time_tolerance_ratio: float | None = None,
+        outside_start_time_tolerance: int | None = None,
+        outside_start_time_tolerance_ratio: float | None = None,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Re-optimize one explicit rectangular or slanted time window."""
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
+            )
+        horizon = max(1, int(incumbent_solution.makespan))
+        if window_start is not None:
+            if window_start_ratio is not None:
+                logging.info(
+                    "Ignoring window_start_ratio=%s because explicit "
+                    "window_start=%s was provided.",
+                    window_start_ratio,
+                    window_start,
+                )
+            resolved_window_start = int(window_start)
+        elif window_start_ratio is not None:
+            if not 0 <= window_start_ratio <= 1:
+                raise ValueError("window_start_ratio must be in [0, 1].")
+            resolved_window_start = int(math.floor(horizon * window_start_ratio))
+        else:
+            resolved_window_start = 0
+
+        if window_end is not None:
+            if window_end_ratio is not None:
+                logging.info(
+                    "Ignoring window_end_ratio=%s because explicit window_end=%s "
+                    "was provided.",
+                    window_end_ratio,
+                    window_end,
+                )
+            resolved_window_end = int(window_end)
+        elif window_end_ratio is not None:
+            if not 0 <= window_end_ratio <= 1:
+                raise ValueError("window_end_ratio must be in [0, 1].")
+            resolved_window_end = int(math.ceil(horizon * window_end_ratio))
+        else:
+            resolved_size = self._resolve_time_window_size(
+                incumbent_solution,
+                window_size=window_size,
+                window_size_ratio=window_size_ratio,
+            )
+            resolved_window_end = resolved_window_start + resolved_size
+
+        resolved_window_start = max(0, resolved_window_start)
+        resolved_window_end = min(horizon, resolved_window_end)
+        if resolved_window_end <= resolved_window_start:
+            raise ValueError(
+                "Resolved time window must have window_end > window_start."
+            )
+
+        resolved_stage_shift_per_stage = self._resolve_time_window_stage_shift(
+            incumbent_solution,
+            stage_shift_per_stage=stage_shift_per_stage,
+            stage_shift_ratio_per_stage=stage_shift_ratio_per_stage,
+        )
+        resolved_computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
+        logging.info(
+            "Single time-window NS starts for [%d, %d) "
+            "(stage_shift_per_stage=%d).",
+            resolved_window_start,
+            resolved_window_end,
+            resolved_stage_shift_per_stage,
+        )
+
+        context_name = (
+            f"single_window_{resolved_window_start}_{resolved_window_end}"
+        )
+        with self.temporarily_extended_context(context_name):
+            self._fix_profile_solve_reset(
+                lambda: self.apply_time_window_operation_operator(
+                    resolved_window_start,
+                    resolved_window_end,
+                    overlap_mode=overlap_mode,
+                    stage_shift_per_stage=resolved_stage_shift_per_stage,
+                    selection_window_padding=selection_window_padding,
+                    selection_window_padding_ratio=selection_window_padding_ratio,
+                    profile_fix_by_machine=profile_fix_by_machine,
+                    machine_precedence_stride=machine_precedence_stride,
+                    fix_outside_start_times=fix_outside_start_times,
+                    selected_start_time_tolerance=selected_start_time_tolerance,
+                    selected_start_time_tolerance_ratio=selected_start_time_tolerance_ratio,
+                    outside_start_time_tolerance=outside_start_time_tolerance,
+                    outside_start_time_tolerance_ratio=outside_start_time_tolerance_ratio,
+                ),
+                resolved_computational_time,
+                solver_thread_cnt,
+                no_improvement_timelimit=no_improvement_timelimit,
+                swap_before_cp=swap_before_cp,
+                make_semi_active_after_cp=make_semi_active_after_cp,
+                use_lns_only=use_lns_only,
+                obj_value_is_valid=True,
+                obj_bound_is_valid=False,
+                error_if_infeasible=error_if_infeasible,
+                draw_gantt=draw_gantt,
+            )
+
+    def time_window_sweep_ns(
+        self,
+        solver_thread_cnt: int,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
+        window_size: int | None = None,
+        window_size_ratio: float | None = 0.10,
+        step_size: int | None = None,
+        step_size_ratio: float | None = None,
+        max_window_count: int | None = None,
+        overlap_mode: str = "intersect",
+        stage_shift_per_stage: int | None = None,
+        stage_shift_ratio_per_stage: float | None = None,
+        selection_window_padding: int | None = None,
+        selection_window_padding_ratio: float | None = None,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        profile_fix_by_machine: bool = True,
+        machine_precedence_stride: int = 1,
+        fix_outside_start_times: bool = True,
+        selected_start_time_tolerance: int | None = None,
+        selected_start_time_tolerance_ratio: float | None = None,
+        outside_start_time_tolerance: int | None = None,
+        outside_start_time_tolerance_ratio: float | None = None,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Sweep time windows and re-optimize all operations touched by each window."""
+        seed_incumbent = self.solution_manager.get_incumbent()
+        if not isinstance(seed_incumbent, HybridFlowshopLiteSchedule):
+            raise ValueError(
+                "Incumbent solution is not a valid HybridFlowshopLiteSchedule instance."
+            )
+
+        resolved_stage_shift_per_stage = self._resolve_time_window_stage_shift(
+            seed_incumbent,
+            stage_shift_per_stage=stage_shift_per_stage,
+            stage_shift_ratio_per_stage=stage_shift_ratio_per_stage,
+        )
+        if resolved_stage_shift_per_stage:
+            windows = self._build_slanted_time_window_sweep_windows(
+                seed_incumbent,
+                window_size=window_size,
+                window_size_ratio=window_size_ratio,
+                step_size=step_size,
+                step_size_ratio=step_size_ratio,
+                max_window_count=max_window_count,
+                stage_shift_per_stage=resolved_stage_shift_per_stage,
+            )
+        else:
+            windows = self._build_time_window_sweep_windows(
+                seed_incumbent,
+                window_size=window_size,
+                window_size_ratio=window_size_ratio,
+                step_size=step_size,
+                step_size_ratio=step_size_ratio,
+                max_window_count=max_window_count,
+            )
+        resolved_computational_time = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
+        resolved_padding = self._resolve_time_window_padding(
+            seed_incumbent,
+            padding=selection_window_padding,
+            padding_ratio=selection_window_padding_ratio,
+        )
+        resolved_selected_tolerance = self._resolve_time_window_start_tolerance(
+            seed_incumbent,
+            start_time_tolerance=selected_start_time_tolerance,
+            start_time_tolerance_ratio=selected_start_time_tolerance_ratio,
+            label="selected_start_time_tolerance",
+        )
+        resolved_outside_tolerance = self._resolve_time_window_start_tolerance(
+            seed_incumbent,
+            start_time_tolerance=outside_start_time_tolerance,
+            start_time_tolerance_ratio=outside_start_time_tolerance_ratio,
+            label="outside_start_time_tolerance",
+        )
+        logging.info(
+            "Time-window sweep starts with %d windows: %s "
+            "(stage_shift_per_stage=%d, selection_padding=%d, "
+            "selected_start_tolerance=%s, outside_start_tolerance=%s)",
+            len(windows),
+            windows,
+            resolved_stage_shift_per_stage,
+            resolved_padding,
+            resolved_selected_tolerance,
+            resolved_outside_tolerance,
+        )
+
+        for window_idx, (window_start, window_end) in enumerate(windows, start=1):
+            incumbent_solution = self.solution_manager.get_incumbent()
+            if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+                logging.warning(
+                    "Stopping time-window sweep: no incumbent schedule is available."
+                )
+                break
+            selection_window_start = window_start - resolved_padding
+            selection_window_end = window_end + resolved_padding
+            if resolved_stage_shift_per_stage:
+                selected_ops = self._select_ops_overlapping_slanted_time_window(
+                    incumbent_solution,
+                    window_start=selection_window_start,
+                    window_end=selection_window_end,
+                    stage_shift_per_stage=resolved_stage_shift_per_stage,
+                    overlap_mode=overlap_mode,
+                )
+            else:
+                selected_ops = self._select_ops_overlapping_time_window(
+                    incumbent_solution,
+                    window_start=selection_window_start,
+                    window_end=selection_window_end,
+                    overlap_mode=overlap_mode,
+                )
+            if not selected_ops:
+                logging.info(
+                    "Skipping empty time-window %d/%d [%d, %d).",
+                    window_idx,
+                    len(windows),
+                    window_start,
+                    window_end,
+                )
+                continue
+
+            context_name = f"window_{window_idx:03d}_{window_start}_{window_end}"
+            with self.temporarily_extended_context(context_name):
+                self._fix_profile_solve_reset(
+                    lambda selected_ops=selected_ops, incumbent_solution=incumbent_solution: self._fix_time_window_profile_except_selected(
+                        incumbent_solution,
+                        selected_ops,
+                        profile_fix_by_machine=profile_fix_by_machine,
+                        machine_precedence_stride=machine_precedence_stride,
+                        fix_outside_start_times=fix_outside_start_times,
+                        selected_start_time_tolerance=resolved_selected_tolerance,
+                        outside_start_time_tolerance=resolved_outside_tolerance,
+                    ),
+                    resolved_computational_time,
+                    solver_thread_cnt,
+                    no_improvement_timelimit=no_improvement_timelimit,
+                    swap_before_cp=swap_before_cp,
+                    make_semi_active_after_cp=make_semi_active_after_cp,
+                    use_lns_only=use_lns_only,
+                    obj_value_is_valid=True,
+                    obj_bound_is_valid=False,
+                    error_if_infeasible=error_if_infeasible,
+                    draw_gantt=draw_gantt,
+                )
 
     # Subroutine: Stage neighbor search
 
@@ -2469,6 +3277,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         quantile_count: int | None = None,
         retained_stage_ratios: Sequence[float] | None = None,
         save_cp_lb_artifacts: bool = True,
+        snapshot_solution_limit: int = 0,
+        snapshot_log_progress: bool = True,
     ) -> dict[str, Any] | None:
         """
         Compute a retained-stage CP-SAT lower bound using only a subset of stages exactly.
@@ -2491,6 +3301,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self.last_retained_cp_lb_result = None
         self.last_retained_cp_lb_trace_rows = None
         self.last_retained_cp_lb_retained_solution_rows = None
+        self.last_retained_cp_lb_solution_snapshots = None
 
         input_ub = self.solution_manager.best_obj_value
         if input_ub is None:
@@ -2551,6 +3362,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             incumbent_schedule=incumbent_schedule,
         )
 
+        snapshot_recorder = None
+        if snapshot_solution_limit > 0:
+            snapshot_recorder = _RetainedStageSnapshotRecorder(
+                build=build,
+                snapshot_limit=snapshot_solution_limit,
+                e_timer=sub_timer,
+                log_level_on_record=logging.INFO if snapshot_log_progress else None,
+            )
+
         solver_report = self.solve_cp_model_2(
             build.model,
             _time_limit_sec,
@@ -2559,6 +3379,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound_is_valid=False,
             e_timer=sub_timer,
             log_search_progress=False,
+            solution_callback=snapshot_recorder,
         )
         self.last_retained_cp_lb_apply_elapsed_sec = sub_timer.elapsed_sec
 
@@ -2597,6 +3418,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 self.solver,
                 build,
             )
+        snapshot_rows = []
+        if snapshot_recorder is not None:
+            snapshot_rows = list(snapshot_recorder.snapshots)
+            logging.info(
+                "[CP LB] Captured %d retained-stage CP incumbent snapshots.",
+                len(snapshot_rows),
+            )
 
         result = build_retained_stage_cp_result(
             ins_name=instance.name,
@@ -2624,6 +3452,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self.last_retained_cp_lb_result = result
         self.last_retained_cp_lb_trace_rows = trace_rows
         self.last_retained_cp_lb_retained_solution_rows = retained_solution_rows
+        self.last_retained_cp_lb_solution_snapshots = snapshot_rows
 
         current_bound = self.solution_manager.best_obj_bound
         improved_bound_logged = False
@@ -2691,6 +3520,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             "result": result,
             "trace_rows": trace_rows,
             "retained_solution_rows": retained_solution_rows,
+            "solution_snapshots": snapshot_rows,
             "retained_stage_ids": build.retained_stage_ids,
             "bottleneck_stage_id": build.bottleneck_stage_id,
             "selected_bottleneck_stage_ids": build.selected_bottleneck_stage_ids,
@@ -2840,6 +3670,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
+        use_retained_cp_snapshot_portfolio: bool = False,
+        retained_cp_snapshot_top_k: int = 0,
+        retained_cp_dispatch_selection_strategy: str = "best_makespan",
+        retained_cp_dispatch_makespan_slack: float = 0.0,
         save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -2847,10 +3681,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         """Dispatch from the last retained-stage CP solution with CP-guided candidate evaluation."""
         sub_timer = ElapsedTimer()
         self.last_retained_cp_dispatch_obj = None
+        self.last_retained_cp_post_dispatch_obj = None
         self.last_retained_cp_selected_dispatch_variant = None
+        self.last_retained_cp_post_selected_dispatch_variant = None
         self.last_retained_cp_dispatch_anchor_stage_ids = None
         self.last_retained_cp_dispatch_elapsed_sec = None
         self.last_retained_cp_dispatch_was_incumbent_update = None
+        self.last_retained_cp_dispatch_kept_incumbent = None
         retained_result = getattr(self, "last_retained_cp_lb_result", None)
         retained_solution_rows = getattr(
             self, "last_retained_cp_lb_retained_solution_rows", None
@@ -2861,26 +3698,172 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
             return None
 
-        dispatch_result = run_post_retained_cp_dispatch(
-            instance=self.instance,
-            retained_cp_result=retained_result,
-            retained_solution_rows=retained_solution_rows,
-            cp_local_repair_max_passes=cp_local_repair_max_passes,
-            cp_local_repair_top_k=cp_local_repair_top_k,
-            include_release_anchor_candidates=respect_anchor_stage_release_lb,
-            include_consensus_rank=include_consensus_rank,
-            include_tail_bottleneck_rank=include_tail_bottleneck_rank,
-            include_dynamic_priority=include_dynamic_priority,
-            dependencies=PostRetainedCpDispatchDependencies(
-                check_feasibility=self.check_feasibility,
-                get_selected_dispatch_config=self._get_selected_dispatch_config_for_post_mip,
-                get_best_mixed_schedule_from_job_sequence=self._get_best_mixed_schedule_from_job_sequence,
-                get_schedule_by_best_of_mixed_dispatches=self._get_schedule_by_best_of_mixed_dispatches,
-                get_two_way_schedule_by_stage_band=self._get_schedule_by_retained_cp_two_way_stage_band,
-                repair_post_retained_cp_dispatch_candidate=self._repair_post_mip_dispatch_candidate,
-            ),
+        dependencies = PostRetainedCpDispatchDependencies(
+            check_feasibility=self.check_feasibility,
+            get_selected_dispatch_config=self._get_selected_dispatch_config_for_post_mip,
+            get_best_mixed_schedule_from_job_sequence=self._get_best_mixed_schedule_from_job_sequence,
+            get_schedule_by_best_of_mixed_dispatches=self._get_schedule_by_best_of_mixed_dispatches,
+            get_two_way_schedule_by_stage_band=self._get_schedule_by_retained_cp_two_way_stage_band,
+            repair_post_retained_cp_dispatch_candidate=self._repair_post_mip_dispatch_candidate,
         )
-        schedule = dispatch_result.dispatched_schedule
+        dispatch_sources: list[tuple[str, Any, Sequence[Mapping[str, Any]]]] = [
+            ("final", retained_result, retained_solution_rows)
+        ]
+        if use_retained_cp_snapshot_portfolio and retained_cp_snapshot_top_k > 0:
+            snapshots = list(
+                getattr(self, "last_retained_cp_lb_solution_snapshots", None) or []
+            )
+            final_ub = sanitize_optional_float(
+                getattr(retained_result, "objective_ub", None)
+            )
+            ranked_snapshots = sorted(
+                snapshots,
+                key=lambda snapshot: (
+                    float("inf")
+                    if sanitize_optional_float(snapshot.get("objective_ub")) is None
+                    else float(snapshot["objective_ub"]),
+                    float("inf")
+                    if sanitize_optional_float(snapshot.get("runtime_sec")) is None
+                    else float(snapshot["runtime_sec"]),
+                ),
+            )
+            snapshot_count = 0
+            seen_snapshot_objectives: set[float] = set()
+            for snapshot in ranked_snapshots:
+                objective_ub = sanitize_optional_float(snapshot.get("objective_ub"))
+                if objective_ub is None:
+                    continue
+                objective_key = round(objective_ub, 9)
+                if final_ub is not None and objective_key == round(final_ub, 9):
+                    continue
+                if objective_key in seen_snapshot_objectives:
+                    continue
+                snapshot_rows = snapshot.get("retained_solution_rows")
+                if not snapshot_rows:
+                    continue
+                seen_snapshot_objectives.add(objective_key)
+                snapshot_count += 1
+                snapshot_result = replace(
+                    retained_result,
+                    objective_ub=objective_ub,
+                    objective_lb=sanitize_optional_float(
+                        snapshot.get("objective_lb")
+                    ),
+                    solver_runtime_sec=sanitize_optional_float(
+                        snapshot.get("runtime_sec")
+                    ),
+                )
+                dispatch_sources.append(
+                    (
+                        f"snapshot_{snapshot_count}_ub_{objective_ub:g}",
+                        snapshot_result,
+                        snapshot_rows,
+                    )
+                )
+                if snapshot_count >= int(retained_cp_snapshot_top_k):
+                    break
+            logging.info(
+                "[CP LB] Retained-CP snapshot dispatch portfolio includes %d snapshot sources.",
+                max(0, len(dispatch_sources) - 1),
+            )
+
+        dispatch_evaluations: list[
+            tuple[str, Any, PostRetainedCpDispatchRunResult]
+        ] = []
+        for source_label, source_result, source_rows in dispatch_sources:
+            dispatch_result_for_source = run_post_retained_cp_dispatch(
+                instance=self.instance,
+                retained_cp_result=source_result,
+                retained_solution_rows=source_rows,
+                cp_local_repair_max_passes=cp_local_repair_max_passes,
+                cp_local_repair_top_k=cp_local_repair_top_k,
+                include_release_anchor_candidates=respect_anchor_stage_release_lb,
+                include_consensus_rank=include_consensus_rank,
+                include_tail_bottleneck_rank=include_tail_bottleneck_rank,
+                include_dynamic_priority=include_dynamic_priority,
+                dependencies=dependencies,
+            )
+            source_schedule = dispatch_result_for_source.dispatched_schedule
+            logging.info(
+                "[CP LB] Retained dispatch source %s cp_ub=%s selected %s with makespan=%s",
+                source_label,
+                getattr(source_result, "objective_ub", None),
+                dispatch_result_for_source.selected_dispatch_variant,
+                source_schedule.makespan if source_schedule is not None else None,
+            )
+            dispatch_evaluations.append(
+                (source_label, source_result, dispatch_result_for_source)
+            )
+
+        feasible_dispatch_tuples = [
+            (source_label, source_result, dispatch_result_for_source)
+            for (
+                source_label,
+                source_result,
+                dispatch_result_for_source,
+            ) in dispatch_evaluations
+            if dispatch_result_for_source.dispatched_schedule is not None
+        ]
+        best_dispatch_tuple = None
+        if feasible_dispatch_tuples:
+            if retained_cp_dispatch_selection_strategy == "best_makespan":
+                best_dispatch_tuple = min(
+                    feasible_dispatch_tuples,
+                    key=lambda item: item[2].dispatched_schedule.makespan,
+                )
+            elif (
+                retained_cp_dispatch_selection_strategy
+                == "earliest_snapshot_within_makespan_slack"
+            ):
+                best_makespan = min(
+                    item[2].dispatched_schedule.makespan
+                    for item in feasible_dispatch_tuples
+                )
+                makespan_slack = max(0.0, float(retained_cp_dispatch_makespan_slack))
+                allowed_makespan = best_makespan + makespan_slack
+                slack_candidates = [
+                    item
+                    for item in feasible_dispatch_tuples
+                    if item[0] != "final"
+                    and item[2].dispatched_schedule.makespan <= allowed_makespan
+                ]
+                if not slack_candidates:
+                    slack_candidates = [
+                        item
+                        for item in feasible_dispatch_tuples
+                        if item[2].dispatched_schedule.makespan <= allowed_makespan
+                    ]
+                best_dispatch_tuple = (
+                    slack_candidates[0]
+                    if slack_candidates
+                    else min(
+                        feasible_dispatch_tuples,
+                        key=lambda item: item[2].dispatched_schedule.makespan,
+                    )
+                )
+                logging.info(
+                    "[CP LB] Snapshot slack dispatch selection chose %s with "
+                    "makespan=%s (best=%s, slack=%s)",
+                    best_dispatch_tuple[0],
+                    best_dispatch_tuple[2].dispatched_schedule.makespan,
+                    best_makespan,
+                    makespan_slack,
+                )
+            else:
+                raise ValueError(
+                    "Unknown retained_cp_dispatch_selection_strategy: "
+                    f"{retained_cp_dispatch_selection_strategy!r}"
+                )
+        if best_dispatch_tuple is None:
+            schedule = None
+            dispatch_result = dispatch_evaluations[-1][2]
+            dispatch_source_label = "none"
+            dispatch_retained_result = retained_result
+        else:
+            dispatch_source_label, dispatch_retained_result, dispatch_result = (
+                best_dispatch_tuple
+            )
+            schedule = dispatch_result.dispatched_schedule
         if schedule is None:
             logging.warning(
                 "[CP LB] No feasible post-retained-CP dispatch schedule was generated."
@@ -2889,46 +3872,94 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if error_if_infeasible:
             self.check_feasibility(schedule.get_jik_2_start_time_map())
 
+        incumbent_schedule = self.solution_manager.get_incumbent()
         incumbent_before = self.solution_manager.best_obj_value
-        best_obj = schedule.makespan
-
-        is_init = self.solution_manager.get_incumbent() is None
-        report = self._make_subroutine_report(
-            elapsed_time=sub_timer.elapsed_sec,
-            obj_value=best_obj,
-            obj_bound=None,
-            is_init=is_init,
-            subroutine_name="dispatch_from_retained_cp",
-            progress_obj_value_records=[(sub_timer.elapsed_sec, float(best_obj))],
-        )
-        was_updated = self.solution_manager.register(report, schedule)
-        self.last_retained_cp_dispatch_obj = best_obj
-        self.last_retained_cp_selected_dispatch_variant = (
-            dispatch_result.selected_dispatch_variant
-        )
-        self.last_retained_cp_dispatch_anchor_stage_ids = list(
+        post_dispatch_obj = float(schedule.makespan)
+        selected_schedule = schedule
+        selected_obj = post_dispatch_obj
+        post_selected_variant = dispatch_result.selected_dispatch_variant
+        if dispatch_source_label == "final" or post_selected_variant is None:
+            selected_variant = post_selected_variant
+        else:
+            selected_variant = f"{dispatch_source_label}:{post_selected_variant}"
+        post_selected_variant_with_source = selected_variant
+        selected_anchor_stage_ids = list(
             dispatch_result.variant_2_anchor_stage_ids.get(
-                str(dispatch_result.selected_dispatch_variant),
+                str(post_selected_variant),
                 (),
             )
         )
+        kept_incumbent = False
+        is_post_dispatch_improvement = True
+        if incumbent_before is not None:
+            obj_value_comparator = getattr(
+                self.solution_manager, "_a_is_better_obj_value", None
+            )
+            if callable(obj_value_comparator):
+                is_post_dispatch_improvement = bool(
+                    obj_value_comparator(post_dispatch_obj, incumbent_before)
+                )
+            else:
+                is_post_dispatch_improvement = post_dispatch_obj < incumbent_before
+        if (
+            incumbent_schedule is not None
+            and incumbent_before is not None
+            and not is_post_dispatch_improvement
+        ):
+            selected_schedule = incumbent_schedule
+            selected_obj = float(incumbent_before)
+            selected_variant = "incumbent_before_retained_cp"
+            selected_anchor_stage_ids = []
+            kept_incumbent = True
+
+        is_init = incumbent_schedule is None
+        report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=selected_obj,
+            obj_bound=None,
+            is_init=is_init,
+            subroutine_name="dispatch_from_retained_cp",
+            progress_obj_value_records=[(sub_timer.elapsed_sec, selected_obj)],
+        )
+        was_updated = self.solution_manager.register(report, selected_schedule)
+        self.last_retained_cp_dispatch_obj = selected_obj
+        self.last_retained_cp_post_dispatch_obj = post_dispatch_obj
+        self.last_retained_cp_selected_dispatch_variant = selected_variant
+        self.last_retained_cp_post_selected_dispatch_variant = (
+            post_selected_variant_with_source
+        )
+        self.last_retained_cp_selected_dispatch_source = dispatch_source_label
+        self.last_retained_cp_dispatch_anchor_stage_ids = selected_anchor_stage_ids
         self.last_retained_cp_dispatch_elapsed_sec = sub_timer.elapsed_sec
         self.last_retained_cp_dispatch_was_incumbent_update = bool(was_updated)
+        self.last_retained_cp_dispatch_kept_incumbent = kept_incumbent
 
-        logging.info(
-            "[CP LB] Post-retained-CP dispatch selected %s on anchor stages %s with makespan=%s "
-            "(cp_ub=%s, cp_lb=%s, incumbent_before=%s, updated_incumbent=%s)",
-            dispatch_result.selected_dispatch_variant,
-            self.last_retained_cp_dispatch_anchor_stage_ids,
-            best_obj,
-            getattr(retained_result, "objective_ub", None),
-            getattr(retained_result, "certified_final_lb", None),
-            incumbent_before,
-            was_updated,
-        )
+        if kept_incumbent:
+            logging.info(
+                "[CP LB] Kept incumbent makespan=%s over post-retained-CP dispatch "
+                "%s makespan=%s (cp_ub=%s, cp_lb=%s, updated_incumbent=%s)",
+                selected_obj,
+                post_selected_variant_with_source,
+                post_dispatch_obj,
+                getattr(dispatch_retained_result, "objective_ub", None),
+                getattr(dispatch_retained_result, "certified_final_lb", None),
+                was_updated,
+            )
+        else:
+            logging.info(
+                "[CP LB] Post-retained-CP dispatch selected %s on anchor stages %s with makespan=%s "
+                "(cp_ub=%s, cp_lb=%s, incumbent_before=%s, updated_incumbent=%s)",
+                selected_variant,
+                self.last_retained_cp_dispatch_anchor_stage_ids,
+                selected_obj,
+                getattr(dispatch_retained_result, "objective_ub", None),
+                getattr(dispatch_retained_result, "certified_final_lb", None),
+                incumbent_before,
+                was_updated,
+            )
 
         log_time = self.timer.elapsed_sec
-        self.add_obj_value_log(log_time, float(best_obj), is_maximize=False)
+        self.add_obj_value_log(log_time, selected_obj, is_maximize=False)
         _last_timestamp_note = self._get_call_context_of_current_method()
         self.obj_store.add_last_timestamp_note(
             _last_timestamp_note, obj_value_is_valid=True
@@ -2938,7 +3969,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             write_post_retained_cp_dispatch_artifacts(
                 cp_lb_dir=self._working_dir_path / "cp_lb",
                 dispatch_result=dispatch_result,
-                retained_cp_result=retained_result,
+                retained_cp_result=dispatch_retained_result,
                 apply_elapsed_sec=getattr(
                     self, "last_retained_cp_lb_apply_elapsed_sec", None
                 ),
@@ -2949,18 +3980,30 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if was_updated and draw_gantt:
             self.draw_incumbent_gantt()
 
-        return {
-            "schedule": schedule,
-            "selected_dispatch_variant": dispatch_result.selected_dispatch_variant,
-            "anchor_stage_ids": list(self.last_retained_cp_dispatch_anchor_stage_ids),
-            "dispatch_candidates": {
-                variant: (
+        dispatch_candidates = {}
+        for source_label, _, evaluated_dispatch_result in dispatch_evaluations:
+            prefix = "" if source_label == "final" else f"{source_label}:"
+            for variant, candidate_schedule in (
+                evaluated_dispatch_result.dispatched_schedules.items()
+            ):
+                dispatch_candidates[f"{prefix}{variant}"] = (
                     candidate_schedule.makespan
                     if candidate_schedule is not None
                     else None
                 )
-                for variant, candidate_schedule in dispatch_result.dispatched_schedules.items()
-            },
+        if incumbent_before is not None:
+            dispatch_candidates["incumbent_before_retained_cp"] = incumbent_before
+        return {
+            "schedule": selected_schedule,
+            "selected_dispatch_variant": selected_variant,
+            "post_cp_selected_dispatch_variant": (
+                post_selected_variant_with_source
+            ),
+            "post_cp_selected_obj": post_dispatch_obj,
+            "kept_incumbent": kept_incumbent,
+            "anchor_stage_ids": list(self.last_retained_cp_dispatch_anchor_stage_ids),
+            "dispatch_candidates": dispatch_candidates,
+            "selected_dispatch_source": dispatch_source_label,
         }
 
     def dispatch_from_retained_cp_two_way(
@@ -6188,6 +7231,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         portfolio: str = "balanced",
         include_stage_agg: bool = True,
         cap_portions: Sequence[float] | None = None,
+        include_mid_order_variants: bool = False,
+        randomized_mid_trials: int = 0,
+        selection_strategy: str = "best",
+        selection_obj_slack: float = 0.0,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -6203,6 +7250,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         ]
         if portfolio not in {"compact", "balanced", "wide"}:
             raise ValueError("portfolio must be one of {'compact', 'balanced', 'wide'}.")
+        if selection_strategy not in {"best", "earliest_within_slack"}:
+            raise ValueError(
+                "selection_strategy must be one of {'best', 'earliest_within_slack'}."
+            )
+        if selection_obj_slack < 0:
+            raise ValueError("selection_obj_slack must be non-negative.")
 
         base_caps = list(cap_portions) if cap_portions is not None else [0.25]
         extra_caps = [] if cap_portions is not None else [0.2, 0.3]
@@ -6220,12 +7273,20 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             method_list: list[str],
             p_agg_method: str = "sum",
             mi_agg_method: str = "max",
+            randomize_mid_all: bool = False,
+            reverse_mid_all: bool = False,
+            reverse_mid_even: bool = False,
+            random_trial_idx: int | None = None,
         ) -> None:
             key = (
                 round(float(cap), 6),
                 machine_then_job,
                 head_for_all_stages,
                 normalize_by_stage_cnt,
+                randomize_mid_all,
+                reverse_mid_all,
+                reverse_mid_even,
+                random_trial_idx,
                 tuple(method_list),
                 p_agg_method,
                 mi_agg_method,
@@ -6238,9 +7299,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     "left_cap_portion": float(cap),
                     "right_cap_portion": float(cap),
                     "normalize_by_stage_cnt": normalize_by_stage_cnt,
-                    "randomize_mid_all": False,
-                    "reverse_mid_all": False,
-                    "reverse_mid_even": False,
+                    "randomize_mid_all": randomize_mid_all,
+                    "reverse_mid_all": reverse_mid_all,
+                    "reverse_mid_even": reverse_mid_even,
                     "mixed_schedule_for_former_stages": True,
                     "mixed_schedule_for_later_stages": True,
                     "machine_then_job": machine_then_job,
@@ -6248,8 +7309,33 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     "p_agg_method": p_agg_method,
                     "mi_agg_method": mi_agg_method,
                     "method_list": method_list,
+                    "_random_trial_idx": random_trial_idx,
                 }
             )
+
+        def add_mid_order_variants(*, cap: float, method_list: list[str]) -> None:
+            if not include_mid_order_variants:
+                return
+            for reverse_mid_even, reverse_mid_all in ((True, False), (False, True)):
+                add_config(
+                    cap=cap,
+                    machine_then_job=True,
+                    head_for_all_stages=True,
+                    normalize_by_stage_cnt=False,
+                    method_list=method_list,
+                    reverse_mid_even=reverse_mid_even,
+                    reverse_mid_all=reverse_mid_all,
+                )
+            for trial_idx in range(max(0, int(randomized_mid_trials))):
+                add_config(
+                    cap=cap,
+                    machine_then_job=True,
+                    head_for_all_stages=True,
+                    normalize_by_stage_cnt=False,
+                    method_list=method_list,
+                    randomize_mid_all=True,
+                    random_trial_idx=trial_idx,
+                )
 
         for cap in base_caps:
             add_config(
@@ -6281,6 +7367,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     normalize_by_stage_cnt=True,
                     method_list=core_methods,
                 )
+            add_mid_order_variants(cap=cap, method_list=core_methods)
 
         if portfolio in {"balanced", "wide"}:
             for cap in extra_caps:
@@ -6291,6 +7378,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     normalize_by_stage_cnt=False,
                     method_list=core_methods,
                 )
+                add_mid_order_variants(cap=cap, method_list=core_methods)
 
         if portfolio == "wide":
             for cap in wide_caps:
@@ -6302,6 +7390,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                         normalize_by_stage_cnt=False,
                         method_list=core_methods,
                     )
+                add_mid_order_variants(cap=cap, method_list=core_methods)
 
         if include_stage_agg:
             agg_pairs = [("sum", "max")]
@@ -6330,15 +7419,29 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                             p_agg_method=p_agg_method,
                             mi_agg_method=mi_agg_method,
                         )
+                    add_mid_order_variants(cap=cap, method_list=stage_agg_methods)
 
         best_sch: HybridFlowshopLiteSchedule | None = None
         best_obj: int | None = None
         best_config_idx = -1
         best_method_name = ""
+        candidate_records: list[
+            tuple[
+                int,
+                str,
+                int,
+                HybridFlowshopLiteSchedule,
+                dict[str, Any],
+                int | None,
+            ]
+        ] = []
         for config_idx, config in enumerate(config_rows, start=1):
             try:
+                dispatch_config = {
+                    key: value for key, value in config.items() if not key.startswith("_")
+                }
                 candidate_schedules = self._get_selected_dispatch_candidate_schedules(
-                    **config,
+                    **dispatch_config,
                     draw_gantt=False,
                 )
             except Exception:
@@ -6353,21 +7456,327 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 if sch is None:
                     continue
                 obj = sch.makespan
+                candidate_records.append(
+                    (
+                        config_idx,
+                        method_name,
+                        obj,
+                        sch,
+                        dict(dispatch_config),
+                        config.get("_random_trial_idx"),
+                    )
+                )
                 if best_obj is None or obj < best_obj:
                     best_sch = sch
                     best_obj = obj
                     best_config_idx = config_idx
                     best_method_name = method_name
+                    logging.info(
+                        "[Dispatch Portfolio] New best init makespan=%s from "
+                        "config %d/%d method=%s random_trial=%s config=%s",
+                        best_obj,
+                        best_config_idx,
+                        len(config_rows),
+                        best_method_name,
+                        config.get("_random_trial_idx"),
+                        dispatch_config,
+                    )
 
         if best_sch is None:
             logging.warning("[Dispatch Portfolio] No feasible dispatch candidate found.")
             return
+        selected_config_idx = best_config_idx
+        selected_method_name = best_method_name
+        selected_obj = best_obj
+        selected_sch = best_sch
+        selected_dispatch_config: dict[str, Any] | None = None
+        selected_random_trial_idx: int | None = None
+        if selection_strategy == "earliest_within_slack":
+            threshold = float(best_obj) + float(selection_obj_slack)
+            for (
+                config_idx,
+                method_name,
+                obj,
+                sch,
+                dispatch_config,
+                random_trial_idx,
+            ) in candidate_records:
+                if float(obj) <= threshold:
+                    selected_config_idx = config_idx
+                    selected_method_name = method_name
+                    selected_obj = obj
+                    selected_sch = sch
+                    selected_dispatch_config = dispatch_config
+                    selected_random_trial_idx = random_trial_idx
+                    break
+        if selected_dispatch_config is None:
+            for (
+                config_idx,
+                method_name,
+                obj,
+                _sch,
+                dispatch_config,
+                random_trial_idx,
+            ) in candidate_records:
+                if (
+                    config_idx == selected_config_idx
+                    and method_name == selected_method_name
+                    and obj == selected_obj
+                ):
+                    selected_dispatch_config = dispatch_config
+                    selected_random_trial_idx = random_trial_idx
+                    break
+
+        self.last_selected_dispatch_config = dict(selected_dispatch_config or {})
         logging.info(
-            "[Dispatch Portfolio] Best init makespan=%s from config %d/%d method=%s",
+            "[Dispatch Portfolio] Best raw init makespan=%s from config %d/%d method=%s",
             best_obj,
             best_config_idx,
             len(config_rows),
             best_method_name,
+        )
+        logging.info(
+            "[Dispatch Portfolio] Selected init makespan=%s from config %d/%d "
+            "method=%s random_trial=%s strategy=%s slack=%s",
+            selected_obj,
+            selected_config_idx,
+            len(config_rows),
+            selected_method_name,
+            selected_random_trial_idx,
+            selection_strategy,
+            selection_obj_slack,
+        )
+
+        if error_if_infeasible:
+            self.check_feasibility(selected_sch.get_jik_2_start_time_map())
+
+        report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=float(selected_sch.makespan),
+            obj_bound=None,
+            is_init=self.solution_manager.get_incumbent() is None,
+            subroutine_name="initialize_by_dispatch_portfolio",
+            progress_obj_value_records=[
+                (sub_timer.elapsed_sec, float(selected_sch.makespan))
+            ],
+        )
+        was_updated = self.solution_manager.register(report, selected_sch)
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, float(selected_sch.makespan), is_maximize=False)
+        self.obj_store.add_last_timestamp_note(
+            self._get_call_context_of_current_method(),
+            obj_value_is_valid=True,
+        )
+
+        if was_updated and draw_gantt:
+            self.draw_incumbent_gantt()
+
+    def _get_sequence_insertion_order(self, order_rule: str) -> list[str]:
+        jobs = list(self.instance.job_id_list)
+        stages = list(self.instance.stage_id_list)
+        p = self.job_2_stage_2_p_dict
+        split_idx = max(1, len(stages) // 2)
+        first_stages = stages[:split_idx]
+        last_stages = stages[split_idx:]
+        if not last_stages:
+            last_stages = stages[-1:]
+
+        def total_p(job_id: str) -> int:
+            return sum(p[job_id][stage_id] for stage_id in stages)
+
+        def first_p(job_id: str) -> int:
+            return sum(p[job_id][stage_id] for stage_id in first_stages)
+
+        def last_p(job_id: str) -> int:
+            return sum(p[job_id][stage_id] for stage_id in last_stages)
+
+        if order_rule == "total_desc":
+            return sorted(jobs, key=lambda j: (-total_p(j), j))
+        if order_rule == "total_asc":
+            return sorted(jobs, key=lambda j: (total_p(j), j))
+        if order_rule == "front_desc":
+            return sorted(jobs, key=lambda j: (-first_p(j), -total_p(j), j))
+        if order_rule == "tail_desc":
+            return sorted(jobs, key=lambda j: (-last_p(j), -total_p(j), j))
+        if order_rule == "flow_slope_desc":
+            return sorted(jobs, key=lambda j: (first_p(j) - last_p(j), -total_p(j), j))
+        if order_rule == "bottleneck_desc":
+            bottleneck_stage_id = max(
+                stages,
+                key=lambda stage_id: (
+                    sum(self.stage_2_job_2_p_dict[stage_id].values())
+                    / max(1, len(self.instance.stage_2_machines_map[stage_id]))
+                ),
+            )
+            return sorted(
+                jobs,
+                key=lambda j: (-p[j][bottleneck_stage_id], -total_p(j), j),
+            )
+        if order_rule == "random":
+            shuffled_jobs = list(jobs)
+            random.shuffle(shuffled_jobs)
+            return shuffled_jobs
+        raise ValueError(
+            "order_rule must be one of {'total_desc', 'total_asc', 'front_desc', "
+            "'tail_desc', 'flow_slope_desc', 'bottleneck_desc', 'random'}. "
+            f"Received {order_rule!r}."
+        )
+
+    @staticmethod
+    def _sample_insertion_positions(
+        sequence_len: int,
+        max_insert_positions: int | None,
+    ) -> list[int]:
+        positions = list(range(sequence_len + 1))
+        if max_insert_positions is None or max_insert_positions >= len(positions):
+            return positions
+        if max_insert_positions <= 1:
+            return [sequence_len]
+        last_idx = len(positions) - 1
+        sampled = {
+            positions[round(idx * last_idx / (max_insert_positions - 1))]
+            for idx in range(max_insert_positions)
+        }
+        return sorted(sampled)
+
+    def _build_sequence_by_insertion(
+        self,
+        base_order: Sequence[str],
+        *,
+        beam_width: int,
+        max_insert_positions: int | None,
+        order_label: str,
+    ) -> tuple[list[str], int]:
+        beam: list[tuple[list[str], int]] = [([], 0)]
+        resolved_beam_width = max(1, int(beam_width))
+        for job_idx, job_id in enumerate(base_order, start=1):
+            candidates: list[tuple[list[str], int]] = []
+            seen_sequences: set[tuple[str, ...]] = set()
+            for sequence, _score in beam:
+                for position in self._sample_insertion_positions(
+                    len(sequence),
+                    max_insert_positions,
+                ):
+                    candidate_sequence = (
+                        sequence[:position] + [job_id] + sequence[position:]
+                    )
+                    sequence_key = tuple(candidate_sequence)
+                    if sequence_key in seen_sequences:
+                        continue
+                    seen_sequences.add(sequence_key)
+                    schedule = self._from_job_sequence_get_schedule(candidate_sequence)
+                    candidates.append((candidate_sequence, schedule.makespan))
+            candidates.sort(key=lambda item: (item[1], item[0]))
+            beam = candidates[:resolved_beam_width]
+            if job_idx == len(base_order) or job_idx % 20 == 0:
+                logging.info(
+                    "[Sequence Init] %s inserted %d/%d jobs; best partial makespan=%s",
+                    order_label,
+                    job_idx,
+                    len(base_order),
+                    beam[0][1],
+                )
+        return beam[0]
+
+    def initialize_by_sequence_insertion_portfolio(
+        self,
+        order_rules: Sequence[str] | None = None,
+        randomized_order_trials: int = 0,
+        beam_width: int = 1,
+        max_insert_positions: int | None = None,
+        machine_then_job_options: Sequence[bool] | None = None,
+        head_for_all_stages_options: Sequence[bool] | None = None,
+        include_reversed_final_sequences: bool = True,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Initialize from NEH-style insertion sequences evaluated by mixed dispatch."""
+        sub_timer = ElapsedTimer()
+        resolved_order_rules = list(
+            order_rules
+            if order_rules is not None
+            else [
+                "total_desc",
+                "tail_desc",
+                "front_desc",
+                "flow_slope_desc",
+                "bottleneck_desc",
+            ]
+        )
+        resolved_machine_then_job_options = list(
+            machine_then_job_options
+            if machine_then_job_options is not None
+            else [True, False]
+        )
+        resolved_head_for_all_stages_options = list(
+            head_for_all_stages_options
+            if head_for_all_stages_options is not None
+            else [True, False]
+        )
+
+        best_sch: HybridFlowshopLiteSchedule | None = None
+        best_obj: int | None = None
+        best_label = ""
+        built_sequences: list[tuple[str, list[str], int]] = []
+
+        for order_rule in resolved_order_rules:
+            base_order = self._get_sequence_insertion_order(order_rule)
+            sequence, partial_obj = self._build_sequence_by_insertion(
+                base_order,
+                beam_width=beam_width,
+                max_insert_positions=max_insert_positions,
+                order_label=order_rule,
+            )
+            built_sequences.append((order_rule, sequence, partial_obj))
+
+        for trial_idx in range(max(0, int(randomized_order_trials))):
+            base_order = self._get_sequence_insertion_order("random")
+            order_label = f"random_{trial_idx}"
+            sequence, partial_obj = self._build_sequence_by_insertion(
+                base_order,
+                beam_width=beam_width,
+                max_insert_positions=max_insert_positions,
+                order_label=order_label,
+            )
+            built_sequences.append((order_label, sequence, partial_obj))
+
+        for order_label, sequence, partial_obj in built_sequences:
+            sequence_variants: list[tuple[str, list[str]]] = [(order_label, sequence)]
+            if include_reversed_final_sequences:
+                sequence_variants.append((f"{order_label}_reversed", list(reversed(sequence))))
+            for sequence_label, candidate_sequence in sequence_variants:
+                for machine_then_job in resolved_machine_then_job_options:
+                    for head_for_all_stages in resolved_head_for_all_stages_options:
+                        sch = self._get_best_mixed_schedule_from_job_sequence(
+                            candidate_sequence,
+                            machine_then_job=machine_then_job,
+                            head_for_all_stages=head_for_all_stages,
+                        )
+                        if sch is None:
+                            continue
+                        obj = sch.makespan
+                        if best_obj is None or obj < best_obj:
+                            best_sch = sch
+                            best_obj = obj
+                            best_label = (
+                                f"{sequence_label}; partial={partial_obj}; "
+                                f"machine_then_job={machine_then_job}; "
+                                f"head_for_all_stages={head_for_all_stages}"
+                            )
+                            logging.info(
+                                "[Sequence Init] New best init makespan=%s from %s",
+                                best_obj,
+                                best_label,
+                            )
+
+        if best_sch is None:
+            logging.warning("[Sequence Init] No feasible insertion candidate found.")
+            return
+        logging.info(
+            "[Sequence Init] Best init makespan=%s from %s",
+            best_obj,
+            best_label,
         )
 
         if error_if_infeasible:
@@ -6378,7 +7787,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_value=float(best_sch.makespan),
             obj_bound=None,
             is_init=self.solution_manager.get_incumbent() is None,
-            subroutine_name="initialize_by_dispatch_portfolio",
+            subroutine_name="initialize_by_sequence_insertion_portfolio",
             progress_obj_value_records=[
                 (sub_timer.elapsed_sec, float(best_sch.makespan))
             ],

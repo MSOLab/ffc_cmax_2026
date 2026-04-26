@@ -42,10 +42,13 @@ def test_hfs_summary_save_includes_extra_outputs(tmp_path: Path) -> None:
             "retainedCpStatus": "FEASIBLE",
             "retainedCpApplyElapsedSec": 4.5,
             "retainedCpDispatchObj": 1215,
+            "retainedCpPostDispatchObj": 1215,
             "retainedCpSelectedDispatchVariant": "cp_band_preferred_priority_release",
+            "retainedCpPostSelectedDispatchVariant": "cp_band_preferred_priority_release",
             "retainedCpDispatchAnchorStages": "i1 i2 i3",
             "retainedCpDispatchElapsedSec": 1.2,
             "retainedCpDispatchUpdatedIncumbent": True,
+            "retainedCpDispatchKeptIncumbent": False,
         },
     )
 
@@ -59,12 +62,17 @@ def test_hfs_summary_save_includes_extra_outputs(tmp_path: Path) -> None:
     assert list(df["retainedCpStatus"]) == ["FEASIBLE"]
     assert list(df["retainedCpApplyElapsedSec"]) == [4.5]
     assert list(df["retainedCpDispatchObj"]) == [1215]
+    assert list(df["retainedCpPostDispatchObj"]) == [1215]
     assert list(df["retainedCpSelectedDispatchVariant"]) == [
+        "cp_band_preferred_priority_release"
+    ]
+    assert list(df["retainedCpPostSelectedDispatchVariant"]) == [
         "cp_band_preferred_priority_release"
     ]
     assert list(df["retainedCpDispatchAnchorStages"]) == ["i1 i2 i3"]
     assert list(df["retainedCpDispatchElapsedSec"]) == [1.2]
     assert list(df["retainedCpDispatchUpdatedIncumbent"]) == [True]
+    assert list(df["retainedCpDispatchKeptIncumbent"]) == [False]
 
 
 def test_create_summary_row_includes_mip_lb_columns(tmp_path: Path) -> None:
@@ -98,10 +106,13 @@ def test_create_summary_row_includes_mip_lb_columns(tmp_path: Path) -> None:
                 "retainedCpApplyElapsedSec": 3.9,
                 "retainedCpBestObj": 875,
                 "retainedCpDispatchObj": 878,
+                "retainedCpPostDispatchObj": 878,
                 "retainedCpSelectedDispatchVariant": "best_of_mixed_dispatches_cp_aggregate_start_slack_rank",
+                "retainedCpPostSelectedDispatchVariant": "best_of_mixed_dispatches_cp_aggregate_start_slack_rank",
                 "retainedCpDispatchAnchorStages": "i0 i1 i2",
                 "retainedCpDispatchElapsedSec": 1.1,
                 "retainedCpDispatchUpdatedIncumbent": False,
+                "retainedCpDispatchKeptIncumbent": False,
             }
         ]
     ).to_csv(summary_path, index=False)
@@ -139,10 +150,16 @@ def test_create_summary_row_includes_mip_lb_columns(tmp_path: Path) -> None:
     assert summary_row["retainedCpApplyElapsedSec"] == 3.9
     assert summary_row["retainedCpBestObj"] == 875
     assert summary_row["retainedCpDispatchObj"] == 878
+    assert summary_row["retainedCpPostDispatchObj"] == 878
     assert (
         summary_row["retainedCpSelectedDispatchVariant"]
+        == "best_of_mixed_dispatches_cp_aggregate_start_slack_rank"
+    )
+    assert (
+        summary_row["retainedCpPostSelectedDispatchVariant"]
         == "best_of_mixed_dispatches_cp_aggregate_start_slack_rank"
     )
     assert summary_row["retainedCpDispatchAnchorStages"] == "i0 i1 i2"
     assert summary_row["retainedCpDispatchElapsedSec"] == 1.1
     assert summary_row["retainedCpDispatchUpdatedIncumbent"] is False
+    assert summary_row["retainedCpDispatchKeptIncumbent"] is False

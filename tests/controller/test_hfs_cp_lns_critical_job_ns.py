@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -83,6 +84,35 @@ def _build_stage_band_schedule():
         sched.add_ops_times_2_mc(stage_id, "M1", "J1", start_time=stage_idx * 2, end_time=stage_idx * 2 + 1)
         sched.add_ops_times_2_mc(stage_id, "M1", "J2", start_time=stage_idx * 2 + 1, end_time=stage_idx * 2 + 2)
     return sched
+
+
+def _build_diagonal_schedule():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["J1", "J2"],
+        stages=["S0", "S1", "S2"],
+        machines_per_stage={"S0": ["M1"], "S1": ["M1"], "S2": ["M1"]},
+    )
+    for stage_idx, stage_id in enumerate(sched.stages):
+        stage_offset = stage_idx * 10
+        sched.add_ops_times_2_mc(
+            stage_id,
+            "M1",
+            "J1",
+            start_time=stage_offset,
+            end_time=stage_offset + 2,
+        )
+        sched.add_ops_times_2_mc(
+            stage_id,
+            "M1",
+            "J2",
+            start_time=stage_offset + 5,
+            end_time=stage_offset + 7,
+        )
+    duration = {
+        stage_id: {"J1": 2, "J2": 2}
+        for stage_id in sched.stages
+    }
+    return sched, duration
 
 
 def test_select_critical_jobs_uses_weighted_block_occurrence_counts(monkeypatch):
@@ -361,6 +391,282 @@ def test_random_stage_band_stage_ns_uses_tl_nc_multiplier(monkeypatch):
 
     assert captured["computational_time"] == 15.0
     assert captured["solver_thread_cnt"] == 6
+
+
+def test_time_window_operator_frees_all_overlapping_ops(monkeypatch):
+    schedule, duration = _build_actual_schedule()
+    ctrl = _make_controller(duration)
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: schedule)
+
+    captured = {}
+
+    def fake_fix(_schedule, selected_ops, **kwargs):
+        captured["selected_ops"] = selected_ops
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(ctrl, "_fix_time_window_profile_except_selected", fake_fix)
+
+    selected_ops = ctrl.apply_time_window_operation_operator(
+        1,
+        3,
+        profile_fix_by_machine=True,
+        machine_precedence_stride=2,
+        fix_outside_start_times=True,
+    )
+
+    assert selected_ops == {
+        ("J2", "S1", "M1"),
+        ("J3", "S1", "M1"),
+        ("J1", "S2", "M1"),
+        ("J2", "S2", "M1"),
+    }
+    assert captured["selected_ops"] == selected_ops
+    assert captured["kwargs"] == {
+        "profile_fix_by_machine": True,
+        "machine_precedence_stride": 2,
+        "fix_outside_start_times": True,
+        "selected_start_time_tolerance": None,
+        "outside_start_time_tolerance": None,
+    }
+
+
+def test_slanted_time_window_operator_follows_stage_shift(monkeypatch):
+    schedule, duration = _build_diagonal_schedule()
+    ctrl = _make_controller(duration)
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: schedule)
+
+    captured = {}
+
+    def fake_fix(_schedule, selected_ops, **kwargs):
+        captured["selected_ops"] = selected_ops
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(ctrl, "_fix_time_window_profile_except_selected", fake_fix)
+
+    selected_ops = ctrl.apply_time_window_operation_operator(
+        0,
+        3,
+        overlap_mode="start",
+        stage_shift_per_stage=10,
+        profile_fix_by_machine=True,
+        machine_precedence_stride=2,
+        fix_outside_start_times=False,
+    )
+
+    assert selected_ops == {
+        ("J1", "S0", "M1"),
+        ("J1", "S1", "M1"),
+        ("J1", "S2", "M1"),
+    }
+    assert captured["selected_ops"] == selected_ops
+    assert captured["kwargs"] == {
+        "profile_fix_by_machine": True,
+        "machine_precedence_stride": 2,
+        "fix_outside_start_times": False,
+        "selected_start_time_tolerance": None,
+        "outside_start_time_tolerance": None,
+    }
+
+
+def test_time_window_operator_expands_selection_and_resolves_start_tolerances(
+    monkeypatch,
+):
+    schedule, duration = _build_actual_schedule()
+    ctrl = _make_controller(duration)
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: schedule)
+
+    captured = {}
+
+    def fake_fix(_schedule, selected_ops, **kwargs):
+        captured["selected_ops"] = selected_ops
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(ctrl, "_fix_time_window_profile_except_selected", fake_fix)
+
+    selected_ops = ctrl.apply_time_window_operation_operator(
+        1,
+        2,
+        overlap_mode="start",
+        selection_window_padding=1,
+        selected_start_time_tolerance_ratio=0.25,
+        outside_start_time_tolerance=1,
+        fix_outside_start_times=False,
+    )
+
+    assert selected_ops == {
+        ("J1", "S1", "M1"),
+        ("J2", "S1", "M1"),
+        ("J3", "S1", "M1"),
+        ("J1", "S2", "M1"),
+        ("J2", "S2", "M1"),
+    }
+    assert captured["kwargs"]["fix_outside_start_times"] is False
+    assert captured["kwargs"]["selected_start_time_tolerance"] == 1
+    assert captured["kwargs"]["outside_start_time_tolerance"] == 1
+
+
+def test_time_window_profile_can_bound_selected_and_outside_starts(monkeypatch):
+    schedule, duration = _build_actual_schedule()
+    ctrl = _make_controller(duration)
+
+    selected_ops = {
+        ("J2", "S1", "M1"),
+        ("J1", "S2", "M1"),
+    }
+    captured = {}
+    range_calls = []
+
+    def fake_fix(selected_ops_arg, **kwargs):
+        captured["selected_ops"] = selected_ops_arg
+        captured["kwargs"] = kwargs
+
+    def fake_add_ranges(_schedule, ops, *, tolerance, label):
+        range_calls.append(
+            {
+                "ops": ops,
+                "tolerance": tolerance,
+                "label": label,
+            }
+        )
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+    monkeypatch.setattr(ctrl, "_add_start_time_range_constraints_for_ops", fake_add_ranges)
+
+    ctrl._fix_time_window_profile_except_selected(
+        schedule,
+        selected_ops,
+        profile_fix_by_machine=True,
+        machine_precedence_stride=2,
+        fix_outside_start_times=True,
+        selected_start_time_tolerance=3,
+        outside_start_time_tolerance=1,
+    )
+
+    assert captured["selected_ops"] == selected_ops
+    assert captured["kwargs"] == {
+        "profile_fix_by_machine": True,
+        "machine_precedence_stride": 2,
+        "fix_start_times": False,
+    }
+    assert range_calls[0] == {
+        "ops": selected_ops,
+        "tolerance": 3,
+        "label": "selected",
+    }
+    assert range_calls[1]["ops"] == set(schedule.get_jik_2_start_time_map()) - selected_ops
+    assert range_calls[1]["tolerance"] == 1
+    assert range_calls[1]["label"] == "outside"
+
+
+def test_time_window_ns_uses_ratio_window_and_tl_nc_multiplier(monkeypatch):
+    schedule, duration = _build_actual_schedule()
+    ctrl = _make_controller(duration)
+    ctrl.instance = SimpleNamespace(job_count=3, stage_count=2)
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: schedule)
+
+    captured = {}
+
+    def fake_apply(window_start, window_end, **kwargs):
+        captured["window_start"] = window_start
+        captured["window_end"] = window_end
+        captured["apply_kwargs"] = kwargs
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **kwargs,
+    ):
+        profile_fixing_method()
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+        captured["solve_kwargs"] = kwargs
+
+    monkeypatch.setattr(ctrl, "apply_time_window_operation_operator", fake_apply)
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+    monkeypatch.setattr(ctrl, "temporarily_extended_context", lambda _name: nullcontext())
+
+    ctrl.time_window_ns(
+        solver_thread_cnt=8,
+        tl_nc_multiplier=0.5,
+        window_start_ratio=0.25,
+        window_end_ratio=0.75,
+        selected_start_time_tolerance_ratio=0.1,
+        outside_start_time_tolerance=2,
+        use_lns_only=True,
+    )
+
+    assert captured["window_start"] == 1
+    assert captured["window_end"] == 3
+    assert captured["computational_time"] == 3.0
+    assert captured["solver_thread_cnt"] == 8
+    assert captured["apply_kwargs"]["selected_start_time_tolerance_ratio"] == 0.1
+    assert captured["apply_kwargs"]["outside_start_time_tolerance"] == 2
+    assert captured["solve_kwargs"]["use_lns_only"] is True
+
+
+def test_slanted_time_window_builder_covers_shifted_stage_time_axis():
+    schedule, duration = _build_diagonal_schedule()
+    ctrl = _make_controller(duration)
+    ctrl.instance = SimpleNamespace(stage_count=3)
+
+    windows = ctrl._build_slanted_time_window_sweep_windows(
+        schedule,
+        window_size=5,
+        window_size_ratio=None,
+        step_size=10,
+        step_size_ratio=None,
+        max_window_count=None,
+        stage_shift_per_stage=10,
+    )
+
+    assert windows[0] == (-20, -15)
+    assert windows[-1] == (22, 27)
+
+
+def test_time_window_sweep_ns_uses_tl_nc_multiplier(monkeypatch):
+    schedule, duration = _build_actual_schedule()
+    ctrl = _make_controller(duration)
+    ctrl.instance = SimpleNamespace(job_count=3, stage_count=2)
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: schedule)
+
+    captured = []
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **kwargs,
+    ):
+        profile_fixing_method()
+        captured.append(
+            {
+                "computational_time": computational_time,
+                "solver_thread_cnt": solver_thread_cnt,
+                "kwargs": kwargs,
+            }
+        )
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+    monkeypatch.setattr(ctrl, "temporarily_extended_context", lambda _name: nullcontext())
+    monkeypatch.setattr(
+        ctrl,
+        "_fix_operations_profile_except_selected",
+        lambda *_args, **_kwargs: None,
+    )
+
+    ctrl.time_window_sweep_ns(
+        solver_thread_cnt=8,
+        tl_nc_multiplier=0.5,
+        window_size=2,
+        step_size=2,
+        max_window_count=2,
+        use_lns_only=True,
+    )
+
+    assert [row["computational_time"] for row in captured] == [3.0, 3.0]
+    assert [row["solver_thread_cnt"] for row in captured] == [8, 8]
+    assert all(row["kwargs"]["use_lns_only"] is True for row in captured)
 
 
 def test_select_critical_jobs_caps_at_total_candidate_jobs(monkeypatch):
