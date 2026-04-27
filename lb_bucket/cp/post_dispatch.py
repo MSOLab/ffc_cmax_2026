@@ -33,6 +33,10 @@ class PostRetainedCpDispatchDependencies:
         ...,
         HybridFlowshopLiteSchedule | None,
     ]
+    get_schedule_by_stage_job_sequences_priority: Callable[
+        ...,
+        HybridFlowshopLiteSchedule | None,
+    ]
     repair_post_retained_cp_dispatch_candidate: Callable[
         ...,
         HybridFlowshopLiteSchedule | None,
@@ -66,6 +70,7 @@ def run_post_retained_cp_dispatch(
     include_tail_bottleneck_rank: bool = True,
     include_extended_rank_variants: bool = False,
     include_dynamic_priority: bool = False,
+    include_piecewise_stage_priority: bool = False,
     randomized_mixed_rank_trials: int = 0,
     dependencies: PostRetainedCpDispatchDependencies,
 ) -> PostRetainedCpDispatchRunResult:
@@ -292,6 +297,35 @@ def run_post_retained_cp_dispatch(
             "cp_dynamic_priority_soft_release",
             schedule.makespan if schedule is not None else None,
         )
+
+    if include_piecewise_stage_priority:
+        piecewise_stage_sequence_variants = _build_piecewise_stage_sequence_variants(
+            stage_id_list=instance.stage_id_list,
+            job_id_list=instance.job_id_list,
+            retained_solution_rows=retained_solution_rows,
+            fallback_job_sequence=consensus_sequence,
+        )
+        for variant, stage_2_job_sequence in piecewise_stage_sequence_variants.items():
+            variant_timer = ElapsedTimer()
+            try:
+                schedule = dependencies.get_schedule_by_stage_job_sequences_priority(
+                    stage_2_job_sequence=stage_2_job_sequence,
+                    stage_2_job_2_release=None,
+                )
+            except Exception:
+                logging.exception(
+                    "[CP LB] %s failed while constructing piecewise stage-priority dispatch.",
+                    variant,
+                )
+                schedule = None
+            dispatch_candidates[variant] = schedule
+            dispatch_candidate_elapsed_sec[variant] = variant_timer.elapsed_sec
+            variant_2_anchor_stage_ids[variant] = list(instance.stage_id_list)
+            logging.info(
+                "[CP LB] %s has makespan=%s",
+                variant,
+                schedule.makespan if schedule is not None else None,
+            )
 
     rank_candidates = {
         "best_of_mixed_dispatches_cp_first_anchor_rank": (
@@ -948,6 +982,263 @@ def _build_full_stage_sequences_from_retained_rows(
         else:
             full_stage_sequences[str(stage_id)] = list(fallback_job_sequence)
     return full_stage_sequences
+
+
+def _build_piecewise_stage_sequence_variants(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    fallback_job_sequence: Sequence[str],
+) -> dict[str, dict[str, list[str]]]:
+    retained_stage_ids, retained_stage_sequences = _get_retained_stage_sequences(
+        stage_id_list=stage_id_list,
+        job_id_list=job_id_list,
+        retained_solution_rows=retained_solution_rows,
+    )
+    if not retained_stage_ids:
+        fallback = {
+            str(stage_id): _complete_job_sequence(fallback_job_sequence, job_id_list)
+            for stage_id in stage_id_list
+        }
+        return {"piecewise_cp_nearest_priority": fallback}
+
+    return {
+        "piecewise_cp_nearest_priority": _build_piecewise_stage_sequences_by_policy(
+            stage_id_list=stage_id_list,
+            job_id_list=job_id_list,
+            retained_stage_ids=retained_stage_ids,
+            retained_stage_sequences=retained_stage_sequences,
+            policy="nearest",
+        ),
+        "piecewise_cp_left_priority": _build_piecewise_stage_sequences_by_policy(
+            stage_id_list=stage_id_list,
+            job_id_list=job_id_list,
+            retained_stage_ids=retained_stage_ids,
+            retained_stage_sequences=retained_stage_sequences,
+            policy="left",
+        ),
+        "piecewise_cp_right_priority": _build_piecewise_stage_sequences_by_policy(
+            stage_id_list=stage_id_list,
+            job_id_list=job_id_list,
+            retained_stage_ids=retained_stage_ids,
+            retained_stage_sequences=retained_stage_sequences,
+            policy="right",
+        ),
+        "piecewise_cp_blend_priority": _build_blended_piecewise_stage_sequences(
+            stage_id_list=stage_id_list,
+            job_id_list=job_id_list,
+            retained_stage_ids=retained_stage_ids,
+            retained_stage_sequences=retained_stage_sequences,
+        ),
+    }
+
+
+def _get_retained_stage_sequences(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+) -> tuple[list[str], dict[str, list[str]]]:
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {}
+    for row in retained_solution_rows:
+        stage_2_rows.setdefault(str(row["stage_id"]), []).append(row)
+
+    retained_stage_ids = [
+        str(stage_id) for stage_id in stage_id_list if str(stage_id) in stage_2_rows
+    ]
+    retained_stage_sequences: dict[str, list[str]] = {}
+    for stage_id in retained_stage_ids:
+        rows = list(stage_2_rows[stage_id])
+        rows.sort(
+            key=lambda row: (
+                int(row["start"]),
+                int(row["end"]),
+                str(row["job_id"]),
+            )
+        )
+        retained_stage_sequences[stage_id] = _complete_job_sequence(
+            [str(row["job_id"]) for row in rows],
+            job_id_list,
+        )
+    return retained_stage_ids, retained_stage_sequences
+
+
+def _complete_job_sequence(
+    job_sequence: Sequence[str],
+    job_id_list: Sequence[str],
+) -> list[str]:
+    seen: set[str] = set()
+    completed_sequence: list[str] = []
+    for job_id in job_sequence:
+        job_id_str = str(job_id)
+        if job_id_str in seen:
+            continue
+        completed_sequence.append(job_id_str)
+        seen.add(job_id_str)
+    for job_id in job_id_list:
+        job_id_str = str(job_id)
+        if job_id_str not in seen:
+            completed_sequence.append(job_id_str)
+            seen.add(job_id_str)
+    return completed_sequence
+
+
+def _build_piecewise_stage_sequences_by_policy(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_stage_ids: Sequence[str],
+    retained_stage_sequences: Mapping[str, Sequence[str]],
+    policy: str,
+) -> dict[str, list[str]]:
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+    retained_stage_indices = [
+        stage_2_index[str(stage_id)] for stage_id in retained_stage_ids
+    ]
+    stage_2_sequence: dict[str, list[str]] = {}
+    for stage_id in stage_id_list:
+        stage_id_str = str(stage_id)
+        stage_idx = stage_2_index[stage_id_str]
+        selected_stage_id = _select_retained_stage_for_piecewise_policy(
+            stage_idx=stage_idx,
+            stage_2_index=stage_2_index,
+            retained_stage_ids=retained_stage_ids,
+            retained_stage_indices=retained_stage_indices,
+            policy=policy,
+        )
+        stage_2_sequence[stage_id_str] = _complete_job_sequence(
+            retained_stage_sequences[selected_stage_id],
+            job_id_list,
+        )
+    return stage_2_sequence
+
+
+def _select_retained_stage_for_piecewise_policy(
+    *,
+    stage_idx: int,
+    stage_2_index: Mapping[str, int],
+    retained_stage_ids: Sequence[str],
+    retained_stage_indices: Sequence[int],
+    policy: str,
+) -> str:
+    if policy == "left":
+        eligible_stage_ids = [
+            stage_id
+            for stage_id in retained_stage_ids
+            if stage_2_index[str(stage_id)] <= stage_idx
+        ]
+        selected_stage_id = (
+            eligible_stage_ids[-1] if eligible_stage_ids else retained_stage_ids[0]
+        )
+        return str(selected_stage_id)
+    if policy == "right":
+        eligible_stage_ids = [
+            stage_id
+            for stage_id in retained_stage_ids
+            if stage_2_index[str(stage_id)] >= stage_idx
+        ]
+        selected_stage_id = (
+            eligible_stage_ids[0] if eligible_stage_ids else retained_stage_ids[-1]
+        )
+        return str(selected_stage_id)
+    if policy != "nearest":
+        raise ValueError(f"Unknown piecewise stage sequence policy: {policy!r}")
+    nearest_index = min(
+        retained_stage_indices,
+        key=lambda retained_idx: (
+            abs(stage_idx - retained_idx),
+            retained_idx,
+        ),
+    )
+    return str(retained_stage_ids[retained_stage_indices.index(nearest_index)])
+
+
+def _build_blended_piecewise_stage_sequences(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_stage_ids: Sequence[str],
+    retained_stage_sequences: Mapping[str, Sequence[str]],
+) -> dict[str, list[str]]:
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+    retained_stage_indices = [
+        stage_2_index[str(retained_stage_id)]
+        for retained_stage_id in retained_stage_ids
+    ]
+    stage_2_sequence: dict[str, list[str]] = {}
+    for stage_id in stage_id_list:
+        stage_id_str = str(stage_id)
+        stage_idx = stage_2_index[stage_id_str]
+        left_stage_id = _select_retained_stage_for_piecewise_policy(
+            stage_idx=stage_idx,
+            stage_2_index=stage_2_index,
+            retained_stage_ids=retained_stage_ids,
+            retained_stage_indices=retained_stage_indices,
+            policy="left",
+        )
+        right_stage_id = _select_retained_stage_for_piecewise_policy(
+            stage_idx=stage_idx,
+            stage_2_index=stage_2_index,
+            retained_stage_ids=retained_stage_ids,
+            retained_stage_indices=retained_stage_indices,
+            policy="right",
+        )
+        left_idx = stage_2_index[left_stage_id]
+        right_idx = stage_2_index[right_stage_id]
+        left_sequence = _complete_job_sequence(
+            retained_stage_sequences[left_stage_id],
+            job_id_list,
+        )
+        if left_stage_id == right_stage_id or left_idx == right_idx:
+            stage_2_sequence[stage_id_str] = left_sequence
+            continue
+        right_sequence = _complete_job_sequence(
+            retained_stage_sequences[right_stage_id],
+            job_id_list,
+        )
+        right_weight = (stage_idx - left_idx) / max(1, right_idx - left_idx)
+        stage_2_sequence[stage_id_str] = _blend_job_sequences_by_rank(
+            job_id_list=job_id_list,
+            left_sequence=left_sequence,
+            right_sequence=right_sequence,
+            right_weight=right_weight,
+        )
+    return stage_2_sequence
+
+
+def _blend_job_sequences_by_rank(
+    *,
+    job_id_list: Sequence[str],
+    left_sequence: Sequence[str],
+    right_sequence: Sequence[str],
+    right_weight: float,
+) -> list[str]:
+    clamped_right_weight = min(1.0, max(0.0, float(right_weight)))
+    left_weight = 1.0 - clamped_right_weight
+    left_rank = {str(job_id): idx for idx, job_id in enumerate(left_sequence)}
+    right_rank = {str(job_id): idx for idx, job_id in enumerate(right_sequence)}
+    job_id_order = {str(job_id): idx for idx, job_id in enumerate(job_id_list)}
+    missing_rank = len(job_id_order)
+
+    sortable_rows: list[tuple[tuple[float, float, float, float], str]] = []
+    for job_id in job_id_list:
+        job_id_str = str(job_id)
+        left_pos = float(left_rank.get(job_id_str, missing_rank))
+        right_pos = float(right_rank.get(job_id_str, missing_rank))
+        sortable_rows.append(
+            (
+                (
+                    left_weight * left_pos + clamped_right_weight * right_pos,
+                    right_pos,
+                    left_pos,
+                    float(job_id_order[job_id_str]),
+                ),
+                job_id_str,
+            )
+        )
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
 
 
 def _get_retained_stage_weights(
@@ -1725,6 +2016,10 @@ def _get_dispatch_variant_short_name(variant: str | None) -> str | None:
         "best_of_mixed_dispatches_cp_last_anchor_rank": "best_mixed_cp_last",
         "best_of_mixed_dispatches_cp_bottleneck_rank": "best_mixed_cp_bneck",
         "best_of_mixed_dispatches_cp_aggregate_start_slack_rank": "best_mixed_cp_agg",
+        "piecewise_cp_nearest_priority": "piece_near_prio",
+        "piecewise_cp_left_priority": "piece_left_prio",
+        "piecewise_cp_right_priority": "piece_right_prio",
+        "piecewise_cp_blend_priority": "piece_blend_prio",
         "best_of_mixed_dispatches_cp_baseline": "best_mixed_base",
         "selected_post_retained_cp_local_repair": "local_repair",
     }

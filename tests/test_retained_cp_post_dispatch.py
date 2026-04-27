@@ -151,6 +151,12 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
             base -= 3
         return _FakeSchedule(base)
 
+    def _get_schedule_by_stage_job_sequences_priority(
+        *, stage_2_job_sequence, stage_2_job_2_release=None
+    ):
+        del stage_2_job_sequence, stage_2_job_2_release
+        return _FakeSchedule(90)
+
     def _repair_post_retained_cp_dispatch_candidate(schedule, **_kwargs):
         return _FakeSchedule(schedule.makespan - 2)
 
@@ -164,6 +170,7 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         include_tail_bottleneck_rank=True,
         include_extended_rank_variants=True,
         include_dynamic_priority=False,
+        include_piecewise_stage_priority=True,
         dependencies=PostRetainedCpDispatchDependencies(
             check_feasibility=lambda start_map: feasibility_calls.append(start_map),
             get_selected_dispatch_config=lambda: {
@@ -175,6 +182,7 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
             get_best_mixed_schedule_from_job_sequence=_get_best_mixed_schedule_from_job_sequence,
             get_schedule_by_best_of_mixed_dispatches=_get_schedule_by_best_of_mixed_dispatches,
             get_two_way_schedule_by_stage_band=_get_two_way_schedule_by_stage_band,
+            get_schedule_by_stage_job_sequences_priority=_get_schedule_by_stage_job_sequences_priority,
             repair_post_retained_cp_dispatch_candidate=_repair_post_retained_cp_dispatch_candidate,
         ),
     )
@@ -199,6 +207,8 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         in result.dispatched_schedules
     )
     assert "best_of_mixed_dispatches_cp_slack_urgency_rank" in result.dispatched_schedules
+    assert "piecewise_cp_nearest_priority" in result.dispatched_schedules
+    assert "piecewise_cp_blend_priority" in result.dispatched_schedules
     assert feasibility_calls == [{"makespan": 87}]
 
 
@@ -243,6 +253,9 @@ def test_run_post_retained_cp_dispatch_repairs_top_k_candidates() -> None:
     def _get_two_way_schedule_by_stage_band(**_kwargs):
         return _FakeSchedule(97)
 
+    def _get_schedule_by_stage_job_sequences_priority(**_kwargs):
+        return _FakeSchedule(96)
+
     def _repair_post_retained_cp_dispatch_candidate(schedule, **_kwargs):
         if schedule.makespan == 91:
             return _FakeSchedule(80)
@@ -269,6 +282,7 @@ def test_run_post_retained_cp_dispatch_repairs_top_k_candidates() -> None:
             get_best_mixed_schedule_from_job_sequence=_get_best_mixed_schedule_from_job_sequence,
             get_schedule_by_best_of_mixed_dispatches=_get_schedule_by_best_of_mixed_dispatches,
             get_two_way_schedule_by_stage_band=_get_two_way_schedule_by_stage_band,
+            get_schedule_by_stage_job_sequences_priority=_get_schedule_by_stage_job_sequences_priority,
             repair_post_retained_cp_dispatch_candidate=_repair_post_retained_cp_dispatch_candidate,
         ),
     )

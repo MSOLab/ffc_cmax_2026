@@ -51,6 +51,7 @@ from hybridflowshop.dispatcher import (
     StageDispatcher,
 )
 from hybridflowshop.dispatcher.utils import (
+    build_schedule_from_stage_job_sequences_priority_score,
     from_job_sequence_get_schedule_mixed,
     improve_schedule_by_critical_cross_machine_insertions,
     improve_schedule_by_critical_stage_sequence_insertions,
@@ -3689,6 +3690,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             anchor_dispatch_mode=anchor_dispatch_mode,
         )
 
+    def _get_schedule_by_stage_job_sequences_priority(
+        self,
+        *,
+        stage_2_job_sequence: Mapping[str, Sequence[str]],
+        stage_2_job_2_release: Mapping[str, Mapping[str, int]] | None = None,
+    ) -> HybridFlowshopLiteSchedule:
+        return build_schedule_from_stage_job_sequences_priority_score(
+            self.create_empty_schedule_from_ins,
+            stage_2_job_sequence,
+            self.stage_2_job_2_p_dict,
+            stage_2_job_2_release=stage_2_job_2_release,
+        )
+
     def dispatch_from_retained_cp(
         self,
         *,
@@ -3702,6 +3716,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_tail_bottleneck_rank: bool = True,
         include_extended_rank_variants: bool = False,
         include_dynamic_priority: bool = False,
+        include_piecewise_stage_priority: bool = False,
         randomized_mixed_rank_trials: int = 0,
         use_retained_cp_snapshot_portfolio: bool = False,
         retained_cp_snapshot_top_k: int = 0,
@@ -3737,6 +3752,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             get_best_mixed_schedule_from_job_sequence=self._get_best_mixed_schedule_from_job_sequence,
             get_schedule_by_best_of_mixed_dispatches=self._get_schedule_by_best_of_mixed_dispatches,
             get_two_way_schedule_by_stage_band=self._get_schedule_by_retained_cp_two_way_stage_band,
+            get_schedule_by_stage_job_sequences_priority=self._get_schedule_by_stage_job_sequences_priority,
             repair_post_retained_cp_dispatch_candidate=self._repair_post_mip_dispatch_candidate,
         )
         dispatch_sources: list[tuple[str, Any, Sequence[Mapping[str, Any]]]] = [
@@ -3815,6 +3831,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 include_tail_bottleneck_rank=include_tail_bottleneck_rank,
                 include_extended_rank_variants=include_extended_rank_variants,
                 include_dynamic_priority=include_dynamic_priority,
+                include_piecewise_stage_priority=include_piecewise_stage_priority,
                 randomized_mixed_rank_trials=randomized_mixed_rank_trials,
                 dependencies=dependencies,
             )
