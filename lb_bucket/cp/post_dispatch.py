@@ -161,6 +161,8 @@ def run_post_retained_cp_dispatch(
     for anchor_key, anchor_stage_ids in anchor_blocks.items():
         if anchor_key == preferred_anchor_key:
             continue
+        if anchor_key == "last":
+            continue
         variant = f"cp_band_{anchor_key}_strict_start_release"
         variant_timer = ElapsedTimer()
         try:
@@ -1813,7 +1815,6 @@ def _evaluate_anchor_band_candidates(
 ) -> None:
     variant_specs: list[tuple[str, str, Mapping[str, Mapping[str, int]] | None]] = [
         ("strict_start_release", "strict_start", stage_2_job_2_release),
-        ("strict_start_no_release", "strict_start", None),
         ("strict_call_release", "strict_call", stage_2_job_2_release),
         ("priority_release", "priority", stage_2_job_2_release),
     ]

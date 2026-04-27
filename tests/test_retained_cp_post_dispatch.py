@@ -191,6 +191,7 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
     assert result.dispatched_schedule is not None
     assert result.dispatched_schedule.makespan == 87
     assert "cp_band_preferred_strict_start_release" in result.dispatched_schedules
+    assert "cp_band_preferred_strict_start_no_release" not in result.dispatched_schedules
     assert "cp_band_preferred_priority_release" in result.dispatched_schedules
     assert "cp_band_first_strict_start_release" in result.dispatched_schedules
     assert "mixed_cp_aggregate_start_slack" in result.dispatched_schedules
