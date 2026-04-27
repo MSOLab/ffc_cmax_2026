@@ -64,6 +64,7 @@ def run_post_retained_cp_dispatch(
     include_release_anchor_candidates: bool,
     include_consensus_rank: bool = True,
     include_tail_bottleneck_rank: bool = True,
+    include_extended_rank_variants: bool = False,
     include_dynamic_priority: bool = False,
     randomized_mixed_rank_trials: int = 0,
     dependencies: PostRetainedCpDispatchDependencies,
@@ -219,6 +220,22 @@ def run_post_retained_cp_dispatch(
         extra_rank_sequences["best_of_mixed_dispatches_cp_tail_bottleneck_rank"] = (
             tail_bottleneck_sequence
         )
+    if include_extended_rank_variants:
+        existing_rank_sequences = {
+            tuple(job_sequence) for job_sequence in extra_rank_sequences.values()
+        }
+        for variant, job_sequence in _build_extended_rank_sequences(
+            stage_id_list=instance.stage_id_list,
+            job_id_list=instance.job_id_list,
+            retained_cp_result=retained_cp_result,
+            retained_solution_rows=retained_solution_rows,
+            preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+        ).items():
+            sequence_tuple = tuple(job_sequence)
+            if not sequence_tuple or sequence_tuple in existing_rank_sequences:
+                continue
+            extra_rank_sequences[variant] = job_sequence
+            existing_rank_sequences.add(sequence_tuple)
     for variant, job_sequence in extra_rank_sequences.items():
         variant_timer = ElapsedTimer()
         try:
@@ -1129,6 +1146,308 @@ def _get_job_sequence_from_retained_rows_tail_bottleneck(
         )
     sortable_rows.sort(key=lambda row: row[0])
     return [job_id for _key, job_id in sortable_rows]
+
+
+def _build_extended_rank_sequences(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> dict[str, list[str]]:
+    return {
+        "best_of_mixed_dispatches_cp_weighted_median_rank": (
+            _get_job_sequence_from_retained_rows_weighted_median(
+                stage_id_list=stage_id_list,
+                job_id_list=job_id_list,
+                retained_cp_result=retained_cp_result,
+                retained_solution_rows=retained_solution_rows,
+                preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+            )
+        ),
+        "best_of_mixed_dispatches_cp_slack_urgency_rank": (
+            _get_job_sequence_from_retained_rows_slack_urgency(
+                stage_id_list=stage_id_list,
+                job_id_list=job_id_list,
+                retained_cp_result=retained_cp_result,
+                retained_solution_rows=retained_solution_rows,
+                preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+            )
+        ),
+        "best_of_mixed_dispatches_cp_front_tail_blend_rank": (
+            _get_job_sequence_from_retained_rows_front_tail_blend(
+                stage_id_list=stage_id_list,
+                job_id_list=job_id_list,
+                retained_cp_result=retained_cp_result,
+                retained_solution_rows=retained_solution_rows,
+                preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+            )
+        ),
+    }
+
+
+def _get_job_sequence_from_retained_rows_weighted_median(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> list[str]:
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {}
+    for row in retained_solution_rows:
+        stage_2_rows.setdefault(str(row["stage_id"]), []).append(row)
+    retained_stage_ids = [
+        stage_id for stage_id in stage_id_list if stage_id in stage_2_rows
+    ]
+    if not retained_stage_ids:
+        return [str(job_id) for job_id in job_id_list]
+
+    stage_weights = _get_retained_stage_weights(
+        stage_id_list=stage_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_stage_ids=retained_stage_ids,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+    objective_ub = (
+        float(retained_cp_result.objective_ub)
+        if retained_cp_result.objective_ub is not None
+        else None
+    )
+    job_2_rank_weight_pairs: dict[str, list[tuple[float, float]]] = {
+        str(job_id): [] for job_id in job_id_list
+    }
+    job_2_weighted_rank = {str(job_id): 0.0 for job_id in job_id_list}
+    job_2_weighted_latest_start = {str(job_id): 0.0 for job_id in job_id_list}
+    job_2_weighted_slack = {str(job_id): 0.0 for job_id in job_id_list}
+    job_2_weight = {str(job_id): 0.0 for job_id in job_id_list}
+
+    for stage_id in retained_stage_ids:
+        rows = list(stage_2_rows[str(stage_id)])
+        rows.sort(
+            key=lambda row: (
+                int(row["start"]),
+                int(row["end"]),
+                str(row["job_id"]),
+            )
+        )
+        stage_weight = stage_weights.get(str(stage_id), 1.0)
+        for rank, row in enumerate(rows):
+            job_id = str(row["job_id"])
+            p = float(row["processing_time"])
+            head_t = float(row["head"])
+            tail_t = float(row["tail"])
+            latest_start = (
+                max(head_t, objective_ub - tail_t - p)
+                if objective_ub is not None
+                else float(row["start"])
+            )
+            slack = latest_start - head_t
+            job_2_rank_weight_pairs[job_id].append((float(rank), stage_weight))
+            job_2_weighted_rank[job_id] += stage_weight * float(rank)
+            job_2_weighted_latest_start[job_id] += stage_weight * latest_start
+            job_2_weighted_slack[job_id] += stage_weight * slack
+            job_2_weight[job_id] += stage_weight
+
+    sortable_rows: list[tuple[tuple[float, ...], str]] = []
+    for job_idx, job_id in enumerate(job_id_list):
+        job_id_str = str(job_id)
+        total_weight = max(job_2_weight[job_id_str], 1e-9)
+        sortable_rows.append(
+            (
+                (
+                    _weighted_median_rank(job_2_rank_weight_pairs[job_id_str]),
+                    job_2_weighted_rank[job_id_str] / total_weight,
+                    job_2_weighted_latest_start[job_id_str] / total_weight,
+                    job_2_weighted_slack[job_id_str] / total_weight,
+                    float(job_idx),
+                ),
+                job_id_str,
+            )
+        )
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
+def _weighted_median_rank(rank_weight_pairs: Sequence[tuple[float, float]]) -> float:
+    if not rank_weight_pairs:
+        return float("inf")
+    total_weight = sum(max(0.0, weight) for _rank, weight in rank_weight_pairs)
+    if total_weight <= 0.0:
+        return min(rank for rank, _weight in rank_weight_pairs)
+    cumulative_weight = 0.0
+    for rank, weight in sorted(rank_weight_pairs, key=lambda item: item[0]):
+        cumulative_weight += max(0.0, weight)
+        if cumulative_weight >= total_weight / 2.0:
+            return rank
+    return max(rank for rank, _weight in rank_weight_pairs)
+
+
+def _get_job_sequence_from_retained_rows_slack_urgency(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> list[str]:
+    metrics = _summarize_retained_job_metrics(
+        stage_id_list=stage_id_list,
+        job_id_list=job_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_solution_rows=retained_solution_rows,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+    sortable_rows: list[tuple[tuple[float, ...], str]] = []
+    for job_idx, job_id in enumerate(job_id_list):
+        job_id_str = str(job_id)
+        row = metrics[job_id_str]
+        total_weight = max(row["weight"], 1e-9)
+        sortable_rows.append(
+            (
+                (
+                    row["weighted_slack"] / total_weight,
+                    row["weighted_latest_start"] / total_weight,
+                    row["weighted_start"] / total_weight,
+                    -row["total_p"],
+                    float(job_idx),
+                ),
+                job_id_str,
+            )
+        )
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
+def _get_job_sequence_from_retained_rows_front_tail_blend(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> list[str]:
+    metrics = _summarize_retained_job_metrics(
+        stage_id_list=stage_id_list,
+        job_id_list=job_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_solution_rows=retained_solution_rows,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+    sortable_rows: list[tuple[tuple[float, ...], str]] = []
+    for job_idx, job_id in enumerate(job_id_list):
+        job_id_str = str(job_id)
+        row = metrics[job_id_str]
+        total_weight = max(row["weight"], 1e-9)
+        front_start = row["first_start"]
+        if front_start == float("inf"):
+            front_start = row["weighted_start"] / total_weight
+        tail_latest = row["last_latest_start"]
+        if tail_latest == float("inf"):
+            tail_latest = row["weighted_latest_start"] / total_weight
+        blended_time = 0.45 * front_start + 0.55 * tail_latest
+        sortable_rows.append(
+            (
+                (
+                    blended_time,
+                    tail_latest,
+                    front_start,
+                    row["weighted_rank"] / total_weight,
+                    row["weighted_slack"] / total_weight,
+                    -row["total_p"],
+                    float(job_idx),
+                ),
+                job_id_str,
+            )
+        )
+    sortable_rows.sort(key=lambda row: row[0])
+    return [job_id for _key, job_id in sortable_rows]
+
+
+def _summarize_retained_job_metrics(
+    *,
+    stage_id_list: Sequence[str],
+    job_id_list: Sequence[str],
+    retained_cp_result: RetainedStageCpResult,
+    retained_solution_rows: Sequence[Mapping[str, Any]],
+    preferred_anchor_stage_ids: Sequence[str],
+) -> dict[str, dict[str, float]]:
+    objective_ub = (
+        float(retained_cp_result.objective_ub)
+        if retained_cp_result.objective_ub is not None
+        else None
+    )
+    stage_2_rows: dict[str, list[Mapping[str, Any]]] = {}
+    for row in retained_solution_rows:
+        stage_2_rows.setdefault(str(row["stage_id"]), []).append(row)
+    retained_stage_ids = [
+        stage_id for stage_id in stage_id_list if stage_id in stage_2_rows
+    ]
+    stage_weights = _get_retained_stage_weights(
+        stage_id_list=stage_id_list,
+        retained_cp_result=retained_cp_result,
+        retained_stage_ids=retained_stage_ids,
+        preferred_anchor_stage_ids=preferred_anchor_stage_ids,
+    )
+    stage_2_index = {str(stage_id): idx for idx, stage_id in enumerate(stage_id_list)}
+    first_retained_stage_id = (
+        min(retained_stage_ids, key=lambda stage_id: stage_2_index[str(stage_id)])
+        if retained_stage_ids
+        else None
+    )
+    last_retained_stage_id = (
+        max(retained_stage_ids, key=lambda stage_id: stage_2_index[str(stage_id)])
+        if retained_stage_ids
+        else None
+    )
+    metrics: dict[str, dict[str, float]] = {
+        str(job_id): {
+            "weighted_rank": 0.0,
+            "weighted_start": 0.0,
+            "weighted_latest_start": 0.0,
+            "weighted_slack": 0.0,
+            "weight": 0.0,
+            "first_start": float("inf"),
+            "last_latest_start": float("inf"),
+            "total_p": 0.0,
+        }
+        for job_id in job_id_list
+    }
+    for stage_id in retained_stage_ids:
+        rows = list(stage_2_rows[str(stage_id)])
+        rows.sort(
+            key=lambda row: (
+                int(row["start"]),
+                int(row["end"]),
+                str(row["job_id"]),
+            )
+        )
+        stage_weight = stage_weights.get(str(stage_id), 1.0)
+        for rank, row in enumerate(rows):
+            job_id = str(row["job_id"])
+            start_t = float(row["start"])
+            p = float(row["processing_time"])
+            head_t = float(row["head"])
+            tail_t = float(row["tail"])
+            latest_start = (
+                max(head_t, objective_ub - tail_t - p)
+                if objective_ub is not None
+                else start_t
+            )
+            slack = latest_start - head_t
+            job_metrics = metrics[job_id]
+            job_metrics["weighted_rank"] += stage_weight * float(rank)
+            job_metrics["weighted_start"] += stage_weight * start_t
+            job_metrics["weighted_latest_start"] += stage_weight * latest_start
+            job_metrics["weighted_slack"] += stage_weight * slack
+            job_metrics["weight"] += stage_weight
+            job_metrics["total_p"] += p
+            if stage_id == first_retained_stage_id:
+                job_metrics["first_start"] = start_t
+            if stage_id == last_retained_stage_id:
+                job_metrics["last_latest_start"] = latest_start
+    return metrics
 
 
 def _get_job_sequence_from_retained_rows_aggregate(

@@ -308,6 +308,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
         log_search_progress: bool = False,
+        prefer_incumbent_hints: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
@@ -377,12 +378,20 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 end_hint_by_ji[str(job_id), str(stage_id)] = int(end_time)
 
         retained_hint_count = 0
+        skipped_retained_hint_count = 0
         for row in retained_solution_rows:
             stage_id = str(row["stage_id"])
             if stage_id not in selected_stage_id_set:
                 continue
             job_id = str(row["job_id"])
             if (job_id, stage_id) not in self.vars.op_start:
+                continue
+            if (
+                prefer_incumbent_hints
+                and (job_id, stage_id) in start_hint_by_ji
+                and (job_id, stage_id) in end_hint_by_ji
+            ):
+                skipped_retained_hint_count += 1
                 continue
             start_hint_by_ji[job_id, stage_id] = int(row["start"])
             end_hint_by_ji[job_id, stage_id] = int(row["end"])
@@ -404,12 +413,15 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         logging.info(
             "[CP Hint] Solving base CP with retained hints: scope=%s stages=%s "
-            "retained_hints=%d start_hints=%d end_hints=%d.",
+            "retained_hints=%d skipped_retained_hints=%d "
+            "start_hints=%d end_hints=%d prefer_incumbent_hints=%s.",
             retained_stage_scope,
             selected_stage_ids,
             retained_hint_count,
+            skipped_retained_hint_count,
             start_hint_count,
             end_hint_count,
+            prefer_incumbent_hints,
         )
 
         _computational_time = self._resolve_tl_nc_computational_time(
@@ -3246,6 +3258,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if key[1] in retained_stage_set
         }
         if not start_time_map or not end_time_map:
+            logging.info(
+                "[CP LB] Incumbent exists (makespan=%s), but no retained-stage "
+                "start/end hints matched retained stages %s.",
+                incumbent_schedule.makespan,
+                build.retained_stage_ids,
+            )
             return
 
         BaseModelBuilder.apply_start_hints_from_start_time_map(
@@ -3261,6 +3279,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             build.variables,
             end_time_map,
             ignore_integrity_check=True,
+        )
+        build.model.add_hint(
+            build.variables.makespan,
+            int(math.ceil(float(incumbent_schedule.makespan))),
+        )
+        logging.info(
+            "[CP LB] Applied incumbent retained-stage hints from makespan=%s: "
+            "retained_stages=%s start_hints=%d end_hints=%d makespan_hint=%d.",
+            incumbent_schedule.makespan,
+            build.retained_stage_ids,
+            len(start_time_map),
+            len(end_time_map),
+            int(math.ceil(float(incumbent_schedule.makespan))),
         )
 
     def apply_retained_stage_cp_lb(
@@ -3669,6 +3700,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         cp_local_repair_top_k: int = 1,
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
+        include_extended_rank_variants: bool = False,
         include_dynamic_priority: bool = False,
         randomized_mixed_rank_trials: int = 0,
         use_retained_cp_snapshot_portfolio: bool = False,
@@ -3781,6 +3813,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 include_release_anchor_candidates=respect_anchor_stage_release_lb,
                 include_consensus_rank=include_consensus_rank,
                 include_tail_bottleneck_rank=include_tail_bottleneck_rank,
+                include_extended_rank_variants=include_extended_rank_variants,
                 include_dynamic_priority=include_dynamic_priority,
                 randomized_mixed_rank_trials=randomized_mixed_rank_trials,
                 dependencies=dependencies,

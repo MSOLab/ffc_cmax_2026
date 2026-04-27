@@ -162,6 +162,7 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         include_release_anchor_candidates=True,
         include_consensus_rank=True,
         include_tail_bottleneck_rank=True,
+        include_extended_rank_variants=True,
         include_dynamic_priority=False,
         dependencies=PostRetainedCpDispatchDependencies(
             check_feasibility=lambda start_map: feasibility_calls.append(start_map),
@@ -197,6 +198,7 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         "best_of_mixed_dispatches_cp_aggregate_start_slack_rank"
         in result.dispatched_schedules
     )
+    assert "best_of_mixed_dispatches_cp_slack_urgency_rank" in result.dispatched_schedules
     assert feasibility_calls == [{"makespan": 87}]
 
 
