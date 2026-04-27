@@ -171,11 +171,61 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
     # Subroutine: solve base CP model
 
+    def _record_retained_cp_lb_summary(
+        self,
+        result: Any,
+        *,
+        call_context: str,
+        start_sec: float,
+        apply_elapsed_sec: float | None,
+    ) -> None:
+        stage_ids = list(getattr(result, "retained_stage_ids", ()) or [])
+        record = {
+            "call_context": call_context,
+            "start_sec": start_sec,
+            "bound": getattr(result, "certified_final_lb", None),
+            "status": getattr(result, "status_name", None),
+            "mode": getattr(result, "retained_stage_mode", None),
+            "stage_ids": stage_ids,
+            "bottleneck_stage_id": getattr(result, "bottleneck_stage_id", None),
+            "solver_runtime_sec": getattr(result, "solver_runtime_sec", None),
+            "apply_elapsed_sec": apply_elapsed_sec,
+            "objective_ub": getattr(result, "objective_ub", None),
+        }
+        records = list(getattr(self, "retained_cp_lb_records", ()) or [])
+        records.append(record)
+        self.retained_cp_lb_records = records
+
+        bound = sanitize_optional_float(record["bound"])
+        best_record = getattr(self, "best_retained_cp_lb_record", None)
+        best_bound = (
+            sanitize_optional_float(best_record.get("bound"))
+            if isinstance(best_record, dict)
+            else None
+        )
+        if bound is not None and self.solution_manager._a_is_better_obj_bound(
+            bound,
+            best_bound,
+        ):
+            self.best_retained_cp_lb_record = record
+            self.best_retained_cp_lb_result = result
+
+        retained_best = getattr(self, "best_retained_cp_lb_record", record)
+        logging.info(
+            "[CP LB] Recorded retained-stage CP LB #%d: mode=%s bound=%s "
+            "best_retained_cp_bound=%s",
+            len(records),
+            record["mode"],
+            record["bound"],
+            retained_best.get("bound") if isinstance(retained_best, dict) else None,
+        )
+
     def solve_base_cp_model(
         self,
         computational_time: float | None,
         solver_thread_cnt: int,
         tl_nc_multiplier: float | None = None,
+        use_final_time_reserve: bool = False,
         make_semi_active_after_cp: bool = False,
         is_initial_solution: bool = False,
         encode_cumulative_as_reservoir: bool | None = None,
@@ -222,6 +272,10 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             computational_time=computational_time,
             tl_nc_multiplier=tl_nc_multiplier,
         )
+        if use_final_time_reserve:
+            _computational_time = self.consume_reserved_final_time_sec(
+                fallback_sec=_computational_time,
+            )
         if _computational_time is not None:
             # Subtract model handling time from subroutine time limit
             _computational_time = max(
@@ -294,6 +348,94 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             _last_timestamp_note,
             obj_value_is_valid=obj_value_is_valid,
             obj_bound_is_valid=obj_bound_is_valid,
+        )
+
+    def set_final_time_reserve(
+        self,
+        tl_nc_multiplier: float | None = None,
+        computational_time: float | None = None,
+        time_limit_sec: float | None = None,
+    ) -> None:
+        """Reserve remaining global time for a final CP call later in the flow."""
+        if (
+            tl_nc_multiplier is None
+            and computational_time is None
+            and time_limit_sec is None
+        ):
+            tl_nc_multiplier = 0.1
+        provided_count = sum(
+            value is not None
+            for value in (tl_nc_multiplier, computational_time, time_limit_sec)
+        )
+        if provided_count != 1:
+            raise ValueError(
+                "Provide exactly one of tl_nc_multiplier, computational_time, "
+                "or time_limit_sec for set_final_time_reserve."
+            )
+        if computational_time is None:
+            computational_time = time_limit_sec
+        reserve_sec = self._resolve_tl_nc_computational_time(
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+        )
+        if reserve_sec is None:
+            raise ValueError("Resolved final time reserve cannot be None.")
+        self.set_reserved_final_time_sec(
+            float(reserve_sec),
+            label="final solve_base_cp_model",
+        )
+        logging.info(
+            "[Final Reserve] Reserved %.3f sec for the final CP method "
+            "(remaining_before_reserve=%.3f).",
+            float(reserve_sec),
+            self.get_remaining_sec(),
+        )
+
+    def clear_final_time_reserve(self) -> None:
+        reserve_sec = self.get_reserved_final_time_sec()
+        self.clear_reserved_final_time_sec()
+        logging.info("[Final Reserve] Cleared %.3f sec final time reserve.", reserve_sec)
+
+    def solve_base_cp_model_from_final_time_reserve(
+        self,
+        computational_time: float | None = None,
+        solver_thread_cnt: int = 16,
+        tl_nc_multiplier: float | None = None,
+        make_semi_active_after_cp: bool = False,
+        is_initial_solution: bool = False,
+        encode_cumulative_as_reservoir: bool | None = None,
+        expand_reservoir_constraints: bool | None = None,
+        expand_reservoir_using_circuit: bool | None = None,
+        interleave_search: bool | None = None,
+        use_lns_only: bool | None = True,
+        cp_model_probing_level: int | None = None,
+        log_search_progress: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Run base CP using the time saved by set_final_time_reserve."""
+        if (
+            not self.final_time_reserve_is_active()
+            and computational_time is None
+            and tl_nc_multiplier is None
+        ):
+            tl_nc_multiplier = 0.1
+        self.solve_base_cp_model(
+            computational_time=computational_time,
+            solver_thread_cnt=solver_thread_cnt,
+            tl_nc_multiplier=tl_nc_multiplier,
+            use_final_time_reserve=True,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            is_initial_solution=is_initial_solution,
+            encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
+            expand_reservoir_constraints=expand_reservoir_constraints,
+            expand_reservoir_using_circuit=expand_reservoir_using_circuit,
+            interleave_search=interleave_search,
+            use_lns_only=use_lns_only,
+            cp_model_probing_level=cp_model_probing_level,
+            log_search_progress=log_search_progress,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
         )
 
     def solve_base_cp_model_with_retained_hint(
@@ -3328,6 +3470,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         - ``first_ratio_points_last``: retain the first, user-specified ratio stages, and last stages.
         """
         start_t = self.timer.elapsed_sec
+        call_context = self._get_call_context_of_current_method()
         sub_timer = ElapsedTimer()
         self.last_retained_cp_lb_apply_elapsed_sec = None
         self.last_retained_cp_lb_result = None
@@ -3505,7 +3648,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound=result.certified_final_lb,
             is_init=False,
             subroutine_name="apply_retained_stage_cp_lb",
-            call_context=self._get_call_context_of_current_method(),
+            call_context=call_context,
             progress_obj_value_records=(),
             progress_time_basis="local",
             status=solver_report.status,
@@ -3521,10 +3664,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             ],
         )
         self.solution_manager.register(report, None)
+        self._record_retained_cp_lb_summary(
+            result,
+            call_context=call_context,
+            start_sec=start_t,
+            apply_elapsed_sec=self.last_retained_cp_lb_apply_elapsed_sec,
+        )
 
         if improved_bound_logged:
             self.obj_store.add_last_timestamp_note(
-                self._get_call_context_of_current_method(),
+                call_context,
                 obj_bound_is_valid=True,
             )
 
@@ -3717,7 +3866,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_extended_rank_variants: bool = False,
         include_dynamic_priority: bool = False,
         include_piecewise_stage_priority: bool = False,
+        prune_unproductive_dispatch_candidates: bool = True,
         randomized_mixed_rank_trials: int = 0,
+        mixed_dispatch_methods: Sequence[str] | None = None,
         use_retained_cp_snapshot_portfolio: bool = False,
         retained_cp_snapshot_top_k: int = 0,
         retained_cp_dispatch_selection_strategy: str = "best_makespan",
@@ -3746,11 +3897,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
             return None
 
+        def get_best_of_mixed_dispatches_for_retained_cp(
+            **kwargs,
+        ) -> HybridFlowshopLiteSchedule | None:
+            return self._get_schedule_by_best_of_mixed_dispatches(
+                mixed_dispatch_methods=mixed_dispatch_methods,
+                **kwargs,
+            )
+
         dependencies = PostRetainedCpDispatchDependencies(
             check_feasibility=self.check_feasibility,
             get_selected_dispatch_config=self._get_selected_dispatch_config_for_post_mip,
             get_best_mixed_schedule_from_job_sequence=self._get_best_mixed_schedule_from_job_sequence,
-            get_schedule_by_best_of_mixed_dispatches=self._get_schedule_by_best_of_mixed_dispatches,
+            get_schedule_by_best_of_mixed_dispatches=get_best_of_mixed_dispatches_for_retained_cp,
             get_two_way_schedule_by_stage_band=self._get_schedule_by_retained_cp_two_way_stage_band,
             get_schedule_by_stage_job_sequences_priority=self._get_schedule_by_stage_job_sequences_priority,
             repair_post_retained_cp_dispatch_candidate=self._repair_post_mip_dispatch_candidate,
@@ -3832,6 +3991,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 include_extended_rank_variants=include_extended_rank_variants,
                 include_dynamic_priority=include_dynamic_priority,
                 include_piecewise_stage_priority=include_piecewise_stage_priority,
+                prune_unproductive_dispatch_candidates=prune_unproductive_dispatch_candidates,
                 randomized_mixed_rank_trials=randomized_mixed_rank_trials,
                 dependencies=dependencies,
             )
@@ -4070,7 +4230,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
+        prune_unproductive_dispatch_candidates: bool = True,
         randomized_mixed_rank_trials: int = 0,
+        mixed_dispatch_methods: Sequence[str] | None = None,
         save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -4086,7 +4248,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             include_consensus_rank=include_consensus_rank,
             include_tail_bottleneck_rank=include_tail_bottleneck_rank,
             include_dynamic_priority=include_dynamic_priority,
+            prune_unproductive_dispatch_candidates=prune_unproductive_dispatch_candidates,
             randomized_mixed_rank_trials=randomized_mixed_rank_trials,
+            mixed_dispatch_methods=mixed_dispatch_methods,
             save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -4349,7 +4513,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         include_consensus_rank: bool = True,
         include_tail_bottleneck_rank: bool = True,
         include_dynamic_priority: bool = False,
+        prune_unproductive_dispatch_candidates: bool = True,
         randomized_mixed_rank_trials: int = 0,
+        mixed_dispatch_methods: Sequence[str] | None = None,
         save_cp_dispatch_artifacts: bool = True,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -4401,7 +4567,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             include_consensus_rank=include_consensus_rank,
             include_tail_bottleneck_rank=include_tail_bottleneck_rank,
             include_dynamic_priority=include_dynamic_priority,
+            prune_unproductive_dispatch_candidates=prune_unproductive_dispatch_candidates,
             randomized_mixed_rank_trials=randomized_mixed_rank_trials,
+            mixed_dispatch_methods=mixed_dispatch_methods,
             save_cp_dispatch_artifacts=save_cp_dispatch_artifacts,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
@@ -6948,12 +7116,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         head_for_all_stages: bool = False,
         use_palmer_index: bool = False,
         job_tiebreak_rank: Mapping[str, int] | None = None,
+        mixed_dispatch_methods: Sequence[str] | None = None,
     ) -> HybridFlowshopLiteSchedule | None:
-        schedule_gen_methods = [
-            self._get_schedule_by_cds,
-            self._get_schedule_by_gupta,
-            self._get_schedule_by_palmer,
-        ]
+        schedule_gen_methods = self._resolve_mixed_dispatch_methods(
+            mixed_dispatch_methods
+        )
 
         best_obj: int | None = None
         best_sch: HybridFlowshopLiteSchedule | None = None
@@ -6982,6 +7149,37 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 best_obj,
             )
         return best_sch
+
+    def _resolve_mixed_dispatch_methods(
+        self,
+        mixed_dispatch_methods: Sequence[str] | None = None,
+    ) -> list[Callable[..., HybridFlowshopLiteSchedule | None]]:
+        if mixed_dispatch_methods is None:
+            return [
+                self._get_schedule_by_cds,
+                self._get_schedule_by_gupta,
+                self._get_schedule_by_palmer,
+            ]
+
+        method_lookup: dict[str, Callable[..., HybridFlowshopLiteSchedule | None]] = {
+            "cds": self._get_schedule_by_cds,
+            "gupta": self._get_schedule_by_gupta,
+            "palmer": self._get_schedule_by_palmer,
+        }
+        resolved_methods = []
+        for method_name in mixed_dispatch_methods:
+            normalized_name = str(method_name).strip().lower()
+            if normalized_name not in method_lookup:
+                raise ValueError(
+                    "mixed_dispatch_methods entries must be one of "
+                    f"{sorted(method_lookup)}; got {method_name!r}."
+                )
+            if method_lookup[normalized_name] not in resolved_methods:
+                resolved_methods.append(method_lookup[normalized_name])
+
+        if not resolved_methods:
+            raise ValueError("mixed_dispatch_methods must not be empty.")
+        return resolved_methods
 
     def _get_best_mixed_schedule_from_job_sequence(
         self,

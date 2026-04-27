@@ -171,6 +171,7 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         include_extended_rank_variants=True,
         include_dynamic_priority=False,
         include_piecewise_stage_priority=True,
+        prune_unproductive_dispatch_candidates=False,
         dependencies=PostRetainedCpDispatchDependencies(
             check_feasibility=lambda start_map: feasibility_calls.append(start_map),
             get_selected_dispatch_config=lambda: {
@@ -211,6 +212,71 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
     assert "piecewise_cp_nearest_priority" in result.dispatched_schedules
     assert "piecewise_cp_blend_priority" in result.dispatched_schedules
     assert feasibility_calls == [{"makespan": 87}]
+
+
+def test_run_post_retained_cp_dispatch_prunes_unproductive_candidates_by_default() -> None:
+    instance = SimpleNamespace(
+        stage_id_list=["s1", "s2", "s3", "s4", "s5"],
+        job_id_list=["j1", "j2", "j3"],
+    )
+    retained_solution_rows = [
+        {
+            "stage_id": stage_id,
+            "job_id": job_id,
+            "start": start,
+            "end": start + 2,
+            "processing_time": 2,
+            "head": 0,
+            "tail": 5,
+        }
+        for stage_id, rows in {
+            "s2": [("j1", 1), ("j2", 3), ("j3", 5)],
+            "s4": [("j2", 10), ("j1", 12), ("j3", 14)],
+        }.items()
+        for job_id, start in rows
+    ]
+
+    result = run_post_retained_cp_dispatch(
+        instance=instance,
+        retained_cp_result=_make_retained_cp_result(),
+        retained_solution_rows=retained_solution_rows,
+        cp_local_repair_max_passes=0,
+        include_release_anchor_candidates=True,
+        include_consensus_rank=True,
+        include_tail_bottleneck_rank=True,
+        include_extended_rank_variants=True,
+        include_dynamic_priority=False,
+        include_piecewise_stage_priority=True,
+        dependencies=PostRetainedCpDispatchDependencies(
+            check_feasibility=lambda _start_map: None,
+            get_selected_dispatch_config=lambda: {
+                "mixed_schedule_for_former_stages": True,
+                "mixed_schedule_for_later_stages": True,
+                "machine_then_job": True,
+                "head_for_all_stages": True,
+            },
+            get_best_mixed_schedule_from_job_sequence=lambda *_args, **_kwargs: _FakeSchedule(
+                94
+            ),
+            get_schedule_by_best_of_mixed_dispatches=lambda **_kwargs: _FakeSchedule(
+                91
+            ),
+            get_two_way_schedule_by_stage_band=lambda **_kwargs: _FakeSchedule(97),
+            get_schedule_by_stage_job_sequences_priority=lambda **_kwargs: _FakeSchedule(
+                90
+            ),
+            repair_post_retained_cp_dispatch_candidate=lambda schedule, **_kwargs: schedule,
+        ),
+    )
+
+    variants = set(result.dispatched_schedules)
+    assert "best_of_mixed_dispatches_cp_aggregate_start_slack_rank" in variants
+    assert "best_of_mixed_dispatches_cp_weighted_median_rank" not in variants
+    assert "best_of_mixed_dispatches_cp_front_tail_blend_rank" not in variants
+    assert "best_of_mixed_dispatches_cp_last_anchor_rank" not in variants
+    assert "best_of_mixed_dispatches_cp_baseline" not in variants
+    assert "piecewise_cp_nearest_priority" not in variants
+    assert "piecewise_cp_blend_priority" not in variants
 
 
 def test_run_post_retained_cp_dispatch_repairs_top_k_candidates() -> None:

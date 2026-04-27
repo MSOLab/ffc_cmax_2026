@@ -425,3 +425,40 @@ def test_dispatch_from_retained_cp_can_choose_earliest_snapshot_within_slack(
     assert result["schedule"].makespan == 104
     assert result["selected_dispatch_source"] == "snapshot_2_ub_102"
     assert result["selected_dispatch_variant"] == "snapshot_2_ub_102:variant_102"
+
+
+def test_best_of_mixed_dispatches_can_filter_sequence_methods(monkeypatch) -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    calls = []
+
+    def make_dispatch_method(name: str, makespan: int):
+        def dispatch_method(**_kwargs):
+            calls.append(name)
+            return _FakeSchedule(makespan)
+
+        dispatch_method.__name__ = f"_get_schedule_by_{name}"
+        return dispatch_method
+
+    monkeypatch.setattr(
+        ctrl,
+        "_get_schedule_by_cds",
+        make_dispatch_method("cds", 100),
+    )
+    monkeypatch.setattr(
+        ctrl,
+        "_get_schedule_by_gupta",
+        make_dispatch_method("gupta", 80),
+    )
+    monkeypatch.setattr(
+        ctrl,
+        "_get_schedule_by_palmer",
+        make_dispatch_method("palmer", 90),
+    )
+
+    schedule = ctrl._get_schedule_by_best_of_mixed_dispatches(
+        mixed_dispatch_methods=["cds", "palmer"],
+    )
+
+    assert calls == ["cds", "palmer"]
+    assert schedule is not None
+    assert schedule.makespan == 90

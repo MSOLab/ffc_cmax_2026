@@ -76,6 +76,7 @@ class HybridFlowShopCpLnsControllerCore(
         self.method_names_to_run_before_resume = {
             "set_random_seed",
             "set_cp_model_as_base_cp_model",
+            "set_final_time_reserve",
         }
         assert "" not in self.method_names_to_run_before_resume
 
@@ -94,6 +95,9 @@ class HybridFlowShopCpLnsControllerCore(
         self._active_subroutine_name: str | None = None
         self._active_call_global_start: float | None = None
         self._call_counter: int = 0
+        self._final_time_reserve_active: bool = False
+        self._final_time_reserve_sec: float = 0.0
+        self._final_time_reserve_label: str | None = None
 
         logging.info(
             f"Start solving {self.instance.name} using CP model class:"
@@ -237,6 +241,60 @@ class HybridFlowShopCpLnsControllerCore(
     def get_remaining_sec(self) -> float:
         return self.timer.get_remaining_sec(self.stopping_criteria.timelimit)
 
+    def set_reserved_final_time_sec(
+        self,
+        reserve_sec: float,
+        *,
+        label: str | None = None,
+    ) -> None:
+        if reserve_sec < 0:
+            raise ValueError("reserve_sec must be non-negative.")
+        self._final_time_reserve_active = True
+        self._final_time_reserve_sec = float(reserve_sec)
+        self._final_time_reserve_label = label
+
+    def clear_reserved_final_time_sec(self) -> None:
+        self._final_time_reserve_active = False
+        self._final_time_reserve_sec = 0.0
+        self._final_time_reserve_label = None
+
+    def final_time_reserve_is_active(self) -> bool:
+        return bool(
+            getattr(self, "_final_time_reserve_active", False)
+            and getattr(self, "_final_time_reserve_sec", 0.0) > 0
+        )
+
+    def get_reserved_final_time_sec(self) -> float:
+        if not self.final_time_reserve_is_active():
+            return 0.0
+        return max(0.0, float(getattr(self, "_final_time_reserve_sec", 0.0)))
+
+    def get_remaining_sec_before_final_reserve(self) -> float:
+        return max(0.0, self.get_remaining_sec() - self.get_reserved_final_time_sec())
+
+    def final_time_reserve_is_reached(self) -> bool:
+        return self.final_time_reserve_is_active() and float_a_leq_b(
+            self.get_remaining_sec(),
+            self.get_reserved_final_time_sec(),
+        )
+
+    def consume_reserved_final_time_sec(
+        self,
+        fallback_sec: float | None = None,
+    ) -> float | None:
+        reserve_sec = self.get_reserved_final_time_sec()
+        if self.final_time_reserve_is_active():
+            label = getattr(self, "_final_time_reserve_label", None)
+            self.clear_reserved_final_time_sec()
+            resolved_sec = min(reserve_sec, self.get_remaining_sec())
+            logging.info(
+                "[Final Reserve] Consuming %.3f sec%s.",
+                resolved_sec,
+                f" for {label}" if label else "",
+            )
+            return resolved_sec
+        return fallback_sec
+
     def get_remaining_time_limit(self, subroutine_time_limit: float | None) -> float:
         """Get the remaining time limit for the subroutine.
 
@@ -247,9 +305,10 @@ class HybridFlowShopCpLnsControllerCore(
         Returns:
             float: The minimum of the subroutine time limit and the remaining time limit.
         """
+        remaining_sec = self.get_remaining_sec_before_final_reserve()
         if subroutine_time_limit is None:
-            return self.get_remaining_sec()
-        return min(subroutine_time_limit, self.get_remaining_sec())
+            return remaining_sec
+        return min(subroutine_time_limit, remaining_sec)
 
     # End stopping condition
 
@@ -464,11 +523,38 @@ class HybridFlowShopCpLnsControllerCore(
         self._active_subroutine_name = None
         self._active_call_global_start = None
 
+    @staticmethod
+    def _method_can_run_in_final_reserve(
+        method_name: str,
+        kwargs: dict[str, Any],
+    ) -> bool:
+        if method_name in {
+            "set_final_time_reserve",
+            "clear_final_time_reserve",
+            "solve_base_cp_model_from_final_time_reserve",
+        }:
+            return True
+        return method_name == "solve_base_cp_model" and bool(
+            kwargs.get("use_final_time_reserve", False)
+        )
+
     def _call_method(self, method_name: str, **kwargs: dict[str, Any]):
         if not hasattr(self, method_name):
             raise AttributeError(
                 f"{self.__class__.__name__} has no attribute {method_name}"
             )
+        if (
+            self.final_time_reserve_is_reached()
+            and not self._method_can_run_in_final_reserve(method_name, kwargs)
+        ):
+            logging.info(
+                "[Final Reserve] Skipping %s because %.3f sec remains and %.3f sec "
+                "is reserved for the final method.",
+                method_name,
+                self.get_remaining_sec(),
+                self.get_reserved_final_time_sec(),
+            )
+            return
 
         self._method_context_mgr.push(method_name)
         call_context = self._get_call_context_of_current_method()

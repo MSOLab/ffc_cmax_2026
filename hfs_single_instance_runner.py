@@ -47,6 +47,17 @@ class HfsSingleInstanceRunner(
     )
     RETAINED_CP_LB_SUMMARY_COLUMNS = (
         "retainedCpBound",
+        "retainedCpCallCount",
+        "retainedCpBounds",
+        "retainedCpModes",
+        "retainedCpBestBound",
+        "retainedCpBestStatus",
+        "retainedCpBestMode",
+        "retainedCpBestStages",
+        "retainedCpBestBottleneckStage",
+        "retainedCpBestSolverRuntimeSec",
+        "retainedCpBestApplyElapsedSec",
+        "retainedCpBestBoundObj",
         "retainedCpStatus",
         "retainedCpMode",
         "retainedCpStages",
@@ -334,6 +345,26 @@ class HfsSingleInstanceRunner(
         )
         summary.save(self.summary_path, encoding=encoding)
 
+    @staticmethod
+    def _format_retained_cp_lb_records(
+        records: list[dict[str, Any]],
+        key: str,
+    ) -> str | None:
+        values = []
+        for record in records:
+            value = record.get(key)
+            if value is None:
+                continue
+            values.append(str(value))
+        return ";".join(values) if values else None
+
+    @staticmethod
+    def _format_retained_cp_stage_ids(record: dict[str, Any] | None) -> str | None:
+        if not record:
+            return None
+        stage_ids = list(record.get("stage_ids") or [])
+        return " ".join(str(stage_id) for stage_id in stage_ids) if stage_ids else None
+
     def _build_extra_summary_fields(self) -> dict[str, Any]:
         mip_result = getattr(self.ctrlr, "last_mip_lb_result", None)
         solution_payload = getattr(self.ctrlr, "last_mip_lb_solution_payload", None)
@@ -343,6 +374,14 @@ class HfsSingleInstanceRunner(
             else {}
         )
         retained_cp_result = getattr(self.ctrlr, "last_retained_cp_lb_result", None)
+        retained_cp_records = list(
+            getattr(self.ctrlr, "retained_cp_lb_records", ()) or []
+        )
+        best_retained_cp_record = getattr(
+            self.ctrlr,
+            "best_retained_cp_lb_record",
+            None,
+        )
         retained_cp_stage_ids = (
             list(getattr(retained_cp_result, "retained_stage_ids", ()) or [])
             if retained_cp_result is not None
@@ -377,6 +416,57 @@ class HfsSingleInstanceRunner(
             "retainedCpBound": (
                 getattr(retained_cp_result, "certified_final_lb", None)
                 if retained_cp_result is not None
+                else None
+            ),
+            "retainedCpCallCount": (
+                len(retained_cp_records) if retained_cp_records else None
+            ),
+            "retainedCpBounds": self._format_retained_cp_lb_records(
+                retained_cp_records,
+                "bound",
+            ),
+            "retainedCpModes": self._format_retained_cp_lb_records(
+                retained_cp_records,
+                "mode",
+            ),
+            "retainedCpBestBound": (
+                best_retained_cp_record.get("bound")
+                if isinstance(best_retained_cp_record, dict)
+                else None
+            ),
+            "retainedCpBestStatus": (
+                best_retained_cp_record.get("status")
+                if isinstance(best_retained_cp_record, dict)
+                else None
+            ),
+            "retainedCpBestMode": (
+                best_retained_cp_record.get("mode")
+                if isinstance(best_retained_cp_record, dict)
+                else None
+            ),
+            "retainedCpBestStages": self._format_retained_cp_stage_ids(
+                best_retained_cp_record
+                if isinstance(best_retained_cp_record, dict)
+                else None
+            ),
+            "retainedCpBestBottleneckStage": (
+                best_retained_cp_record.get("bottleneck_stage_id")
+                if isinstance(best_retained_cp_record, dict)
+                else None
+            ),
+            "retainedCpBestSolverRuntimeSec": (
+                best_retained_cp_record.get("solver_runtime_sec")
+                if isinstance(best_retained_cp_record, dict)
+                else None
+            ),
+            "retainedCpBestApplyElapsedSec": (
+                best_retained_cp_record.get("apply_elapsed_sec")
+                if isinstance(best_retained_cp_record, dict)
+                else None
+            ),
+            "retainedCpBestBoundObj": (
+                best_retained_cp_record.get("objective_ub")
+                if isinstance(best_retained_cp_record, dict)
                 else None
             ),
             "retainedCpStatus": (

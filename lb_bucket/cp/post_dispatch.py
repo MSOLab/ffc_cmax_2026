@@ -19,6 +19,12 @@ from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, OperationTy
 from lb_bucket.cp.search import RetainedStageCpResult
 
 
+_PRUNED_EXTENDED_RANK_VARIANTS = {
+    "best_of_mixed_dispatches_cp_weighted_median_rank",
+    "best_of_mixed_dispatches_cp_front_tail_blend_rank",
+}
+
+
 @dataclass(frozen=True)
 class PostRetainedCpDispatchDependencies:
     check_feasibility: Callable[[dict[OperationType, int]], float]
@@ -71,6 +77,7 @@ def run_post_retained_cp_dispatch(
     include_extended_rank_variants: bool = False,
     include_dynamic_priority: bool = False,
     include_piecewise_stage_priority: bool = False,
+    prune_unproductive_dispatch_candidates: bool = True,
     randomized_mixed_rank_trials: int = 0,
     dependencies: PostRetainedCpDispatchDependencies,
 ) -> PostRetainedCpDispatchRunResult:
@@ -236,6 +243,11 @@ def run_post_retained_cp_dispatch(
             retained_solution_rows=retained_solution_rows,
             preferred_anchor_stage_ids=preferred_anchor_stage_ids,
         ).items():
+            if (
+                prune_unproductive_dispatch_candidates
+                and variant in _PRUNED_EXTENDED_RANK_VARIANTS
+            ):
+                continue
             sequence_tuple = tuple(job_sequence)
             if not sequence_tuple or sequence_tuple in existing_rank_sequences:
                 continue
@@ -298,7 +310,12 @@ def run_post_retained_cp_dispatch(
             schedule.makespan if schedule is not None else None,
         )
 
-    if include_piecewise_stage_priority:
+    if include_piecewise_stage_priority and prune_unproductive_dispatch_candidates:
+        logging.info(
+            "[CP LB] Skipping piecewise stage-priority dispatch variants because "
+            "prune_unproductive_dispatch_candidates=True."
+        )
+    if include_piecewise_stage_priority and not prune_unproductive_dispatch_candidates:
         piecewise_stage_sequence_variants = _build_piecewise_stage_sequence_variants(
             stage_id_list=instance.stage_id_list,
             job_id_list=instance.job_id_list,
@@ -331,9 +348,6 @@ def run_post_retained_cp_dispatch(
         "best_of_mixed_dispatches_cp_first_anchor_rank": (
             direct_sequences.get("mixed_cp_first_anchor")
         ),
-        "best_of_mixed_dispatches_cp_last_anchor_rank": (
-            direct_sequences.get("mixed_cp_last_anchor")
-        ),
         "best_of_mixed_dispatches_cp_bottleneck_rank": (
             direct_sequences.get("mixed_cp_bottleneck_anchor")
         ),
@@ -341,6 +355,10 @@ def run_post_retained_cp_dispatch(
             direct_sequences.get("mixed_cp_aggregate_start_slack")
         ),
     }
+    if not prune_unproductive_dispatch_candidates:
+        rank_candidates["best_of_mixed_dispatches_cp_last_anchor_rank"] = (
+            direct_sequences.get("mixed_cp_last_anchor")
+        )
     for variant, job_sequence in rank_candidates.items():
         if not job_sequence:
             continue
@@ -365,21 +383,24 @@ def run_post_retained_cp_dispatch(
             schedule.makespan if schedule is not None else None,
         )
 
-    baseline_timer = ElapsedTimer()
-    baseline_schedule = dependencies.get_schedule_by_best_of_mixed_dispatches(
-        machine_then_job=selected_dispatch_config["machine_then_job"],
-        head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
-        job_tiebreak_rank=None,
-    )
-    dispatch_candidates["best_of_mixed_dispatches_cp_baseline"] = baseline_schedule
-    dispatch_candidate_elapsed_sec["best_of_mixed_dispatches_cp_baseline"] = (
-        baseline_timer.elapsed_sec
-    )
-    logging.info(
-        "[CP LB] %s has makespan=%s",
-        "best_of_mixed_dispatches_cp_baseline",
-        baseline_schedule.makespan if baseline_schedule is not None else None,
-    )
+    if not prune_unproductive_dispatch_candidates:
+        baseline_timer = ElapsedTimer()
+        baseline_schedule = dependencies.get_schedule_by_best_of_mixed_dispatches(
+            machine_then_job=selected_dispatch_config["machine_then_job"],
+            head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
+            job_tiebreak_rank=None,
+        )
+        dispatch_candidates["best_of_mixed_dispatches_cp_baseline"] = (
+            baseline_schedule
+        )
+        dispatch_candidate_elapsed_sec["best_of_mixed_dispatches_cp_baseline"] = (
+            baseline_timer.elapsed_sec
+        )
+        logging.info(
+            "[CP LB] %s has makespan=%s",
+            "best_of_mixed_dispatches_cp_baseline",
+            baseline_schedule.makespan if baseline_schedule is not None else None,
+        )
 
     for trial_idx in range(max(0, int(randomized_mixed_rank_trials))):
         variant = f"best_of_mixed_dispatches_random_rank_{trial_idx + 1}"

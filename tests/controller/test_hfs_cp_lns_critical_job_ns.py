@@ -895,6 +895,76 @@ def test_solve_base_cp_model_uses_tl_nc_multiplier(monkeypatch):
     assert captured["solver_thread_cnt"] == 6
 
 
+def test_final_time_reserve_caps_regular_subroutine_time_limit():
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.timer = SimpleNamespace(
+        elapsed_sec=0.0,
+        get_remaining_sec=lambda _timelimit: 100.0,
+    )
+    ctrl.stopping_criteria = SimpleNamespace(timelimit=100.0)
+
+    ctrl.set_reserved_final_time_sec(30.0)
+
+    assert ctrl.get_remaining_time_limit(None) == 70.0
+    assert ctrl.get_remaining_time_limit(90.0) == 70.0
+    assert ctrl.get_remaining_time_limit(50.0) == 50.0
+
+
+def test_solve_base_cp_model_can_consume_final_time_reserve(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
+    ctrl.base_cp_model_is_set = True
+    ctrl.cp_model = SimpleNamespace(delete_added_constraints=lambda: None)
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: None,
+        register=lambda report, solution: False,
+    )
+    ctrl.timer = SimpleNamespace(
+        elapsed_sec=0.0,
+        get_remaining_sec=lambda _timelimit: 100.0,
+    )
+    ctrl.stopping_criteria = SimpleNamespace(timelimit=100.0)
+    ctrl.obj_store = SimpleNamespace(
+        get_last_obj_value=lambda: None,
+        get_last_obj_bound=lambda: None,
+        add_last_timestamp_note=lambda *args, **kwargs: None,
+    )
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "test-call"
+    ctrl.set_reserved_final_time_sec(30.0)
+
+    captured = {}
+
+    def fake_solve_current_cp_remaining_time_limit(
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+        return (
+            SimpleNamespace(status="ok", obj_value=20.0, obj_bound=20.0),
+            "solution",
+        )
+
+    monkeypatch.setattr(
+        ctrl,
+        "solve_current_cp_remaining_time_limit",
+        fake_solve_current_cp_remaining_time_limit,
+    )
+
+    ctrl.solve_base_cp_model(
+        computational_time=999.0,
+        tl_nc_multiplier=0.5,
+        solver_thread_cnt=6,
+        use_final_time_reserve=True,
+    )
+
+    assert abs(captured["computational_time"] - 30.0) < 0.1
+    assert captured["solver_thread_cnt"] == 6
+    assert not ctrl.final_time_reserve_is_active()
+
+
 def test_fix_profile_solve_reset_initializes_base_cp_model_when_missing(monkeypatch):
     ctrl = _make_controller({"S1": {"J1": 1}})
     ctrl.instance = SimpleNamespace(stage_id_list=["S1"])
