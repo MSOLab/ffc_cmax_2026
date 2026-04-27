@@ -195,7 +195,7 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
     assert "cp_band_first_strict_start_release" in result.dispatched_schedules
     assert "mixed_cp_aggregate_start_slack" in result.dispatched_schedules
     assert "mixed_cp_consensus" in result.dispatched_schedules
-    assert "mixed_cp_tail_bottleneck" in result.dispatched_schedules
+    assert "mixed_cp_tail_bottleneck" not in result.dispatched_schedules
     assert "best_of_mixed_dispatches_cp_consensus_rank" in result.dispatched_schedules
     assert (
         "best_of_mixed_dispatches_cp_tail_bottleneck_rank"

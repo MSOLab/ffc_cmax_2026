@@ -134,8 +134,6 @@ def run_post_retained_cp_dispatch(
     )
     if include_consensus_rank:
         direct_sequences["mixed_cp_consensus"] = consensus_sequence
-    if include_tail_bottleneck_rank:
-        direct_sequences["mixed_cp_tail_bottleneck"] = tail_bottleneck_sequence
     propagated_stage_sequences = _build_full_stage_sequences_from_retained_rows(
         stage_id_list=instance.stage_id_list,
         retained_solution_rows=retained_solution_rows,
@@ -2008,7 +2006,6 @@ def _get_dispatch_variant_short_name(variant: str | None) -> str | None:
         "mixed_cp_bottleneck_anchor": "mixed_cp_bneck",
         "mixed_cp_aggregate_start_slack": "mixed_cp_agg",
         "mixed_cp_consensus": "mixed_cp_cons",
-        "mixed_cp_tail_bottleneck": "mixed_cp_tailbn",
         "best_of_mixed_dispatches_cp_consensus_rank": "best_mixed_cp_cons",
         "best_of_mixed_dispatches_cp_tail_bottleneck_rank": "best_mixed_cp_tailbn",
         "cp_dynamic_priority_soft_release": "cp_dyn_prio",
