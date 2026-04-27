@@ -5984,6 +5984,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self,
         solver_thread_cnt: int,
         added_batch_size: int = 1,
+        added_batch_count: int | None = None,
+        min_added_batch_count: int | None = None,
+        max_added_batch_count: int | None = None,
         job_seq_by_1st_stage: bool = False,
         job_seq_by_bottleneck_stage: bool = False,
         preserved_head_job_portion: float = 0.0,
@@ -6011,6 +6014,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 use during search.
             added_batch_size (int, optional): The number of jobs to add in each
                 iteration. Defaults to 1.
+            added_batch_count (int | None, optional): If set, split reconstructed jobs
+                into this many NEH-CP insertion iterations instead of using a fixed
+                ``added_batch_size``.
+            min_added_batch_count (int | None, optional): Lower bound for the resolved
+                number of insertion iterations.
+            max_added_batch_count (int | None, optional): Upper bound for the resolved
+                number of insertion iterations.
             job_seq_by_1st_stage (bool, optional): If True, defines the job
                 sequence according to incumbent schedule's first stage schedule.
                 Defaults to False.
@@ -6065,6 +6075,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.job_2_stage_2_p_dict,
             self.stage_2_job_2_p_dict,
             added_batch_size=added_batch_size,
+            added_batch_count=added_batch_count,
+            min_added_batch_count=min_added_batch_count,
+            max_added_batch_count=max_added_batch_count,
             job_seq_by_1st_stage=job_seq_by_1st_stage,
             job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
             preserved_head_job_portion=preserved_head_job_portion,

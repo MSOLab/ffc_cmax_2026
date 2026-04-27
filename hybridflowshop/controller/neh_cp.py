@@ -117,6 +117,9 @@ class NehCpConstructor:
         job_2_stage_2_p_dict: dict[str, dict[str, int]],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         added_batch_size: int | None = None,
+        added_batch_count: int | None = None,
+        min_added_batch_count: int | None = None,
+        max_added_batch_count: int | None = None,
         job_seq_by_1st_stage: bool = False,
         job_seq_by_bottleneck_stage: bool = False,
         preserved_head_job_portion: float = 0.0,
@@ -250,10 +253,13 @@ class NehCpConstructor:
             head_jobs = set()
             tail_jobs = job_sequence
 
-        sequence_of_job_sublist = [
-            tail_jobs[i : i + _added_batch_size]
-            for i in range(0, len(tail_jobs), _added_batch_size)
-        ]
+        sequence_of_job_sublist = self._split_tail_jobs_into_batches(
+            tail_jobs,
+            added_batch_size=_added_batch_size,
+            added_batch_count=added_batch_count,
+            min_added_batch_count=min_added_batch_count,
+            max_added_batch_count=max_added_batch_count,
+        )
 
         st = self._require_state()
 
@@ -373,6 +379,108 @@ class NehCpConstructor:
             sub_obj_store=sub_obj_store,
             last_obj_value=best_full_obj,
         )
+
+    @classmethod
+    def _split_tail_jobs_into_batches(
+        cls,
+        tail_jobs: list[str],
+        *,
+        added_batch_size: int,
+        added_batch_count: int | None,
+        min_added_batch_count: int | None,
+        max_added_batch_count: int | None,
+    ) -> list[list[str]]:
+        if not tail_jobs:
+            return []
+        if added_batch_size <= 0:
+            raise ValueError("added_batch_size must be positive.")
+
+        min_count = cls._normalize_optional_positive_int(
+            min_added_batch_count,
+            "min_added_batch_count",
+        )
+        max_count = cls._normalize_optional_positive_int(
+            max_added_batch_count,
+            "max_added_batch_count",
+        )
+        if min_count is not None and max_count is not None and max_count < min_count:
+            raise ValueError(
+                "max_added_batch_count must be greater than or equal to "
+                "min_added_batch_count."
+            )
+
+        batch_count_from_size = max(
+            1,
+            (len(tail_jobs) + int(added_batch_size) - 1) // int(added_batch_size),
+        )
+        resolved_batch_count = (
+            cls._normalize_optional_positive_int(
+                added_batch_count,
+                "added_batch_count",
+            )
+            if added_batch_count is not None
+            else batch_count_from_size
+        )
+        if min_count is not None:
+            resolved_batch_count = max(resolved_batch_count, min_count)
+        if max_count is not None:
+            resolved_batch_count = min(resolved_batch_count, max_count)
+        resolved_batch_count = min(resolved_batch_count, len(tail_jobs))
+
+        if added_batch_count is None and resolved_batch_count == batch_count_from_size:
+            batches = [
+                tail_jobs[i : i + int(added_batch_size)]
+                for i in range(0, len(tail_jobs), int(added_batch_size))
+            ]
+        else:
+            batches = cls._split_evenly_by_count(tail_jobs, resolved_batch_count)
+
+        batch_sizes = [len(batch) for batch in batches]
+        logging.info(
+            "NEH-CP batch partition: tail_job_count=%d added_batch_size=%s "
+            "requested_added_batch_count=%s min_added_batch_count=%s "
+            "max_added_batch_count=%s resolved_batch_count=%d batch_sizes=%s",
+            len(tail_jobs),
+            added_batch_size,
+            added_batch_count,
+            min_added_batch_count,
+            max_added_batch_count,
+            len(batches),
+            batch_sizes,
+        )
+        return batches
+
+    @staticmethod
+    def _split_evenly_by_count(
+        jobs: list[str],
+        batch_count: int,
+    ) -> list[list[str]]:
+        if batch_count <= 0:
+            raise ValueError("batch_count must be positive.")
+        batch_count = min(batch_count, len(jobs))
+        base_size, remainder = divmod(len(jobs), batch_count)
+        batches: list[list[str]] = []
+        start = 0
+        for batch_idx in range(batch_count):
+            size = base_size + (1 if batch_idx < remainder else 0)
+            end = start + size
+            batches.append(jobs[start:end])
+            start = end
+        return batches
+
+    @staticmethod
+    def _normalize_optional_positive_int(
+        value: int | None,
+        name: str,
+    ) -> int | None:
+        if value is None:
+            return None
+        normalized = int(value)
+        if normalized != value:
+            raise ValueError(f"{name} must be an integer.")
+        if normalized <= 0:
+            raise ValueError(f"{name} must be positive.")
+        return normalized
 
     def _create_sub_cp_model(
         self,
