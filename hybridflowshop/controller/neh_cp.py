@@ -32,6 +32,10 @@ class NehCpContext(Protocol):
         self, subroutine_time_limit: float | None
     ) -> float: ...
 
+    def get_remaining_sec_before_final_reserve(self) -> float: ...
+
+    def final_time_reserve_is_reached(self) -> bool: ...
+
     # CP solve & decoding
     def solve_cp_model_2(
         self,
@@ -138,6 +142,13 @@ class NehCpConstructor:
         solver_thread_cnt: int | None = None,
         use_lns_only: bool = False,
         error_if_infeasible: bool = False,
+        stop_before_final_reserve: bool = True,
+        min_remaining_sec_after_neh: float | None = None,
+        min_remaining_nc_after_neh: float | None = None,
+        time_guard_estimate_safety_factor: float = 1.15,
+        time_guard_min_completed_batches: int = 1,
+        skip_if_estimated_neh_exceeds_remaining: bool = True,
+        full_neh_estimate_safety_factor: float = 1.0,
     ) -> NehCpResult:
         timer = ElapsedTimer()
 
@@ -215,6 +226,24 @@ class NehCpConstructor:
                 last_obj_value=ref_schedule.makespan,
             )
 
+        if min_remaining_sec_after_neh is not None and min_remaining_sec_after_neh < 0:
+            raise ValueError("min_remaining_sec_after_neh must be non-negative.")
+        if min_remaining_nc_after_neh is not None and min_remaining_nc_after_neh < 0:
+            raise ValueError("min_remaining_nc_after_neh must be non-negative.")
+        if time_guard_estimate_safety_factor <= 0:
+            raise ValueError("time_guard_estimate_safety_factor must be positive.")
+        if full_neh_estimate_safety_factor <= 0:
+            raise ValueError("full_neh_estimate_safety_factor must be positive.")
+        if time_guard_min_completed_batches < 0:
+            raise ValueError("time_guard_min_completed_batches must be non-negative.")
+        successor_reserve_sec = float(min_remaining_sec_after_neh or 0.0)
+        if min_remaining_nc_after_neh is not None:
+            successor_reserve_sec += (
+                float(min_remaining_nc_after_neh)
+                * float(instance.job_count)
+                * float(instance.stage_count)
+            )
+
         sub_obj_store = ObjValueBoundStore[int]()
         """Subroutine-specific objective store"""
         sub_obj_store.obj_value_series.name = "ObjVal after dispatch"
@@ -261,7 +290,23 @@ class NehCpConstructor:
             max_added_batch_count=max_added_batch_count,
         )
 
+        if self._should_skip_full_neh_before_first_batch(
+            remaining_batch_count=len(sequence_of_job_sublist),
+            max_time_per_add=max_time_per_add,
+            minimize_sum_ci_lex=minimize_sum_ci_lex,
+            max_time_per_add_2nd_obj=max_time_per_add_2nd_obj,
+            successor_reserve_sec=successor_reserve_sec,
+            skip_if_estimated_neh_exceeds_remaining=skip_if_estimated_neh_exceeds_remaining,
+            full_neh_estimate_safety_factor=full_neh_estimate_safety_factor,
+        ):
+            return NehCpResult(
+                schedule=best_full_sol,
+                sub_obj_store=sub_obj_store,
+                last_obj_value=best_full_obj,
+            )
+
         st = self._require_state()
+        batch_elapsed_sec_list: list[float] = []
 
         # Initialize partial solution from head jobs if in partial reconstruction mode
         if head_jobs:
@@ -273,7 +318,19 @@ class NehCpConstructor:
                 f"makespan = {st.partial_sol.makespan}"
             )
 
-        for job_sublist in sequence_of_job_sublist:
+        for batch_idx, job_sublist in enumerate(sequence_of_job_sublist, start=1):
+            if self._should_stop_before_next_batch(
+                completed_batch_elapsed_sec_list=batch_elapsed_sec_list,
+                stop_before_final_reserve=stop_before_final_reserve,
+                successor_reserve_sec=successor_reserve_sec,
+                time_guard_estimate_safety_factor=time_guard_estimate_safety_factor,
+                time_guard_min_completed_batches=time_guard_min_completed_batches,
+                next_batch_idx=batch_idx,
+                total_batch_count=len(sequence_of_job_sublist),
+            ):
+                break
+
+            batch_timer = ElapsedTimer()
             st.current_job_id_list.extend(job_sublist)
 
             # Use MixedDispatcher for simplified dispatch with multiple strategy exploration
@@ -370,6 +427,7 @@ class NehCpConstructor:
                 obj_value_is_valid=True,
                 obj_bound_is_valid=True,
             )
+            batch_elapsed_sec_list.append(batch_timer.elapsed_sec)
 
         if error_if_infeasible:
             self.ctx.check_feasibility(best_full_sol.get_jik_2_start_time_map())
@@ -379,6 +437,108 @@ class NehCpConstructor:
             sub_obj_store=sub_obj_store,
             last_obj_value=best_full_obj,
         )
+
+    def _should_skip_full_neh_before_first_batch(
+        self,
+        *,
+        remaining_batch_count: int,
+        max_time_per_add: float | None,
+        minimize_sum_ci_lex: bool,
+        max_time_per_add_2nd_obj: float | None,
+        successor_reserve_sec: float,
+        skip_if_estimated_neh_exceeds_remaining: bool,
+        full_neh_estimate_safety_factor: float,
+    ) -> bool:
+        if not skip_if_estimated_neh_exceeds_remaining:
+            return False
+        if remaining_batch_count <= 0:
+            return False
+        if max_time_per_add is None:
+            return False
+
+        estimated_batch_sec = float(max_time_per_add)
+        if minimize_sum_ci_lex and max_time_per_add_2nd_obj is not None:
+            estimated_batch_sec += float(max_time_per_add_2nd_obj)
+        estimated_full_neh_sec = (
+            remaining_batch_count
+            * estimated_batch_sec
+            * float(full_neh_estimate_safety_factor)
+        )
+        remaining_before_final = self.ctx.get_remaining_sec_before_final_reserve()
+        available_for_neh = max(0.0, remaining_before_final - successor_reserve_sec)
+        if estimated_full_neh_sec > available_for_neh:
+            logging.info(
+                "NEH-CP time guard: skipping full NEH block before first batch "
+                "because estimated full run %.2f sec (%d batches x %.2f sec x %.2f) "
+                "exceeds available NEH time %.2f sec "
+                "(remaining_before_final=%.2f, successor_reserve=%.2f).",
+                estimated_full_neh_sec,
+                remaining_batch_count,
+                estimated_batch_sec,
+                full_neh_estimate_safety_factor,
+                available_for_neh,
+                remaining_before_final,
+                successor_reserve_sec,
+            )
+            return True
+
+        return False
+
+    def _should_stop_before_next_batch(
+        self,
+        *,
+        completed_batch_elapsed_sec_list: list[float],
+        stop_before_final_reserve: bool,
+        successor_reserve_sec: float,
+        time_guard_estimate_safety_factor: float,
+        time_guard_min_completed_batches: int,
+        next_batch_idx: int,
+        total_batch_count: int,
+    ) -> bool:
+        if stop_before_final_reserve and self.ctx.final_time_reserve_is_reached():
+            logging.info(
+                "NEH-CP time guard: stopping before batch %d/%d because final "
+                "time reserve has been reached.",
+                next_batch_idx,
+                total_batch_count,
+            )
+            return True
+
+        remaining_before_final = self.ctx.get_remaining_sec_before_final_reserve()
+        if successor_reserve_sec > 0 and remaining_before_final <= successor_reserve_sec:
+            logging.info(
+                "NEH-CP time guard: stopping before batch %d/%d because %.2f sec "
+                "remaining before final reserve is <= %.2f sec successor reserve.",
+                next_batch_idx,
+                total_batch_count,
+                remaining_before_final,
+                successor_reserve_sec,
+            )
+            return True
+
+        if len(completed_batch_elapsed_sec_list) < time_guard_min_completed_batches:
+            return False
+
+        recent_elapsed = completed_batch_elapsed_sec_list[-3:]
+        estimated_next_batch_sec = (
+            sum(recent_elapsed) / len(recent_elapsed) * time_guard_estimate_safety_factor
+        )
+        available_for_neh = max(0.0, remaining_before_final - successor_reserve_sec)
+        if available_for_neh <= estimated_next_batch_sec:
+            logging.info(
+                "NEH-CP time guard: stopping before batch %d/%d because estimated "
+                "next batch %.2f sec would exceed available NEH time %.2f sec "
+                "(remaining_before_final=%.2f, successor_reserve=%.2f).",
+                next_batch_idx,
+                total_batch_count,
+                estimated_next_batch_sec,
+                available_for_neh,
+                remaining_before_final,
+                successor_reserve_sec,
+            )
+            return True
+
+        return False
 
     @classmethod
     def _split_tail_jobs_into_batches(

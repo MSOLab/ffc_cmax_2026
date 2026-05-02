@@ -3463,9 +3463,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         - ``first_bottleneck_band_last``: retain the first, last, and the stages
           within ``bottleneck_band_radius`` of a representative bottleneck stage.
         - ``first_topk_bottlenecks_last``: retain the first, top-k bottlenecks, and last stages.
+        - ``first_bottleneck_midpoints_last``: retain the first, an internal
+          bottleneck, the midpoint stages between the first/bottleneck and
+          bottleneck/last anchors, and the last stage.
+        - ``first_processing_jump_band_last``: retain the first, last, and the
+          stages within ``bottleneck_band_radius`` of the internal stage with
+          the largest adjacent total-processing jump.
         - ``first_middle_last``: retain the first, middle, and last stages.
         - ``first_middle_band_last``: retain the first, last, and the stages
           within ``middle_band_radius`` of the middle stage.
+        - ``middle_band``: retain only the stages within ``middle_band_radius``
+          of the middle stage.
         - ``first_n_quantiles_last``: retain the first, n-quantile cut stages, and last stages.
         - ``first_ratio_points_last``: retain the first, user-specified ratio stages, and last stages.
         """
@@ -6005,6 +6013,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         use_lns_only: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
+        stop_before_final_reserve: bool = True,
+        min_remaining_sec_after_neh: float | None = None,
+        min_remaining_nc_after_neh: float | None = None,
+        time_guard_estimate_safety_factor: float = 1.15,
+        time_guard_min_completed_batches: int = 1,
+        skip_if_estimated_neh_exceeds_remaining: bool = True,
+        full_neh_estimate_safety_factor: float = 1.0,
     ):
         """
         Builds a CP-guided solution using a midpoint sequence from the incumbent solution.
@@ -6096,6 +6111,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             solver_thread_cnt=solver_thread_cnt,
             use_lns_only=use_lns_only,
             error_if_infeasible=error_if_infeasible,
+            stop_before_final_reserve=stop_before_final_reserve,
+            min_remaining_sec_after_neh=min_remaining_sec_after_neh,
+            min_remaining_nc_after_neh=min_remaining_nc_after_neh,
+            time_guard_estimate_safety_factor=time_guard_estimate_safety_factor,
+            time_guard_min_completed_batches=time_guard_min_completed_batches,
+            skip_if_estimated_neh_exceeds_remaining=skip_if_estimated_neh_exceeds_remaining,
+            full_neh_estimate_safety_factor=full_neh_estimate_safety_factor,
         )
         obj_value = float(result.schedule.makespan)
         logging.info(f"NEH-CP done with makespan {obj_value}")
