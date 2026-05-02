@@ -6,7 +6,7 @@
 - method: initialize_by_dispatch_portfolio
   portfolio: "compact"
   include_stage_agg: true
-  cap_portions: [0.25, 0.30]
+  cap_portions: [ 0.25, 0.30 ]
   include_mid_order_variants: true
   randomized_mid_trials: 6
   randomized_tiebreak_trials: 6
@@ -215,5 +215,6 @@
   computational_time: null
   solver_thread_cnt: 16
   use_lns_only: true
+  consume_all_remaining: true
   cp_model_probing_level: 1
   log_search_progress: false

@@ -281,17 +281,33 @@ class HybridFlowShopCpLnsControllerCore(
     def consume_reserved_final_time_sec(
         self,
         fallback_sec: float | None = None,
+        *,
+        consume_all_remaining: bool = False,
     ) -> float | None:
         reserve_sec = self.get_reserved_final_time_sec()
         if self.final_time_reserve_is_active():
             label = getattr(self, "_final_time_reserve_label", None)
+            remaining_sec = self.get_remaining_sec()
             self.clear_reserved_final_time_sec()
-            resolved_sec = min(reserve_sec, self.get_remaining_sec())
-            logging.info(
-                "[Final Reserve] Consuming %.3f sec%s.",
-                resolved_sec,
-                f" for {label}" if label else "",
-            )
+            if consume_all_remaining:
+                if fallback_sec is None:
+                    resolved_sec = remaining_sec
+                else:
+                    resolved_sec = min(float(fallback_sec), remaining_sec)
+                logging.info(
+                    "[Final Reserve] Consuming %.3f sec%s "
+                    "(reserved_minimum=%.3f sec).",
+                    resolved_sec,
+                    f" for {label}" if label else "",
+                    reserve_sec,
+                )
+            else:
+                resolved_sec = min(reserve_sec, remaining_sec)
+                logging.info(
+                    "[Final Reserve] Consuming %.3f sec%s.",
+                    resolved_sec,
+                    f" for {label}" if label else "",
+                )
             return resolved_sec
         return fallback_sec
 

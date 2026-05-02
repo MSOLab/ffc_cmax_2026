@@ -226,6 +226,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         tl_nc_multiplier: float | None = None,
         use_final_time_reserve: bool = False,
+        consume_all_remaining_with_final_reserve: bool = False,
         make_semi_active_after_cp: bool = False,
         is_initial_solution: bool = False,
         encode_cumulative_as_reservoir: bool | None = None,
@@ -275,6 +276,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if use_final_time_reserve:
             _computational_time = self.consume_reserved_final_time_sec(
                 fallback_sec=_computational_time,
+                consume_all_remaining=consume_all_remaining_with_final_reserve,
             )
         if _computational_time is not None:
             # Subtract model handling time from subroutine time limit
@@ -408,6 +410,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         expand_reservoir_using_circuit: bool | None = None,
         interleave_search: bool | None = None,
         use_lns_only: bool | None = True,
+        consume_all_remaining: bool = True,
         cp_model_probing_level: int | None = None,
         log_search_progress: bool = False,
         error_if_infeasible: bool = False,
@@ -425,6 +428,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             solver_thread_cnt=solver_thread_cnt,
             tl_nc_multiplier=tl_nc_multiplier,
             use_final_time_reserve=True,
+            consume_all_remaining_with_final_reserve=consume_all_remaining,
             make_semi_active_after_cp=make_semi_active_after_cp,
             is_initial_solution=is_initial_solution,
             encode_cumulative_as_reservoir=encode_cumulative_as_reservoir,
