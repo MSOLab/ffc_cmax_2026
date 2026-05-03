@@ -146,6 +146,23 @@ def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stag
         retained_stage_mode="first_ratio_points_last",
         retained_stage_ratios=[0.25, 0.75],
     )
+    bottleneck_midpoints = build_retained_stage_cp_model(
+        instance,
+        input_ub=200,
+        retained_stage_mode="first_bottleneck_midpoints_last",
+    )
+    processing_jump_band = build_retained_stage_cp_model(
+        instance,
+        input_ub=200,
+        retained_stage_mode="first_processing_jump_band_last",
+        bottleneck_band_radius=1,
+    )
+    middle_only_band = build_retained_stage_cp_model(
+        instance,
+        input_ub=200,
+        retained_stage_mode="middle_band",
+        middle_band_radius=1,
+    )
 
     assert middle.retained_stage_ids == ["i0", "i3", "i6"]
     assert middle.retained_stage_ratios == [0.5]
@@ -160,6 +177,37 @@ def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stag
     assert middle_band.middle_band_radius == 1
     assert middle_band.retained_stage_ratios == [0.5]
     assert explicit_ratios.retained_stage_ids == ["i0", "i2", "i4", "i6"]
+    assert bottleneck_midpoints.retained_stage_ids == ["i0", "i2", "i4", "i5", "i6"]
+    assert bottleneck_midpoints.bottleneck_stage_id == "i4"
+    assert processing_jump_band.retained_stage_ids == ["i0", "i3", "i4", "i5", "i6"]
+    assert processing_jump_band.bottleneck_stage_id == "i4"
+    assert processing_jump_band.bottleneck_band_radius == 1
+    assert middle_only_band.retained_stage_ids == ["i2", "i3", "i4"]
+    assert middle_only_band.middle_band_radius == 1
+    assert middle_only_band.retained_stage_ratios == [0.5]
+
+
+def test_processing_jump_band_prefers_internal_stage_when_edge_jump_is_largest() -> None:
+    instance = HybridFlowshopParameters(
+        name="edge_jump_demo",
+        job_id_list=["j1"],
+        stage_id_list=["i0", "i1", "i2", "i3", "i4"],
+        stage_2_machines_map={f"i{k}": ["m0"] for k in range(5)},
+        p_manager=JobStageProcessingTimeManager(
+            name="edge_jump_demo",
+            df=pd.DataFrame([[100, 1, 2, 3, 4]]),
+        ),
+    )
+
+    processing_jump_band = build_retained_stage_cp_model(
+        instance,
+        input_ub=200,
+        retained_stage_mode="first_processing_jump_band_last",
+        bottleneck_band_radius=1,
+    )
+
+    assert processing_jump_band.retained_stage_ids == ["i0", "i1", "i2", "i4"]
+    assert processing_jump_band.bottleneck_stage_id == "i1"
 
 
 def test_write_retained_stage_cp_artifacts_writes_expected_files(

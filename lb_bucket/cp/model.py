@@ -125,6 +125,65 @@ def _resolve_middle_band_stage_ids(
     return list(params.i_list[left_index : right_index + 1])
 
 
+def _resolve_bottleneck_midpoint_stage_ids(
+    params: Params,
+    anchor_stage_id: str,
+) -> list[str]:
+    if anchor_stage_id not in params.i_list:
+        raise ValueError(f"Unknown bottleneck_stage_id={anchor_stage_id!r}.")
+
+    anchor_index = params.i_list.index(anchor_stage_id)
+    first_index = 0
+    last_index = len(params.i_list) - 1
+    left_midpoint_index = (first_index + anchor_index) // 2
+    right_midpoint_index = (anchor_index + last_index) // 2
+    return [
+        params.i_list[left_midpoint_index],
+        anchor_stage_id,
+        params.i_list[right_midpoint_index],
+    ]
+
+
+def _stage_processing_workload(params: Params, stage_id: str) -> int:
+    return sum(params.p[job_id, stage_id] for job_id in params.j_list)
+
+
+def _select_stage_by_adjacent_processing_jump(
+    params: Params,
+    stage_ids: Sequence[str] | None = None,
+) -> str:
+    candidate_stage_ids = list(stage_ids or params.i_list)
+    if not candidate_stage_ids:
+        raise ValueError("candidate stage list cannot be empty")
+
+    workload_by_stage = {
+        stage_id: _stage_processing_workload(params, stage_id)
+        for stage_id in params.i_list
+    }
+    adjacent_diff_by_stage: dict[str, int] = {stage_id: 0 for stage_id in params.i_list}
+    for left_stage_id, right_stage_id in zip(params.i_list[:-1], params.i_list[1:]):
+        adjacent_diff = abs(
+            workload_by_stage[right_stage_id] - workload_by_stage[left_stage_id]
+        )
+        adjacent_diff_by_stage[left_stage_id] = max(
+            adjacent_diff_by_stage[left_stage_id],
+            adjacent_diff,
+        )
+        adjacent_diff_by_stage[right_stage_id] = max(
+            adjacent_diff_by_stage[right_stage_id],
+            adjacent_diff,
+        )
+
+    def stage_key(stage_id: str) -> tuple[int, int, int]:
+        return (
+            adjacent_diff_by_stage[stage_id],
+            workload_by_stage[stage_id],
+            -params.i_list.index(stage_id),
+        )
+
+    return max(candidate_stage_ids, key=stage_key)
+
+
 def resolve_retained_stage_ids(
     params: Params,
     retained_stage_mode: str,
@@ -222,6 +281,48 @@ def resolve_retained_stage_ids(
                 )
             )
         retained = [first_stage_id, *selected_bottleneck_stage_ids, last_stage_id]
+    elif retained_stage_mode == "first_bottleneck_midpoints_last":
+        resolved_bottleneck_stage_id = bottleneck_stage_id
+        if resolved_bottleneck_stage_id is None:
+            resolved_bottleneck_stage_id = select_bottleneck_stage_by_average_load(
+                params,
+                stage_ids=internal_stage_ids,
+            )
+        if resolved_bottleneck_stage_id not in params.i_list:
+            raise ValueError(
+                f"Unknown bottleneck_stage_id={resolved_bottleneck_stage_id!r}."
+            )
+        selected_bottleneck_stage_ids = [resolved_bottleneck_stage_id]
+        retained = [
+            first_stage_id,
+            *_resolve_bottleneck_midpoint_stage_ids(
+                params,
+                resolved_bottleneck_stage_id,
+            ),
+            last_stage_id,
+        ]
+    elif retained_stage_mode == "first_processing_jump_band_last":
+        resolved_bottleneck_stage_id = bottleneck_stage_id
+        if resolved_bottleneck_stage_id is None:
+            resolved_bottleneck_stage_id = _select_stage_by_adjacent_processing_jump(
+                params,
+                stage_ids=internal_stage_ids,
+            )
+        if resolved_bottleneck_stage_id not in params.i_list:
+            raise ValueError(
+                f"Unknown bottleneck_stage_id={resolved_bottleneck_stage_id!r}."
+            )
+        selected_bottleneck_stage_ids = [resolved_bottleneck_stage_id]
+        resolved_bottleneck_band_radius = int(bottleneck_band_radius)
+        retained = [
+            first_stage_id,
+            *_resolve_bottleneck_band_stage_ids(
+                params,
+                resolved_bottleneck_stage_id,
+                resolved_bottleneck_band_radius,
+            ),
+            last_stage_id,
+        ]
     elif retained_stage_mode == "first_middle_last":
         resolved_ratios = [0.5]
         retained = [
@@ -237,6 +338,10 @@ def resolve_retained_stage_ids(
             *_resolve_middle_band_stage_ids(params, resolved_middle_band_radius),
             last_stage_id,
         ]
+    elif retained_stage_mode == "middle_band":
+        resolved_ratios = [0.5]
+        resolved_middle_band_radius = int(middle_band_radius)
+        retained = _resolve_middle_band_stage_ids(params, resolved_middle_band_radius)
     elif retained_stage_mode == "first_n_quantiles_last":
         if quantile_count is None or quantile_count < 2:
             raise ValueError(
@@ -268,8 +373,10 @@ def resolve_retained_stage_ids(
             "retained_stage_mode must be one of "
             "'first_last', 'first_bottleneck_last', "
             "'first_bottleneck_band_last', 'first_topk_bottlenecks_last', "
+            "'first_bottleneck_midpoints_last', "
+            "'first_processing_jump_band_last', "
             "'first_middle_last', 'first_middle_band_last', "
-            "'first_n_quantiles_last', or "
+            "'middle_band', 'first_n_quantiles_last', or "
             "'first_ratio_points_last'. "
             f"Received: {retained_stage_mode!r}"
         )
