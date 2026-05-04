@@ -63,6 +63,9 @@ from hybridflowshop.schedule_lite import (
     JobIdType,
     OperationType,
     StageIdType,
+    get_bottleneck_stage_job_sequence,
+    get_first_stage_start_sequence,
+    get_midpoint_sequence,
 )
 from lb_bucket.mip.search import run_bucket_search_for_instance
 from lb_bucket.mip.shared import (
@@ -3899,6 +3902,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self.last_retained_cp_dispatch_elapsed_sec = None
         self.last_retained_cp_dispatch_was_incumbent_update = None
         self.last_retained_cp_dispatch_kept_incumbent = None
+        self.last_retained_cp_dispatch_candidate_schedules = None
         retained_result = getattr(self, "last_retained_cp_lb_result", None)
         retained_solution_rows = getattr(
             self, "last_retained_cp_lb_retained_solution_rows", None
@@ -4205,18 +4209,27 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.draw_incumbent_gantt()
 
         dispatch_candidates = {}
+        dispatch_candidate_schedules = {}
         for source_label, _, evaluated_dispatch_result in dispatch_evaluations:
             prefix = "" if source_label == "final" else f"{source_label}:"
             for variant, candidate_schedule in (
                 evaluated_dispatch_result.dispatched_schedules.items()
             ):
-                dispatch_candidates[f"{prefix}{variant}"] = (
+                candidate_label = f"{prefix}{variant}"
+                dispatch_candidates[candidate_label] = (
                     candidate_schedule.makespan
                     if candidate_schedule is not None
                     else None
                 )
+                if candidate_schedule is not None:
+                    dispatch_candidate_schedules[candidate_label] = candidate_schedule
         if incumbent_before is not None:
             dispatch_candidates["incumbent_before_retained_cp"] = incumbent_before
+        if incumbent_schedule is not None:
+            dispatch_candidate_schedules["incumbent_before_retained_cp"] = (
+                incumbent_schedule
+            )
+        self.last_retained_cp_dispatch_candidate_schedules = dispatch_candidate_schedules
         return {
             "schedule": selected_schedule,
             "selected_dispatch_variant": selected_variant,
@@ -5991,6 +6004,368 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         if job_dispatched_obj_value < stage_dispatched_obj_value:
             return job_dispatched_schedule
         return stage_dispatched_schedule
+
+    @staticmethod
+    def _sequence_position_difference_ratio(
+        seq_a: Sequence[str],
+        seq_b: Sequence[str],
+    ) -> float:
+        if not seq_a or not seq_b:
+            return 1.0
+        pos_b = {job_id: idx for idx, job_id in enumerate(seq_b)}
+        common = [job_id for job_id in seq_a if job_id in pos_b]
+        if not common:
+            return 1.0
+        different_position_count = sum(
+            1 for idx, job_id in enumerate(common) if pos_b[job_id] != idx
+        )
+        return different_position_count / max(len(seq_a), len(seq_b))
+
+    @staticmethod
+    def _get_neh_reference_sequence(
+        schedule: HybridFlowshopLiteSchedule,
+        *,
+        job_seq_by_1st_stage: bool,
+        job_seq_by_bottleneck_stage: bool,
+    ) -> list[str]:
+        if job_seq_by_1st_stage:
+            return get_first_stage_start_sequence(schedule)
+        if job_seq_by_bottleneck_stage:
+            return get_bottleneck_stage_job_sequence(schedule)
+        return get_midpoint_sequence(schedule)
+
+    def _get_neh_beam_source_candidates(
+        self,
+        *,
+        candidate_source: str,
+        include_incumbent_candidate: bool,
+    ) -> dict[str, HybridFlowshopLiteSchedule]:
+        candidate_schedules: dict[str, HybridFlowshopLiteSchedule] = {}
+        if candidate_source == "retained_cp_dispatch":
+            for label, schedule in (
+                getattr(self, "last_retained_cp_dispatch_candidate_schedules", None)
+                or {}
+            ).items():
+                if schedule is not None:
+                    candidate_schedules[str(label)] = schedule
+        elif candidate_source == "incumbent":
+            pass
+        else:
+            raise ValueError(
+                "candidate_source must be one of "
+                "{'retained_cp_dispatch', 'incumbent'}."
+            )
+
+        incumbent = self.solution_manager.get_incumbent()
+        if include_incumbent_candidate and incumbent is not None:
+            candidate_schedules["current_incumbent"] = incumbent
+        return candidate_schedules
+
+    def _select_sequence_diverse_neh_beam_candidates(
+        self,
+        *,
+        candidate_schedules: Mapping[str, HybridFlowshopLiteSchedule],
+        candidate_top_k: int,
+        candidate_pool_top_k: int | None,
+        max_candidate_obj_slack: float | None,
+        min_sequence_position_diff_ratio: float,
+        allow_sequence_duplicate_fallback: bool,
+        job_seq_by_1st_stage: bool,
+        job_seq_by_bottleneck_stage: bool,
+    ) -> list[tuple[str, HybridFlowshopLiteSchedule, list[str]]]:
+        if candidate_top_k <= 0:
+            raise ValueError("candidate_top_k must be positive.")
+        if candidate_pool_top_k is not None and candidate_pool_top_k <= 0:
+            raise ValueError("candidate_pool_top_k must be positive when provided.")
+        if max_candidate_obj_slack is not None and max_candidate_obj_slack < 0:
+            raise ValueError("max_candidate_obj_slack must be non-negative.")
+        if min_sequence_position_diff_ratio < 0:
+            raise ValueError("min_sequence_position_diff_ratio must be non-negative.")
+
+        sorted_candidates = sorted(
+            (
+                (label, schedule)
+                for label, schedule in candidate_schedules.items()
+                if schedule is not None
+            ),
+            key=lambda item: (float(item[1].makespan), item[0]),
+        )
+        if candidate_pool_top_k is not None:
+            sorted_candidates = sorted_candidates[:candidate_pool_top_k]
+        if not sorted_candidates:
+            return []
+
+        best_candidate_obj = float(sorted_candidates[0][1].makespan)
+        if max_candidate_obj_slack is not None:
+            allowed_obj = best_candidate_obj + float(max_candidate_obj_slack)
+            sorted_candidates = [
+                item
+                for item in sorted_candidates
+                if float(item[1].makespan) <= allowed_obj
+            ]
+
+        selected: list[tuple[str, HybridFlowshopLiteSchedule, list[str]]] = []
+        duplicate_fallbacks: list[
+            tuple[str, HybridFlowshopLiteSchedule, list[str]]
+        ] = []
+        for label, schedule in sorted_candidates:
+            sequence = self._get_neh_reference_sequence(
+                schedule,
+                job_seq_by_1st_stage=job_seq_by_1st_stage,
+                job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
+            )
+            if not sequence:
+                logging.info(
+                    "[NEH Beam] Skipping candidate %s because its sequence is empty.",
+                    label,
+                )
+                continue
+            if not selected:
+                selected.append((label, schedule, sequence))
+            else:
+                min_diff = min(
+                    self._sequence_position_difference_ratio(sequence, selected_seq)
+                    for _, _, selected_seq in selected
+                )
+                if min_diff >= min_sequence_position_diff_ratio:
+                    selected.append((label, schedule, sequence))
+                else:
+                    duplicate_fallbacks.append((label, schedule, sequence))
+            if len(selected) >= candidate_top_k:
+                break
+
+        if allow_sequence_duplicate_fallback and len(selected) < candidate_top_k:
+            selected_labels = {label for label, _, _ in selected}
+            for label, schedule, sequence in duplicate_fallbacks:
+                if label in selected_labels:
+                    continue
+                selected.append((label, schedule, sequence))
+                selected_labels.add(label)
+                if len(selected) >= candidate_top_k:
+                    break
+        return selected
+
+    def neh_cp_sequence_beam(
+        self,
+        solver_thread_cnt: int,
+        candidate_source: str = "retained_cp_dispatch",
+        candidate_top_k: int = 2,
+        candidate_pool_top_k: int | None = 16,
+        max_candidate_obj_slack: float | None = None,
+        min_sequence_position_diff_ratio: float = 0.08,
+        allow_sequence_duplicate_fallback: bool = False,
+        include_incumbent_candidate: bool = True,
+        added_batch_size: int = 1,
+        added_batch_count: int | None = None,
+        min_added_batch_count: int | None = None,
+        max_added_batch_count: int | None = None,
+        job_seq_by_1st_stage: bool = False,
+        job_seq_by_bottleneck_stage: bool = False,
+        preserved_head_job_portion: float = 0.0,
+        max_time_per_add: float | None = None,
+        cp_tl_nc_multiplier: float | None = None,
+        cp_tl_c_multiplier: float | None = None,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        minimize_sum_ci_lex: bool = False,
+        cp_tl_nc_multiplier_2nd_obj: float | None = None,
+        cp_tl_c_multiplier_2nd_obj: float | None = None,
+        minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
+        make_semi_active_every_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+        stop_before_final_reserve: bool = True,
+        min_remaining_sec_after_neh: float | None = None,
+        min_remaining_nc_after_neh: float | None = None,
+        time_guard_estimate_safety_factor: float = 1.15,
+        time_guard_min_completed_batches: int = 1,
+        skip_if_estimated_neh_exceeds_remaining: bool = True,
+        full_neh_estimate_safety_factor: float = 1.0,
+    ) -> None:
+        """Run full NEH-CP on sequence-diverse candidate schedules and keep the best."""
+        sub_timer = ElapsedTimer()
+        incumbent = self.solution_manager.get_incumbent()
+        if incumbent is None:
+            raise ValueError("No incumbent solution available for NEH-CP beam.")
+
+        candidate_schedules = self._get_neh_beam_source_candidates(
+            candidate_source=candidate_source,
+            include_incumbent_candidate=include_incumbent_candidate,
+        )
+        selected_candidates = self._select_sequence_diverse_neh_beam_candidates(
+            candidate_schedules=candidate_schedules,
+            candidate_top_k=candidate_top_k,
+            candidate_pool_top_k=candidate_pool_top_k,
+            max_candidate_obj_slack=max_candidate_obj_slack,
+            min_sequence_position_diff_ratio=min_sequence_position_diff_ratio,
+            allow_sequence_duplicate_fallback=allow_sequence_duplicate_fallback,
+            job_seq_by_1st_stage=job_seq_by_1st_stage,
+            job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
+        )
+        if not selected_candidates:
+            logging.info(
+                "[NEH Beam] No retained dispatch candidates were available; "
+                "falling back to the current incumbent."
+            )
+            selected_candidates = [
+                (
+                    "current_incumbent",
+                    incumbent,
+                    self._get_neh_reference_sequence(
+                        incumbent,
+                        job_seq_by_1st_stage=job_seq_by_1st_stage,
+                        job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
+                    ),
+                )
+            ]
+
+        logging.info(
+            "[NEH Beam] Selected %d/%d candidate schedules: %s",
+            len(selected_candidates),
+            candidate_top_k,
+            [
+                {
+                    "label": label,
+                    "makespan": schedule.makespan,
+                    "sequence_head": sequence[:8],
+                }
+                for label, schedule, sequence in selected_candidates
+            ],
+        )
+
+        best_schedule = incumbent
+        best_obj = float(incumbent.makespan)
+        best_label = "current_incumbent"
+        best_result: NehCpResult | None = None
+        candidate_results: list[dict[str, Any]] = []
+
+        obj_value_comparator = getattr(
+            self.solution_manager, "_a_is_better_obj_value", None
+        )
+
+        def is_better_obj(candidate_obj: float, incumbent_obj: float | None) -> bool:
+            if callable(obj_value_comparator):
+                return bool(obj_value_comparator(candidate_obj, incumbent_obj))
+            return incumbent_obj is None or candidate_obj < incumbent_obj
+
+        for candidate_idx, (label, schedule, sequence) in enumerate(
+            selected_candidates, start=1
+        ):
+            if self.is_stopping_condition():
+                logging.info(
+                    "[NEH Beam] Stopping before candidate %s because the global "
+                    "stopping condition is met.",
+                    label,
+                )
+                break
+            logging.info(
+                "[NEH Beam] Running candidate %d/%d label=%s initial_makespan=%s "
+                "sequence_head=%s",
+                candidate_idx,
+                len(selected_candidates),
+                label,
+                schedule.makespan,
+                sequence[:12],
+            )
+            candidate_timer = ElapsedTimer()
+            constructor = NehCpConstructor(self)
+            result: NehCpResult = constructor.run(
+                schedule,
+                self.instance,
+                self.job_2_stage_2_p_dict,
+                self.stage_2_job_2_p_dict,
+                added_batch_size=added_batch_size,
+                added_batch_count=added_batch_count,
+                min_added_batch_count=min_added_batch_count,
+                max_added_batch_count=max_added_batch_count,
+                job_seq_by_1st_stage=job_seq_by_1st_stage,
+                job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
+                preserved_head_job_portion=preserved_head_job_portion,
+                max_time_per_add=max_time_per_add,
+                cp_tl_nc_multiplier=cp_tl_nc_multiplier,
+                cp_tl_c_multiplier=cp_tl_c_multiplier,
+                profile_fix_by_machine=profile_fix_by_machine,
+                machine_precedence_stride=machine_precedence_stride,
+                minimize_sum_ci_lex=minimize_sum_ci_lex,
+                cp_tl_nc_multiplier_2nd_obj=cp_tl_nc_multiplier_2nd_obj,
+                cp_tl_c_multiplier_2nd_obj=cp_tl_c_multiplier_2nd_obj,
+                minimize_sum_ci_lin=minimize_sum_ci_lin,
+                tighten_ranges=tighten_ranges,
+                link_job_completion=link_job_completion,
+                make_semi_active_every_cp=make_semi_active_every_cp,
+                solver_thread_cnt=solver_thread_cnt,
+                use_lns_only=use_lns_only,
+                error_if_infeasible=error_if_infeasible,
+                stop_before_final_reserve=stop_before_final_reserve,
+                min_remaining_sec_after_neh=min_remaining_sec_after_neh,
+                min_remaining_nc_after_neh=min_remaining_nc_after_neh,
+                time_guard_estimate_safety_factor=time_guard_estimate_safety_factor,
+                time_guard_min_completed_batches=time_guard_min_completed_batches,
+                skip_if_estimated_neh_exceeds_remaining=skip_if_estimated_neh_exceeds_remaining,
+                full_neh_estimate_safety_factor=full_neh_estimate_safety_factor,
+            )
+            candidate_obj = float(result.schedule.makespan)
+            candidate_results.append(
+                {
+                    "label": label,
+                    "input_makespan": float(schedule.makespan),
+                    "output_makespan": candidate_obj,
+                    "elapsed_sec": candidate_timer.elapsed_sec,
+                    "sequence_head": sequence[:12],
+                }
+            )
+            logging.info(
+                "[NEH Beam] Candidate %s finished with makespan=%s elapsed=%.3f sec.",
+                label,
+                candidate_obj,
+                candidate_timer.elapsed_sec,
+            )
+            if is_better_obj(candidate_obj, best_obj):
+                best_schedule = result.schedule
+                best_obj = candidate_obj
+                best_label = label
+                best_result = result
+
+        logging.info(
+            "[NEH Beam] Candidate result summary: %s; selected=%s makespan=%s",
+            candidate_results,
+            best_label,
+            best_obj,
+        )
+
+        if best_result is not None and best_result.sub_obj_store:
+            best_result.sub_obj_store.save_yaml(
+                self.get_file_path_for_subroutine("_obj_log.yaml")
+            )
+
+        final_report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=best_obj,
+            obj_bound=None,
+            is_init=False,
+            subroutine_name="neh_cp_sequence_beam",
+            progress_obj_value_records=(
+                best_result.sub_obj_store.obj_value_series.items()
+                if best_result is not None and best_result.sub_obj_store
+                else [(sub_timer.elapsed_sec, best_obj)]
+            ),
+        )
+        was_updated = self.solution_manager.register(final_report, best_schedule)
+
+        log_time = self.timer.elapsed_sec
+        self.add_obj_value_log(log_time, best_obj, is_maximize=False)
+        _last_timestamp_note = self._get_call_context_of_current_method()
+        self.obj_store.add_last_timestamp_note(
+            _last_timestamp_note, obj_value_is_valid=True
+        )
+
+        if was_updated:
+            self.set_cp_model_as_base_cp_model()
+            if draw_gantt:
+                self.draw_incumbent_gantt()
 
     def neh_cp(
         self,

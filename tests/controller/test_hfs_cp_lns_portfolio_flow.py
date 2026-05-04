@@ -7,14 +7,25 @@ from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 
 class _FakeSchedule:
-    def __init__(self, makespan: int) -> None:
+    def __init__(
+        self,
+        makespan: int,
+        *,
+        label: str | None = None,
+        seq: list[str] | None = None,
+    ) -> None:
         self.makespan = makespan
+        self.label = label or f"obj_{makespan}"
+        self.seq = list(seq or [])
 
     def get_jik_2_start_time_map(self):
         return {}
 
     def make_semi_active(self, *_args, **_kwargs) -> None:
         return None
+
+    def deepcopy(self, *_args, **_kwargs):
+        return _FakeSchedule(self.makespan, label=self.label, seq=self.seq)
 
 
 class _RecorderSolutionManager:
@@ -55,6 +66,8 @@ def _wire_common_controller(ctrl: HybridFlowShopCpLnsController) -> None:
     ctrl.add_obj_value_log = lambda *args, **kwargs: None
     ctrl._get_call_context_of_current_method = lambda: "test-call"
     ctrl._make_subroutine_report = lambda **kwargs: SimpleNamespace(**kwargs)
+    ctrl.set_cp_model_as_base_cp_model = lambda: None
+    ctrl.is_stopping_condition = lambda: False
 
 
 def _make_retained_cp_result(objective_ub: float) -> RetainedStageCpResult:
@@ -358,10 +371,89 @@ def test_dispatch_from_retained_cp_keeps_better_incumbent(monkeypatch) -> None:
     assert ctrl.last_retained_cp_dispatch_obj == 3159
     assert ctrl.last_retained_cp_post_dispatch_obj == 3211
     assert ctrl.last_retained_cp_dispatch_kept_incumbent is True
+    assert set(ctrl.last_retained_cp_dispatch_candidate_schedules) == {
+        "mixed_cp_consensus",
+        "incumbent_before_retained_cp",
+    }
+    assert (
+        ctrl.last_retained_cp_dispatch_candidate_schedules[
+            "incumbent_before_retained_cp"
+        ]
+        is incumbent
+    )
     report, registered_solution = ctrl.solution_manager.registered[-1]
     assert report.obj_value == 3159
     assert registered_solution is incumbent
     assert obj_log[-1][0][1] == 3159
+
+
+def test_neh_cp_sequence_beam_runs_diverse_candidates_and_registers_best(
+    monkeypatch,
+) -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    _wire_common_controller(ctrl)
+    incumbent = _FakeSchedule(100, label="inc", seq=["A", "B", "C", "D"])
+    ctrl.solution_manager = _RecorderSolutionManager(incumbent)
+    ctrl.instance = SimpleNamespace(job_count=4, stage_count=2, stage_id_list=["S1"])
+    ctrl.job_2_stage_2_p_dict = {}
+    ctrl.stage_2_job_2_p_dict = {}
+    ctrl.last_retained_cp_dispatch_candidate_schedules = {
+        "best_same_sequence": _FakeSchedule(
+            95, label="same", seq=["A", "B", "C", "D"]
+        ),
+        "diverse_candidate": _FakeSchedule(
+            98, label="diverse", seq=["D", "C", "B", "A"]
+        ),
+        "duplicate_but_promising": _FakeSchedule(
+            99, label="duplicate", seq=["A", "B", "C", "D"]
+        ),
+    }
+    calls = []
+
+    monkeypatch.setattr(
+        ctrl,
+        "_get_neh_reference_sequence",
+        lambda schedule, **_kwargs: list(schedule.seq),
+    )
+
+    class FakeNehConstructor:
+        def __init__(self, _ctx) -> None:
+            return None
+
+        def run(self, ref_schedule, *_args, **_kwargs):
+            calls.append(ref_schedule.label)
+            output_by_label = {"same": 90, "diverse": 80, "inc": 100}
+            output = _FakeSchedule(
+                output_by_label[ref_schedule.label],
+                label=f"{ref_schedule.label}_neh",
+                seq=ref_schedule.seq,
+            )
+            return SimpleNamespace(
+                schedule=output,
+                sub_obj_store=None,
+                last_obj_value=output.makespan,
+            )
+
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.NehCpConstructor",
+        FakeNehConstructor,
+    )
+
+    ctrl.neh_cp_sequence_beam(
+        solver_thread_cnt=16,
+        candidate_top_k=2,
+        candidate_pool_top_k=4,
+        min_sequence_position_diff_ratio=0.50,
+        include_incumbent_candidate=True,
+        added_batch_size=10,
+        cp_tl_nc_multiplier=0.05,
+    )
+
+    assert calls == ["same", "diverse"]
+    assert ctrl.solution_manager.get_incumbent().makespan == 80
+    report, solution = ctrl.solution_manager.registered[-1]
+    assert report.subroutine_name == "neh_cp_sequence_beam"
+    assert solution.label == "diverse_neh"
 
 
 def test_dispatch_from_retained_cp_can_choose_earliest_snapshot_within_slack(

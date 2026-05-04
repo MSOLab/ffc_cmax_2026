@@ -19,6 +19,15 @@ class _FakeSchedule:
 
 
 class _FakeContext:
+    def get_remaining_time_limit(self, subroutine_time_limit):
+        return subroutine_time_limit
+
+    def get_remaining_sec_before_final_reserve(self):
+        return 9999.0
+
+    def final_time_reserve_is_reached(self):
+        return False
+
     def create_empty_schedule_from_ins(self):
         return _FakeSchedule(0)
 
