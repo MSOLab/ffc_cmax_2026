@@ -456,6 +456,58 @@ def test_neh_cp_sequence_beam_runs_diverse_candidates_and_registers_best(
     assert solution.label == "diverse_neh"
 
 
+def test_workload_adaptive_retained_cp_lb_selects_large_topk(monkeypatch) -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    _wire_common_controller(ctrl)
+    ctrl.instance = SimpleNamespace(job_count=120, stage_count=15)
+    captured = {}
+
+    def fake_apply_retained_stage_cp_lb(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        ctrl,
+        "apply_retained_stage_cp_lb",
+        fake_apply_retained_stage_cp_lb,
+    )
+
+    result = ctrl.apply_workload_adaptive_retained_stage_cp_lb(
+        retained_stage_mode="first_topk_bottlenecks_last",
+        small_extra_bottleneck_count=3,
+        large_extra_bottleneck_count=4,
+        large_workload_threshold=1800,
+    )
+
+    assert result == {"ok": True}
+    assert captured["extra_bottleneck_count"] == 4
+    assert captured["retained_stage_mode"] == "first_topk_bottlenecks_last"
+
+
+def test_adaptive_neh_preserved_head_selects_small_workload(monkeypatch) -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    _wire_common_controller(ctrl)
+    ctrl.instance = SimpleNamespace(job_count=80, stage_count=10)
+    captured = {}
+
+    def fake_neh_cp(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(ctrl, "neh_cp", fake_neh_cp)
+
+    ctrl.neh_cp_adaptive_preserved_head(
+        solver_thread_cnt=16,
+        added_batch_size=20,
+        job_seq_by_bottleneck_stage=True,
+        small_preserved_head_job_portion=0.25,
+        large_preserved_head_job_portion=0.40,
+        large_workload_threshold=1800,
+    )
+
+    assert captured["preserved_head_job_portion"] == 0.25
+    assert captured["job_seq_by_bottleneck_stage"] is True
+
+
 def test_dispatch_from_retained_cp_can_choose_earliest_snapshot_within_slack(
     monkeypatch,
 ) -> None:

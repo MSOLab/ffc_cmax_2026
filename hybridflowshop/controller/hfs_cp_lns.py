@@ -3724,6 +3724,60 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             "quantile_count": build.quantile_count,
         }
 
+    def _get_instance_workload_size(self) -> int:
+        return int(self.instance.job_count) * int(self.instance.stage_count)
+
+    def apply_workload_adaptive_retained_stage_cp_lb(
+        self,
+        threads: int = 24,
+        tl_nc_multiplier: float | None = None,
+        time_limit_sec: float | None = None,
+        time_limit_n_by_c_multiplier: float | None = None,
+        retained_stage_mode: str = "first_topk_bottlenecks_last",
+        bottleneck_stage_id: str | None = None,
+        small_extra_bottleneck_count: int = 3,
+        large_extra_bottleneck_count: int = 4,
+        large_workload_threshold: int = 1800,
+        bottleneck_band_radius: int = 1,
+        middle_band_radius: int = 1,
+        quantile_count: int | None = None,
+        retained_stage_ratios: Sequence[float] | None = None,
+        save_cp_lb_artifacts: bool = True,
+        snapshot_solution_limit: int = 0,
+        snapshot_log_progress: bool = True,
+    ) -> dict[str, Any] | None:
+        workload_size = self._get_instance_workload_size()
+        selected_extra_bottleneck_count = (
+            int(large_extra_bottleneck_count)
+            if workload_size >= int(large_workload_threshold)
+            else int(small_extra_bottleneck_count)
+        )
+        logging.info(
+            "[Adaptive CP LB] workload_size=%d threshold=%d selected extra_bottleneck_count=%d "
+            "(small=%d large=%d).",
+            workload_size,
+            int(large_workload_threshold),
+            selected_extra_bottleneck_count,
+            int(small_extra_bottleneck_count),
+            int(large_extra_bottleneck_count),
+        )
+        return self.apply_retained_stage_cp_lb(
+            threads=threads,
+            tl_nc_multiplier=tl_nc_multiplier,
+            time_limit_sec=time_limit_sec,
+            time_limit_n_by_c_multiplier=time_limit_n_by_c_multiplier,
+            retained_stage_mode=retained_stage_mode,
+            bottleneck_stage_id=bottleneck_stage_id,
+            extra_bottleneck_count=selected_extra_bottleneck_count,
+            bottleneck_band_radius=bottleneck_band_radius,
+            middle_band_radius=middle_band_radius,
+            quantile_count=quantile_count,
+            retained_stage_ratios=retained_stage_ratios,
+            save_cp_lb_artifacts=save_cp_lb_artifacts,
+            snapshot_solution_limit=snapshot_solution_limit,
+            snapshot_log_progress=snapshot_log_progress,
+        )
+
     def _resolve_anchor_stage_ids_from_last_retained_cp_lb(self) -> list[str]:
         result = getattr(self, "last_retained_cp_lb_result", None)
         if result is None:
@@ -6533,6 +6587,89 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             self.set_cp_model_as_base_cp_model()
             if draw_gantt:
                 self.draw_incumbent_gantt()
+
+    def neh_cp_adaptive_preserved_head(
+        self,
+        solver_thread_cnt: int,
+        added_batch_size: int = 1,
+        added_batch_count: int | None = None,
+        min_added_batch_count: int | None = None,
+        max_added_batch_count: int | None = None,
+        job_seq_by_1st_stage: bool = False,
+        job_seq_by_bottleneck_stage: bool = False,
+        small_preserved_head_job_portion: float = 0.25,
+        large_preserved_head_job_portion: float = 0.40,
+        large_workload_threshold: int = 1800,
+        max_time_per_add: float | None = None,
+        cp_tl_nc_multiplier: float | None = None,
+        cp_tl_c_multiplier: float | None = None,
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        minimize_sum_ci_lex: bool = False,
+        cp_tl_nc_multiplier_2nd_obj: float | None = None,
+        cp_tl_c_multiplier_2nd_obj: float | None = None,
+        minimize_sum_ci_lin: bool = False,
+        tighten_ranges: bool = False,
+        link_job_completion: bool = False,
+        make_semi_active_every_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+        stop_before_final_reserve: bool = True,
+        min_remaining_sec_after_neh: float | None = None,
+        min_remaining_nc_after_neh: float | None = None,
+        time_guard_estimate_safety_factor: float = 1.15,
+        time_guard_min_completed_batches: int = 1,
+        skip_if_estimated_neh_exceeds_remaining: bool = True,
+        full_neh_estimate_safety_factor: float = 1.0,
+    ) -> None:
+        workload_size = self._get_instance_workload_size()
+        preserved_head_job_portion = (
+            float(large_preserved_head_job_portion)
+            if workload_size >= int(large_workload_threshold)
+            else float(small_preserved_head_job_portion)
+        )
+        logging.info(
+            "[Adaptive NEH] workload_size=%d threshold=%d selected preserved_head_job_portion=%.3f "
+            "(small=%.3f large=%.3f).",
+            workload_size,
+            int(large_workload_threshold),
+            preserved_head_job_portion,
+            float(small_preserved_head_job_portion),
+            float(large_preserved_head_job_portion),
+        )
+        self.neh_cp(
+            solver_thread_cnt=solver_thread_cnt,
+            added_batch_size=added_batch_size,
+            added_batch_count=added_batch_count,
+            min_added_batch_count=min_added_batch_count,
+            max_added_batch_count=max_added_batch_count,
+            job_seq_by_1st_stage=job_seq_by_1st_stage,
+            job_seq_by_bottleneck_stage=job_seq_by_bottleneck_stage,
+            preserved_head_job_portion=preserved_head_job_portion,
+            max_time_per_add=max_time_per_add,
+            cp_tl_nc_multiplier=cp_tl_nc_multiplier,
+            cp_tl_c_multiplier=cp_tl_c_multiplier,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+            minimize_sum_ci_lex=minimize_sum_ci_lex,
+            cp_tl_nc_multiplier_2nd_obj=cp_tl_nc_multiplier_2nd_obj,
+            cp_tl_c_multiplier_2nd_obj=cp_tl_c_multiplier_2nd_obj,
+            minimize_sum_ci_lin=minimize_sum_ci_lin,
+            tighten_ranges=tighten_ranges,
+            link_job_completion=link_job_completion,
+            make_semi_active_every_cp=make_semi_active_every_cp,
+            use_lns_only=use_lns_only,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+            stop_before_final_reserve=stop_before_final_reserve,
+            min_remaining_sec_after_neh=min_remaining_sec_after_neh,
+            min_remaining_nc_after_neh=min_remaining_nc_after_neh,
+            time_guard_estimate_safety_factor=time_guard_estimate_safety_factor,
+            time_guard_min_completed_batches=time_guard_min_completed_batches,
+            skip_if_estimated_neh_exceeds_remaining=skip_if_estimated_neh_exceeds_remaining,
+            full_neh_estimate_safety_factor=full_neh_estimate_safety_factor,
+        )
 
     def _resolve_pw_cp_batch_size(
         self,
