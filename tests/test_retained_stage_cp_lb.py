@@ -15,6 +15,7 @@ from lb_bucket.cp import (
     select_bottleneck_stage_ids_by_average_load,
     write_retained_stage_cp_artifacts,
 )
+from hybridflowshop.controller.hfs_cp_lns import _extract_retained_cp_trace_records
 
 
 def _make_instance() -> HybridFlowshopParameters:
@@ -58,6 +59,24 @@ def test_select_bottleneck_stage_ids_by_average_load_returns_ranked_stage_ids() 
     assert select_bottleneck_stage_ids_by_average_load(build.params, count=2) == [
         "i1",
         "i0",
+    ]
+
+
+def test_extract_retained_cp_trace_records_keeps_objective_ub_and_lb() -> None:
+    trace_rows = [
+        {"runtime_sec": 0.05, "objective_ub": None, "objective_lb": 20.0},
+        {"runtime_sec": 0.10, "objective_ub": 30.0, "objective_lb": 20.0},
+        {"runtime_sec": "bad", "objective_ub": 29.0, "objective_lb": 21.0},
+        {"runtime_sec": 0.20, "objective_ub": 28.0, "objective_lb": None},
+    ]
+
+    assert _extract_retained_cp_trace_records(trace_rows, "objective_ub") == [
+        (0.10, 30.0),
+        (0.20, 28.0),
+    ]
+    assert _extract_retained_cp_trace_records(trace_rows, "objective_lb") == [
+        (0.05, 20.0),
+        (0.10, 20.0),
     ]
 
 

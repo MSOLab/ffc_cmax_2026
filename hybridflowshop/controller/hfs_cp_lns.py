@@ -153,6 +153,20 @@ class _RetainedStageSnapshotRecorder(ObjectiveValueRecorder):
         )
 
 
+def _extract_retained_cp_trace_records(
+    trace_rows: Sequence[Mapping[str, Any]],
+    objective_key: str,
+) -> list[tuple[float, float]]:
+    records: list[tuple[float, float]] = []
+    for row in trace_rows:
+        runtime_sec = sanitize_optional_float(row.get("runtime_sec"))
+        objective_value = sanitize_optional_float(row.get(objective_key))
+        if runtime_sec is None or objective_value is None:
+            continue
+        records.append((runtime_sec, objective_value))
+    return records
+
+
 class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     """
     Controller for solving Hybrid Flow Shop problems using CP-based algorithms.
@@ -3547,6 +3561,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         save_cp_lb_artifacts: bool = True,
         snapshot_solution_limit: int = 0,
         snapshot_log_progress: bool = True,
+        log_cp_lb_ub_progress: bool = True,
     ) -> dict[str, Any] | None:
         """
         Compute a retained-stage CP-SAT lower bound using only a subset of stages exactly.
@@ -3640,12 +3655,17 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
 
         snapshot_recorder = None
+        obj_value_log_level = logging.INFO if log_cp_lb_ub_progress else None
         if snapshot_solution_limit > 0:
             snapshot_recorder = _RetainedStageSnapshotRecorder(
                 build=build,
                 snapshot_limit=snapshot_solution_limit,
                 e_timer=sub_timer,
-                log_level_on_record=logging.INFO if snapshot_log_progress else None,
+                log_level_on_record=(
+                    logging.INFO
+                    if snapshot_log_progress or log_cp_lb_ub_progress
+                    else None
+                ),
             )
 
         solver_report = self.solve_cp_model_2(
@@ -3656,6 +3676,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound_is_valid=False,
             e_timer=sub_timer,
             log_search_progress=False,
+            log_level_obj_value=obj_value_log_level,
             solution_callback=snapshot_recorder,
         )
         self.last_retained_cp_lb_apply_elapsed_sec = sub_timer.elapsed_sec
@@ -3731,13 +3752,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         self.last_retained_cp_lb_retained_solution_rows = retained_solution_rows
         self.last_retained_cp_lb_solution_snapshots = snapshot_rows
 
+        cp_lb_obj_value_records = _extract_retained_cp_trace_records(
+            trace_rows,
+            "objective_ub",
+        )
+        cp_lb_obj_bound_records = _extract_retained_cp_trace_records(
+            trace_rows,
+            "objective_lb",
+        )
+
         current_bound = self.solution_manager.best_obj_bound
         improved_bound_logged = False
-        for row in trace_rows:
-            trace_runtime = sanitize_optional_float(row.get("runtime_sec"))
-            trace_lb = sanitize_optional_float(row.get("objective_lb"))
-            if trace_runtime is None or trace_lb is None:
-                continue
+        for trace_runtime, trace_lb in cp_lb_obj_bound_records:
             if self.solution_manager._a_is_better_obj_bound(trace_lb, current_bound):
                 global_time = start_t + trace_runtime
                 self.add_obj_bound_log(global_time, trace_lb, is_maximize=False)
@@ -3754,16 +3780,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             progress_obj_value_records=(),
             progress_time_basis="local",
             status=solver_report.status,
-            obj_value_records=(),
-            obj_bound_records=[
-                (
-                    float(row["runtime_sec"]),
-                    float(row["objective_lb"]),
-                )
-                for row in trace_rows
-                if sanitize_optional_float(row.get("runtime_sec")) is not None
-                and sanitize_optional_float(row.get("objective_lb")) is not None
-            ],
+            obj_value_records=cp_lb_obj_value_records,
+            obj_bound_records=cp_lb_obj_bound_records,
         )
         self.solution_manager.register(report, None)
         self._record_retained_cp_lb_summary(
@@ -3832,6 +3850,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         save_cp_lb_artifacts: bool = True,
         snapshot_solution_limit: int = 0,
         snapshot_log_progress: bool = True,
+        log_cp_lb_ub_progress: bool = True,
     ) -> dict[str, Any] | None:
         workload_size = self._get_instance_workload_size()
         selected_extra_bottleneck_count = (
@@ -3863,6 +3882,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             save_cp_lb_artifacts=save_cp_lb_artifacts,
             snapshot_solution_limit=snapshot_solution_limit,
             snapshot_log_progress=snapshot_log_progress,
+            log_cp_lb_ub_progress=log_cp_lb_ub_progress,
         )
 
     def _resolve_anchor_stage_ids_from_last_retained_cp_lb(self) -> list[str]:
@@ -6325,6 +6345,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         time_guard_min_completed_batches: int = 1,
         skip_if_estimated_neh_exceeds_remaining: bool = True,
         full_neh_estimate_safety_factor: float = 1.0,
+        log_cp_subproblem_bounds: bool = True,
+        log_cp_subproblem_progress: bool = False,
     ) -> None:
         """Run full NEH-CP on sequence-diverse candidate schedules and keep the best."""
         sub_timer = ElapsedTimer()
@@ -6447,6 +6469,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 time_guard_min_completed_batches=time_guard_min_completed_batches,
                 skip_if_estimated_neh_exceeds_remaining=skip_if_estimated_neh_exceeds_remaining,
                 full_neh_estimate_safety_factor=full_neh_estimate_safety_factor,
+                log_cp_subproblem_bounds=log_cp_subproblem_bounds,
+                log_cp_subproblem_progress=log_cp_subproblem_progress,
             )
             candidate_obj = float(result.schedule.makespan)
             candidate_results.append(
@@ -6540,6 +6564,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         time_guard_min_completed_batches: int = 1,
         skip_if_estimated_neh_exceeds_remaining: bool = True,
         full_neh_estimate_safety_factor: float = 1.0,
+        log_cp_subproblem_bounds: bool = True,
+        log_cp_subproblem_progress: bool = False,
     ):
         """
         Builds a CP-guided solution using a midpoint sequence from the incumbent solution.
@@ -6638,6 +6664,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             time_guard_min_completed_batches=time_guard_min_completed_batches,
             skip_if_estimated_neh_exceeds_remaining=skip_if_estimated_neh_exceeds_remaining,
             full_neh_estimate_safety_factor=full_neh_estimate_safety_factor,
+            log_cp_subproblem_bounds=log_cp_subproblem_bounds,
+            log_cp_subproblem_progress=log_cp_subproblem_progress,
         )
         obj_value = float(result.schedule.makespan)
         logging.info(f"NEH-CP done with makespan {obj_value}")
@@ -6709,6 +6737,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         time_guard_min_completed_batches: int = 1,
         skip_if_estimated_neh_exceeds_remaining: bool = True,
         full_neh_estimate_safety_factor: float = 1.0,
+        log_cp_subproblem_bounds: bool = True,
+        log_cp_subproblem_progress: bool = False,
     ) -> None:
         workload_size = self._get_instance_workload_size()
         preserved_head_job_portion = (
@@ -6756,6 +6786,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             time_guard_min_completed_batches=time_guard_min_completed_batches,
             skip_if_estimated_neh_exceeds_remaining=skip_if_estimated_neh_exceeds_remaining,
             full_neh_estimate_safety_factor=full_neh_estimate_safety_factor,
+            log_cp_subproblem_bounds=log_cp_subproblem_bounds,
+            log_cp_subproblem_progress=log_cp_subproblem_progress,
         )
 
     def _resolve_pw_cp_batch_size(

@@ -1,6 +1,8 @@
 import datetime
+import csv
 import logging
 import math
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -14,6 +16,7 @@ from mbls.cpsat import (
     ObjectiveValueRecorder,
 )
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
+from routix.io.yaml import dump_yaml
 from routix.util.comparison import float_a_leq_b, float_a_stl_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
@@ -26,6 +29,7 @@ from hybridflowshop.cpsat_model_2.cumulative import (
     OperationVars,
 )
 from hybridflowshop.cpsat_model_2.params import Params
+from hybridflowshop.io_solution import END_TIME_MAP_KEY, START_TIME_MAP_KEY
 from hybridflowshop.report import HfsCpsatSolverReport, HfsSubroutineReport
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
@@ -98,6 +102,7 @@ class HybridFlowShopCpLnsControllerCore(
         self._final_time_reserve_active: bool = False
         self._final_time_reserve_sec: float = 0.0
         self._final_time_reserve_label: str | None = None
+        self.save_step_checkpoints_enabled: bool = True
 
         logging.info(
             f"Start solving {self.instance.name} using CP model class:"
@@ -602,8 +607,129 @@ class HybridFlowShopCpLnsControllerCore(
         log_entry["elapsed_sec"] = elapsed_sec
         logging.info(str(log_entry))
 
+        self._try_save_step_checkpoint(call_context, method_name)
+
         self._record_method_context_end(call_context)
         self._method_context_mgr.pop()
+
+    @staticmethod
+    def _sanitize_checkpoint_name(value: str) -> str:
+        sanitized = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+        return sanitized or "checkpoint"
+
+    def set_step_checkpointing(self, enabled: bool = True) -> None:
+        self.save_step_checkpoints_enabled = bool(enabled)
+        logging.info(
+            "[Checkpoint] Step checkpointing %s.",
+            "enabled" if self.save_step_checkpoints_enabled else "disabled",
+        )
+
+    def _try_save_step_checkpoint(self, call_context: str, method_name: str) -> None:
+        if not self.save_step_checkpoints_enabled:
+            return
+        if self._working_dir_path is None:
+            return
+        if "." in call_context:
+            return
+
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            return
+
+        try:
+            checkpoint_name = self._sanitize_checkpoint_name(call_context)
+            instance_name = str(self.instance.name)
+            checkpoint_root = (
+                self._working_dir_path.parent / "checkpoints" / checkpoint_name
+            )
+            checkpoint_dir = checkpoint_root / instance_name / "results"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+            self._write_step_checkpoint_flow_prefix(checkpoint_root, call_context)
+
+            solution_path = checkpoint_dir / f"{instance_name}_solution.yaml"
+            obj_log_path = checkpoint_dir / f"{instance_name}_obj_log.yaml"
+            summary_path = checkpoint_dir / f"{instance_name}_summary.csv"
+            metadata_path = checkpoint_dir / "checkpoint_metadata.yaml"
+
+            dump_yaml(
+                {
+                    START_TIME_MAP_KEY: incumbent_solution.get_jik_2_start_time_map(),
+                    END_TIME_MAP_KEY: incumbent_solution.get_jik_2_end_time_map(),
+                },
+                solution_path,
+                encoding="utf-8",
+            )
+            self.obj_store.save_yaml(obj_log_path, encoding="utf-8")
+
+            best_obj = self.solution_manager.best_obj_value
+            best_bound = self.solution_manager.best_obj_bound
+            summary_row = {
+                "insName": instance_name,
+                "foundFeasibleSol": True,
+                "totalElapsedTime": self.timer.elapsed_sec,
+                "initObj": None,
+                "initBound": None,
+                "bestObj": best_obj,
+                "bestBound": best_bound,
+                "checkpointCallContext": call_context,
+                "checkpointMethod": method_name,
+            }
+            with summary_path.open("w", newline="", encoding="utf-8") as fp:
+                writer = csv.DictWriter(fp, fieldnames=list(summary_row))
+                writer.writeheader()
+                writer.writerow(summary_row)
+
+            dump_yaml(
+                {
+                    "call_context": call_context,
+                    "method": method_name,
+                    "elapsed_sec": self.timer.elapsed_sec,
+                    "best_obj": best_obj,
+                    "best_bound": best_bound,
+                },
+                metadata_path,
+                encoding="utf-8",
+            )
+            logging.info(
+                "[Checkpoint] Saved step checkpoint for %s at %s",
+                call_context,
+                checkpoint_dir,
+            )
+        except Exception as err:
+            logging.warning(
+                "[Checkpoint] Failed to save step checkpoint for %s: %s",
+                call_context,
+                err,
+            )
+
+    def _write_step_checkpoint_flow_prefix(
+        self,
+        checkpoint_root: Path,
+        call_context: str,
+    ) -> None:
+        subroutine_flow = getattr(self, "_subroutine_flow", None)
+        if not isinstance(subroutine_flow, Sequence) or isinstance(
+            subroutine_flow,
+            (str, bytes),
+        ):
+            return
+
+        try:
+            call_index_text = call_context.split("-", 1)[0]
+            call_index = int(call_index_text)
+        except (ValueError, IndexError):
+            return
+
+        flow_prefix = list(subroutine_flow)[:call_index]
+        DynamicDataObject.safe_save_yaml(
+            DynamicDataObject.from_obj(flow_prefix),
+            checkpoint_root / "subroutine_flow.yaml",
+        )
+        DynamicDataObject.safe_save_yaml(
+            self.stopping_criteria,
+            checkpoint_root / "stopping_criteria.yaml",
+        )
 
     @contextmanager
     def temporarily_extended_context(self, appended_name: str):
@@ -980,8 +1106,8 @@ class HybridFlowShopCpLnsControllerCore(
         log_search_progress: bool = False,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
-        log_level_obj_value: int = logging.INFO,
-        log_level_obj_bound: int = logging.INFO,
+        log_level_obj_value: int | None = logging.INFO,
+        log_level_obj_bound: int | None = logging.INFO,
         last_timestamp_note: Any | None = None,
         solution_callback: ObjectiveValueRecorder | None = None,
     ) -> CpsatSolverReport:

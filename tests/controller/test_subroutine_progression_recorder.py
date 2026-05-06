@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from hybridflowshop.controller.controller_core import HybridFlowShopCpLnsControllerCore
+from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 
 def _make_progression_controller() -> HybridFlowShopCpLnsControllerCore:
@@ -19,6 +20,16 @@ def _make_progression_controller() -> HybridFlowShopCpLnsControllerCore:
     controller.instance = SimpleNamespace(name="test_instance")
     controller.stopping_criteria = SimpleNamespace(timelimit=50.0)
     return controller
+
+
+def _make_checkpoint_schedule() -> HybridFlowshopLiteSchedule:
+    schedule = HybridFlowshopLiteSchedule(
+        jobs=["j1"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+    schedule.add_ops_times_2_mc("s1", "m1", "j1", 0, 3)
+    return schedule
 
 
 class TestSubroutineProgressionRecorder:
@@ -110,6 +121,64 @@ class TestSubroutineProgressionRecorder:
         assert point["obj_value"] == 95.0
         assert point["local_sec"] == 2.0
         assert len(controller._combined_progress_list) == 1
+
+    def test_step_checkpoint_writes_resume_compatible_files(self, tmp_path) -> None:
+        controller = _make_progression_controller()
+        schedule = _make_checkpoint_schedule()
+        controller._working_dir_path = tmp_path / "scenario" / "ins1"
+        controller._working_dir_path.mkdir(parents=True)
+        controller.solution_manager = SimpleNamespace(
+            get_incumbent=lambda: schedule,
+            best_obj_value=3.0,
+            best_obj_bound=1.0,
+        )
+        controller.obj_store = SimpleNamespace(
+            save_yaml=lambda path, encoding="utf-8": path.write_text(
+                "obj_value: {}\n",
+                encoding=encoding,
+            )
+        )
+        controller.timer = SimpleNamespace(elapsed_sec=12.5)
+        controller.instance = SimpleNamespace(name="ins1")
+        controller.save_step_checkpoints_enabled = True
+        controller._subroutine_flow = [
+            {"method": "set_random_seed"},
+            {"method": "neh_cp"},
+            {"method": "incremental_pw_cp"},
+        ]
+        controller.stopping_criteria = {"timelimit": 100}
+
+        controller._try_save_step_checkpoint("2-neh_cp", "neh_cp")
+
+        checkpoint_dir = (
+            tmp_path / "scenario" / "checkpoints" / "2-neh_cp" / "ins1" / "results"
+        )
+        assert (checkpoint_dir / "ins1_solution.yaml").is_file()
+        assert (checkpoint_dir / "ins1_obj_log.yaml").is_file()
+        summary_path = checkpoint_dir / "ins1_summary.csv"
+        assert summary_path.is_file()
+        assert "bestObj" in summary_path.read_text(encoding="utf-8")
+        assert (
+            tmp_path / "scenario" / "checkpoints" / "2-neh_cp" / "subroutine_flow.yaml"
+        ).is_file()
+
+    def test_step_checkpoint_skips_nested_contexts(self, tmp_path) -> None:
+        controller = _make_progression_controller()
+        controller._working_dir_path = tmp_path / "scenario" / "ins1"
+        controller._working_dir_path.mkdir(parents=True)
+        controller.solution_manager = SimpleNamespace(
+            get_incumbent=_make_checkpoint_schedule,
+            best_obj_value=3.0,
+            best_obj_bound=1.0,
+        )
+        controller.obj_store = SimpleNamespace(save_yaml=lambda *_args, **_kwargs: None)
+        controller.timer = SimpleNamespace(elapsed_sec=12.5)
+        controller.instance = SimpleNamespace(name="ins1")
+        controller.save_step_checkpoints_enabled = True
+
+        controller._try_save_step_checkpoint("14-incremental_pw_cp.1-pw_cp", "pw_cp")
+
+        assert not (tmp_path / "scenario" / "checkpoints").exists()
 
     def test_record_objective_point_skips_equal_value_in_same_call(self) -> None:
         controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)

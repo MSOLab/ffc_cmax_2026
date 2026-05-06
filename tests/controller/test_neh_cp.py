@@ -1,7 +1,14 @@
 from types import SimpleNamespace
 
+from mbls.cpsat import CpsatSolverReport, CpsatStatus
+
 from hybridflowshop.controller import neh_cp as neh_module
-from hybridflowshop.controller.neh_cp import NehCpConstructor
+from hybridflowshop.controller.neh_cp import (
+    NehCpConstructor,
+    _format_minimization_gap,
+    _format_solver_value,
+    _log_cp_subproblem_report,
+)
 
 
 class _FakeSchedule:
@@ -159,3 +166,32 @@ def test_neh_cp_can_clamp_batch_count_from_batch_size(monkeypatch) -> None:
         ["E", "F", "G"],
         ["H", "I", "J"],
     ]
+
+
+def test_neh_cp_subproblem_report_logs_ub_lb_gap(caplog) -> None:
+    report = CpsatSolverReport(
+        elapsed_time=1.25,
+        obj_value=120.0,
+        obj_bound=100.0,
+        status=CpsatStatus.FEASIBLE,
+        obj_value_records=[(0.5, 130.0), (1.25, 120.0)],
+        obj_bound_records=[(0.2, 90.0), (1.25, 100.0)],
+    )
+
+    with caplog.at_level("INFO"):
+        _log_cp_subproblem_report(
+            prefix="NEH-CP batch 2/8",
+            report=report,
+            objective_name="primary_makespan",
+        )
+
+    assert "NEH-CP batch 2/8 primary_makespan CP" in caplog.text
+    assert "ub=120" in caplog.text
+    assert "lb=100" in caplog.text
+    assert "gap=abs=20, rel=16.667%" in caplog.text
+    assert "ub_updates=2 lb_updates=2" in caplog.text
+
+
+def test_neh_cp_subproblem_report_formatters_handle_missing_values() -> None:
+    assert _format_solver_value(None) == "NA"
+    assert _format_minimization_gap(None, 10.0) == "NA"

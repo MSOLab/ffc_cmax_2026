@@ -1,4 +1,5 @@
 import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -98,6 +99,56 @@ class NehCpResult:
     last_obj_value: int
 
 
+def _is_finite_solver_value(value: object) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _format_solver_value(value: object) -> str:
+    if not _is_finite_solver_value(value):
+        return "NA"
+    float_value = float(value)
+    if float_value.is_integer():
+        return str(int(float_value))
+    return f"{float_value:.6g}"
+
+
+def _format_minimization_gap(obj_value: object, obj_bound: object) -> str:
+    if not _is_finite_solver_value(obj_value) or not _is_finite_solver_value(obj_bound):
+        return "NA"
+    ub = float(obj_value)
+    lb = float(obj_bound)
+    gap_abs = max(0.0, ub - lb)
+    if abs(ub) <= 1e-9:
+        return f"abs={gap_abs:.6g}"
+    return f"abs={gap_abs:.6g}, rel={gap_abs / abs(ub) * 100:.3f}%"
+
+
+def _log_cp_subproblem_report(
+    *,
+    prefix: str,
+    report: CpsatSolverReport,
+    objective_name: str,
+) -> None:
+    logging.info(
+        "%s %s CP status=%s ub=%s lb=%s gap=%s elapsed=%.3f sec "
+        "ub_updates=%d lb_updates=%d",
+        prefix,
+        objective_name,
+        report.status,
+        _format_solver_value(getattr(report, "obj_value", None)),
+        _format_solver_value(getattr(report, "obj_bound", None)),
+        _format_minimization_gap(
+            getattr(report, "obj_value", None), getattr(report, "obj_bound", None)
+        ),
+        float(getattr(report, "elapsed_time", 0.0) or 0.0),
+        len(getattr(report, "obj_value_records", ()) or ()),
+        len(getattr(report, "obj_bound_records", ()) or ()),
+    )
+
+
 class NehCpConstructor:
     # Given schedule cache
     ref_schedule: HybridFlowshopLiteSchedule
@@ -149,6 +200,8 @@ class NehCpConstructor:
         time_guard_min_completed_batches: int = 1,
         skip_if_estimated_neh_exceeds_remaining: bool = True,
         full_neh_estimate_safety_factor: float = 1.0,
+        log_cp_subproblem_bounds: bool = True,
+        log_cp_subproblem_progress: bool = False,
     ) -> NehCpResult:
         timer = ElapsedTimer()
 
@@ -371,6 +424,10 @@ class NehCpConstructor:
                 do_make_semi_active=make_semi_active_every_cp,
                 solver_thread_cnt=solver_thread_cnt,
                 use_lns_only=use_lns_only,
+                batch_idx=batch_idx,
+                total_batch_count=len(sequence_of_job_sublist),
+                log_cp_subproblem_bounds=log_cp_subproblem_bounds,
+                log_cp_subproblem_progress=log_cp_subproblem_progress,
             )
             last_timestamp = st.timer.elapsed_sec
             logging.info(
@@ -734,6 +791,10 @@ class NehCpConstructor:
         do_make_semi_active: bool = False,
         solver_thread_cnt: int | None = None,
         use_lns_only: bool = False,
+        batch_idx: int | None = None,
+        total_batch_count: int | None = None,
+        log_cp_subproblem_bounds: bool = True,
+        log_cp_subproblem_progress: bool = False,
     ) -> tuple[CpsatSolverReport, HybridFlowshopLiteSchedule]:
         if solver_thread_cnt is None:
             solver_thread_cnt = 1
@@ -752,6 +813,9 @@ class NehCpConstructor:
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
+        batch_prefix = "NEH-CP subproblem"
+        if batch_idx is not None and total_batch_count is not None:
+            batch_prefix = f"NEH-CP batch {batch_idx}/{total_batch_count}"
         report_1: CpsatSolverReport = self.ctx.solve_cp_model_2(
             sub_cp_mdl,
             _timelimit,
@@ -760,9 +824,19 @@ class NehCpConstructor:
             e_timer=st.timer,
             obj_value_is_valid=False,
             obj_bound_is_valid=False,
-            log_level_obj_value=logging.NOTSET,
-            log_level_obj_bound=logging.NOTSET,
+            log_level_obj_value=logging.INFO
+            if log_cp_subproblem_progress
+            else logging.NOTSET,
+            log_level_obj_bound=logging.INFO
+            if log_cp_subproblem_progress
+            else logging.NOTSET,
         )
+        if log_cp_subproblem_bounds:
+            _log_cp_subproblem_report(
+                prefix=batch_prefix,
+                report=report_1,
+                objective_name="primary_makespan",
+            )
         if not getattr(report_1, "is_feasible", False):
             logging.info("No solution from sub CP.")
             return report_1, partial_sol
@@ -809,9 +883,19 @@ class NehCpConstructor:
             e_timer=st.timer,
             obj_value_is_valid=False,
             obj_bound_is_valid=False,
-            log_level_obj_value=logging.NOTSET,
-            log_level_obj_bound=logging.NOTSET,
+            log_level_obj_value=logging.INFO
+            if log_cp_subproblem_progress
+            else logging.NOTSET,
+            log_level_obj_bound=logging.INFO
+            if log_cp_subproblem_progress
+            else logging.NOTSET,
         )
+        if log_cp_subproblem_bounds:
+            _log_cp_subproblem_report(
+                prefix=batch_prefix,
+                report=report_2,
+                objective_name="secondary_sum_ci",
+            )
         return_report: CpsatSolverReport = report_1.copy(
             elapsed_time=report_1.elapsed_time + report_2.elapsed_time
         )
