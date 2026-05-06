@@ -2784,6 +2784,93 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt=draw_gantt,
         )
 
+    @staticmethod
+    def _resolve_adaptive_job_count(
+        *,
+        total_job_count: int,
+        job_count_ratio: float,
+        min_job_count: int,
+        max_job_count: int,
+    ) -> int:
+        if total_job_count <= 0:
+            raise ValueError("total_job_count must be positive.")
+        if not math.isfinite(job_count_ratio) or job_count_ratio <= 0:
+            raise ValueError("job_count_ratio must be positive.")
+        if min_job_count <= 0:
+            raise ValueError("min_job_count must be positive.")
+        if max_job_count <= 0:
+            raise ValueError("max_job_count must be positive.")
+        if min_job_count > max_job_count:
+            raise ValueError(
+                "min_job_count must be less than or equal to max_job_count."
+            )
+
+        ratio_count = int(math.ceil(float(total_job_count) * float(job_count_ratio)))
+        return min(
+            int(total_job_count),
+            max(int(min_job_count), min(int(max_job_count), ratio_count)),
+        )
+
+    def adaptive_critical_tail_job_ns(
+        self,
+        solver_thread_cnt: int,
+        job_count_ratio: float = 0.08,
+        min_job_count: int = 6,
+        max_job_count: int = 24,
+        computational_time: float | None = None,
+        tl_nc_multiplier: float | None = None,
+        tail_stage_count: int | None = None,
+        tail_stage_ratio: float | None = None,
+        no_improvement_timelimit: float | None = None,
+        swap_before_cp: bool = False,
+        job_selection_policy: str = "critical_adjacency",
+        profile_fix_by_machine: bool = False,
+        machine_precedence_stride: int = 1,
+        make_semi_active_after_cp: bool = False,
+        use_lns_only: bool = False,
+        error_if_infeasible: bool = False,
+        draw_gantt: bool = False,
+    ) -> None:
+        """Run critical-tail-job CP with an instance-size-aware job count.
+
+        The selected jobs are chosen from tail-stage critical blocks, then all
+        operations of those jobs are unfixed. Keeping the job count proportional
+        to n makes this a small cross-stage neighborhood on large instances
+        without over-shrinking it on small ones.
+        """
+        resolved_job_count = self._resolve_adaptive_job_count(
+            total_job_count=int(self.instance.job_count),
+            job_count_ratio=job_count_ratio,
+            min_job_count=min_job_count,
+            max_job_count=max_job_count,
+        )
+        logging.info(
+            "[Adaptive Critical Tail Job NS] job_count=%d resolved from n=%d "
+            "ratio=%.4f min=%d max=%d.",
+            resolved_job_count,
+            int(self.instance.job_count),
+            float(job_count_ratio),
+            int(min_job_count),
+            int(max_job_count),
+        )
+        self.critical_tail_job_ns(
+            job_count=resolved_job_count,
+            solver_thread_cnt=solver_thread_cnt,
+            computational_time=computational_time,
+            tl_nc_multiplier=tl_nc_multiplier,
+            tail_stage_count=tail_stage_count,
+            tail_stage_ratio=tail_stage_ratio,
+            no_improvement_timelimit=no_improvement_timelimit,
+            swap_before_cp=swap_before_cp,
+            job_selection_policy=job_selection_policy,
+            profile_fix_by_machine=profile_fix_by_machine,
+            machine_precedence_stride=machine_precedence_stride,
+            make_semi_active_after_cp=make_semi_active_after_cp,
+            use_lns_only=use_lns_only,
+            error_if_infeasible=error_if_infeasible,
+            draw_gantt=draw_gantt,
+        )
+
     def apply_critical_tail_job_operator(
         self,
         job_count: int,

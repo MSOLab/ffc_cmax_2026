@@ -796,6 +796,68 @@ def test_critical_tail_job_ns_uses_tl_nc_multiplier(monkeypatch):
     assert captured["solver_thread_cnt"] == 6
 
 
+def test_adaptive_critical_tail_job_ns_resolves_job_count(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=160, stage_count=15)
+
+    captured = {}
+
+    def fake_critical_tail_job_ns(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(ctrl, "critical_tail_job_ns", fake_critical_tail_job_ns)
+
+    ctrl.adaptive_critical_tail_job_ns(
+        solver_thread_cnt=16,
+        job_count_ratio=0.08,
+        min_job_count=6,
+        max_job_count=24,
+        tl_nc_multiplier=0.012,
+        tail_stage_ratio=0.55,
+        job_selection_policy="critical_adjacency",
+        use_lns_only=True,
+    )
+
+    assert captured["job_count"] == 13
+    assert captured["solver_thread_cnt"] == 16
+    assert captured["tl_nc_multiplier"] == 0.012
+    assert captured["tail_stage_ratio"] == 0.55
+    assert captured["job_selection_policy"] == "critical_adjacency"
+    assert captured["use_lns_only"] is True
+
+
+def test_adaptive_job_count_clamps_to_min_max_and_instance_size():
+    resolve = HybridFlowShopCpLnsController._resolve_adaptive_job_count
+
+    assert (
+        resolve(
+            total_job_count=40,
+            job_count_ratio=0.08,
+            min_job_count=6,
+            max_job_count=24,
+        )
+        == 6
+    )
+    assert (
+        resolve(
+            total_job_count=240,
+            job_count_ratio=0.2,
+            min_job_count=6,
+            max_job_count=24,
+        )
+        == 24
+    )
+    assert (
+        resolve(
+            total_job_count=5,
+            job_count_ratio=0.5,
+            min_job_count=6,
+            max_job_count=24,
+        )
+        == 5
+    )
+
+
 def test_critical_cross_machine_insertion_ls_uses_tl_nc_multiplier(monkeypatch):
     schedule = HybridFlowshopLiteSchedule(
         jobs=["J1", "J2"],
