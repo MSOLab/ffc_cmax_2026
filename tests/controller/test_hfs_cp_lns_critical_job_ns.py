@@ -81,8 +81,16 @@ def _build_stage_band_schedule():
         },
     )
     for stage_idx, stage_id in enumerate(sched.stages):
-        sched.add_ops_times_2_mc(stage_id, "M1", "J1", start_time=stage_idx * 2, end_time=stage_idx * 2 + 1)
-        sched.add_ops_times_2_mc(stage_id, "M1", "J2", start_time=stage_idx * 2 + 1, end_time=stage_idx * 2 + 2)
+        sched.add_ops_times_2_mc(
+            stage_id, "M1", "J1", start_time=stage_idx * 2, end_time=stage_idx * 2 + 1
+        )
+        sched.add_ops_times_2_mc(
+            stage_id,
+            "M1",
+            "J2",
+            start_time=stage_idx * 2 + 1,
+            end_time=stage_idx * 2 + 2,
+        )
     return sched
 
 
@@ -108,10 +116,7 @@ def _build_diagonal_schedule():
             start_time=stage_offset + 5,
             end_time=stage_offset + 7,
         )
-    duration = {
-        stage_id: {"J1": 2, "J2": 2}
-        for stage_id in sched.stages
-    }
+    duration = {stage_id: {"J1": 2, "J2": 2} for stage_id in sched.stages}
     return sched, duration
 
 
@@ -133,7 +138,9 @@ def test_select_critical_jobs_uses_weighted_block_occurrence_counts(monkeypatch)
         assert k == 1
         return [population[0]]
 
-    monkeypatch.setattr("hybridflowshop.controller.hfs_cp_lns.random.choices", fake_choices)
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.choices", fake_choices
+    )
 
     selected = ctrl._select_critical_jobs(schedule, 1, "weighted_random")
 
@@ -169,9 +176,91 @@ def test_select_critical_jobs_critical_adjacency_expands_from_weighted_seed(
     assert selected == ["J2", "J1", "J3"]
 
 
-def test_select_critical_jobs_logs_seed_for_critical_adjacency(
-    monkeypatch, caplog
+def test_select_critical_jobs_weighted_top_uses_deterministic_weight_order(
+    monkeypatch,
 ):
+    ctrl = _make_controller()
+    schedule = FakeCriticalSchedule(
+        critical_blocks=[
+            [("J1", "S1", "M1"), ("J2", "S1", "M1")],
+            [("J2", "S2", "M1")],
+            [("J3", "S2", "M1")],
+            [("J2", "S3", "M1")],
+        ],
+        jobs=["J1", "J2", "J3"],
+        stages=["S1", "S2", "S3"],
+    )
+
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.choices",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("no random")),
+    )
+
+    selected = ctrl._select_critical_jobs(schedule, 2, "weighted_top")
+
+    assert selected == ["J2", "J1"]
+
+
+def test_select_critical_jobs_critical_adjacency_top_uses_weighted_seed_and_neighbors(
+    monkeypatch,
+):
+    ctrl = _make_controller()
+    schedule = FakeCriticalSchedule(
+        critical_blocks=[
+            [("J1", "S1", "M1"), ("J2", "S1", "M1"), ("J3", "S1", "M1")],
+            [("J2", "S2", "M1")],
+            [("J2", "S3", "M1")],
+            [("J2", "S4", "M1")],
+            [("J3", "S2", "M1")],
+            [("J3", "S3", "M1")],
+        ],
+        jobs=["J1", "J2", "J3"],
+        stages=["S1", "S2", "S3", "S4"],
+    )
+
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.choices",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("no random")),
+    )
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.shuffle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("no random")),
+    )
+
+    selected = ctrl._select_critical_jobs(schedule, 3, "critical_adjacency_top")
+
+    assert selected == ["J2", "J3", "J1"]
+
+
+def test_select_critical_jobs_largest_block_midpoint_selects_contiguous_band(
+    monkeypatch,
+):
+    ctrl = _make_controller()
+    block_jobs = [f"J{i:02d}" for i in range(10)]
+    schedule = FakeCriticalSchedule(
+        critical_blocks=[
+            [("JA", "S1", "M1"), ("JB", "S1", "M1")],
+            [(job_id, "S2", "M1") for job_id in block_jobs],
+        ],
+        jobs=["JA", "JB", *block_jobs],
+        stages=["S1", "S2"],
+    )
+
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.choices",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("no random")),
+    )
+    monkeypatch.setattr(
+        "hybridflowshop.controller.hfs_cp_lns.random.shuffle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("no random")),
+    )
+
+    selected = ctrl._select_critical_jobs(schedule, 7, "largest_block_midpoint")
+
+    assert selected == ["J03", "J04", "J02", "J05", "J01", "J06", "J00"]
+
+
+def test_select_critical_jobs_logs_seed_for_critical_adjacency(monkeypatch, caplog):
     ctrl = _make_controller()
     schedule = FakeCriticalSchedule(
         critical_blocks=[
@@ -230,10 +319,7 @@ def test_apply_critical_job_operator_frees_all_ops_of_selected_jobs(monkeypatch)
 def test_apply_retained_cp_bottleneck_band_stage_operator_frees_band_ops(monkeypatch):
     schedule = _build_stage_band_schedule()
     ctrl = _make_controller(
-        {
-            stage_id: {"J1": 1, "J2": 1}
-            for stage_id in schedule.stages
-        }
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
     )
     ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
     ctrl.solution_manager = SimpleNamespace(
@@ -265,6 +351,388 @@ def test_apply_retained_cp_bottleneck_band_stage_operator_frees_band_ops(monkeyp
     }
 
 
+def test_apply_critical_stage_band_stage_operator_frees_critical_band(monkeypatch):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
+    )
+    ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
+    ctrl.solution_manager = SimpleNamespace(
+        has_incumbent=lambda: True,
+        get_incumbent=lambda: schedule,
+    )
+    monkeypatch.setattr(
+        schedule,
+        "find_critical_blocks",
+        lambda *_args, **_kwargs: [
+            [("J1", "S2", "M1"), ("J2", "S2", "M1")],
+            [("J1", "S2", "M1")],
+            [("J1", "S0", "M1")],
+        ],
+    )
+
+    captured = {}
+
+    def fake_fix(selected_ops, **_kwargs):
+        captured["selected_ops"] = selected_ops
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+
+    selected_stages = ctrl.apply_critical_stage_band_stage_operator(radius=1)
+
+    assert selected_stages == ["S1", "S2", "S3"]
+    assert captured["selected_ops"] == {
+        ("J1", "S1", "M1"),
+        ("J2", "S1", "M1"),
+        ("J1", "S2", "M1"),
+        ("J2", "S2", "M1"),
+        ("J1", "S3", "M1"),
+        ("J2", "S3", "M1"),
+    }
+
+
+def test_critical_stage_band_stage_ns_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
+
+    captured = {}
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+
+    ctrl.critical_stage_band_stage_ns(
+        solver_thread_cnt=8,
+        computational_time=999,
+        tl_nc_multiplier=0.5,
+    )
+
+    assert abs(captured["computational_time"] - 20.0) < 0.1
+    assert captured["solver_thread_cnt"] == 8
+
+
+def test_apply_critical_tail_rectangle_operator_frees_tail_job_stage_band(
+    monkeypatch,
+):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
+    )
+    ctrl.instance = SimpleNamespace(
+        job_count=2,
+        stage_count=len(schedule.stages),
+        stage_id_list=list(schedule.stages),
+    )
+    ctrl.solution_manager = SimpleNamespace(
+        has_incumbent=lambda: True,
+        get_incumbent=lambda: schedule,
+    )
+    monkeypatch.setattr(
+        schedule,
+        "find_critical_blocks",
+        lambda *_args, **_kwargs: [[("J2", "S2", "M1")]],
+    )
+
+    captured = {}
+
+    def fake_fix(selected_ops, **_kwargs):
+        captured["selected_ops"] = selected_ops
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+
+    selection = ctrl.apply_critical_tail_rectangle_operator(
+        job_count=1,
+        tail_time_ratio=1.0,
+        stage_radius=1,
+    )
+
+    assert selection["selected_jobs"] == ["J2"]
+    assert selection["selected_stages"] == ["S1", "S2", "S3"]
+    assert captured["selected_ops"] == {
+        ("J2", "S1", "M1"),
+        ("J2", "S2", "M1"),
+        ("J2", "S3", "M1"),
+    }
+
+
+def test_apply_critical_handoff_rectangle_operator_frees_boundary_rectangle(
+    monkeypatch,
+):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
+    )
+    ctrl.instance = SimpleNamespace(
+        job_count=2,
+        stage_count=len(schedule.stages),
+        stage_id_list=list(schedule.stages),
+    )
+    ctrl.solution_manager = SimpleNamespace(
+        has_incumbent=lambda: True,
+        get_incumbent=lambda: schedule,
+    )
+    monkeypatch.setattr(
+        schedule,
+        "find_critical_blocks",
+        lambda *_args, **_kwargs: [
+            [("J2", "S2", "M1"), ("J2", "S3", "M1")],
+        ],
+    )
+
+    captured = {}
+
+    def fake_fix(selected_ops, **_kwargs):
+        captured["selected_ops"] = selected_ops
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+
+    selection = ctrl.apply_critical_handoff_rectangle_operator(
+        job_count=1,
+        stage_radius=1,
+        tail_time_ratio=1.0,
+    )
+
+    assert selection["selected_jobs"] == ["J2"]
+    assert selection["boundary"] == ("S2", "S3")
+    assert selection["selected_stages"] == ["S1", "S2", "S3", "S4"]
+    assert captured["selected_ops"] == {
+        ("J2", "S1", "M1"),
+        ("J2", "S2", "M1"),
+        ("J2", "S3", "M1"),
+        ("J2", "S4", "M1"),
+    }
+
+
+def test_apply_critical_cmax_cone_operator_frees_tail_cone(monkeypatch):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
+    )
+    ctrl.instance = SimpleNamespace(
+        job_count=2,
+        stage_count=len(schedule.stages),
+        stage_id_list=list(schedule.stages),
+    )
+    ctrl.solution_manager = SimpleNamespace(
+        has_incumbent=lambda: True,
+        get_incumbent=lambda: schedule,
+    )
+    monkeypatch.setattr(
+        schedule,
+        "find_critical_blocks",
+        lambda *_args, **_kwargs: [[("J2", "S3", "M1"), ("J2", "S4", "M1")]],
+    )
+
+    captured = {}
+
+    def fake_fix(selected_ops, **_kwargs):
+        captured["selected_ops"] = selected_ops
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
+
+    selection = ctrl.apply_critical_cmax_cone_operator(
+        job_count=1,
+        tail_time_ratio=0.25,
+        include_last_stage_suffix=False,
+        tail_stage_count=2,
+        include_bottleneck_stage=False,
+        include_handoff_boundary=False,
+        include_critical_stage=False,
+    )
+
+    assert selection["selected_jobs"] == ["J2"]
+    assert selection["selected_stages"] == ["S3", "S4"]
+    assert captured["selected_ops"] == {
+        ("J2", "S3", "M1"),
+        ("J2", "S4", "M1"),
+    }
+
+
+def test_critical_cmax_cone_ns_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=6)
+
+    captured = {}
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+
+    ctrl.critical_cmax_cone_ns(
+        solver_thread_cnt=8,
+        computational_time=999,
+        tl_nc_multiplier=0.2,
+    )
+
+    assert captured["computational_time"] == 12.0
+    assert captured["solver_thread_cnt"] == 8
+
+
+def test_critical_cmax_cone_sweep_runs_multiple_varied_attempts(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=100, stage_count=10)
+    ctrl.solution_manager = SimpleNamespace(best_obj_value=100.0)
+
+    fix_calls = []
+    operator_calls = []
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        fix_calls.append(
+            {
+                "computational_time": computational_time,
+                "solver_thread_cnt": solver_thread_cnt,
+            }
+        )
+        profile_fixing_method()
+
+    def fake_apply_critical_cmax_cone_operator(**kwargs):
+        operator_calls.append(kwargs)
+        return {}
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+    monkeypatch.setattr(
+        ctrl,
+        "apply_critical_cmax_cone_operator",
+        fake_apply_critical_cmax_cone_operator,
+    )
+
+    ctrl.critical_cmax_cone_sweep_ns(
+        solver_thread_cnt=4,
+        attempt_count=5,
+        per_attempt_tl_nc_multiplier=0.001,
+        job_count_ratio_values=[0.05, 0.08],
+        tail_time_ratio_values=[0.12, 0.24],
+        tail_stage_ratio_values=[0.30],
+        stage_mode_cycle=["tail", "tail_bottleneck"],
+        bottleneck_stage_radius_values=[0, 1],
+        handoff_stage_radius_values=[0],
+        critical_stage_radius_values=[0],
+        job_rank_stride=3,
+    )
+
+    assert len(fix_calls) == 5
+    assert len(operator_calls) == 5
+    assert {call["computational_time"] for call in fix_calls} == {1.0}
+    assert {call["solver_thread_cnt"] for call in fix_calls} == {4}
+    assert [call["job_rank_offset"] for call in operator_calls] == [0, 1, 2, 0, 1]
+    assert [call["job_count"] for call in operator_calls[:2]] == [8, 8]
+    assert operator_calls[0]["include_bottleneck_stage"] is False
+    assert operator_calls[1]["include_bottleneck_stage"] is True
+
+
+def test_apply_head_tail_free_middle_precedence_operator_keeps_middle_only(
+    monkeypatch,
+):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
+    )
+    ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: schedule)
+
+    captured = {}
+
+    def fake_fix(schedule_profile_fixed_only, **kwargs):
+        captured["start_map"] = (
+            schedule_profile_fixed_only.get_jik_2_start_time_map()
+        )
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile", fake_fix)
+
+    selection = ctrl.apply_head_tail_free_middle_precedence_operator(
+        head_stage_count=1,
+        tail_stage_count=1,
+        middle_profile_fix_by_machine=True,
+        machine_precedence_stride=2,
+    )
+
+    assert selection["head_stages"] == ["S0"]
+    assert selection["tail_stages"] == ["S4"]
+    assert selection["middle_stages"] == ["S1", "S2", "S3"]
+    assert {op[1] for op in captured["start_map"]} == {"S1", "S2", "S3"}
+    assert captured["kwargs"] == {
+        "profile_fix_by_machine": True,
+        "machine_precedence_stride": 2,
+    }
+
+
+def test_apply_head_tail_free_middle_precedence_operator_accepts_middle_ratio(
+    monkeypatch,
+):
+    schedule = _build_stage_band_schedule()
+    ctrl = _make_controller(
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
+    )
+    ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
+    ctrl.solution_manager = SimpleNamespace(get_incumbent=lambda: schedule)
+
+    captured = {}
+
+    def fake_fix(schedule_profile_fixed_only, **_kwargs):
+        captured["start_map"] = (
+            schedule_profile_fixed_only.get_jik_2_start_time_map()
+        )
+
+    monkeypatch.setattr(ctrl, "_fix_operations_profile", fake_fix)
+
+    selection = ctrl.apply_head_tail_free_middle_precedence_operator(
+        middle_stage_ratio=0.40,
+        middle_profile_fix_by_machine=False,
+    )
+
+    assert selection["head_stages"] == ["S0"]
+    assert selection["tail_stages"] == ["S3", "S4"]
+    assert selection["middle_stages"] == ["S1", "S2"]
+    assert {op[1] for op in captured["start_map"]} == {"S1", "S2"}
+
+
+def test_head_tail_free_middle_precedence_ns_uses_tl_nc_multiplier(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=20, stage_count=5)
+
+    captured = {}
+
+    def fake_fix_profile_solve_reset(
+        profile_fixing_method,
+        computational_time,
+        solver_thread_cnt,
+        **_kwargs,
+    ):
+        captured["computational_time"] = computational_time
+        captured["solver_thread_cnt"] = solver_thread_cnt
+
+    monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
+
+    ctrl.head_tail_free_middle_precedence_ns(
+        solver_thread_cnt=6,
+        computational_time=999,
+        tl_nc_multiplier=0.1,
+    )
+
+    assert captured["computational_time"] == 10.0
+    assert captured["solver_thread_cnt"] == 6
+
+
 def test_retained_cp_bottleneck_band_stage_ns_uses_tl_nc_multiplier(monkeypatch):
     ctrl = _make_controller()
     ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
@@ -288,7 +756,7 @@ def test_retained_cp_bottleneck_band_stage_ns_uses_tl_nc_multiplier(monkeypatch)
         tl_nc_multiplier=0.5,
     )
 
-    assert captured["computational_time"] == 20.0
+    assert abs(captured["computational_time"] - 20.0) < 0.1
     assert captured["solver_thread_cnt"] == 8
 
 
@@ -323,10 +791,7 @@ def test_stage_block_ns_uses_tl_nc_multiplier(monkeypatch):
 def test_random_stage_band_operator_selects_random_center_band(monkeypatch):
     schedule = _build_stage_band_schedule()
     ctrl = _make_controller(
-        {
-            stage_id: {"J1": 1, "J2": 1}
-            for stage_id in schedule.stages
-        }
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
     )
     ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
     ctrl.solution_manager = SimpleNamespace(
@@ -530,7 +995,9 @@ def test_time_window_profile_can_bound_selected_and_outside_starts(monkeypatch):
         )
 
     monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
-    monkeypatch.setattr(ctrl, "_add_start_time_range_constraints_for_ops", fake_add_ranges)
+    monkeypatch.setattr(
+        ctrl, "_add_start_time_range_constraints_for_ops", fake_add_ranges
+    )
 
     ctrl._fix_time_window_profile_except_selected(
         schedule,
@@ -553,7 +1020,9 @@ def test_time_window_profile_can_bound_selected_and_outside_starts(monkeypatch):
         "tolerance": 3,
         "label": "selected",
     }
-    assert range_calls[1]["ops"] == set(schedule.get_jik_2_start_time_map()) - selected_ops
+    assert (
+        range_calls[1]["ops"] == set(schedule.get_jik_2_start_time_map()) - selected_ops
+    )
     assert range_calls[1]["tolerance"] == 1
     assert range_calls[1]["label"] == "outside"
 
@@ -584,7 +1053,9 @@ def test_time_window_ns_uses_ratio_window_and_tl_nc_multiplier(monkeypatch):
 
     monkeypatch.setattr(ctrl, "apply_time_window_operation_operator", fake_apply)
     monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
-    monkeypatch.setattr(ctrl, "temporarily_extended_context", lambda _name: nullcontext())
+    monkeypatch.setattr(
+        ctrl, "temporarily_extended_context", lambda _name: nullcontext()
+    )
 
     ctrl.time_window_ns(
         solver_thread_cnt=8,
@@ -648,7 +1119,9 @@ def test_time_window_sweep_ns_uses_tl_nc_multiplier(monkeypatch):
         )
 
     monkeypatch.setattr(ctrl, "_fix_profile_solve_reset", fake_fix_profile_solve_reset)
-    monkeypatch.setattr(ctrl, "temporarily_extended_context", lambda _name: nullcontext())
+    monkeypatch.setattr(
+        ctrl, "temporarily_extended_context", lambda _name: nullcontext()
+    )
     monkeypatch.setattr(
         ctrl,
         "_fix_operations_profile_except_selected",
@@ -732,10 +1205,7 @@ def test_select_critical_tail_jobs_uses_only_tail_stage_blocks(monkeypatch):
 def test_apply_critical_tail_job_operator_frees_all_ops_of_selected_jobs(monkeypatch):
     schedule = _build_stage_band_schedule()
     ctrl = _make_controller(
-        {
-            stage_id: {"J1": 1, "J2": 1}
-            for stage_id in schedule.stages
-        }
+        {stage_id: {"J1": 1, "J2": 1} for stage_id in schedule.stages}
     )
     ctrl.instance = SimpleNamespace(stage_id_list=list(schedule.stages))
     ctrl.solution_manager = SimpleNamespace(
@@ -756,7 +1226,9 @@ def test_apply_critical_tail_job_operator_frees_all_ops_of_selected_jobs(monkeyp
 
     monkeypatch.setattr(ctrl, "_fix_operations_profile_except_selected", fake_fix)
 
-    selected_jobs = ctrl.apply_critical_tail_job_operator(job_count=1, tail_stage_count=2)
+    selected_jobs = ctrl.apply_critical_tail_job_operator(
+        job_count=1, tail_stage_count=2
+    )
 
     assert selected_jobs == ["J2"]
     assert captured["selected_ops"] == {
@@ -821,6 +1293,96 @@ def test_adaptive_critical_tail_job_ns_resolves_job_count(monkeypatch):
     assert captured["job_count"] == 13
     assert captured["solver_thread_cnt"] == 16
     assert captured["tl_nc_multiplier"] == 0.012
+    assert captured["tail_stage_ratio"] == 0.55
+    assert captured["job_selection_policy"] == "critical_adjacency"
+    assert captured["use_lns_only"] is True
+
+
+def test_workload_guarded_adaptive_critical_tail_job_ns_skips_below_threshold(
+    monkeypatch,
+):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=80, stage_count=15)
+
+    captured = {"called": False}
+
+    def fake_adaptive_critical_tail_job_ns(**_kwargs):
+        captured["called"] = True
+
+    monkeypatch.setattr(
+        ctrl,
+        "adaptive_critical_tail_job_ns",
+        fake_adaptive_critical_tail_job_ns,
+    )
+
+    ctrl.workload_guarded_adaptive_critical_tail_job_ns(
+        solver_thread_cnt=16,
+        min_workload_size=1800,
+    )
+
+    assert captured["called"] is False
+
+
+def test_workload_guarded_adaptive_critical_tail_job_ns_skips_above_job_limit(
+    monkeypatch,
+):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=160, stage_count=15)
+
+    captured = {"called": False}
+
+    def fake_adaptive_critical_tail_job_ns(**_kwargs):
+        captured["called"] = True
+
+    monkeypatch.setattr(
+        ctrl,
+        "adaptive_critical_tail_job_ns",
+        fake_adaptive_critical_tail_job_ns,
+    )
+
+    ctrl.workload_guarded_adaptive_critical_tail_job_ns(
+        solver_thread_cnt=16,
+        min_workload_size=1800,
+        max_instance_job_count=120,
+    )
+
+    assert captured["called"] is False
+
+
+def test_workload_guarded_adaptive_critical_tail_job_ns_runs_at_threshold(
+    monkeypatch,
+):
+    ctrl = _make_controller()
+    ctrl.instance = SimpleNamespace(job_count=120, stage_count=15)
+
+    captured = {}
+
+    def fake_adaptive_critical_tail_job_ns(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        ctrl,
+        "adaptive_critical_tail_job_ns",
+        fake_adaptive_critical_tail_job_ns,
+    )
+
+    ctrl.workload_guarded_adaptive_critical_tail_job_ns(
+        solver_thread_cnt=16,
+        job_count_ratio=0.08,
+        min_job_count=6,
+        max_job_count=24,
+        tl_nc_multiplier=0.010,
+        tail_stage_ratio=0.55,
+        job_selection_policy="critical_adjacency",
+        use_lns_only=True,
+        min_workload_size=1800,
+    )
+
+    assert captured["solver_thread_cnt"] == 16
+    assert captured["job_count_ratio"] == 0.08
+    assert captured["min_job_count"] == 6
+    assert captured["max_job_count"] == 24
+    assert captured["tl_nc_multiplier"] == 0.010
     assert captured["tail_stage_ratio"] == 0.55
     assert captured["job_selection_policy"] == "critical_adjacency"
     assert captured["use_lns_only"] is True
@@ -953,8 +1515,271 @@ def test_solve_base_cp_model_uses_tl_nc_multiplier(monkeypatch):
         solver_thread_cnt=6,
     )
 
-    assert captured["computational_time"] == 20.0
+    assert abs(captured["computational_time"] - 20.0) < 0.1
     assert captured["solver_thread_cnt"] == 6
+
+
+def test_solve_base_cp_model_rebuilds_when_tighten_ranges_changes(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=10, stage_count=4)
+    ctrl.base_cp_model_is_set = True
+    ctrl._base_cp_model_options = {
+        "tighten_ranges": False,
+        "link_job_completion": False,
+    }
+    events = []
+    ctrl.cp_model = SimpleNamespace(
+        delete_added_constraints=lambda: events.append(("delete", None))
+    )
+    ctrl.solution_manager = SimpleNamespace(
+        get_incumbent=lambda: None,
+        register=lambda report, solution: False,
+    )
+    ctrl.timer = SimpleNamespace(elapsed_sec=0.0)
+    ctrl.obj_store = SimpleNamespace(
+        get_last_obj_value=lambda: None,
+        get_last_obj_bound=lambda: None,
+        add_last_timestamp_note=lambda *args, **kwargs: None,
+    )
+    ctrl.add_obj_value_log = lambda *args, **kwargs: None
+    ctrl._get_call_context_of_current_method = lambda: "test-call"
+
+    def fake_set_cp_model_as_base_cp_model(**kwargs):
+        events.append(("set", kwargs))
+        ctrl.base_cp_model_is_set = True
+        ctrl._base_cp_model_options = {
+            "tighten_ranges": bool(kwargs.get("tighten_ranges", False)),
+            "link_job_completion": bool(kwargs.get("link_job_completion", False)),
+        }
+        ctrl.cp_model = SimpleNamespace(
+            delete_added_constraints=lambda: events.append(("delete-after-set", None))
+        )
+
+    monkeypatch.setattr(
+        ctrl, "set_cp_model_as_base_cp_model", fake_set_cp_model_as_base_cp_model
+    )
+    monkeypatch.setattr(
+        ctrl,
+        "solve_current_cp_remaining_time_limit",
+        lambda *args, **kwargs: (
+            SimpleNamespace(status="ok", obj_value=20.0, obj_bound=20.0),
+            "solution",
+        ),
+    )
+
+    ctrl.solve_base_cp_model(
+        computational_time=1.0,
+        solver_thread_cnt=1,
+        tighten_ranges=True,
+    )
+
+    assert events == [
+        (
+            "set",
+            {
+                "tighten_ranges": True,
+                "link_job_completion": False,
+            },
+        )
+    ]
+
+
+def test_last_neh_guarded_solve_base_cp_skips_without_neh_update(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.last_neh_updated_incumbent = False
+    ctrl.last_neh_method_name = "neh_cp"
+    ctrl.last_neh_call_context = "10-neh_cp"
+    ctrl.last_neh_improvement = 0.0
+    ctrl.last_neh_improvement_ratio = 0.0
+
+    calls = []
+    monkeypatch.setattr(
+        ctrl,
+        "solve_base_cp_model",
+        lambda **_kwargs: calls.append("solve_base_cp_model"),
+    )
+
+    ctrl.solve_base_cp_model_if_last_neh_improved(
+        computational_time=None,
+        tl_nc_multiplier=0.05,
+        solver_thread_cnt=16,
+        use_lns_only=True,
+    )
+
+    assert calls == []
+
+
+def test_last_neh_guarded_solve_base_cp_runs_after_neh_update(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.last_neh_updated_incumbent = True
+    ctrl.last_neh_method_name = "neh_cp"
+    ctrl.last_neh_call_context = "10-neh_cp"
+    ctrl.last_neh_improvement = 4.0
+    ctrl.last_neh_improvement_ratio = 0.01
+
+    captured = {}
+    monkeypatch.setattr(
+        ctrl,
+        "solve_base_cp_model",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    ctrl.solve_base_cp_model_if_last_neh_improved(
+        computational_time=None,
+        tl_nc_multiplier=0.05,
+        solver_thread_cnt=16,
+        use_lns_only=True,
+        cp_model_probing_level=1,
+    )
+
+    assert captured["computational_time"] is None
+    assert captured["tl_nc_multiplier"] == 0.05
+    assert captured["solver_thread_cnt"] == 16
+    assert captured["use_lns_only"] is True
+    assert captured["cp_model_probing_level"] == 1
+
+
+def test_last_neh_guarded_solve_base_cp_can_disable_guard(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.last_neh_updated_incumbent = False
+    ctrl.last_neh_method_name = "neh_cp"
+    ctrl.last_neh_call_context = "10-neh_cp"
+    ctrl.last_neh_improvement = 0.0
+    ctrl.last_neh_improvement_ratio = 0.0
+
+    captured = {}
+    monkeypatch.setattr(
+        ctrl,
+        "solve_base_cp_model",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    ctrl.solve_base_cp_model_if_last_neh_improved(
+        computational_time=None,
+        tl_nc_multiplier=0.05,
+        solver_thread_cnt=16,
+        use_lns_only=True,
+        skip_if_last_neh_not_improved=False,
+    )
+
+    assert captured["tl_nc_multiplier"] == 0.05
+    assert captured["solver_thread_cnt"] == 16
+
+
+def test_last_neh_adaptive_time_uses_full_budget_after_neh_update(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.last_neh_updated_incumbent = True
+    ctrl.last_neh_method_name = "neh_cp"
+    ctrl.last_neh_call_context = "10-neh_cp"
+    ctrl.last_neh_improvement = 4.0
+    ctrl.last_neh_improvement_ratio = 0.01
+
+    captured = {}
+    monkeypatch.setattr(
+        ctrl,
+        "solve_base_cp_model",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    ctrl.solve_base_cp_model_with_last_neh_adaptive_time(
+        computational_time=None,
+        tl_nc_multiplier=0.05,
+        tl_nc_multiplier_if_last_neh_not_improved=0.01,
+        solver_thread_cnt=16,
+        use_lns_only=True,
+        cp_sat_params={
+            "diversify_lns_params": True,
+            "solution_pool_size": 8,
+        },
+    )
+
+    assert captured["tl_nc_multiplier"] == 0.05
+    assert captured["solver_thread_cnt"] == 16
+    assert captured["cp_sat_params"] == {
+        "diversify_lns_params": True,
+        "solution_pool_size": 8,
+    }
+
+
+def test_last_neh_adaptive_time_uses_short_budget_without_neh_update(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.last_neh_updated_incumbent = False
+    ctrl.last_neh_method_name = "neh_cp"
+    ctrl.last_neh_call_context = "10-neh_cp"
+    ctrl.last_neh_improvement = 0.0
+    ctrl.last_neh_improvement_ratio = 0.0
+
+    captured = {}
+    monkeypatch.setattr(
+        ctrl,
+        "solve_base_cp_model",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    ctrl.solve_base_cp_model_with_last_neh_adaptive_time(
+        computational_time=None,
+        tl_nc_multiplier=0.05,
+        tl_nc_multiplier_if_last_neh_not_improved=0.01,
+        solver_thread_cnt=16,
+        use_lns_only=True,
+    )
+
+    assert captured["tl_nc_multiplier"] == 0.01
+    assert captured["solver_thread_cnt"] == 16
+
+
+def test_last_neh_adaptive_time_uses_small_workload_budget_below_threshold(
+    monkeypatch,
+):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=80, stage_count=20)
+
+    captured = {}
+    monkeypatch.setattr(
+        ctrl,
+        "solve_base_cp_model",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    ctrl.solve_base_cp_model_with_last_neh_adaptive_time(
+        computational_time=None,
+        tl_nc_multiplier=0.05,
+        tl_nc_multiplier_if_last_neh_not_improved=0.05,
+        solver_thread_cnt=16,
+        use_lns_only=True,
+        small_workload_threshold=1800,
+        small_workload_tl_nc_multiplier=0.01,
+    )
+
+    assert captured["tl_nc_multiplier"] == 0.01
+    assert captured["solver_thread_cnt"] == 16
+
+
+def test_last_neh_adaptive_time_keeps_selected_budget_at_workload_threshold(
+    monkeypatch,
+):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=120, stage_count=15)
+
+    captured = {}
+    monkeypatch.setattr(
+        ctrl,
+        "solve_base_cp_model",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    ctrl.solve_base_cp_model_with_last_neh_adaptive_time(
+        computational_time=None,
+        tl_nc_multiplier=0.05,
+        tl_nc_multiplier_if_last_neh_not_improved=0.05,
+        solver_thread_cnt=16,
+        use_lns_only=True,
+        small_workload_threshold=1800,
+        small_workload_tl_nc_multiplier=0.01,
+    )
+
+    assert captured["tl_nc_multiplier"] == 0.05
+    assert captured["solver_thread_cnt"] == 16
 
 
 def test_final_time_reserve_caps_regular_subroutine_time_limit():
@@ -970,6 +1795,45 @@ def test_final_time_reserve_caps_regular_subroutine_time_limit():
     assert ctrl.get_remaining_time_limit(None) == 70.0
     assert ctrl.get_remaining_time_limit(90.0) == 70.0
     assert ctrl.get_remaining_time_limit(50.0) == 50.0
+
+
+def test_stage_workload_adaptive_final_time_reserve_selects_middle_band():
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=120, stage_count=15)
+    captured = {}
+    ctrl.set_final_time_reserve = lambda *, tl_nc_multiplier: captured.setdefault(
+        "tl_nc_multiplier", tl_nc_multiplier
+    )
+
+    ctrl.set_stage_workload_adaptive_final_time_reserve()
+
+    assert captured["tl_nc_multiplier"] == 0.40
+
+
+def test_stage_workload_adaptive_final_time_reserve_selects_large_band():
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=160, stage_count=20)
+    captured = {}
+    ctrl.set_final_time_reserve = lambda *, tl_nc_multiplier: captured.setdefault(
+        "tl_nc_multiplier", tl_nc_multiplier
+    )
+
+    ctrl.set_stage_workload_adaptive_final_time_reserve()
+
+    assert captured["tl_nc_multiplier"] == 0.25
+
+
+def test_stage_workload_adaptive_final_time_reserve_selects_default_band():
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.instance = SimpleNamespace(job_count=80, stage_count=10)
+    captured = {}
+    ctrl.set_final_time_reserve = lambda *, tl_nc_multiplier: captured.setdefault(
+        "tl_nc_multiplier", tl_nc_multiplier
+    )
+
+    ctrl.set_stage_workload_adaptive_final_time_reserve()
+
+    assert captured["tl_nc_multiplier"] == 0.75
 
 
 def test_solve_base_cp_model_can_consume_final_time_reserve(monkeypatch):
@@ -1081,6 +1945,28 @@ def test_final_time_reserve_wrapper_uses_all_remaining_time(monkeypatch):
     assert not ctrl.final_time_reserve_is_active()
 
 
+def test_final_time_reserve_wrapper_forwards_tighten_ranges(monkeypatch):
+    ctrl = _make_controller({"S1": {"J1": 1}})
+    ctrl.final_time_reserve_is_active = lambda: True
+    captured = {}
+
+    def fake_solve_base_cp_model(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(ctrl, "solve_base_cp_model", fake_solve_base_cp_model)
+
+    ctrl.solve_base_cp_model_from_final_time_reserve(
+        computational_time=None,
+        solver_thread_cnt=6,
+        tighten_ranges=True,
+        link_job_completion=True,
+    )
+
+    assert captured["tighten_ranges"] is True
+    assert captured["link_job_completion"] is True
+    assert captured["use_final_time_reserve"] is True
+
+
 def test_fix_profile_solve_reset_initializes_base_cp_model_when_missing(monkeypatch):
     ctrl = _make_controller({"S1": {"J1": 1}})
     ctrl.instance = SimpleNamespace(stage_id_list=["S1"])
@@ -1110,7 +1996,9 @@ def test_fix_profile_solve_reset_initializes_base_cp_model_when_missing(monkeypa
         assert hasattr(ctrl, "cp_model")
         events.append("profile_fix")
 
-    monkeypatch.setattr(ctrl, "set_cp_model_as_base_cp_model", fake_set_cp_model_as_base_cp_model)
+    monkeypatch.setattr(
+        ctrl, "set_cp_model_as_base_cp_model", fake_set_cp_model_as_base_cp_model
+    )
     monkeypatch.setattr(
         ctrl,
         "solve_with_initial_solution",

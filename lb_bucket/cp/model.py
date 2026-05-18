@@ -281,6 +281,49 @@ def resolve_retained_stage_ids(
                 )
             )
         retained = [first_stage_id, *selected_bottleneck_stage_ids, last_stage_id]
+    elif retained_stage_mode == "first_quantiles_topk_bottlenecks_last":
+        if quantile_count is None or quantile_count < 2:
+            raise ValueError(
+                "quantile_count must be an integer >= 2 for "
+                "'first_quantiles_topk_bottlenecks_last'. "
+                f"Received {quantile_count!r}."
+            )
+        if extra_bottleneck_count <= 0:
+            raise ValueError(
+                "extra_bottleneck_count must be positive for "
+                "'first_quantiles_topk_bottlenecks_last'. "
+                f"Received {extra_bottleneck_count}."
+            )
+        if bottleneck_stage_id is not None and bottleneck_stage_id not in params.i_list:
+            raise ValueError(f"Unknown bottleneck_stage_id={bottleneck_stage_id!r}.")
+
+        selected_bottleneck_stage_ids = []
+        if bottleneck_stage_id is not None:
+            selected_bottleneck_stage_ids.append(bottleneck_stage_id)
+
+        remaining_candidates = [
+            stage_id
+            for stage_id in internal_stage_ids
+            if stage_id not in selected_bottleneck_stage_ids
+        ]
+        remaining_count = extra_bottleneck_count - len(selected_bottleneck_stage_ids)
+        if remaining_count > 0:
+            selected_bottleneck_stage_ids.extend(
+                select_bottleneck_stage_ids_by_average_load(
+                    params,
+                    stage_ids=remaining_candidates,
+                    count=min(remaining_count, len(remaining_candidates)),
+                )
+            )
+        resolved_ratios = [
+            quantile_idx / quantile_count for quantile_idx in range(1, quantile_count)
+        ]
+        retained = [
+            first_stage_id,
+            *_resolve_ratio_stage_ids(params, resolved_ratios),
+            *selected_bottleneck_stage_ids,
+            last_stage_id,
+        ]
     elif retained_stage_mode == "first_bottleneck_midpoints_last":
         resolved_bottleneck_stage_id = bottleneck_stage_id
         if resolved_bottleneck_stage_id is None:
@@ -373,6 +416,7 @@ def resolve_retained_stage_ids(
             "retained_stage_mode must be one of "
             "'first_last', 'first_bottleneck_last', "
             "'first_bottleneck_band_last', 'first_topk_bottlenecks_last', "
+            "'first_quantiles_topk_bottlenecks_last', "
             "'first_bottleneck_midpoints_last', "
             "'first_processing_jump_band_last', "
             "'first_middle_last', 'first_middle_band_last', "

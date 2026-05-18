@@ -16,6 +16,8 @@ from lb_bucket.cp import (
     write_retained_stage_cp_artifacts,
 )
 from hybridflowshop.controller.hfs_cp_lns import _extract_retained_cp_trace_records
+from hybridflowshop.controller.hfs_cp_lns import HybridFlowShopCpLnsController
+from hybridflowshop.schedule_lite import validate_schedule
 
 
 def _make_instance() -> HybridFlowshopParameters:
@@ -111,6 +113,34 @@ def test_retained_stage_cp_modes_solve_and_bottleneck_mode_is_not_weaker() -> No
     assert first_bottleneck_last_obj >= first_last_obj
 
 
+def test_all_stage_retained_cp_rows_convert_to_full_schedule() -> None:
+    instance = _make_instance()
+    build = build_retained_stage_cp_model(
+        instance,
+        input_ub=40,
+        retained_stage_mode="first_bottleneck_last",
+    )
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 2.0
+    status = solver.Solve(build.model)
+    assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    ctrl.instance = instance
+    ctrl.stage_2_job_2_p_dict = instance.stage_2_job_2_p_map
+    retained_rows = extract_retained_stage_solution_rows(solver, build)
+
+    assert ctrl._retained_stage_cp_covers_all_stages(build)
+    schedule = ctrl._build_full_schedule_from_retained_stage_rows(retained_rows)
+
+    validate_schedule(schedule, instance.stage_2_job_2_p_map)
+    assert schedule.makespan == int(solver.ObjectiveValue())
+    assert len(schedule.get_operation_set()) == len(instance.job_id_list) * len(
+        instance.stage_id_list
+    )
+
+
 def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stages() -> (
     None
 ):
@@ -145,6 +175,13 @@ def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stag
         instance,
         input_ub=200,
         retained_stage_mode="first_topk_bottlenecks_last",
+        extra_bottleneck_count=2,
+    )
+    quantiles_top2 = build_retained_stage_cp_model(
+        instance,
+        input_ub=200,
+        retained_stage_mode="first_quantiles_topk_bottlenecks_last",
+        quantile_count=3,
         extra_bottleneck_count=2,
     )
     bottleneck_band = build_retained_stage_cp_model(
@@ -189,6 +226,9 @@ def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stag
     assert thirds.quantile_count == 3
     assert top2.retained_stage_ids == ["i0", "i1", "i4", "i6"]
     assert top2.selected_bottleneck_stage_ids == ["i1", "i4"]
+    assert quantiles_top2.retained_stage_ids == ["i0", "i1", "i2", "i4", "i6"]
+    assert quantiles_top2.selected_bottleneck_stage_ids == ["i1", "i4"]
+    assert quantiles_top2.quantile_count == 3
     assert bottleneck_band.retained_stage_ids == ["i0", "i3", "i4", "i5", "i6"]
     assert bottleneck_band.bottleneck_stage_id == "i4"
     assert bottleneck_band.bottleneck_band_radius == 1

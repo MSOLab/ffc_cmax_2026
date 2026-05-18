@@ -67,6 +67,8 @@ class HfsSingleInstanceRunner(
         "retainedCpBestObj",
         "retainedCpDispatchObj",
         "retainedCpPostDispatchObj",
+        "retainedCpDispatchCpUb",
+        "retainedCpDispatchCpLb",
         "retainedCpSelectedDispatchVariant",
         "retainedCpPostSelectedDispatchVariant",
         "retainedCpDispatchAnchorStages",
@@ -150,18 +152,34 @@ class HfsSingleInstanceRunner(
         ):
             logging.info(f"Applying injected resume data for instance '{self.name}'")
             self.ctrlr.obj_store = self.resume_obj_store
+
+            def _resume_number_or_none(value: Any) -> float | None:
+                if value is None:
+                    return None
+                if pd.isna(value):
+                    return None
+                return float(value)
+
             init_report = HfsSubroutineReport(
                 elapsed_time=0.0,
-                obj_value=self.resume_summary_dict.get("initObj", None),
-                obj_bound=self.resume_summary_dict.get("initBound", None),
+                obj_value=_resume_number_or_none(
+                    self.resume_summary_dict.get("initObj", None)
+                ),
+                obj_bound=_resume_number_or_none(
+                    self.resume_summary_dict.get("initBound", None)
+                ),
                 is_init=True,
             )
             self.ctrlr.solution_manager.register(init_report, None)
 
             last_report = HfsSubroutineReport(
-                elapsed_time=self.resume_summary_dict.get("totalElapsedTime", 0.0),
-                obj_value=self.resume_summary_dict.get("bestObj", None),
-                obj_bound=self.resume_summary_dict.get("bestBound", None),
+                elapsed_time=float(self.resume_summary_dict.get("totalElapsedTime", 0.0)),
+                obj_value=_resume_number_or_none(
+                    self.resume_summary_dict.get("bestObj", None)
+                ),
+                obj_bound=_resume_number_or_none(
+                    self.resume_summary_dict.get("bestBound", None)
+                ),
                 is_init=False,
             )
             last_solution = HybridFlowshopLiteSchedule(
@@ -180,6 +198,31 @@ class HfsSingleInstanceRunner(
                     end_time=end_time,
                 )
             self.ctrlr.solution_manager.register(last_report, last_solution)
+
+            resume_controller_attr_by_summary_key = {
+                "retainedCpDispatchObj": "last_retained_cp_dispatch_obj",
+                "retainedCpPostDispatchObj": "last_retained_cp_post_dispatch_obj",
+                "retainedCpDispatchCpUb": "last_retained_cp_dispatch_cp_ub",
+                "retainedCpDispatchCpLb": "last_retained_cp_dispatch_cp_lb",
+                "retainedCpDispatchElapsedSec": "last_retained_cp_dispatch_elapsed_sec",
+                "retainedCpDispatchUpdatedIncumbent": (
+                    "last_retained_cp_dispatch_was_incumbent_update"
+                ),
+                "retainedCpDispatchKeptIncumbent": (
+                    "last_retained_cp_dispatch_kept_incumbent"
+                ),
+                "retainedCpSelectedDispatchVariant": (
+                    "last_retained_cp_selected_dispatch_variant"
+                ),
+                "retainedCpPostSelectedDispatchVariant": (
+                    "last_retained_cp_post_selected_dispatch_variant"
+                ),
+            }
+            for summary_key, attr_name in resume_controller_attr_by_summary_key.items():
+                value = self.resume_summary_dict.get(summary_key)
+                if value is None or pd.isna(value):
+                    continue
+                setattr(self.ctrlr, attr_name, value)
 
             # current datetime - last_report.elapsed_time
             virtual_dt = datetime.datetime.now() - datetime.timedelta(
@@ -507,6 +550,12 @@ class HfsSingleInstanceRunner(
             ),
             "retainedCpPostDispatchObj": getattr(
                 self.ctrlr, "last_retained_cp_post_dispatch_obj", None
+            ),
+            "retainedCpDispatchCpUb": getattr(
+                self.ctrlr, "last_retained_cp_dispatch_cp_ub", None
+            ),
+            "retainedCpDispatchCpLb": getattr(
+                self.ctrlr, "last_retained_cp_dispatch_cp_lb", None
             ),
             "retainedCpSelectedDispatchVariant": getattr(
                 self.ctrlr, "last_retained_cp_selected_dispatch_variant", None

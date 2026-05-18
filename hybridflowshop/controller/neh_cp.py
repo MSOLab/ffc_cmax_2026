@@ -1,8 +1,8 @@
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Sequence
 
 from mbls.cpsat import CpsatSolverReport, CustomCpModel, ObjValueBoundStore
 from ortools.sat.python.cp_model import CpModel
@@ -83,6 +83,7 @@ class NehCpRunState:
     partial_sol: HybridFlowshopLiteSchedule | None
     current_job_id_list: list[str]
     full_sol: HybridFlowshopLiteSchedule
+    job_2_inserted_batch_idx: dict[str, int] = field(default_factory=dict)
 
     @property
     def job_subset_cnt(self) -> int:
@@ -132,9 +133,51 @@ def _log_cp_subproblem_report(
     report: CpsatSolverReport,
     objective_name: str,
 ) -> None:
+    elapsed_time = float(getattr(report, "elapsed_time", 0.0) or 0.0)
+    obj_value_records = list(getattr(report, "obj_value_records", ()) or ())
+    obj_bound_records = list(getattr(report, "obj_bound_records", ()) or ())
+
+    best_ub: float | None = None
+    first_ub_time: float | None = None
+    first_ub_value: float | None = None
+    last_ub_improvement_time: float | None = None
+    last_ub_improvement_value: float | None = None
+    ub_improvement_count = 0
+    for timestamp, value in sorted(obj_value_records, key=lambda item: item[0]):
+        if not _is_finite_solver_value(value):
+            continue
+        value_float = float(value)
+        if best_ub is None or value_float < best_ub - 1e-9:
+            best_ub = value_float
+            if first_ub_time is None:
+                first_ub_time = float(timestamp)
+                first_ub_value = value_float
+            last_ub_improvement_time = float(timestamp)
+            last_ub_improvement_value = value_float
+            ub_improvement_count += 1
+
+    if last_ub_improvement_time is None:
+        last_ub_improvement_text = "NA"
+        stall_after_ub_text = "NA"
+        first_ub_text = "NA"
+        last_ub_text = "NA"
+    else:
+        last_ub_improvement_text = f"{last_ub_improvement_time:.3f}"
+        stall_after_ub_text = f"{max(0.0, elapsed_time - last_ub_improvement_time):.3f}"
+        first_ub_text = (
+            f"{_format_solver_value(first_ub_value)}@{first_ub_time:.3f}s"
+            if first_ub_time is not None
+            else "NA"
+        )
+        last_ub_text = (
+            f"{_format_solver_value(last_ub_improvement_value)}"
+            f"@{last_ub_improvement_time:.3f}s"
+        )
+
     logging.info(
         "%s %s CP status=%s ub=%s lb=%s gap=%s elapsed=%.3f sec "
-        "ub_updates=%d lb_updates=%d",
+        "ub_updates=%d lb_updates=%d ub_improvements=%d first_ub=%s "
+        "last_ub_impr=%ss last_ub=%s stall_after_ub=%ss",
         prefix,
         objective_name,
         report.status,
@@ -143,9 +186,14 @@ def _log_cp_subproblem_report(
         _format_minimization_gap(
             getattr(report, "obj_value", None), getattr(report, "obj_bound", None)
         ),
-        float(getattr(report, "elapsed_time", 0.0) or 0.0),
-        len(getattr(report, "obj_value_records", ()) or ()),
-        len(getattr(report, "obj_bound_records", ()) or ()),
+        elapsed_time,
+        len(obj_value_records),
+        len(obj_bound_records),
+        ub_improvement_count,
+        first_ub_text,
+        last_ub_improvement_text,
+        last_ub_text,
+        stall_after_ub_text,
     )
 
 
@@ -177,12 +225,20 @@ class NehCpConstructor:
         max_added_batch_count: int | None = None,
         job_seq_by_1st_stage: bool = False,
         job_seq_by_bottleneck_stage: bool = False,
+        job_sequence_override: Sequence[str] | None = None,
         preserved_head_job_portion: float = 0.0,
         max_time_per_add: float | None = None,
         cp_tl_nc_multiplier: float | None = None,
         cp_tl_c_multiplier: float | None = None,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        profile_fix_min_batch_idx: int = 2,
+        profile_fix_min_batch_portion: float | None = None,
+        profile_fix_max_batch_idx: int | None = None,
+        profile_fix_by_machine_from_batch_idx: int | None = None,
+        profile_fix_min_job_age_batches: int | None = None,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
         minimize_sum_ci_lex: bool = False,
         cp_tl_nc_multiplier_2nd_obj: float | None = None,
         cp_tl_c_multiplier_2nd_obj: float | None = None,
@@ -289,6 +345,45 @@ class NehCpConstructor:
             raise ValueError("full_neh_estimate_safety_factor must be positive.")
         if time_guard_min_completed_batches < 0:
             raise ValueError("time_guard_min_completed_batches must be non-negative.")
+        if profile_fix_min_batch_idx < 1:
+            raise ValueError("profile_fix_min_batch_idx must be >= 1.")
+        if profile_fix_min_batch_portion is not None and not (
+            0.0 <= profile_fix_min_batch_portion <= 1.0
+        ):
+            raise ValueError("profile_fix_min_batch_portion must be between 0 and 1.")
+        if profile_fix_max_batch_idx is not None and profile_fix_max_batch_idx < 1:
+            raise ValueError("profile_fix_max_batch_idx must be >= 1.")
+        if (
+            profile_fix_max_batch_idx is not None
+            and profile_fix_max_batch_idx < profile_fix_min_batch_idx
+        ):
+            raise ValueError(
+                "profile_fix_max_batch_idx must be >= profile_fix_min_batch_idx."
+            )
+        if (
+            profile_fix_by_machine_from_batch_idx is not None
+            and profile_fix_by_machine_from_batch_idx < 1
+        ):
+            raise ValueError("profile_fix_by_machine_from_batch_idx must be >= 1.")
+        if (
+            profile_fix_min_job_age_batches is not None
+            and profile_fix_min_job_age_batches < 0
+        ):
+            raise ValueError("profile_fix_min_job_age_batches must be >= 0.")
+        if (
+            stage_precedence_min_processing_time_diff is not None
+            and stage_precedence_min_processing_time_diff < 0
+        ):
+            raise ValueError(
+                "stage_precedence_min_processing_time_diff must be >= 0."
+            )
+        if (
+            stage_precedence_min_processing_time_diff_ratio is not None
+            and stage_precedence_min_processing_time_diff_ratio < 0
+        ):
+            raise ValueError(
+                "stage_precedence_min_processing_time_diff_ratio must be >= 0."
+            )
         successor_reserve_sec = float(min_remaining_sec_after_neh or 0.0)
         if min_remaining_nc_after_neh is not None:
             successor_reserve_sec += (
@@ -312,9 +407,27 @@ class NehCpConstructor:
         best_full_obj = ref_schedule.makespan
 
         # Determine job sequence
-        # Priority: job_seq_by_1st_stage > job_seq_by_bottleneck_stage > midpoint (default)
+        # Priority: explicit override > 1st stage > bottleneck stage > midpoint (default)
         job_sequence: list[str]
-        if job_seq_by_1st_stage:
+        if job_sequence_override is not None:
+            fallback_sequence = get_midpoint_sequence(ref_schedule)
+            fallback_set = set(fallback_sequence)
+            seen_jobs: set[str] = set()
+            job_sequence = []
+            for job_id in job_sequence_override:
+                if job_id not in fallback_set or job_id in seen_jobs:
+                    continue
+                seen_jobs.add(job_id)
+                job_sequence.append(job_id)
+            job_sequence.extend(
+                job_id for job_id in fallback_sequence if job_id not in seen_jobs
+            )
+            logging.info(
+                "Using explicit NEH job sequence override with %d/%d jobs.",
+                len(seen_jobs),
+                len(fallback_sequence),
+            )
+        elif job_seq_by_1st_stage:
             job_sequence = get_first_stage_start_sequence(ref_schedule)
         elif job_seq_by_bottleneck_stage:
             job_sequence = get_bottleneck_stage_job_sequence(ref_schedule)
@@ -342,6 +455,24 @@ class NehCpConstructor:
             min_added_batch_count=min_added_batch_count,
             max_added_batch_count=max_added_batch_count,
         )
+        effective_profile_fix_min_batch_idx = (
+            self._resolve_profile_fix_min_batch_idx(
+                profile_fix_min_batch_idx=profile_fix_min_batch_idx,
+                profile_fix_min_batch_portion=profile_fix_min_batch_portion,
+                profile_fix_max_batch_idx=profile_fix_max_batch_idx,
+                total_batch_count=len(sequence_of_job_sublist),
+            )
+        )
+        if effective_profile_fix_min_batch_idx != profile_fix_min_batch_idx:
+            logging.info(
+                "NEH-CP effective profile_fix_min_batch_idx resolved to %d "
+                "(base=%d, portion=%s, max=%s, total_batch_count=%d).",
+                effective_profile_fix_min_batch_idx,
+                profile_fix_min_batch_idx,
+                profile_fix_min_batch_portion,
+                profile_fix_max_batch_idx,
+                len(sequence_of_job_sublist),
+            )
 
         if self._should_skip_full_neh_before_first_batch(
             remaining_batch_count=len(sequence_of_job_sublist),
@@ -364,6 +495,8 @@ class NehCpConstructor:
         # Initialize partial solution from head jobs if in partial reconstruction mode
         if head_jobs:
             st.current_job_id_list = [j for j in job_sequence if j in head_jobs]
+            for job_id in st.current_job_id_list:
+                st.job_2_inserted_batch_idx[str(job_id)] = 0
             st.partial_sol = ref_schedule.deepcopy(job_subsequence=head_jobs)
             st.partial_sol.make_semi_active(stage_2_job_2_p_dict)
             logging.info(
@@ -385,6 +518,8 @@ class NehCpConstructor:
 
             batch_timer = ElapsedTimer()
             st.current_job_id_list.extend(job_sublist)
+            for job_id in job_sublist:
+                st.job_2_inserted_batch_idx[str(job_id)] = batch_idx
 
             # Use MixedDispatcher for simplified dispatch with multiple strategy exploration
             dispatcher = MixedDispatcher(instance)
@@ -415,6 +550,11 @@ class NehCpConstructor:
                 stage_2_job_2_p_dict,
                 profile_fix_by_machine=profile_fix_by_machine,
                 machine_precedence_stride=machine_precedence_stride,
+                profile_fix_min_batch_idx=effective_profile_fix_min_batch_idx,
+                profile_fix_by_machine_from_batch_idx=profile_fix_by_machine_from_batch_idx,
+                profile_fix_min_job_age_batches=profile_fix_min_job_age_batches,
+                stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+                stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
                 max_time_per_add=max_time_per_add,
                 minimize_sum_ci_lex=minimize_sum_ci_lex,
                 max_time_per_add_2nd_obj=max_time_per_add_2nd_obj,
@@ -686,6 +826,25 @@ class NehCpConstructor:
         return batches
 
     @staticmethod
+    def _resolve_profile_fix_min_batch_idx(
+        *,
+        profile_fix_min_batch_idx: int,
+        profile_fix_min_batch_portion: float | None,
+        profile_fix_max_batch_idx: int | None,
+        total_batch_count: int,
+    ) -> int:
+        resolved_idx = int(profile_fix_min_batch_idx)
+        if profile_fix_min_batch_portion is not None:
+            no_fix_batch_count = math.ceil(
+                max(0, int(total_batch_count))
+                * float(profile_fix_min_batch_portion)
+            )
+            resolved_idx = max(resolved_idx, no_fix_batch_count + 1)
+        if profile_fix_max_batch_idx is not None:
+            resolved_idx = min(resolved_idx, int(profile_fix_max_batch_idx))
+        return max(1, resolved_idx)
+
+    @staticmethod
     def _normalize_optional_positive_int(
         value: int | None,
         name: str,
@@ -705,10 +864,16 @@ class NehCpConstructor:
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        profile_fix_min_batch_idx: int = 2,
+        profile_fix_by_machine_from_batch_idx: int | None = None,
+        profile_fix_min_job_age_batches: int | None = None,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
         minimize_sum_ci_lex: bool = False,
         minimize_sum_ci_lin: bool = False,
         tighten_ranges: bool = False,
         link_job_completion: bool = False,
+        batch_idx: int | None = None,
     ) -> tuple[CustomCpModel, Params, CumulativeVars]:
         st = self._require_state()
         horizon: int = partial_sol.makespan
@@ -735,6 +900,12 @@ class NehCpConstructor:
             partial_sol,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
+            profile_fix_min_batch_idx=profile_fix_min_batch_idx,
+            profile_fix_by_machine_from_batch_idx=profile_fix_by_machine_from_batch_idx,
+            profile_fix_min_job_age_batches=profile_fix_min_job_age_batches,
+            stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+            stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
+            batch_idx=batch_idx,
         )
 
         return mdl, params, variables
@@ -747,6 +918,12 @@ class NehCpConstructor:
         partial_sol: HybridFlowshopLiteSchedule,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        profile_fix_min_batch_idx: int = 2,
+        profile_fix_by_machine_from_batch_idx: int | None = None,
+        profile_fix_min_job_age_batches: int | None = None,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
+        batch_idx: int | None = None,
     ) -> None:
         st = self._require_state()
         # Apply hint from partial solution
@@ -766,13 +943,64 @@ class NehCpConstructor:
         )
         # Fix profile of operations in previous solution
         if st.partial_sol is not None:
+            current_batch_idx = int(batch_idx or 1)
+            if current_batch_idx < profile_fix_min_batch_idx:
+                logging.info(
+                    "NEH-CP profile fixing skipped for batch %d because "
+                    "profile_fix_min_batch_idx=%d.",
+                    current_batch_idx,
+                    profile_fix_min_batch_idx,
+                )
+                return
+            effective_profile_fix_by_machine = profile_fix_by_machine
+            if (
+                profile_fix_by_machine
+                and profile_fix_by_machine_from_batch_idx is not None
+            ):
+                effective_profile_fix_by_machine = (
+                    current_batch_idx >= profile_fix_by_machine_from_batch_idx
+                )
+                if not effective_profile_fix_by_machine:
+                    logging.info(
+                        "NEH-CP profile fixing uses stage-level sparse arcs for "
+                        "batch %d; machine profile starts from batch %d.",
+                        current_batch_idx,
+                        profile_fix_by_machine_from_batch_idx,
+                    )
+            logging.info(
+                "NEH-CP profile fixing enabled for batch %d: mode=%s, "
+                "stage_min_p_diff=%s, stage_min_p_diff_ratio=%s.",
+                current_batch_idx,
+                "machine" if effective_profile_fix_by_machine else "stage",
+                stage_precedence_min_processing_time_diff,
+                stage_precedence_min_processing_time_diff_ratio,
+            )
+            profile_fix_job_ids: set[str] | None = None
+            if profile_fix_min_job_age_batches is not None:
+                profile_fix_job_ids = {
+                    job_id
+                    for job_id, inserted_batch_idx in st.job_2_inserted_batch_idx.items()
+                    if current_batch_idx - int(inserted_batch_idx)
+                    >= profile_fix_min_job_age_batches
+                }
+                logging.info(
+                    "NEH-CP rolling profile fixing for batch %d: min_job_age_batches=%d "
+                    "eligible_jobs=%d/%d.",
+                    current_batch_idx,
+                    profile_fix_min_job_age_batches,
+                    len(profile_fix_job_ids),
+                    len(st.job_2_inserted_batch_idx),
+                )
             BaseModelBuilder.add_stage_ops_precedence_constraints_after_dispatch_from_schedule(
                 mdl,
                 params,
                 variables,
                 st.partial_sol,
-                profile_fix_by_machine=profile_fix_by_machine,
+                profile_fix_by_machine=effective_profile_fix_by_machine,
                 machine_precedence_stride=machine_precedence_stride,
+                profile_fix_job_ids=profile_fix_job_ids,
+                stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+                stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
             )
 
     def _solve_cp_model(
@@ -782,6 +1010,11 @@ class NehCpConstructor:
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        profile_fix_min_batch_idx: int = 2,
+        profile_fix_by_machine_from_batch_idx: int | None = None,
+        profile_fix_min_job_age_batches: int | None = None,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
         max_time_per_add: float | None = None,
         minimize_sum_ci_lex: bool = False,
         max_time_per_add_2nd_obj: float | None = None,
@@ -807,9 +1040,15 @@ class NehCpConstructor:
             instance,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
+            profile_fix_min_batch_idx=profile_fix_min_batch_idx,
+            profile_fix_by_machine_from_batch_idx=profile_fix_by_machine_from_batch_idx,
+            profile_fix_min_job_age_batches=profile_fix_min_job_age_batches,
+            stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+            stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
             minimize_sum_ci_lin=minimize_sum_ci_lin,
             tighten_ranges=tighten_ranges,
             link_job_completion=link_job_completion,
+            batch_idx=batch_idx,
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add)
@@ -872,6 +1111,11 @@ class NehCpConstructor:
             minimize_sum_ci_lex=True,
             tighten_ranges=tighten_ranges,
             link_job_completion=link_job_completion,
+            profile_fix_min_batch_idx=profile_fix_min_batch_idx,
+            profile_fix_min_job_age_batches=profile_fix_min_job_age_batches,
+            stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+            stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
+            batch_idx=batch_idx,
         )
 
         _timelimit = self.ctx.get_remaining_time_limit(max_time_per_add_2nd_obj)

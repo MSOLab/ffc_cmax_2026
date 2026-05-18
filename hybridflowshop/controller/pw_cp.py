@@ -278,6 +278,8 @@ class PwCpConstructor:
         enable_promotion_profile_fixed: bool = False,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
         non_time_fixed_op_time_limit_multiplier: float | None = None,
         max_time_per_batch: float | None = None,
         solver_thread_cnt: int | None = None,
@@ -302,6 +304,18 @@ class PwCpConstructor:
             raise ValueError("left_profile_fixed_batch_count must be >= 0")
         if right_profile_fixed_batch_count < 0:
             raise ValueError("right_profile_fixed_batch_count must be >= 0")
+        if (
+            stage_precedence_min_processing_time_diff is not None
+            and stage_precedence_min_processing_time_diff < 0
+        ):
+            raise ValueError("stage_precedence_min_processing_time_diff must be >= 0")
+        if (
+            stage_precedence_min_processing_time_diff_ratio is not None
+            and stage_precedence_min_processing_time_diff_ratio < 0
+        ):
+            raise ValueError(
+                "stage_precedence_min_processing_time_diff_ratio must be >= 0"
+            )
 
         sub_obj_store = ObjValueBoundStore[int]()
         sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
@@ -404,6 +418,8 @@ class PwCpConstructor:
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
                     profile_fix_by_machine=profile_fix_by_machine,
                     machine_precedence_stride=machine_precedence_stride,
+                    stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+                    stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
                     max_time_per_batch=batch_time_limit,
                     solver_thread_cnt=solver_thread_cnt,
                     use_lns_only=use_lns_only,
@@ -703,6 +719,8 @@ class PwCpConstructor:
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool,
         machine_precedence_stride: int,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
         tighten_ranges: bool = False,
     ) -> tuple[CustomCpModel, Params, PwCpVars]:
         horizon = spec.init_schedule.makespan
@@ -771,6 +789,8 @@ class PwCpConstructor:
                 profile_fixed_schedule,
                 profile_fix_by_machine=profile_fix_by_machine,
                 machine_precedence_stride=machine_precedence_stride,
+                stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+                stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
             )
 
         # Objective
@@ -794,6 +814,8 @@ class PwCpConstructor:
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool,
         machine_precedence_stride: int,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
         tighten_ranges: bool = False,
     ) -> tuple[CustomCpModel, Params, PwCpVars]:
         """Prepare CP model for makespan minimization batch.
@@ -881,6 +903,8 @@ class PwCpConstructor:
                 profile_fixed_schedule,
                 profile_fix_by_machine=profile_fix_by_machine,
                 machine_precedence_stride=machine_precedence_stride,
+                stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+                stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
             )
 
         # Objective
@@ -914,6 +938,8 @@ class PwCpConstructor:
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool,
         machine_precedence_stride: int,
+        stage_precedence_min_processing_time_diff: int | None,
+        stage_precedence_min_processing_time_diff_ratio: float | None,
         max_time_per_batch: float | None,
         solver_thread_cnt: int,
         use_lns_only: bool,
@@ -936,6 +962,8 @@ class PwCpConstructor:
             instance=instance,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
+            stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+            stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
             tighten_ranges=tighten_ranges,
         )
         timelimit = self.ctx.get_remaining_time_limit(max_time_per_batch)
@@ -1009,6 +1037,8 @@ class PwCpConstructor:
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool,
         machine_precedence_stride: int,
+        stage_precedence_min_processing_time_diff: int | None,
+        stage_precedence_min_processing_time_diff_ratio: float | None,
         max_time_per_batch: float | None,
         solver_thread_cnt: int,
         use_lns_only: bool,
@@ -1038,6 +1068,8 @@ class PwCpConstructor:
             instance=instance,
             profile_fix_by_machine=profile_fix_by_machine,
             machine_precedence_stride=machine_precedence_stride,
+            stage_precedence_min_processing_time_diff=stage_precedence_min_processing_time_diff,
+            stage_precedence_min_processing_time_diff_ratio=stage_precedence_min_processing_time_diff_ratio,
             tighten_ranges=tighten_ranges,
         )
 

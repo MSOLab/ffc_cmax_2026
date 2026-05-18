@@ -5,6 +5,7 @@ from mbls.cpsat import CpsatSolverReport, CpsatStatus
 from hybridflowshop.controller import neh_cp as neh_module
 from hybridflowshop.controller.neh_cp import (
     NehCpConstructor,
+    NehCpRunState,
     _format_minimization_gap,
     _format_solver_value,
     _log_cp_subproblem_report,
@@ -22,6 +23,9 @@ class _FakeSchedule:
         return None
 
     def get_jik_2_start_time_map(self):
+        return {}
+
+    def get_jik_2_end_time_map(self):
         return {}
 
 
@@ -195,3 +199,106 @@ def test_neh_cp_subproblem_report_logs_ub_lb_gap(caplog) -> None:
 def test_neh_cp_subproblem_report_formatters_handle_missing_values() -> None:
     assert _format_solver_value(None) == "NA"
     assert _format_minimization_gap(None, 10.0) == "NA"
+
+
+def test_profile_fix_min_batch_idx_can_scale_by_batch_portion() -> None:
+    assert (
+        NehCpConstructor._resolve_profile_fix_min_batch_idx(
+            profile_fix_min_batch_idx=3,
+            profile_fix_min_batch_portion=0.25,
+            profile_fix_max_batch_idx=6,
+            total_batch_count=8,
+        )
+        == 3
+    )
+    assert (
+        NehCpConstructor._resolve_profile_fix_min_batch_idx(
+            profile_fix_min_batch_idx=3,
+            profile_fix_min_batch_portion=0.25,
+            profile_fix_max_batch_idx=6,
+            total_batch_count=12,
+        )
+        == 4
+    )
+    assert (
+        NehCpConstructor._resolve_profile_fix_min_batch_idx(
+            profile_fix_min_batch_idx=3,
+            profile_fix_min_batch_portion=0.25,
+            profile_fix_max_batch_idx=6,
+            total_batch_count=24,
+        )
+        == 6
+    )
+
+
+def test_neh_cp_profile_fixing_can_be_delayed_and_softened(monkeypatch) -> None:
+    calls = []
+    constructor = NehCpConstructor(_FakeContext())
+    constructor._st = NehCpRunState(
+        timer=SimpleNamespace(elapsed_sec=0.0),
+        last_job_id_list=[],
+        partial_sol=_FakeSchedule(10),
+        current_job_id_list=[],
+        full_sol=_FakeSchedule(10),
+        job_2_inserted_batch_idx={"A": 1, "B": 2, "C": 3},
+    )
+
+    monkeypatch.setattr(
+        neh_module.BaseModelBuilder,
+        "apply_start_hints_from_start_time_map",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        neh_module.BaseModelBuilder,
+        "apply_end_hints_from_end_time_map",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        neh_module.BaseModelBuilder,
+        "add_stage_ops_precedence_constraints_after_dispatch_from_schedule",
+        lambda *_args, **kwargs: calls.append(kwargs),
+    )
+
+    constructor._add_hints_and_additional_constraints(
+        None,
+        None,
+        None,
+        _FakeSchedule(20),
+        profile_fix_min_batch_idx=3,
+        batch_idx=2,
+    )
+    assert calls == []
+
+    constructor._add_hints_and_additional_constraints(
+        None,
+        None,
+        None,
+        _FakeSchedule(20),
+        profile_fix_by_machine=True,
+        profile_fix_by_machine_from_batch_idx=5,
+        stage_precedence_min_processing_time_diff_ratio=0.15,
+        batch_idx=3,
+    )
+    assert calls[-1]["profile_fix_by_machine"] is False
+    assert calls[-1]["stage_precedence_min_processing_time_diff_ratio"] == 0.15
+
+    constructor._add_hints_and_additional_constraints(
+        None,
+        None,
+        None,
+        _FakeSchedule(20),
+        profile_fix_min_job_age_batches=2,
+        batch_idx=3,
+    )
+    assert calls[-1]["profile_fix_job_ids"] == {"A"}
+
+    constructor._add_hints_and_additional_constraints(
+        None,
+        None,
+        None,
+        _FakeSchedule(20),
+        profile_fix_by_machine=True,
+        profile_fix_by_machine_from_batch_idx=5,
+        batch_idx=5,
+    )
+    assert calls[-1]["profile_fix_by_machine"] is True

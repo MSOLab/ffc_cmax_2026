@@ -5,7 +5,7 @@ import math
 import re
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from mbls.cpsat import (
     CpsatSolverReport,
@@ -102,6 +102,7 @@ class HybridFlowShopCpLnsControllerCore(
         self._final_time_reserve_active: bool = False
         self._final_time_reserve_sec: float = 0.0
         self._final_time_reserve_label: str | None = None
+        self._base_cp_model_options: dict[str, bool] | None = None
         self.save_step_checkpoints_enabled: bool = True
 
         logging.info(
@@ -555,9 +556,12 @@ class HybridFlowShopCpLnsControllerCore(
             "solve_base_cp_model_from_final_time_reserve",
         }:
             return True
-        return method_name == "solve_base_cp_model" and bool(
-            kwargs.get("use_final_time_reserve", False)
-        )
+        return method_name in {
+            "solve_base_cp_model",
+            "solve_base_cp_model_if_last_neh_improved",
+            "solve_base_cp_model_with_last_neh_adaptive_time",
+            "solve_full_schedule_stage_precedence_cp",
+        } and bool(kwargs.get("use_final_time_reserve", False))
 
     def _call_method(self, method_name: str, **kwargs: dict[str, Any]):
         if not hasattr(self, method_name):
@@ -672,6 +676,33 @@ class HybridFlowShopCpLnsControllerCore(
                 "initBound": None,
                 "bestObj": best_obj,
                 "bestBound": best_bound,
+                "retainedCpDispatchObj": getattr(
+                    self, "last_retained_cp_dispatch_obj", None
+                ),
+                "retainedCpPostDispatchObj": getattr(
+                    self, "last_retained_cp_post_dispatch_obj", None
+                ),
+                "retainedCpDispatchCpUb": getattr(
+                    self, "last_retained_cp_dispatch_cp_ub", None
+                ),
+                "retainedCpDispatchCpLb": getattr(
+                    self, "last_retained_cp_dispatch_cp_lb", None
+                ),
+                "retainedCpDispatchElapsedSec": getattr(
+                    self, "last_retained_cp_dispatch_elapsed_sec", None
+                ),
+                "retainedCpDispatchUpdatedIncumbent": getattr(
+                    self, "last_retained_cp_dispatch_was_incumbent_update", None
+                ),
+                "retainedCpDispatchKeptIncumbent": getattr(
+                    self, "last_retained_cp_dispatch_kept_incumbent", None
+                ),
+                "retainedCpSelectedDispatchVariant": getattr(
+                    self, "last_retained_cp_selected_dispatch_variant", None
+                ),
+                "retainedCpPostSelectedDispatchVariant": getattr(
+                    self, "last_retained_cp_post_selected_dispatch_variant", None
+                ),
                 "checkpointCallContext": call_context,
                 "checkpointMethod": method_name,
             }
@@ -1102,6 +1133,7 @@ class HybridFlowShopCpLnsControllerCore(
         interleave_search: bool | None = None,
         use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
+        cp_sat_params: Mapping[str, Any] | None = None,
         e_timer: ElapsedTimer | None = None,
         log_search_progress: bool = False,
         print_on_obj_value_update: bool = False,
@@ -1130,6 +1162,7 @@ class HybridFlowShopCpLnsControllerCore(
             interleave_search=interleave_search,
             use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
+            cp_sat_params=cp_sat_params,
         )
         self.solver = configure_solver(solve_cfg)
         obj_value_recorder = solution_callback
@@ -1397,6 +1430,7 @@ class HybridFlowShopCpLnsControllerCore(
         interleave_search: bool | None = None,
         use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
+        cp_sat_params: Mapping[str, Any] | None = None,
         log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -1465,6 +1499,7 @@ class HybridFlowShopCpLnsControllerCore(
             interleave_search=interleave_search,
             use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
+            cp_sat_params=cp_sat_params,
             e_timer=sub_timer,
             log_search_progress=log_search_progress,
             log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
@@ -1544,6 +1579,7 @@ class HybridFlowShopCpLnsControllerCore(
         interleave_search: bool | None = None,
         use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
+        cp_sat_params: Mapping[str, Any] | None = None,
         log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -1621,6 +1657,7 @@ class HybridFlowShopCpLnsControllerCore(
             interleave_search=interleave_search,
             use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
+            cp_sat_params=cp_sat_params,
             log_search_progress=log_search_progress,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,
