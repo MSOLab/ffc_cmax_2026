@@ -56,35 +56,6 @@
   error_if_infeasible: false
   draw_gantt: false
 - method: apply_retained_stage_cp_lb
-  retained_stage_mode: "first_n_quantiles_last"
-  quantile_count: 3
-  threads: 16
-  tl_nc_multiplier: 0.055
-  snapshot_solution_limit: 64
-  snapshot_log_progress: false
-  save_cp_lb_artifacts: true
-- method: dispatch_from_retained_cp
-  mixed_schedule_for_former_stages: true
-  mixed_schedule_for_later_stages: true
-  machine_then_job: false
-  respect_anchor_stage_release_lb: true
-  cp_local_repair_max_passes: 3
-  cp_local_repair_top_k: 2
-  include_consensus_rank: true
-  include_tail_bottleneck_rank: true
-  include_extended_rank_variants: true
-  include_dynamic_priority: true
-  include_piecewise_stage_priority: false
-  prune_unproductive_dispatch_candidates: true
-  randomized_mixed_rank_trials: 0
-  use_retained_cp_snapshot_portfolio: true
-  retained_cp_snapshot_top_k: 4
-  retained_cp_dispatch_selection_strategy: "best_makespan"
-  retained_cp_dispatch_makespan_slack: 0
-  save_cp_dispatch_artifacts: true
-  error_if_infeasible: false
-  draw_gantt: false
-- method: apply_retained_stage_cp_lb
   retained_stage_mode: "first_topk_bottlenecks_last"
   extra_bottleneck_count: 4
   bottleneck_band_radius: 1
@@ -198,19 +169,16 @@
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 16
   use_lns_only: false
-- method: critical_schedule_repair_ls
-  max_rounds: 1
-  tl_nc_multiplier: 0.003
-  target_stage_mode: "bottleneck_band"
-  bottleneck_band_radius: 2
-  stage_insertion_passes: 1
-  stage_insertion_max_shift: 5
-  machine_insertion_passes: 1
-  max_machine_candidates_per_op: 2
-  adjacent_swap_passes: 1
-  max_adjacent_pairs_per_pass: 80
-  error_if_infeasible: false
-  draw_gantt: false
+- method: incremental_pw_cp
+  batch_size_ratio: 0.10
+  unfixed_batch_count_min: 2
+  unfixed_batch_count_max: 6
+  increment_unfixed_batch_count_flag: if_no_improvement
+  non_time_fixed_op_time_limit_multiplier: 0.006
+  lr_profile_fixed_batch_count: 1
+  enable_promotion_profile_fixed: true
+  solver_thread_cnt: 16
+  use_lns_only: false
 - method: solve_base_cp_model_from_final_time_reserve
   computational_time: null
   solver_thread_cnt: 16

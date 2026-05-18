@@ -1,0 +1,16 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_dispatch_portfolio
+  portfolio: compact
+  include_stage_agg: true
+  cap_portions:
+  - 0.25
+  - 0.30
+  include_mid_order_variants: true
+  randomized_mid_trials: 6
+  randomized_tiebreak_trials: 6
+  selection_strategy: best
+  selection_obj_slack: 0
+  error_if_infeasible: false
+  draw_gantt: false

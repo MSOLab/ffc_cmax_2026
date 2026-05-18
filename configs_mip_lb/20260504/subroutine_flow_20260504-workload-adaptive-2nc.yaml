@@ -79,7 +79,7 @@
   prune_unproductive_dispatch_candidates: true
   randomized_mixed_rank_trials: 0
   use_retained_cp_snapshot_portfolio: true
-  retained_cp_snapshot_top_k: 2
+  retained_cp_snapshot_top_k: 4
   retained_cp_dispatch_selection_strategy: "best_makespan"
   retained_cp_dispatch_makespan_slack: 0
   save_cp_dispatch_artifacts: true
@@ -88,55 +88,76 @@
 - method: neh_cp
   added_batch_size: 10
   job_seq_by_1st_stage: false
-  cp_tl_nc_multiplier: 0.05
+  cp_tl_nc_multiplier: 0.005
   profile_fix_by_machine: false
   minimize_sum_ci_lex: true
-  cp_tl_nc_multiplier_2nd_obj: 0.005
+  cp_tl_nc_multiplier_2nd_obj: 0.0025
   minimize_sum_ci_lin: false
   tighten_ranges: false
   link_job_completion: false
   use_lns_only: true
   make_semi_active_every_cp: true
   solver_thread_cnt: 16
-  max_added_batch_count: 8
+  skip_if_estimated_neh_exceeds_remaining: true
+  full_neh_estimate_safety_factor: 1.0
+- method: neh_cp
+  added_batch_size: 15
+  job_seq_by_1st_stage: false
+  cp_tl_nc_multiplier: 0.005
+  profile_fix_by_machine: false
+  minimize_sum_ci_lex: true
+  cp_tl_nc_multiplier_2nd_obj: 0.0025
+  minimize_sum_ci_lin: false
+  tighten_ranges: false
+  link_job_completion: false
+  use_lns_only: true
+  make_semi_active_every_cp: true
+  solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
 - method: neh_cp
   added_batch_size: 20
   job_seq_by_1st_stage: false
-  job_seq_by_bottleneck_stage: false
-  preserved_head_job_portion: 0.0
-  cp_tl_nc_multiplier: 0.05
+  cp_tl_nc_multiplier: 0.005
   profile_fix_by_machine: false
-  machine_precedence_stride: 1
   minimize_sum_ci_lex: true
-  cp_tl_nc_multiplier_2nd_obj: 0.005
+  cp_tl_nc_multiplier_2nd_obj: 0.0025
+  minimize_sum_ci_lin: false
+  tighten_ranges: false
+  link_job_completion: false
+  use_lns_only: true
   make_semi_active_every_cp: true
   solver_thread_cnt: 16
-  use_lns_only: true
-  error_if_infeasible: false
-  draw_gantt: false
-  max_added_batch_count: 8
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: neh_cp_adaptive_preserved_head
-  added_batch_size: 20
+- method: neh_cp
+  added_batch_size: 25
   job_seq_by_1st_stage: false
-  job_seq_by_bottleneck_stage: true
-  small_preserved_head_job_portion: 0.25
-  large_preserved_head_job_portion: 0.40
-  large_workload_threshold: 1800
-  cp_tl_nc_multiplier: 0.05
+  cp_tl_nc_multiplier: 0.01
   profile_fix_by_machine: false
-  machine_precedence_stride: 1
   minimize_sum_ci_lex: true
-  cp_tl_nc_multiplier_2nd_obj: 0.005
+  cp_tl_nc_multiplier_2nd_obj: 0.0025
+  minimize_sum_ci_lin: false
+  tighten_ranges: false
+  link_job_completion: false
+  use_lns_only: true
   make_semi_active_every_cp: true
   solver_thread_cnt: 16
+  skip_if_estimated_neh_exceeds_remaining: true
+  full_neh_estimate_safety_factor: 1.0
+- method: neh_cp
+  added_batch_size: 30
+  job_seq_by_1st_stage: false
+  cp_tl_nc_multiplier: 0.01
+  profile_fix_by_machine: false
+  minimize_sum_ci_lex: true
+  cp_tl_nc_multiplier_2nd_obj: 0.0025
+  minimize_sum_ci_lin: false
+  tighten_ranges: false
+  link_job_completion: false
   use_lns_only: true
-  error_if_infeasible: false
-  draw_gantt: false
-  max_added_batch_count: 8
+  make_semi_active_every_cp: true
+  solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
 - method: incremental_pw_cp

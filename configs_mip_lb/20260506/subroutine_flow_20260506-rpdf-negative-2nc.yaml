@@ -6,8 +6,8 @@
   include_stage_agg: true
   cap_portions: [0.25, 0.30]
   include_mid_order_variants: true
-  randomized_mid_trials: 6
-  randomized_tiebreak_trials: 6
+  randomized_mid_trials: 2
+  randomized_tiebreak_trials: 2
   selection_strategy: "best"
   selection_obj_slack: 0
   error_if_infeasible: false
@@ -28,7 +28,7 @@
   retained_stage_mode: "first_n_quantiles_last"
   quantile_count: 4
   threads: 16
-  tl_nc_multiplier: 0.08
+  tl_nc_multiplier: 0.1
   snapshot_solution_limit: 96
   snapshot_log_progress: false
   save_cp_lb_artifacts: true
@@ -42,7 +42,7 @@
   include_consensus_rank: true
   include_tail_bottleneck_rank: true
   include_extended_rank_variants: true
-  include_dynamic_priority: false
+  include_dynamic_priority: true
   include_piecewise_stage_priority: false
   prune_unproductive_dispatch_candidates: true
   randomized_mixed_rank_trials: 0
@@ -56,11 +56,11 @@
 - method: apply_workload_adaptive_retained_stage_cp_lb
   retained_stage_mode: "first_topk_bottlenecks_last"
   small_extra_bottleneck_count: 3
-  large_extra_bottleneck_count: 4
+  large_extra_bottleneck_count: 5
   large_workload_threshold: 1800
   bottleneck_band_radius: 1
   threads: 16
-  tl_nc_multiplier: 0.08
+  tl_nc_multiplier: 0.1
   snapshot_solution_limit: 96
   snapshot_log_progress: false
   save_cp_lb_artifacts: true
@@ -74,7 +74,7 @@
   include_consensus_rank: true
   include_tail_bottleneck_rank: true
   include_extended_rank_variants: true
-  include_dynamic_priority: false
+  include_dynamic_priority: true
   include_piecewise_stage_priority: false
   prune_unproductive_dispatch_candidates: true
   randomized_mixed_rank_trials: 0
@@ -85,20 +85,21 @@
   save_cp_dispatch_artifacts: true
   error_if_infeasible: false
   draw_gantt: false
-- method: adaptive_critical_tail_job_ns
-  solver_thread_cnt: 16
-  job_count_ratio: 0.08
-  min_job_count: 6
-  max_job_count: 24
-  tl_nc_multiplier: 0.012
-  tail_stage_ratio: 0.55
-  job_selection_policy: "critical_adjacency"
+- method: neh_cp
+  added_batch_size: 10
+  job_seq_by_1st_stage: false
+  cp_tl_nc_multiplier: 0.001
   profile_fix_by_machine: false
-  machine_precedence_stride: 1
-  make_semi_active_after_cp: true
+  minimize_sum_ci_lex: true
+  cp_tl_nc_multiplier_2nd_obj: 0.0025
+  minimize_sum_ci_lin: false
+  tighten_ranges: false
+  link_job_completion: false
   use_lns_only: true
-  error_if_infeasible: false
-  draw_gantt: false
+  make_semi_active_every_cp: true
+  solver_thread_cnt: 16
+  skip_if_estimated_neh_exceeds_remaining: true
+  full_neh_estimate_safety_factor: 1.0
 - method: neh_cp
   added_batch_size: 10
   job_seq_by_1st_stage: false
@@ -132,7 +133,7 @@
 - method: neh_cp
   added_batch_size: 25
   job_seq_by_1st_stage: false
-  cp_tl_nc_multiplier: 0.01
+  cp_tl_nc_multiplier: 0.02
   profile_fix_by_machine: false
   minimize_sum_ci_lex: true
   cp_tl_nc_multiplier_2nd_obj: 0.0025
@@ -144,30 +145,6 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: neh_cp_adaptive_preserved_head
-  added_batch_size: 20
-  job_seq_by_1st_stage: false
-  job_seq_by_bottleneck_stage: true
-  small_preserved_head_job_portion: 0.25
-  large_preserved_head_job_portion: 0.40
-  large_workload_threshold: 1800
-  cp_tl_nc_multiplier: 0.025
-  profile_fix_by_machine: false
-  machine_precedence_stride: 1
-  minimize_sum_ci_lex: true
-  cp_tl_nc_multiplier_2nd_obj: 0.005
-  minimize_sum_ci_lin: false
-  tighten_ranges: false
-  link_job_completion: false
-  make_semi_active_every_cp: true
-  solver_thread_cnt: 16
-  use_lns_only: true
-  error_if_infeasible: false
-  draw_gantt: false
-  max_added_batch_count: 6
-  skip_if_estimated_neh_exceeds_remaining: true
-  full_neh_estimate_safety_factor: 1.0
-  min_remaining_nc_after_neh: 0.45
 - method: incremental_pw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
@@ -179,9 +156,9 @@
   solver_thread_cnt: 16
   use_lns_only: false
 - method: incremental_pw_cp
-  batch_size_ratio: 0.10
+  batch_size_ratio: 0.09
   unfixed_batch_count_min: 2
-  unfixed_batch_count_max: 5
+  unfixed_batch_count_max: 6
   increment_unfixed_batch_count_flag: if_no_improvement
   non_time_fixed_op_time_limit_multiplier: 0.006
   lr_profile_fixed_batch_count: 1

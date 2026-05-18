@@ -1,0 +1,75 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_dispatch_portfolio
+  portfolio: compact
+  include_stage_agg: true
+  cap_portions:
+  - 0.25
+  - 0.3
+  include_mid_order_variants: true
+  randomized_mid_trials: 6
+  randomized_tiebreak_trials: 6
+  selection_strategy: best
+  selection_obj_slack: 0
+  error_if_infeasible: false
+  draw_gantt: false
+- method: initialize_by_tau_coarsened_cp
+  tau_values:
+  - 5
+  surrogate_tl_nc_multiplier: 0.03
+  polish_tl_nc_multiplier: null
+  restore_modes:
+  - machine_sequence
+  - stage_sequence
+  polish_profile_modes:
+  - stage_sequence
+  surrogate_dispatch_before_cp: true
+  include_surrogate_dispatch_candidate: true
+  surrogate_dispatch_cap_portions:
+  - 0.20
+  - 0.25
+  - 0.30
+  surrogate_dispatch_method_list:
+  - bn2d_all_stages
+  - best_of_mixed_dispatches
+  surrogate_dispatch_include_machine_then_job_variants: true
+  surrogate_dispatch_candidate_top_k: 20
+  surrogate_neh_enabled: true
+  surrogate_neh_position: before_cp
+  surrogate_neh_tau_values:
+  - 5
+  surrogate_neh_sources:
+  - dispatch
+  surrogate_neh_added_batch_sizes:
+  - 15
+  surrogate_neh_sequential: true
+  surrogate_neh_also_solve_dispatch_cp: false
+  surrogate_neh_cp_tl_nc_multiplier: 0.001
+  surrogate_neh_use_lns_only: true
+  surrogate_neh_minimize_sum_ci_lex: false
+  surrogate_neh_cp_tl_nc_multiplier_2nd_obj: null
+  surrogate_pw_cp_enabled: true
+  surrogate_pw_cp_tau_values:
+  - 5
+  surrogate_pw_cp_batch_size_ratio: 0.05
+  surrogate_pw_cp_unfixed_batch_count_min: 2
+  surrogate_pw_cp_unfixed_batch_count_max: 4
+  surrogate_pw_cp_step_size: 1
+  surrogate_pw_cp_lr_profile_fixed_batch_count: 1
+  surrogate_pw_cp_enable_promotion_profile_fixed: true
+  surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier: 0.0015
+  surrogate_pw_cp_use_lns_only: false
+  surrogate_pw_cp_stop_on_no_improvement: false
+  solver_thread_cnt: 16
+  surrogate_use_lns_only: false
+  surrogate_cp_snapshot_solution_limit: 20
+  polish_use_lns_only: false
+  cp_model_probing_level: 1
+  cp_sat_params:
+    diversify_lns_params: true
+    solution_pool_size: 8
+  make_semi_active: true
+  save_candidate_artifacts: true
+  error_if_infeasible: false
+  draw_gantt: false

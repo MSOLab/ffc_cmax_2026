@@ -1,0 +1,54 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+benchmark_idx_list:
+  - 35
+  - 203
+  - 231
+  - 39
+  - 111
+  - 68
+  - 131
+  - 159
+  - 232
+  - 135
+  - 218
+  - 87
+  - 207
+  - 107
+  - 120
+  - 103
+  - 164
+  - 192
+  - 198
+  - 199
+  - 4
+  - 56
+  - 76
+  - 51
+  - 123
+  - 168
+  - 25
+  - 7
+  - 202
+  - 69
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_2nc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260507/subroutine_flow_20260507-unified-gap-restore-workload-v3-2nc.yaml"
+    output_dir: "ff2020/20260507-bad20-good5-random5-unified-gap-restore-workload-v3-2nc"
+    description: "30-instance unified 2nc flow using only workload, residual gap, and retained-CP restore-loss guards; no explicit C/type split."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+instance_worker_cnt: 6
+
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: false
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0

@@ -1,0 +1,35 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+benchmark_idx_list:
+  - 54
+  - 98
+  - 103
+  - 126
+  - 146
+  - 172
+  - 199
+  - 218
+  - 220
+# first: 1
+# last: 240
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_2nc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260514/subroutine_flow_20260514-tau-small-deep-dispatchhint-pilot-2nc.yaml"
+    output_dir: "ff2020/20260514-tau-small-deep-dispatchhint-pilot"
+    description: "Deep tau-coarsened surrogate pilot for small/mid instances where 0504 post-dispatch #2 remains weak; scaled dispatch plus surrogate CP hint and longer original hint-only polish."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+instance_worker_cnt: 1
+
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: false
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0

@@ -1,0 +1,27 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+benchmark_idx_list:
+  - 54
+  - 78
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/20260512/stopping_criteria_resume_pdiff_probe.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260512/subroutine_flow_20260512-resume16-time-ring-precedence-2nc.yaml"
+    output_dir: "ff2020/20260512-resume16-time-ring-precedence-probe54-78-2nc"
+    description: "Resume from pre-PW checkpoint 16; time-ring precedence sweep with core free, shoulder stage-level, outside machine-level, then short final CP."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+instance_worker_cnt: 2
+
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: false
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0
+
+resume_dir_path: "Outputs_scenarios/20260512T163823_268797/ff2020/20260512-delayonly/checkpoints/16-solve_base_cp_model_with_last_neh_adaptive_time"

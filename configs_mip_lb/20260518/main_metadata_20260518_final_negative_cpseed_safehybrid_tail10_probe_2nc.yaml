@@ -1,0 +1,39 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+
+# Tail sanity check for the cp-seeded-safe hybrid suffix.
+# Compared with the common-PW candidate, this keeps early PW0.05 for standard,
+# delayed, retained-sequence, and limited-depth probes, but keeps the original
+# D-style NEH-first suffix when the CP-seeded probe wins.
+benchmark_idx_list:
+  - 36
+  - 40
+  - 56
+  - 96
+  - 126
+  - 174
+  - 184
+  - 200
+  - 224
+  - 226
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_2nc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260518/subroutine_flow_20260518-final-negative-cpseed-safehybrid-2nc.yaml"
+    output_dir: "ff2020/20260518-final-negative-cpseed-safehybrid-tail10-probe-2nc"
+    description: "Tail probe for the final cp-seeded-safe hybrid 2nc candidate: D prefix/probes, early-PW common suffix for non-CP-seeded lanes, and original D-style NEH-first suffix for CP-seeded lane."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+instance_worker_cnt: 6
+
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: false
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0

@@ -1,0 +1,39 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+
+# Tail instances where Candidate D became worse than 0504 even though
+# post-dispatch #2 was already competitive, or where late PW0.05 carried most
+# of the suffix improvement. This is the focused pre-full240 sanity check for
+# the common early-PW suffix.
+benchmark_idx_list:
+  - 36
+  - 40
+  - 56
+  - 96
+  - 126
+  - 174
+  - 184
+  - 200
+  - 224
+  - 226
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_2nc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260518/subroutine_flow_20260518-final-negative-commonpw-2nc.yaml"
+    output_dir: "ff2020/20260518-final-negative-commonpw-tail10-probe-2nc"
+    description: "Ten-instance tail probe for the final common-early-PW 2nc candidate, targeting Candidate-D losses vs 0504 where suffix conversion, not the retained-CP prefix, looked like the main weakness."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+instance_worker_cnt: 6
+
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: false
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0
