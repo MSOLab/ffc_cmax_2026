@@ -175,10 +175,11 @@ class DummyBarVars:
     stage_id -> mc_id -> initial start time for right boundary bar
     """
 
-    common_spacing: IntVar
+    common_spacing: IntVar | None
     """
-    Common spacing variable (shared across all machines)
-    This is the gap that will be created before right boundary
+    Common spacing variable (shared across all machines).
+    This is the gap that will be created before right boundary.
+    None when the model is built without right dummy bars.
     """
 
 
@@ -238,6 +239,7 @@ class PwCpModelBuilder(BaseModelBuilder):
         params: Params,
         horizon: int,
         stage_2_mc_2_window: dict[StageIdType, dict[McIdType, tuple[int, int]]],
+        include_right_bars: bool = True,
     ) -> DummyBarVars:
         l_dummy_intervals: dict[StageIdType, dict[McIdType, IntervalVar]] = {
             stage_id: {} for stage_id in params.i_list
@@ -252,8 +254,13 @@ class PwCpModelBuilder(BaseModelBuilder):
             stage_id: {} for stage_id in params.i_list
         }
 
-        # Common spacing variable (shared across all machines)
-        common_spacing = mdl.new_int_var(0, horizon, "common_spacing")
+        # Common spacing variable (shared across all machines).
+        # Only meaningful when right dummy bars are built.
+        common_spacing = (
+            mdl.new_int_var(0, horizon, "common_spacing")
+            if include_right_bars
+            else None
+        )
 
         for stage_id, mc_2_window in stage_2_mc_2_window.items():
             for mc_id, (left_boundary_time, right_boundary_time) in mc_2_window.items():
@@ -267,6 +274,10 @@ class PwCpModelBuilder(BaseModelBuilder):
                     )
                     l_dummy_intervals[stage_id][mc_id] = l_dummy_interval
                     l_dummy_end[stage_id][mc_id] = left_boundary_time
+
+                if not include_right_bars:
+                    continue
+                assert common_spacing is not None
 
                 # Right dummy: end fixed as horizon
                 r_dummy_end = horizon
@@ -408,8 +419,12 @@ class PwCpModelBuilder(BaseModelBuilder):
         Returns:
             The common_spacing variable being maximized
         """
-        mdl.maximize(dummy_bar_vars.common_spacing)
-        return dummy_bar_vars.common_spacing
+        common_spacing = dummy_bar_vars.common_spacing
+        assert common_spacing is not None, (
+            "common_spacing must be present to maximize the common-spacing objective"
+        )
+        mdl.maximize(common_spacing)
+        return common_spacing
 
     @staticmethod
     def add_makespan_objective(
