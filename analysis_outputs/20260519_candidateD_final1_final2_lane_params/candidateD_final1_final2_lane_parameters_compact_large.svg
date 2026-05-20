@@ -1,0 +1,408 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="1742.4pt" height="1094.4pt" viewBox="0 0 1742.4 1094.4" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-05-19T23:22:15.882303</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 1094.4 
+L 1742.4 1094.4 
+L 1742.4 0 
+L 0 0 
+z
+" style="fill: #faf9f6"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 65.952 339.84 
+L 406.368 339.84 
+Q 423.648 339.84 423.648 329.04 
+L 423.648 175.68 
+Q 423.648 164.88 406.368 164.88 
+L 65.952 164.88 
+Q 48.672 164.88 48.672 175.68 
+L 48.672 329.04 
+Q 48.672 339.84 65.952 339.84 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #245a7d; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 437.472 339.84 
+L 777.888 339.84 
+Q 795.168 339.84 795.168 329.04 
+L 795.168 175.68 
+Q 795.168 164.88 777.888 164.88 
+L 437.472 164.88 
+Q 420.192 164.88 420.192 175.68 
+L 420.192 329.04 
+Q 420.192 339.84 437.472 339.84 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #245a7d; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 808.992 339.84 
+L 1149.408 339.84 
+Q 1166.688 339.84 1166.688 329.04 
+L 1166.688 175.68 
+Q 1166.688 164.88 1149.408 164.88 
+L 808.992 164.88 
+Q 791.712 164.88 791.712 175.68 
+L 791.712 329.04 
+Q 791.712 339.84 808.992 339.84 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #245a7d; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 1180.512 339.84 
+L 1676.448 339.84 
+Q 1693.728 339.84 1693.728 329.04 
+L 1693.728 175.68 
+Q 1693.728 164.88 1676.448 164.88 
+L 1180.512 164.88 
+Q 1163.232 164.88 1163.232 175.68 
+L 1163.232 329.04 
+Q 1163.232 339.84 1180.512 339.84 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #245a7d; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 65.952 496.44 
+L 1045.728 496.44 
+Q 1063.008 496.44 1063.008 485.64 
+L 1063.008 359.28 
+Q 1063.008 348.48 1045.728 348.48 
+L 65.952 348.48 
+Q 48.672 348.48 48.672 359.28 
+L 48.672 485.64 
+Q 48.672 496.44 65.952 496.44 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #245a7d; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 1085.472 496.44 
+L 1676.448 496.44 
+Q 1693.728 496.44 1693.728 485.64 
+L 1693.728 359.28 
+Q 1693.728 348.48 1676.448 348.48 
+L 1085.472 348.48 
+Q 1068.192 348.48 1068.192 359.28 
+L 1068.192 485.64 
+Q 1068.192 496.44 1085.472 496.44 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #fff7e6; stroke: #245a7d; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 65.952 723.24 
+L 561.888 723.24 
+Q 579.168 723.24 579.168 712.44 
+L 579.168 586.08 
+Q 579.168 575.28 561.888 575.28 
+L 65.952 575.28 
+Q 48.672 575.28 48.672 586.08 
+L 48.672 712.44 
+Q 48.672 723.24 65.952 723.24 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #6b5b95; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 610.272 723.24 
+L 1106.208 723.24 
+Q 1123.488 723.24 1123.488 712.44 
+L 1123.488 586.08 
+Q 1123.488 575.28 1106.208 575.28 
+L 610.272 575.28 
+Q 592.992 575.28 592.992 586.08 
+L 592.992 712.44 
+Q 592.992 723.24 610.272 723.24 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #6b5b95; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 1154.592 723.24 
+L 1676.448 723.24 
+Q 1693.728 723.24 1693.728 712.44 
+L 1693.728 586.08 
+Q 1693.728 575.28 1676.448 575.28 
+L 1154.592 575.28 
+Q 1137.312 575.28 1137.312 586.08 
+L 1137.312 712.44 
+Q 1137.312 723.24 1154.592 723.24 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #6b5b95; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 65.952 845.28 
+L 1676.448 845.28 
+Q 1693.728 845.28 1693.728 834.48 
+L 1693.728 740.52 
+Q 1693.728 729.72 1676.448 729.72 
+L 65.952 729.72 
+Q 48.672 729.72 48.672 740.52 
+L 48.672 834.48 
+Q 48.672 845.28 65.952 845.28 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #f0edf8; stroke: #6b5b95; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 65.952 1058.04 
+L 1114.848 1058.04 
+Q 1132.128 1058.04 1132.128 1047.24 
+L 1132.128 931.68 
+Q 1132.128 920.88 1114.848 920.88 
+L 65.952 920.88 
+Q 48.672 920.88 48.672 931.68 
+L 48.672 1047.24 
+Q 48.672 1058.04 65.952 1058.04 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #ffffff; stroke: #2f7d5f; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 1163.232 1058.04 
+L 1676.448 1058.04 
+Q 1693.728 1058.04 1693.728 1047.24 
+L 1693.728 931.68 
+Q 1693.728 920.88 1676.448 920.88 
+L 1163.232 920.88 
+Q 1145.952 920.88 1145.952 931.68 
+L 1145.952 1047.24 
+Q 1145.952 1058.04 1163.232 1058.04 
+z
+" clip-path="url(#p2ed01605e0)" style="fill: #eaf5ef; stroke: #2f7d5f; stroke-width: 1.3; stroke-linejoin: miter"/>
+   </g>
+   <g id="line2d_1">
+    <path d="M 59.04 153 
+L 1683.36 153 
+" clip-path="url(#p2ed01605e0)" style="fill: none; stroke: #245a7d; stroke-opacity: 0.55; stroke-width: 2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_2">
+    <path d="M 59.04 563.4 
+L 1683.36 563.4 
+" clip-path="url(#p2ed01605e0)" style="fill: none; stroke: #6b5b95; stroke-opacity: 0.55; stroke-width: 2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 59.04 909 
+L 1683.36 909 
+" clip-path="url(#p2ed01605e0)" style="fill: none; stroke: #2f7d5f; stroke-opacity: 0.55; stroke-width: 2; stroke-linecap: square"/>
+   </g>
+   <g id="text_1">
+    <text style="font-weight: 700; font-size: 20px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #245a7d" x="59.04" y="136.91875" transform="rotate(-0 59.04 136.91875)">Candidate D: selected suffix lanes in 240-run</text>
+   </g>
+   <g id="text_2">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="196.628437" transform="rotate(-0 79.776 196.628437)">safe_0504_first_neh</text>
+   </g>
+   <g id="text_3">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #245a7d" x="392.544" y="196.823125" transform="rotate(-0 392.544 196.823125)">28</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="230.310094" transform="rotate(-0 79.776 230.310094)">Probe: NEH10 b=10 tl=.005</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="247.202401" transform="rotate(-0 79.776 247.202401)">Suffix NEH: b=15/20 tl=.005;</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="264.094709" transform="rotate(-0 79.776 264.094709)">b=25/30 tl=.010</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="280.987017" transform="rotate(-0 79.776 280.987017)">PW: r=.05 tl=.008 U=2..8; r=.10</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="297.879325" transform="rotate(-0 79.776 297.879325)">tl=.006 U=2..6</text>
+   </g>
+   <g id="text_9">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="451.296" y="196.628437" transform="rotate(-0 451.296 196.628437)">cp_seeded_first_neh</text>
+   </g>
+   <g id="text_10">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #245a7d" x="764.064" y="196.823125" transform="rotate(-0 764.064 196.823125)">31</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="451.296" y="230.310094" transform="rotate(-0 451.296 230.310094)">Seed: base CP tl=.018;</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="451.296" y="247.202401" transform="rotate(-0 451.296 247.202401)">small=.008</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="451.296" y="264.094709" transform="rotate(-0 451.296 264.094709)">Probe: NEH10 b=10 tl=.005 max=8</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="451.296" y="280.987017" transform="rotate(-0 451.296 280.987017)">Suffix: same NEH15..30 +</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="451.296" y="297.879325" transform="rotate(-0 451.296 297.879325)">PW.05/PW.10</text>
+   </g>
+   <g id="text_16">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="822.816" y="196.628437" transform="rotate(-0 822.816 196.628437)">delayed_profile_first_neh</text>
+   </g>
+   <g id="text_17">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #245a7d" x="1135.584" y="196.823125" transform="rotate(-0 1135.584 196.823125)">34</text>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="822.816" y="230.310094" transform="rotate(-0 822.816 230.310094)">Probe: NEH10 b=10 tl=.006 max=8</text>
+   </g>
+   <g id="text_19">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="822.816" y="247.202401" transform="rotate(-0 822.816 247.202401)">Profile fix: F=3..6, min</text>
+   </g>
+   <g id="text_20">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="822.816" y="264.094709" transform="rotate(-0 822.816 264.094709)">portion=.25</text>
+   </g>
+   <g id="text_21">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="822.816" y="280.987017" transform="rotate(-0 822.816 280.987017)">Suffix: same NEH15..30 +</text>
+   </g>
+   <g id="text_22">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="822.816" y="297.879325" transform="rotate(-0 822.816 297.879325)">PW.05/PW.10</text>
+   </g>
+   <g id="text_23">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1194.336" y="196.628437" transform="rotate(-0 1194.336 196.628437)">retained_cp_sequence_first_neh</text>
+   </g>
+   <g id="text_24">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #245a7d" x="1662.624" y="196.823125" transform="rotate(-0 1662.624 196.823125)">28</text>
+   </g>
+   <g id="text_25">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1194.336" y="230.310094" transform="rotate(-0 1194.336 230.310094)">Probe: NEH10 b=10 tl=.006 max=8</text>
+   </g>
+   <g id="text_26">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1194.336" y="247.202401" transform="rotate(-0 1194.336 247.202401)">Seq: last retained-CP order; fallback=bottleneck</text>
+   </g>
+   <g id="text_27">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1194.336" y="264.094709" transform="rotate(-0 1194.336 264.094709)">Suffix: same NEH15..30 + PW.05/PW.10</text>
+   </g>
+   <g id="text_28">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="380.228437" transform="rotate(-0 79.776 380.228437)">interleaved_pw_neh_basin</text>
+   </g>
+   <g id="text_29">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #245a7d" x="1031.904" y="380.423125" transform="rotate(-0 1031.904 380.423125)">16</text>
+   </g>
+   <g id="text_30">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="413.910094" transform="rotate(-0 79.776 413.910094)">Probe: NEH10 b=10 tl=.0075 max=8</text>
+   </g>
+   <g id="text_31">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="430.802401" transform="rotate(-0 79.776 430.802401)">Suffix: PW.05 tl=.008 U=2..5 -&gt; NEH15 -&gt; PW.06 tl=.008 U=2..5 -&gt; NEH20 -&gt; PW.08 tl=.008</text>
+   </g>
+   <g id="text_32">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="447.694709" transform="rotate(-0 79.776 447.694709)">U=2..6 -&gt; NEH25 -&gt; NEH30 -&gt; PW.10 tl=.006 U=2..6</text>
+   </g>
+   <g id="text_33">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1099.296" y="380.228437" transform="rotate(-0 1099.296 380.228437)">no_suffix_guard_or_skip</text>
+   </g>
+   <g id="text_34">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #245a7d" x="1662.624" y="380.423125" transform="rotate(-0 1662.624 380.423125)">103</text>
+   </g>
+   <g id="text_35">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1099.296" y="413.910094" transform="rotate(-0 1099.296 413.910094)">Count=103. Suffix not selected/run because guard did not</text>
+   </g>
+   <g id="text_36">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1099.296" y="430.802401" transform="rotate(-0 1099.296 430.802401)">require it, or fallback/prefix path was kept. Guard: run</text>
+   </g>
+   <g id="text_37">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1099.296" y="447.694709" transform="rotate(-0 1099.296 447.694709)">suffix if bound missing or gap &gt;= .003.</text>
+   </g>
+   <g id="text_38">
+    <text style="font-weight: 700; font-size: 20px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #6b5b95" x="59.04" y="547.31875" transform="rotate(-0 59.04 547.31875)">Final-1: deep-3 portfolio</text>
+   </g>
+   <g id="text_39">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="607.028437" transform="rotate(-0 79.776 607.028437)">standard_neh10_probe</text>
+   </g>
+   <g id="text_40">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="640.710094" transform="rotate(-0 79.776 640.710094)">Probe: NEH10 b=10 tl=.005</text>
+   </g>
+   <g id="text_41">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="657.602401" transform="rotate(-0 79.776 657.602401)">max=-, F=-</text>
+   </g>
+   <g id="text_42">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="674.494709" transform="rotate(-0 79.776 674.494709)">Selected lane then uses common deep suffix.</text>
+   </g>
+   <g id="text_43">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="624.096" y="607.028437" transform="rotate(-0 624.096 607.028437)">delayed_profile_neh10_probe</text>
+   </g>
+   <g id="text_44">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="624.096" y="640.710094" transform="rotate(-0 624.096 640.710094)">Probe: NEH10 b=10 tl=.006</text>
+   </g>
+   <g id="text_45">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="624.096" y="657.602401" transform="rotate(-0 624.096 657.602401)">max=8; profile F=3..6; min portion=.25</text>
+   </g>
+   <g id="text_46">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="624.096" y="674.494709" transform="rotate(-0 624.096 674.494709)">Selected lane then uses common deep suffix.</text>
+   </g>
+   <g id="text_47">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1168.416" y="607.028437" transform="rotate(-0 1168.416 607.028437)">retained_sequence_neh10_probe</text>
+   </g>
+   <g id="text_48">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1168.416" y="640.710094" transform="rotate(-0 1168.416 640.710094)">Probe: NEH10 b=10 tl=.006</text>
+   </g>
+   <g id="text_49">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1168.416" y="657.602401" transform="rotate(-0 1168.416 657.602401)">max=8; seq=last retained CP</text>
+   </g>
+   <g id="text_50">
+    <text style="font-size: 12.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1168.416" y="674.494709" transform="rotate(-0 1168.416 674.494709)">Selected lane then uses common deep suffix.</text>
+   </g>
+   <g id="text_51">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="761.663125" transform="rotate(-0 79.776 761.663125)">Final-1 common suffix</text>
+   </g>
+   <g id="text_52">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="795.757969" transform="rotate(-0 79.776 795.757969)">NEH: b=15/20 tl=.005; b=25/30 tl=.010     PW: r=.05 tl=.008 U=2..8 -&gt; r=.08 tl=.007 U=2..6 -&gt; r=.10 tl=.006 U=2..6     Guard: bound missing or gap &gt;=</text>
+   </g>
+   <g id="text_53">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="813.757969" transform="rotate(-0 79.776 813.757969)">.003</text>
+   </g>
+   <g id="text_54">
+    <text style="font-weight: 700; font-size: 20px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #2f7d5f" x="59.04" y="892.840625" transform="rotate(-0 59.04 892.840625)">Final-2: direct single lane</text>
+   </g>
+   <g id="text_55">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="952.628437" transform="rotate(-0 79.776 952.628437)">direct_neh10_to_30_then_pw</text>
+   </g>
+   <g id="text_56">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #2f7d5f" x="1101.024" y="952.823125" transform="rotate(-0 1101.024 952.823125)">240/240</text>
+   </g>
+   <g id="text_57">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="986.917969" transform="rotate(-0 79.776 986.917969)">NEH: b=10/15/20 tl=.005; b=25/30 tl=.010; max=-     PW: r=.05 tl=.008 U=2..8 -&gt; r=.08 tl=.007</text>
+   </g>
+   <g id="text_58">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="79.776" y="1004.917969" transform="rotate(-0 79.776 1004.917969)">U=2..6 -&gt; r=.13 tl=.006 U=2..6     No lane guard; all instances follow this lane.</text>
+   </g>
+   <g id="text_59">
+    <text style="font-weight: 700; font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1177.056" y="952.823125" transform="rotate(-0 1177.056 952.823125)">head/tail + final CP</text>
+   </g>
+   <g id="text_60">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1177.056" y="986.917969" transform="rotate(-0 1177.056 986.917969)">tighten_ranges=true in NEH/PW/final CP</text>
+   </g>
+   <g id="text_61">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1177.056" y="1004.917969" transform="rotate(-0 1177.056 1004.917969)">Final CP: consume remaining reserve,</text>
+   </g>
+   <g id="text_62">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1177.056" y="1022.917969" transform="rotate(-0 1177.056 1022.917969)">LNS=true</text>
+   </g>
+   <g id="text_63">
+    <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="1177.056" y="1040.917969" transform="rotate(-0 1177.056 1040.917969)">No pool8 override.</text>
+   </g>
+  </g>
+  <g id="text_64">
+   <text style="font-weight: 700; font-size: 26px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #121212" x="59.04" y="61.515937" transform="rotate(-0 59.04 61.515937)">Compact Lane Parameters: Candidate D / Final-1 / Final-2</text>
+  </g>
+  <g id="text_65">
+   <text style="font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #56524c" x="59.04" y="84.797812" transform="rotate(-0 59.04 84.797812)">tl = nc multiplier, b = added batch size, U = unfixed batch-count range, F = fixed/profile batch index. Large text version: explanation intentionally omitted.</text>
+  </g>
+  <g id="text_66">
+   <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #56524c" x="59.04" y="1067.76" transform="rotate(-0 59.04 1067.76)">Source files: Candidate D YAML under configs_mip_lb/20260515, Final-2 YAML under configs_mip_lb/20260519; Final-1 deep-3 reconstructed from the flowchart/context discussed on 2026-05-19.</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p2ed01605e0">
+   <rect x="7.2" y="7.2" width="1728" height="1080"/>
+  </clipPath>
+ </defs>
+</svg>
