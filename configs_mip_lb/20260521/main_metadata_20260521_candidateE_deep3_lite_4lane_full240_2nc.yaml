@@ -9,7 +9,7 @@ dicts_of_i_o_data_path:
   subroutine_flow_rel_path: configs_mip_lb/20260521/subroutine_flow_20260521-candidateE-deep3-lite-4lane-2nc.yaml
   output_dir: ff2020/20260521-candidateE-deep3-lite-4lane-full240-2nc
   description: 'Full 240 ff2020 run for candidateE: artifact-light deep3-lite backbone with guarded retained-dispatch beam,
-    four suffix-probe lanes (standard, CP-seeded, delayed-profile, retained-seq), common NEH15-PW0.05-NEH20-NEH25-NEH30-PW0.10 suffix,
+    four suffix-probe lanes (standard, CP-seeded, delayed-profile, retained-seq), common NEH15-NEH20-NEH25-NEH30-PW0.05-PW0.10 suffix,
     and diversified final CP.'
 output_dir_scenarios: Outputs_scenarios
 scenario_log_filename: hfs_multi_scenario_runner.log

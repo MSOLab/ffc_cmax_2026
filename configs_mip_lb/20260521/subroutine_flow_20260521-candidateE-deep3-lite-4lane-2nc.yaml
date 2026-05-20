@@ -328,10 +328,10 @@
     - *safe_neh10
     suffix_steps:
     - *safe_neh15
-    - *safe_pw005
     - *safe_neh20
     - *safe_neh25
     - *safe_neh30
+    - *safe_pw005
     - *safe_pw010
   - name: cp_seeded_neh10_probe
     probe_steps:
@@ -367,10 +367,10 @@
       log_cp_subproblem_progress: false
     suffix_steps:
     - *safe_neh15
-    - *safe_pw005
     - *safe_neh20
     - *safe_neh25
     - *safe_neh30
+    - *safe_pw005
     - *safe_pw010
   - name: delayed_profile_neh10_probe
     probe_steps:
@@ -398,10 +398,10 @@
       log_cp_subproblem_progress: false
     suffix_steps:
     - *safe_neh15
-    - *safe_pw005
     - *safe_neh20
     - *safe_neh25
     - *safe_neh30
+    - *safe_pw005
     - *safe_pw010
   - name: retained_sequence_neh10_probe
     probe_steps:
@@ -428,10 +428,10 @@
       log_cp_subproblem_progress: false
     suffix_steps:
     - *safe_neh15
-    - *safe_pw005
     - *safe_neh20
     - *safe_neh25
     - *safe_neh30
+    - *safe_pw005
     - *safe_pw010
 - method: solve_base_cp_model_from_final_time_reserve
   computational_time: null
