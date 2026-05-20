@@ -25,7 +25,7 @@ from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
 MAIN_METADATA_FILENAME = "main_metadata_mip_lb.yaml"
-REVERSE_INSTANCE_ORDER = False
+REVERSE_INSTANCE_ORDER = True
 
 
 def run_experiment(

@@ -6,15 +6,16 @@ last: 240
 benchmark_filename_format: '{}.txt'
 dicts_of_i_o_data_path:
 - stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
-  subroutine_flow_rel_path: configs_mip_lb/20260520/subroutine_flow_20260520-singlelane-delayed-ladder-2nc.yaml
-  output_dir: ff2020/20260520-probe4-safe-commonpw050709-full240-2nc
-  description: 'Full 240 ff2020 run for a gap-gated 4-probe selector: compare midpoint NEH10,
-    delayed-profile NEH10, bottleneck-stage NEH10, and short CP-seeded NEH10, then commit the best probe and run
-    common NEH15-20-PW0.05-NEH25-30-PW0.07-PW0.09 plus diversified final CP, with range tightening disabled.'
+  subroutine_flow_rel_path: configs_mip_lb/20260519/subroutine_flow_20260519-final-negative-dcore-direct-neh10to30-pw013-headtail-nopool8-2nc.yaml
+  output_dir: ff2020/20260519-final-negative-dcore-direct-neh10to30-pw013-headtail-nopool8-full240-2nc
+  description: 'Full 240 ff2020 run for the final direct D-core 2nc candidate:
+    lean dispatch plus tau without explicit CP-SAT solution-pool override, two retained-CP passes,
+    direct NEH10-15-20-25-30 plus PW0.05/PW0.08/PW0.13 suffix, head/tail tightening,
+    and final CP-LNS.'
 output_dir_scenarios: Outputs_scenarios
 scenario_log_filename: hfs_multi_scenario_runner.log
 result_dir_name: results
-instance_worker_cnt: 4
+instance_worker_cnt: 6
 draw_gantt: false
 painter_thread_cnt: 8
 result_gantt_filename_format: '{}_result_gantt.png'

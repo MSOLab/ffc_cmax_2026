@@ -14,7 +14,7 @@ dicts_of_i_o_data_path:
 output_dir_scenarios: Outputs_scenarios
 scenario_log_filename: hfs_multi_scenario_runner.log
 result_dir_name: results
-instance_worker_cnt: 4
+instance_worker_cnt: 6
 draw_gantt: false
 painter_thread_cnt: 8
 result_gantt_filename_format: '{}_result_gantt.png'
