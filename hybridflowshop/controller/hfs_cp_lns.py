@@ -61,6 +61,13 @@ from hybridflowshop.dispatcher.utils import (
     improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
 )
+from hybridflowshop.lower_bounds import (
+    chen_lb4_lower_bound,
+    chen_lb4_stage_lower_bounds,
+    santos_lower_bound,
+    santos_stage_lower_bound,
+    simple_job_lower_bound,
+)
 from hybridflowshop.report import HfsCpsatSolverReport, HfsSubroutineReport
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
@@ -9146,29 +9153,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         Returns:
             int: The computed lower bound for the stage.
         """
-        instance = self.instance
-        jobs: list[str] = instance.job_id_list
-        stages: list[str] = instance.stage_id_list
-        p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
-            jobs, stages
-        )
-
-        m = len(stages)
-        stage_idx = stages.index(i)
-        mc_count = len(instance.stage_2_machines_map[i])
-
-        def RS(j: str) -> int:
-            return sum(p[j, stages[s]] for s in range(stage_idx + 1, m))
-
-        def LS(j: str) -> int:
-            return sum(p[j, stages[s]] for s in range(0, stage_idx))
-
-        LSA = sorted([LS(j) for j in jobs])
-        RSA = sorted([RS(j) for j in jobs])
-        total_processing = sum(p[j, i] for j in jobs)
-        lhs_rum = sum(LSA[y] for y in range(min(mc_count, len(LSA))))
-        rhs_rum = sum(RSA[y] for y in range(min(mc_count, len(RSA))))
-        return math.ceil((lhs_rum + total_processing + rhs_rum) / mc_count)
+        return santos_stage_lower_bound(self.instance, i)
 
     def apply_shdlb(self) -> None:
         """
@@ -9176,19 +9161,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         described by Santos et al. (1995) and update the global lower bound.
         """
         sub_timer = ElapsedTimer()
-        instance = self.instance
-        jobs: list[str] = instance.job_id_list
-        stages: list[str] = instance.stage_id_list
-        p: dict[tuple[str, str], int] = instance.p_manager.job_stage_2_value_map(
-            jobs, stages
-        )
+        stages: list[str] = self.instance.stage_id_list
 
-        def LB0() -> int:
-            return max(sum(p[j, i] for i in stages) for j in jobs)
-
-        lb0 = LB0()
+        lb0 = simple_job_lower_bound(self.instance)
         stage_bounds = [self.get_shdlb_for_stage(stage) for stage in stages]
-        obj_bound = max([lb0] + stage_bounds)
+        obj_bound = santos_lower_bound(self.instance)
 
         logging.info(
             f"[SHD LB] LB(0) = {lb0}, LB(j) = {stage_bounds}, LB_MAX = {obj_bound}"
@@ -9210,6 +9187,43 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_bound=obj_bound,
             is_init=True,
             subroutine_name="apply_shdlb",
+        )
+        self.solution_manager.register(report, None)
+
+    def apply_lb4(self) -> None:
+        """
+        Compute Chen et al. (2023) LB4 and update the global lower bound.
+
+        LB4 is the modified bin-packing-based lower bound from
+        "An Evaluation of Mathematical Programming and Lower-Bound Methods for
+        Hybrid Flow Shop Problems With a Makespan Criterion".
+        """
+        sub_timer = ElapsedTimer()
+        stage_bound_map = chen_lb4_stage_lower_bounds(self.instance)
+        obj_bound = chen_lb4_lower_bound(self.instance)
+
+        logging.info(
+            "[LB4] LB4(k) = %s, LB4_MAX = %s",
+            [stage_bound_map[stage] for stage in self.instance.stage_id_list],
+            obj_bound,
+        )
+
+        # Log
+        if self.solution_manager.current_obj_bound_is_worse_than(obj_bound):
+            log_time = self.timer.elapsed_sec
+            self.add_obj_bound_log(log_time, obj_bound, is_maximize=False)
+            _last_timestamp_note = self._get_call_context_of_current_method()
+            self.obj_store.add_last_timestamp_note(
+                _last_timestamp_note, obj_bound_is_valid=True
+            )
+
+        # Create report and register
+        report = self._make_subroutine_report(
+            elapsed_time=sub_timer.elapsed_sec,
+            obj_value=None,
+            obj_bound=obj_bound,
+            is_init=True,
+            subroutine_name="apply_lb4",
         )
         self.solution_manager.register(report, None)
 
