@@ -13636,6 +13636,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         min_retained_cp_restore_loss_ratio: float | None = None,
         max_retained_cp_restore_loss_ratio: float | None = None,
         run_if_retained_cp_restore_missing: bool = True,
+        min_workload_size: int | None = None,
+        max_workload_size: int | None = None,
+        min_instance_job_count: int | None = None,
+        max_instance_job_count: int | None = None,
+        min_instance_stage_count: int | None = None,
+        max_instance_stage_count: int | None = None,
     ) -> None:
         """Probe several suffix lanes from the same incumbent, then run one suffix.
 
@@ -13645,6 +13651,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         schedule. This lets a flow cheaply compare 0504-like and 0510-like basins
         before spending the remaining budget on one path.
         """
+        instance_job_count = int(self.instance.job_count)
+        instance_stage_count = int(self.instance.stage_count)
+        workload_size = self._get_instance_workload_size()
         sub_timer = ElapsedTimer()
         incumbent = self.solution_manager.get_incumbent()
         if incumbent is None:
@@ -13688,6 +13697,96 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     step_count=len(plain_fallback_steps),
                     default_solver_thread_cnt=solver_thread_cnt,
                 )
+
+        def workload_guard_allows(
+            *,
+            context_label: str,
+            min_workload_size_value: int | None = None,
+            max_workload_size_value: int | None = None,
+            min_instance_job_count_value: int | None = None,
+            max_instance_job_count_value: int | None = None,
+            min_instance_stage_count_value: int | None = None,
+            max_instance_stage_count_value: int | None = None,
+        ) -> bool:
+            if (
+                min_workload_size_value is not None
+                and workload_size < int(min_workload_size_value)
+            ):
+                logging.info(
+                    "[%s] Skipping: workload_size=%d is below min_workload_size=%d.",
+                    context_label,
+                    workload_size,
+                    int(min_workload_size_value),
+                )
+                return False
+            if (
+                max_workload_size_value is not None
+                and workload_size > int(max_workload_size_value)
+            ):
+                logging.info(
+                    "[%s] Skipping: workload_size=%d is above max_workload_size=%d.",
+                    context_label,
+                    workload_size,
+                    int(max_workload_size_value),
+                )
+                return False
+            if (
+                min_instance_job_count_value is not None
+                and instance_job_count < int(min_instance_job_count_value)
+            ):
+                logging.info(
+                    "[%s] Skipping: job_count=%d is below min_instance_job_count=%d.",
+                    context_label,
+                    instance_job_count,
+                    int(min_instance_job_count_value),
+                )
+                return False
+            if (
+                max_instance_job_count_value is not None
+                and instance_job_count > int(max_instance_job_count_value)
+            ):
+                logging.info(
+                    "[%s] Skipping: job_count=%d is above max_instance_job_count=%d.",
+                    context_label,
+                    instance_job_count,
+                    int(max_instance_job_count_value),
+                )
+                return False
+            if (
+                min_instance_stage_count_value is not None
+                and instance_stage_count < int(min_instance_stage_count_value)
+            ):
+                logging.info(
+                    "[%s] Skipping: stage_count=%d is below min_instance_stage_count=%d.",
+                    context_label,
+                    instance_stage_count,
+                    int(min_instance_stage_count_value),
+                )
+                return False
+            if (
+                max_instance_stage_count_value is not None
+                and instance_stage_count > int(max_instance_stage_count_value)
+            ):
+                logging.info(
+                    "[%s] Skipping: stage_count=%d is above max_instance_stage_count=%d.",
+                    context_label,
+                    instance_stage_count,
+                    int(max_instance_stage_count_value),
+                )
+                return False
+            return True
+
+        if not workload_guard_allows(
+            context_label="Suffix Probe",
+            min_workload_size_value=min_workload_size,
+            max_workload_size_value=max_workload_size,
+            min_instance_job_count_value=min_instance_job_count,
+            max_instance_job_count_value=max_instance_job_count,
+            min_instance_stage_count_value=min_instance_stage_count,
+            max_instance_stage_count_value=max_instance_stage_count,
+        ):
+            run_guard_fallback("workload")
+            return
 
         if not self._bound_gap_guard_allows(
             context_label="Suffix Probe",
@@ -13739,6 +13838,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
             lane = dict(self._branch_portfolio_to_plain_obj(lane_config))
             lane_name = str(lane.get("name") or lane.get("label") or f"lane_{lane_idx}")
+            if not workload_guard_allows(
+                context_label=f"Suffix Probe lane {lane_name}",
+                min_workload_size_value=lane.get("min_workload_size"),
+                max_workload_size_value=lane.get("max_workload_size"),
+                min_instance_job_count_value=lane.get("min_instance_job_count"),
+                max_instance_job_count_value=lane.get("max_instance_job_count"),
+                min_instance_stage_count_value=lane.get("min_instance_stage_count"),
+                max_instance_stage_count_value=lane.get("max_instance_stage_count"),
+            ):
+                continue
             probe_steps = lane.get("probe_steps", lane.get("steps", ()))
             suffix_steps = lane.get("suffix_steps", ())
             if not isinstance(probe_steps, Sequence) or isinstance(
@@ -13898,6 +14007,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
 
         if best_schedule is None:
+            if plain_fallback_steps:
+                run_guard_fallback("all_lane_guards")
+                return
             best_schedule = prefix_schedule.deepcopy()
             best_obj = float(best_schedule.makespan)
             best_label = "initial_fallback"

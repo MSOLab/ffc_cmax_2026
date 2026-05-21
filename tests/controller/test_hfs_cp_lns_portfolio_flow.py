@@ -708,6 +708,96 @@ def test_suffix_probe_portfolio_can_commit_equal_probe_schedule_for_suffix(
     assert suffix_start_labels == ["equal_lane"]
 
 
+def test_suffix_probe_portfolio_workload_guard_runs_fallback(monkeypatch) -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    ctrl.instance = SimpleNamespace(job_count=40, stage_count=20)
+    ctrl.job_2_stage_2_p_dict = {}
+    ctrl.stage_2_job_2_p_dict = {}
+    ctrl.solution_manager = _RecorderSolutionManager(_FakeSchedule(100))
+    _wire_common_controller(ctrl)
+
+    suffix_calls = []
+    monkeypatch.setattr(
+        ctrl,
+        "neh_cp",
+        lambda **kwargs: suffix_calls.append(kwargs["added_batch_size"]),
+    )
+
+    ctrl.suffix_probe_portfolio(
+        solver_thread_cnt=16,
+        min_workload_size=900,
+        lanes=[
+            {
+                "name": "guarded_lane",
+                "probe_steps": [{"method": "neh_cp", "added_batch_size": 10}],
+                "suffix_steps": [{"method": "neh_cp", "added_batch_size": 15}],
+            },
+        ],
+        fallback_steps=[
+            {"method": "neh_cp", "added_batch_size": 10},
+            {"method": "neh_cp", "added_batch_size": 15},
+        ],
+    )
+
+    assert suffix_calls == [10, 15]
+
+
+def test_suffix_probe_portfolio_lane_workload_guard_skips_one_lane(
+    monkeypatch,
+) -> None:
+    ctrl = object.__new__(HybridFlowShopCpLnsController)
+    ctrl.instance = SimpleNamespace(job_count=120, stage_count=15)
+    ctrl.job_2_stage_2_p_dict = {}
+    ctrl.stage_2_job_2_p_dict = {}
+    ctrl.solution_manager = _RecorderSolutionManager(_FakeSchedule(100, label="prefix"))
+    _wire_common_controller(ctrl)
+
+    lane_starts = []
+
+    class _FakeResult:
+        def __init__(self, obj):
+            self.schedule = _FakeSchedule(obj)
+            self.sub_obj_store = None
+            self.last_obj_value = obj
+
+    class _FakeNehConstructor:
+        def __init__(self, _ctx):
+            pass
+
+        def run(self, ref_schedule, *_args, **_kwargs):
+            lane_starts.append(ref_schedule.makespan)
+            return _FakeResult(91)
+
+    suffix_calls = []
+    monkeypatch.setattr(hfs_cp_lns_module, "NehCpConstructor", _FakeNehConstructor)
+    monkeypatch.setattr(
+        ctrl,
+        "neh_cp",
+        lambda **kwargs: suffix_calls.append(kwargs["added_batch_size"]),
+    )
+
+    ctrl.suffix_probe_portfolio(
+        solver_thread_cnt=16,
+        lanes=[
+            {
+                "name": "too_large_min_workload",
+                "min_workload_size": 2400,
+                "probe_steps": [{"method": "neh_cp", "added_batch_size": 10}],
+                "suffix_steps": [{"method": "neh_cp", "added_batch_size": 15}],
+            },
+            {
+                "name": "allowed_lane",
+                "min_workload_size": 900,
+                "probe_steps": [{"method": "neh_cp", "added_batch_size": 10}],
+                "suffix_steps": [{"method": "neh_cp", "added_batch_size": 20}],
+            },
+        ],
+    )
+
+    assert lane_starts == [100]
+    assert suffix_calls == [20]
+
+
 def test_workload_guarded_retained_cp_bottleneck_band_stage_ns_skips_on_small_gap(
     monkeypatch,
 ) -> None:
