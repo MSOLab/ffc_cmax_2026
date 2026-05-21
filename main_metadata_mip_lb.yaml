@@ -8,9 +8,10 @@ dicts_of_i_o_data_path:
 - stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
   subroutine_flow_rel_path: configs_mip_lb/20260521/subroutine_flow_20260521-final-candidateD-guarded-0504-2nc.yaml
   output_dir: ff2020/20260521-final-candidateD-guarded-0504-full240-2nc
-  description: 'Final full-240 2nc candidate: preserve Candidate D tau-first backbone and
-    use a clean three-probe basin selector (safe 0504, delayed profile, retained sequence)
-    followed by one common 0504-style suffix and diversified final CP-LNS.'
+  description: 'Final full-240 2nc candidate: preserve Candidate D tau-first backbone.
+    Small gaps run the 0504-like plain NEH10 path; open gaps choose between plain
+    and delayed NEH10, then use one common 0504-style suffix and diversified final
+    CP-LNS.'
 output_dir_scenarios: Outputs_scenarios
 scenario_log_filename: hfs_multi_scenario_runner.log
 result_dir_name: results

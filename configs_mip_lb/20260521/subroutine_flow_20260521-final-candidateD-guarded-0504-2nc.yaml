@@ -157,8 +157,9 @@
   high_stage_tl_nc_multiplier: 0.30
   default_tl_nc_multiplier: 0.20
 - method: suffix_probe_portfolio
-  # The portfolio only chooses the starting basin. After the winning probe is
-  # committed, every lane runs the same 0504-style suffix below.
+  # Small-gap instances stay close to 0504: plain NEH10 plus the shared suffix.
+  # If the bound gap is still open, choose between plain and delayed NEH10,
+  # then run the same 0504-style suffix from the winning basin.
   solver_thread_cnt: 16
   accept_equal_obj_from_later_lane: false
   commit_equal_obj: true
@@ -167,14 +168,14 @@
   log_cp_subproblem_progress: false
   min_incumbent_bound_gap_ratio: 0.003
   run_if_bound_missing: true
-  fallback_label: safe_0504_fallback
+  fallback_label: small_gap_plain_neh10_path
   fallback_steps:
   - &safe_neh10
     method: neh_cp
     name: safe_neh10
     added_batch_size: 10
     job_seq_by_1st_stage: false
-    cp_tl_nc_multiplier: 0.005
+    cp_tl_nc_multiplier: 0.006
     profile_fix_by_machine: false
     minimize_sum_ci_lex: true
     cp_tl_nc_multiplier_2nd_obj: 0.0025
@@ -276,10 +277,10 @@
     enable_promotion_profile_fixed: true
     solver_thread_cnt: 16
     use_lns_only: false
-  - &safe_pw010
+  - &safe_pw009
     method: incremental_pw_cp
-    name: safe_pw010
-    batch_size_ratio: 0.10
+    name: safe_pw009
+    batch_size_ratio: 0.09
     unfixed_batch_count_min: 2
     unfixed_batch_count_max: 6
     increment_unfixed_batch_count_flag: if_no_improvement
@@ -289,18 +290,18 @@
     solver_thread_cnt: 16
     use_lns_only: false
   lanes:
-  - name: safe_0504_first_neh
+  - name: plain_neh10_first
     probe_steps:
     - *safe_neh10
-    # Common suffix shared by all lanes: NEH15 -> NEH20 -> NEH25 -> NEH30 -> PW0.05 -> PW0.10.
+    # Common suffix shared by both lanes: NEH15 -> NEH20 -> NEH25 -> NEH30 -> PW0.05 -> PW0.09.
     suffix_steps:
     - *safe_neh15
     - *safe_neh20
     - *safe_neh25
     - *safe_neh30
     - *safe_pw005
-    - *safe_pw010
-  - name: delayed_profile_first_neh
+    - *safe_pw009
+  - name: delayed_profile_neh10_first
     probe_steps:
     - method: neh_cp
       name: delay_profile_neh10_probe
@@ -319,7 +320,6 @@
       use_lns_only: true
       make_semi_active_every_cp: true
       solver_thread_cnt: 16
-      max_added_batch_count: 8
       skip_if_estimated_neh_exceeds_remaining: true
       full_neh_estimate_safety_factor: 1.0
       log_cp_subproblem_bounds: true
@@ -330,37 +330,7 @@
     - *safe_neh25
     - *safe_neh30
     - *safe_pw005
-    - *safe_pw010
-  - name: retained_cp_sequence_first_neh
-    probe_steps:
-    - method: neh_cp
-      name: retained_seq_neh10_probe
-      added_batch_size: 10
-      job_seq_by_1st_stage: false
-      job_seq_by_last_retained_cp: true
-      retained_cp_sequence_fallback: bottleneck
-      cp_tl_nc_multiplier: 0.006
-      profile_fix_by_machine: false
-      minimize_sum_ci_lex: true
-      cp_tl_nc_multiplier_2nd_obj: 0.0025
-      minimize_sum_ci_lin: false
-      tighten_ranges: false
-      link_job_completion: false
-      use_lns_only: true
-      make_semi_active_every_cp: true
-      solver_thread_cnt: 16
-      max_added_batch_count: 8
-      skip_if_estimated_neh_exceeds_remaining: true
-      full_neh_estimate_safety_factor: 1.0
-      log_cp_subproblem_bounds: true
-      log_cp_subproblem_progress: false
-    suffix_steps:
-    - *safe_neh15
-    - *safe_neh20
-    - *safe_neh25
-    - *safe_neh30
-    - *safe_pw005
-    - *safe_pw010
+    - *safe_pw009
 - method: solve_base_cp_model_from_final_time_reserve
   computational_time: null
   solver_thread_cnt: 16
