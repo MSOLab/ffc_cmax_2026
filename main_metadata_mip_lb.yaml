@@ -4,16 +4,20 @@ input_dir: resources/ff2020big
 first: 1
 last: 240
 benchmark_filename_format: '{}.txt'
+benchmark_order_strategy: mixed_stratified
+benchmark_order_seed: 42
+benchmark_order_wave_size: 4
 dicts_of_i_o_data_path:
 - stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
   subroutine_flow_rel_path: configs_mip_lb/20260522/subroutine_flow_20260522-final-candidateD-retained-bottleneck-3lane-2nc.yaml
-  output_dir: ff2020/20260522-final-candidateD-retained-bottleneck-3lane-full240-2nc
+  output_dir: ff2020/20260522-final-candidateD-retained-bottleneck-3lane-mixedorder42-full240-2nc
   description: 'Final full-240 2nc candidate: keep the Candidate D tau-first and
     retained-CP backbone, send tiny bound gaps through the stable 0504 path, and
     for open gaps choose among three interpretable NEH10 basins: safe 0504,
     last retained-CP sequence, and bottleneck-stage sequence. The selected basin
     then runs one common NEH15-20-25-30 plus PW0.05/PW0.09 suffix and diversified
-    final CP-LNS.'
+    final CP-LNS. Instances are submitted in seed-42 mixed stratified order to
+    avoid launching only the largest models in the same worker wave.'
 output_dir_scenarios: Outputs_scenarios
 scenario_log_filename: hfs_multi_scenario_runner.log
 result_dir_name: results

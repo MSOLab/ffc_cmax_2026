@@ -1,7 +1,8 @@
 import argparse
 import logging
+import random
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import yaml
 from routix import (
@@ -25,7 +26,89 @@ from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
 MAIN_METADATA_FILENAME = "main_metadata_mip_lb.yaml"
-REVERSE_INSTANCE_ORDER = True
+
+
+def order_instances_for_execution(
+    instances: Sequence[HybridFlowshopParameters], config: MainMetadata
+) -> list[HybridFlowshopParameters]:
+    """Return instances in the configured submission order."""
+    ordered = list(instances)
+    strategy = config.benchmark_order_strategy
+
+    if strategy == "input":
+        return ordered
+    if strategy == "reverse":
+        ordered.reverse()
+        return ordered
+
+    rng = random.Random(config.benchmark_order_seed)
+    if strategy == "random":
+        rng.shuffle(ordered)
+        return ordered
+    if strategy == "mixed_stratified":
+        return _mixed_stratified_order(
+            ordered,
+            band_count=config.benchmark_order_wave_size or config.instance_worker_cnt,
+            rng=rng,
+        )
+
+    raise ValueError(f"Unsupported benchmark_order_strategy: {strategy}")
+
+
+def _mixed_stratified_order(
+    instances: Sequence[HybridFlowshopParameters],
+    *,
+    band_count: int,
+    rng: random.Random,
+) -> list[HybridFlowshopParameters]:
+    if not instances:
+        return []
+
+    band_count = max(1, min(int(band_count), len(instances)))
+    by_size = sorted(
+        list(instances),
+        key=_instance_workload_score,
+        reverse=True,
+    )
+    base_size, extra = divmod(len(by_size), band_count)
+    bands: list[list[HybridFlowshopParameters]] = []
+    start = 0
+    for band_idx in range(band_count):
+        stop = start + base_size + (1 if band_idx < extra else 0)
+        band = by_size[start:stop]
+        rng.shuffle(band)
+        bands.append(band)
+        start = stop
+
+    mixed: list[HybridFlowshopParameters] = []
+    max_band_len = max(len(band) for band in bands)
+    for pos in range(max_band_len):
+        for band in bands:
+            if pos < len(band):
+                mixed.append(band[pos])
+    return mixed
+
+
+def _instance_workload_score(instance: HybridFlowshopParameters) -> tuple[int, int, int]:
+    job_count = int(getattr(instance, "job_count", 0) or 0)
+    stage_count = int(getattr(instance, "stage_count", 0) or 0)
+    machine_count_per_stage = getattr(instance, "machine_count_per_stage", None)
+    if isinstance(machine_count_per_stage, list) and machine_count_per_stage:
+        machine_scale = sum(int(v) for v in machine_count_per_stage)
+    else:
+        stage_2_machines_map = getattr(instance, "stage_2_machines_map", None)
+        if isinstance(stage_2_machines_map, dict) and stage_2_machines_map:
+            machine_scale = sum(_machine_count(v) for v in stage_2_machines_map.values())
+        else:
+            machine_scale = stage_count
+    return job_count * machine_scale, job_count, stage_count
+
+
+def _machine_count(machines: Any) -> int:
+    try:
+        return len(machines)
+    except TypeError:
+        return int(machines)
 
 
 def run_experiment(
@@ -82,10 +165,16 @@ def run_experiment(
                 )
             pra_common_params_dict = read_yaml(pra_common_params_dump_path)
 
-        benchmark_filenames = config.get_benchmark_filename_list(
-            reverse=REVERSE_INSTANCE_ORDER
-        )
+        benchmark_filenames = config.get_benchmark_filename_list()
         instances = load_list_of_instances(config.input_dir, benchmark_filenames)
+        instances = order_instances_for_execution(instances, config)
+        logging.info(
+            "Benchmark execution order strategy=%s seed=%s wave_size=%s first_instances=%s",
+            config.benchmark_order_strategy,
+            config.benchmark_order_seed,
+            config.benchmark_order_wave_size or config.instance_worker_cnt,
+            [getattr(instance, "name", None) for instance in instances[:10]],
+        )
 
         # --- Prepare scenario configurations ---
         scenario_configs = []
