@@ -68,6 +68,8 @@
   polish_use_lns_only: false
   cp_model_probing_level: 1
   cp_sat_params:
+    num_search_workers: 16
+    exploit_best_solution: true
     diversify_lns_params: true
     solution_pool_size: 8
   make_semi_active: true
@@ -367,8 +369,12 @@
   solver_thread_cnt: 16
   use_lns_only: true
   consume_all_remaining: true
+  tighten_ranges: true
+  link_job_completion: true
   cp_model_probing_level: 1
   cp_sat_params:
+    num_search_workers: 16
+    exploit_best_solution: true
     diversify_lns_params: true
     solution_pool_size: 8
   log_search_progress: false
