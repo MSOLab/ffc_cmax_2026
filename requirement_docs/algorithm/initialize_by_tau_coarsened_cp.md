@@ -12,6 +12,62 @@ solution)를 생성하는 알고리즘이다.
 
 ---
 
+## 문제 설명
+
+### 파라미터 (Parameters)
+
+다섯 부류로 나뉜다:
+
+- **Tau / 시간 예산 계열**: `tau_values`, `surrogate_tl_nc_multiplier`,
+  `polish_tl_nc_multiplier` — 축소 배율과 각 CP 단계의 시간 제한을 결정한다.
+- **Dispatch 계열**: `surrogate_dispatch_before_cp`, `surrogate_dispatch_cap_portions`,
+  `surrogate_dispatch_method_list`, `surrogate_dispatch_include_machine_then_job_variants`,
+  `surrogate_dispatch_candidate_top_k` — 축소 문제의 dispatch 휴리스틱 경로를 제어한다.
+- **NEH 계열**: `surrogate_neh_enabled`, `surrogate_neh_position`,
+  `surrogate_neh_added_batch_sizes`, `surrogate_neh_sequential`,
+  `surrogate_neh_cp_tl_nc_multiplier` 등 — NEH-CP 개선 단계를 제어한다.
+- **PW-CP 계열**: `surrogate_pw_cp_enabled`, `surrogate_pw_cp_batch_size_ratio`,
+  `surrogate_pw_cp_unfixed_batch_count_min/max`, `surrogate_pw_cp_step_size` 등 —
+  Prefix-Window CP 체인을 제어한다.
+- **Restore / Polish 계열**: `restore_modes`, `polish_profile_modes`,
+  `polish_use_lns_only` — 복원 방식과 선택적 재최적화를 제어한다.
+
+전체 목록과 기본값은 「파라미터 요약」 표를 참조.
+
+### 변수 (Variables)
+
+이 알고리즘은 CP 결정변수를 직접 정의하지 않는다. 대신 절차 내에서 다음 상태를 추적한다:
+
+- **`tau_schedule_candidates`** (`list`): 축소 문제에서 생성된 모든 후보해 목록.
+  dispatch, NEH, PW-CP, CP-SAT 각 단계의 결과가 여기에 추가된다.
+- **`restored_candidates`** (`list`): 후보해를 원래 가공 시간으로 복원한 결과.
+  각 후보 × restore 모드(`stage_sequence`, `machine_sequence`) 조합이다.
+- **`best_schedule`** (`HybridFlowshopLiteSchedule`): 후보 중 makespan이 가장 작은
+  최종 선택 해. `solution_manager.register()`로 등록된다.
+- **`surrogate_instance`** (`HybridFlowshopParameters`): τ로 축소된 인스턴스.
+  `_make_tau_coarsened_instance(tau)`가 생성하며, `p[j,i] = max(1, ceil(p[j,i]/τ))`.
+
+### 목적 (Objective)
+
+모든 후보해(restored + polished) 중 **makespan이 가장 작은 해**를 초기해로 선택한다.
+각 후보해 자체는 semi-active 정규화(`make_semi_active`)가 적용되어 불필요한 idle이
+제거된 상태이다.
+
+### 제약 (Constraints)
+
+명시적 CP 제약이 아닌, 절차가 보장하는 불변식(invariant)이다:
+
+1. **스케줄 실행 가능성**: 복원된 모든 후보해는 원래 가공 시간에서 유효한
+   Hybrid Flowshop 스케줄이다. `restore_original_schedule_from_tau_schedule`이
+   greedy 기계 배정 후 `make_semi_active()`로 정규화하여 이를 보장한다.
+2. **작업 순서 보존**: tau 해의 순서 정보가 복원 시 보존된다.
+   `stage_sequence` 모드는 스테이지 내 시간 순서를,
+   `machine_sequence` 모드는 기계 내 작업 순서를 그대로 유지한다.
+3. **τ 축소의 구조 보존**: 축소 문제의 해 공간은 원래 문제의 축소 버전이다.
+   작업 수·기계 수·스테이지 수는 동일하며, 가공 시간만 축소된다.
+
+---
+
 ## 핵심 아이디어
 
 1. **문제 축소 (Tau Coarsening)**: 모든 가공 시간 `p[j,i]`를
@@ -23,36 +79,7 @@ solution)를 생성하는 알고리즘이다.
 
 ---
 
-## 상세 실행 흐름
-
-```text
-입력: 원래 문제 instance, τ 값 목록, 파라미터들
-
-for each τ in tau_values:
-  │
-  ├── 1. τ-축소 인스턴스 생성
-  │
-  ├── 2. Dispatch 초기해 생성 (축소 문제)
-  │     └── 여러 cap_portion, 방법, 정렬 순서 조합 → ~N개 후보
-  │
-  ├── 3. [선택] NEH-CP 개선 (축소 문제, best dispatch 대상)
-  │     └── added_batch_size 목록 순차 적용 → 1개 후보
-  │
-  ├── 4. [선택] PW-CP Chain (축소 문제, best NEH 결과 대상)
-  │     └── unfixed_batch_count 증가시키며 chain → ~M개 후보
-  │
-  ├── 5. Surrogate CP Solve (축소 문제, best PW-CP 결과를 reference로)
-  │     ├── 최종 CP 해 → 1개 후보
-  │     └── Snapshot들 (중간 해) → 최대 K개 후보
-  │
-  ├── 6. 모든 후보해 Restore (원래 문제로 복원)
-  │     └── 각 후보 × {stage_sequence, machine_sequence}
-  │
-  └── 7. [선택] Polish (원래 문제 CP 재최적화)
-        └── 복원된 해를 reference로 CP 재탐색
-
-8. 모든 restored/polished 해 중 최선 makespan 선택 → 초기해 등록
-```
+## 파이프라인 단계별 상세
 
 ### 1. Tau Coarsening (문제 축소)
 
@@ -205,83 +232,38 @@ tau=5 source=dispatch_neh_b15_pw5 mode=stage_sequence phase=restored
 
 ---
 
-## 파라미터 요약
+## 전체 실행 흐름
 
-### Tau Coarsening
+```text
+입력: 원래 문제 instance, τ 값 목록, 파라미터들
 
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| `tau_values` | `Sequence[int]` | 축소 배율 목록. 각 τ값에 대해 독립적으로 파이프라인 실행 |
+for each τ in tau_values:
+  │
+  ├── 1. τ-축소 인스턴스 생성
+  │
+  ├── 2. Dispatch 초기해 생성 (축소 문제)
+  │     └── 여러 cap_portion, 방법, 정렬 순서 조합 → ~N개 후보
+  │
+  ├── 3. [선택] NEH-CP 개선 (축소 문제, best dispatch 대상)
+  │     └── added_batch_size 목록 순차 적용 → 1개 후보
+  │
+  ├── 4. [선택] PW-CP Chain (축소 문제, best NEH 결과 대상)
+  │     └── unfixed_batch_count 증가시키며 chain → ~M개 후보
+  │
+  ├── 5. Surrogate CP Solve (축소 문제, best PW-CP 결과를 reference로)
+  │     ├── 최종 CP 해 → 1개 후보
+  │     └── Snapshot들 (중간 해) → 최대 K개 후보
+  │
+  ├── 6. 모든 후보해 Restore (원래 문제로 복원)
+  │     └── 각 후보 × {stage_sequence, machine_sequence}
+  │
+  └── 7. [선택] Polish (원래 문제 CP 재최적화)
+        └── 복원된 해를 reference로 CP 재탐색
 
-### Time Budget
+8. 모든 restored/polished 해 중 최선 makespan 선택 → 초기해 등록
+```
 
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| `surrogate_tl_nc_multiplier` | `float \| None` | 축소 CP 시간 = multiplier × jobs × stages. None이면 explicit time |
-| `polish_tl_nc_multiplier` | `float \| None` | Polish CP 시간. **null이면 polish 생략** |
-
-### Dispatch
-
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| `surrogate_dispatch_before_cp` | `bool` | dispatch 해를 CP의 reference로 사용 |
-| `include_surrogate_dispatch_candidate` | `bool` | dispatch 해를 restoration 후보에 포함 |
-| `surrogate_dispatch_cap_portions` | `Sequence[float]` | dispatch cap portion 목록 |
-| `surrogate_dispatch_method_list` | `Sequence[str]` | 사용할 dispatch 방법 |
-| `surrogate_dispatch_include_machine_then_job_variants` | `bool` | mtj/jtm variants 시도 |
-| `surrogate_dispatch_candidate_top_k` | `int` | 상위 K개 dispatch 후보 선택 |
-
-### NEH
-
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| `surrogate_neh_enabled` | `bool` | NEH-CP 개선 사용 |
-| `surrogate_neh_position` | `str` | CP 전(`before_cp`) 또는 후(`after_cp`) |
-| `surrogate_neh_tau_values` | `Sequence[int] \| None` | 적용할 τ 필터 |
-| `surrogate_neh_sources` | `Sequence[str]` | NEH를 적용할 후보 소스 |
-| `surrogate_neh_added_batch_sizes` | `Sequence[int]` | NEH batch size 목록 |
-| `surrogate_neh_sequential` | `bool` | batch size 간 chain 연결 |
-| `surrogate_neh_cp_tl_nc_multiplier` | `float \| None` | NEH 내 CP 시간 배율 |
-| `surrogate_neh_use_lns_only` | `bool` | NEH CP에서 LNS만 사용 |
-
-### PW-CP
-
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| `surrogate_pw_cp_enabled` | `bool` | PW-CP chain 사용 |
-| `surrogate_pw_cp_tau_values` | `Sequence[int] \| None` | 적용할 τ 필터 |
-| `surrogate_pw_cp_batch_size_ratio` | `float` | 배치 크기 = ratio × job_count |
-| `surrogate_pw_cp_unfixed_batch_count_min/max` | `int` | 윈도우 크기 범위 |
-| `surrogate_pw_cp_step_size` | `int` | 윈도우 이동 간격 |
-| `surrogate_pw_cp_lr_profile_fixed_batch_count` | `int` | 좌/우 profile-fixed 배치 수 |
-| `surrogate_pw_cp_enable_promotion_profile_fixed` | `bool` | unfixed 잡의 profile-fixed 작업을 unfixed로 승격 |
-| `surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier` | `float \| None` | PW-CP 배치당 시간 배율 |
-| `surrogate_pw_cp_use_lns_only` | `bool` | PW-CP에서 LNS만 사용 |
-| `surrogate_pw_cp_stop_on_no_improvement` | `bool` | 개선 없으면 chain 중단 |
-
-### Restore & Polish
-
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| `restore_modes` | `Sequence[str]` | 복원 모드 목록 (`stage_sequence`, `machine_sequence`) |
-| `polish_profile_modes` | `Sequence[str]` | Polish 모드 (`restore`, `none`, `machine_sequence`, `stage_sequence`) |
-| `polish_use_lns_only` | `bool` | Polish에서 LNS만 사용 |
-
-### CP-SAT 공통
-
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
-| `solver_thread_cnt` | `int` | CP-SAT 스레드 수 |
-| `cp_model_probing_level` | `int` | Probing 레벨 |
-| `cp_sat_params` | `Mapping[str, Any]` | 추가 CP-SAT 파라미터 (예: `diversify_lns_params`, `solution_pool_size`) |
-| `surrogate_cp_snapshot_solution_limit` | `int` | CP 중간해 스냅샷 수 제한 |
-| `make_semi_active` | `bool` | 모든 해에 semi-active 정규화 적용 |
-| `save_candidate_artifacts` | `bool` | 후보해 CSV 저장 |
-| `draw_gantt` | `bool` | 최종 해 Gantt 차트 출력 |
-
----
-
-## 실행 순서도 (Subroutine Flow YAML 예시)
+### 구체 설정 예시 (Subroutine Flow YAML)
 
 ```yaml
 - method: initialize_by_tau_coarsened_cp
@@ -366,7 +348,83 @@ tau=5 source=dispatch_neh_b15_pw5 mode=stage_sequence phase=restored
 
 ---
 
-## 주의사항 및 설계 고려사항
+## 파라미터 요약
+
+### Tau Coarsening
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `tau_values` | `Sequence[int]` | 축소 배율 목록. 각 τ값에 대해 독립적으로 파이프라인 실행 |
+
+### Time Budget
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `surrogate_tl_nc_multiplier` | `float \| None` | 축소 CP 시간 = multiplier × jobs × stages. None이면 explicit time |
+| `polish_tl_nc_multiplier` | `float \| None` | Polish CP 시간. **null이면 polish 생략** |
+
+### Dispatch
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `surrogate_dispatch_before_cp` | `bool` | dispatch 해를 CP의 reference로 사용 |
+| `include_surrogate_dispatch_candidate` | `bool` | dispatch 해를 restoration 후보에 포함 |
+| `surrogate_dispatch_cap_portions` | `Sequence[float]` | dispatch cap portion 목록 |
+| `surrogate_dispatch_method_list` | `Sequence[str]` | 사용할 dispatch 방법 |
+| `surrogate_dispatch_include_machine_then_job_variants` | `bool` | mtj/jtm variants 시도 |
+| `surrogate_dispatch_candidate_top_k` | `int` | 상위 K개 dispatch 후보 선택 |
+
+### NEH
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `surrogate_neh_enabled` | `bool` | NEH-CP 개선 사용 |
+| `surrogate_neh_position` | `str` | CP 전(`before_cp`) 또는 후(`after_cp`) |
+| `surrogate_neh_tau_values` | `Sequence[int] \| None` | 적용할 τ 필터 |
+| `surrogate_neh_sources` | `Sequence[str]` | NEH를 적용할 후보 소스 |
+| `surrogate_neh_added_batch_sizes` | `Sequence[int]` | NEH batch size 목록 |
+| `surrogate_neh_sequential` | `bool` | batch size 간 chain 연결 |
+| `surrogate_neh_cp_tl_nc_multiplier` | `float \| None` | NEH 내 CP 시간 배율 |
+| `surrogate_neh_use_lns_only` | `bool` | NEH CP에서 LNS만 사용 |
+
+### PW-CP
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `surrogate_pw_cp_enabled` | `bool` | PW-CP chain 사용 |
+| `surrogate_pw_cp_tau_values` | `Sequence[int] \| None` | 적용할 τ 필터 |
+| `surrogate_pw_cp_batch_size_ratio` | `float` | 배치 크기 = ratio × job_count |
+| `surrogate_pw_cp_unfixed_batch_count_min/max` | `int` | 윈도우 크기 범위 |
+| `surrogate_pw_cp_step_size` | `int` | 윈도우 이동 간격 |
+| `surrogate_pw_cp_lr_profile_fixed_batch_count` | `int` | 좌/우 profile-fixed 배치 수 |
+| `surrogate_pw_cp_enable_promotion_profile_fixed` | `bool` | unfixed 잡의 profile-fixed 작업을 unfixed로 승격 |
+| `surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier` | `float \| None` | PW-CP 배치당 시간 배율 |
+| `surrogate_pw_cp_use_lns_only` | `bool` | PW-CP에서 LNS만 사용 |
+| `surrogate_pw_cp_stop_on_no_improvement` | `bool` | 개선 없으면 chain 중단 |
+
+### Restore & Polish
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `restore_modes` | `Sequence[str]` | 복원 모드 목록 (`stage_sequence`, `machine_sequence`) |
+| `polish_profile_modes` | `Sequence[str]` | Polish 모드 (`restore`, `none`, `machine_sequence`, `stage_sequence`) |
+| `polish_use_lns_only` | `bool` | Polish에서 LNS만 사용 |
+
+### CP-SAT 공통
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `solver_thread_cnt` | `int` | CP-SAT 스레드 수 |
+| `cp_model_probing_level` | `int` | Probing 레벨 |
+| `cp_sat_params` | `Mapping[str, Any]` | 추가 CP-SAT 파라미터 (예: `diversify_lns_params`, `solution_pool_size`) |
+| `surrogate_cp_snapshot_solution_limit` | `int` | CP 중간해 스냅샷 수 제한 |
+| `make_semi_active` | `bool` | 모든 해에 semi-active 정규화 적용 |
+| `save_candidate_artifacts` | `bool` | 후보해 CSV 저장 |
+| `draw_gantt` | `bool` | 최종 해 Gantt 차트 출력 |
+
+---
+
+## 주의사항 및 응용 고려사항
 
 - **다양성이 핵심**: 한 가지 경로로 찾은 해보다 여러 경로(dispatch → NEH → PW-CP → CP)를 통해 다양한 구조의 후보해를 확보하는 것이 더 좋은 초기해로 이어진다.
 - **Coarsening 오차**: τ가 클수록 축소 문제는 빠르게 풀리지만, restore 시 원래 문제와의 괴리가 커져 restoration 품질이 떨어질 수 있다.

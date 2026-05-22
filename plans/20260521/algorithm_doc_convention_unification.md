@@ -87,7 +87,7 @@ Part 2(메커니즘)는 핵심 아이디어로 시작해 알고리즘별 상세 
 
 ## 체크리스트
 
-- [ ] `initialize_by_tau_coarsened_cp.md` problem-mechanism 보강
-- [ ] AGENTS.md 에 알고리즘 문서 경로·컨벤션 명시
-- [ ] (선택) `algorithm-doc-convention.md` 분리
+- [x] `initialize_by_tau_coarsened_cp.md` problem-mechanism 보강
+- [x] AGENTS.md 에 알고리즘 문서 경로·컨벤션 명시
+- [x] (선택) `algorithm-doc-convention.md` 분리
 - [ ] 스킬 이동 — 자매 레포 통일 완료 후

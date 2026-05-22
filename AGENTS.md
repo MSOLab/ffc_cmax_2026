@@ -48,7 +48,7 @@ Solver algorithm docs live in `requirement_docs/algorithm/`. Each doc follows th
 - **Part 2 — 메커니즘**: `## 핵심 아이디어` → `## <알고리즘별 상세>` → `## 전체 실행 흐름`
 - Supplementary: `## 개요`, `## 파라미터 요약`, `## 주의사항 및 응용 고려사항`
 
-Canonical example: `requirement_docs/algorithm/pw_cp_constructor_run.md`. Language is Korean; frame structure is shared across sister repos (`flowshop-tardiness`, `ffc_ddw_sum_et`).
+The authoritative format rules live in `requirement_docs/algorithm-doc-convention.md`; the canonical example is `requirement_docs/algorithm/pw_cp_constructor_run.md`. Language is Korean; frame structure is shared across sister repos (`flowshop-tardiness`, `ffc_ddw_sum_et`).
 
 ## Build, Test, and Development Commands
 
