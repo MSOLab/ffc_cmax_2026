@@ -40,6 +40,16 @@ configs_20s/ configs_100s/ configs_600s/ configs_dispatch/   # Subroutine flow Y
 | `schore` | Problem instance representation: `HybridFlowshopParameters` |
 | `ortools` | OR-Tools CP-SAT solver (9.14) |
 
+## Algorithm Documentation
+
+Solver algorithm docs live in `requirement_docs/algorithm/`. Each doc follows the **problem-mechanism frame**:
+
+- **Part 1 — 문제 설명**: `### 파라미터`, `### 변수`, `### 목적`, `### 제약`
+- **Part 2 — 메커니즘**: `## 핵심 아이디어` → `## <알고리즘별 상세>` → `## 전체 실행 흐름`
+- Supplementary: `## 개요`, `## 파라미터 요약`, `## 주의사항 및 응용 고려사항`
+
+Canonical example: `requirement_docs/algorithm/pw_cp_constructor_run.md`. Language is Korean; frame structure is shared across sister repos (`flowshop-tardiness`, `ffc_ddw_sum_et`).
+
 ## Build, Test, and Development Commands
 
 Always invoke Python tooling through `uv`: use `uv run python ...` and `uv run pytest ...`, not `python`, `python3`, or `python -m pytest`.

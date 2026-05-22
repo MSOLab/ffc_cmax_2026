@@ -1,36 +1,40 @@
-# 알고리즘 문서 5요소 프레임 cross-repo 통일 (hybridflowshop 작업분)
+# 알고리즘 문서 problem-mechanism 프레임 cross-repo 통일 (hybridflowshop 작업분)
 
 ## 배경
 
 - `agent-skills` 레포의 `algorithm-doc-kr` 스킬 리뷰 과정에서, 본 스킬이 hybridflowshop 의
-  컨벤션에 강하게 결합되어 있음이 드러났다 (5요소 프레임, 한국어, `requirement_docs/algorithm/`
+  컨벤션에 강하게 결합되어 있음이 드러났다 (problem-mechanism 프레임, 한국어, `requirement_docs/algorithm/`
   경로, `pw_cp_constructor_run.md` 등 본보기 의존).
 - 같은 종류의 솔버 알고리즘 문서를 `flowshop-tardiness`, `ffc_ddw_sum_et` 두 자매
   레포에서도 작성하므로, 스킬을 레포-specific 으로 두기 전에 먼저 **문서 컨벤션 자체를
-  5요소 프레임으로 통일**한 뒤 각 레포에 스킬 사본을 배치하기로 결정.
+  problem-mechanism 프레임으로 통일**한 뒤 각 레포에 스킬 사본을 배치하기로 결정.
 - 언어는 통일하지 않음. **프레임만 통일하고 언어는 각 레포 기존대로** 둔다.
 
-## 5요소 프레임 (canonical)
+## problem-mechanism 프레임 (canonical)
 
-```
+두 Part로 구성된다. Part 1(문제 설명)은 파라미터·변수·목적·제약 4하위 섹션을 가진다.
+Part 2(메커니즘)는 핵심 아이디어로 시작해 알고리즘별 상세 → 전체 실행 흐름으로 이어진다.
+이외에 개요, 파라미터 요약, 주의사항은 부속 섹션.
+
+```md
 # <알고리즘 이름> (<영문 슬러그/약어>)
 
 호출: `def <함수명>` (<파일명>.py)
 
-## 개요
-## 문제 설명
+## 개요                                    ← 부속
+## 문제 설명                               ← Part 1
 ### 파라미터 (Parameters)
 ### 변수 (Variables)
 ### 목적 (Objective)
 ### 제약 (Constraints)
-## 핵심 아이디어
+## 핵심 아이디어                            ← Part 2 시작
 ## <알고리즘별 상세 섹션들>
 ## 전체 실행 흐름
-## 파라미터 요약
-## 주의사항 및 응용 고려사항
+## 파라미터 요약                            ← 부속
+## 주의사항 및 응용 고려사항                 ← 부속
 ```
 
-본보기: `requirement_docs/algorithm/pw_cp_constructor_run.md` (5요소 완비, 가장 정제된 예).
+본보기: `requirement_docs/algorithm/pw_cp_constructor_run.md` (가장 정제된 예).
 보조 본보기: `requirement_docs/algorithm/neh_cp.md`, `get_best_mixed_schedule_by_sequence.md`,
 `get_schedule_by_bn2d_all_stages.md`.
 
@@ -44,11 +48,11 @@
 | `get_schedule_by_bn2d_all_stages.md` | ✅ 준수 | – |
 | `neh_cp.md` | ✅ 준수 | – |
 | `pw_cp_constructor_run.md` | ✅ 준수 | canonical 본보기 |
-| `initialize_by_tau_coarsened_cp.md` | ❌ 「개요」+「핵심 아이디어」만 | 5요소 보강 필요 |
+| `initialize_by_tau_coarsened_cp.md` | ❌ 「개요」+「핵심 아이디어」만 | problem-mechanism 보강 필요 |
 
 ## 작업 항목
 
-### 1. `initialize_by_tau_coarsened_cp.md` 5요소 보강
+### 1. `initialize_by_tau_coarsened_cp.md` problem-mechanism 보강
 대상 메서드를 코드에서 확인하고 「문제 설명」 4 하위 섹션, 「전체 실행 흐름」,
 「파라미터 요약」, 「주의사항 및 응용 고려사항」을 추가한다.
 
@@ -58,9 +62,9 @@
 정 어색하면 한 줄로 "이 단계에서는 별도 결정변수 없음(절차적 구성만)" 식 명시도 가능.
 
 ### 2. AGENTS.md 보강
-"Project Structure & Module Organization" 또는 별도 섹션에 다음을 명시:
+별도 섹션 `## Algorithm Documentation` 을 추가하고 다음을 명시:
 - 알고리즘 문서 경로: `requirement_docs/algorithm/`
-- 컨벤션: 5요소 프레임 (위 골격 그대로)
+- 컨벤션: problem-mechanism 프레임 (위 골격 그대로, Part 1 = 문제 설명 4하위, Part 2 = 메커니즘)
 - 본보기 문서: `pw_cp_constructor_run.md`
 
 ### 3. 컨벤션 문서 분리 (선택)
@@ -83,7 +87,7 @@
 
 ## 체크리스트
 
-- [ ] `initialize_by_tau_coarsened_cp.md` 5요소 보강
+- [ ] `initialize_by_tau_coarsened_cp.md` problem-mechanism 보강
 - [ ] AGENTS.md 에 알고리즘 문서 경로·컨벤션 명시
 - [ ] (선택) `algorithm-doc-convention.md` 분리
 - [ ] 스킬 이동 — 자매 레포 통일 완료 후
