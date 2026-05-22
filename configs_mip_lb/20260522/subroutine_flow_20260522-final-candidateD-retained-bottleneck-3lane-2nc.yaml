@@ -62,7 +62,7 @@
   surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier: 0.0015
   surrogate_pw_cp_use_lns_only: false
   surrogate_pw_cp_stop_on_no_improvement: false
-  solver_thread_cnt: 16
+  solver_thread_cnt: 24
   surrogate_use_lns_only: false
   surrogate_cp_snapshot_solution_limit: 20
   polish_use_lns_only: false
@@ -90,7 +90,7 @@
 - method: apply_retained_stage_cp_lb
   retained_stage_mode: first_n_quantiles_last
   quantile_count: 4
-  threads: 16
+  threads: 24
   tl_nc_multiplier: 0.08
   snapshot_solution_limit: 96
   snapshot_log_progress: false
@@ -123,7 +123,7 @@
   large_extra_bottleneck_count: 4
   large_workload_threshold: 1800
   bottleneck_band_radius: 1
-  threads: 16
+  threads: 24
   tl_nc_multiplier: 0.08
   snapshot_solution_limit: 96
   snapshot_log_progress: false
@@ -164,7 +164,7 @@
   # - Open gaps race only three interpretable probes: 0504-safe, retained-CP sequence,
   #   and bottleneck-stage sequence. This keeps the tail-risk insurance without
   #   the unstable midpoint/delayed/short-cpseed probes.
-  solver_thread_cnt: 16
+  solver_thread_cnt: 24
   accept_equal_obj_from_later_lane: false
   commit_equal_obj: true
   run_selected_suffix: true
@@ -188,7 +188,7 @@
     link_job_completion: false
     use_lns_only: true
     make_semi_active_every_cp: true
-    solver_thread_cnt: 16
+    solver_thread_cnt: 24
     skip_if_estimated_neh_exceeds_remaining: true
     full_neh_estimate_safety_factor: 1.0
     log_cp_subproblem_bounds: true
@@ -207,7 +207,7 @@
     link_job_completion: false
     use_lns_only: true
     make_semi_active_every_cp: true
-    solver_thread_cnt: 16
+    solver_thread_cnt: 24
     skip_if_estimated_neh_exceeds_remaining: true
     full_neh_estimate_safety_factor: 1.0
     log_cp_subproblem_bounds: true
@@ -226,7 +226,7 @@
     link_job_completion: false
     use_lns_only: true
     make_semi_active_every_cp: true
-    solver_thread_cnt: 16
+    solver_thread_cnt: 24
     skip_if_estimated_neh_exceeds_remaining: true
     full_neh_estimate_safety_factor: 1.0
     log_cp_subproblem_bounds: true
@@ -245,7 +245,7 @@
     link_job_completion: false
     use_lns_only: true
     make_semi_active_every_cp: true
-    solver_thread_cnt: 16
+    solver_thread_cnt: 24
     skip_if_estimated_neh_exceeds_remaining: true
     full_neh_estimate_safety_factor: 1.0
     log_cp_subproblem_bounds: true
@@ -264,7 +264,7 @@
     link_job_completion: false
     use_lns_only: true
     make_semi_active_every_cp: true
-    solver_thread_cnt: 16
+    solver_thread_cnt: 24
     skip_if_estimated_neh_exceeds_remaining: true
     full_neh_estimate_safety_factor: 1.0
     log_cp_subproblem_bounds: true
@@ -279,7 +279,7 @@
     non_time_fixed_op_time_limit_multiplier: 0.008
     lr_profile_fixed_batch_count: 1
     enable_promotion_profile_fixed: true
-    solver_thread_cnt: 16
+    solver_thread_cnt: 24
     use_lns_only: false
   - &safe_pw009
     method: incremental_pw_cp
@@ -291,7 +291,7 @@
     non_time_fixed_op_time_limit_multiplier: 0.006
     lr_profile_fixed_batch_count: 1
     enable_promotion_profile_fixed: true
-    solver_thread_cnt: 16
+    solver_thread_cnt: 24
     use_lns_only: false
   lanes:
   - name: safe_0504_first_neh
@@ -321,7 +321,7 @@
       link_job_completion: false
       use_lns_only: true
       make_semi_active_every_cp: true
-      solver_thread_cnt: 16
+      solver_thread_cnt: 24
       max_added_batch_count: 8
       skip_if_estimated_neh_exceeds_remaining: true
       full_neh_estimate_safety_factor: 1.0
@@ -350,7 +350,7 @@
       link_job_completion: false
       use_lns_only: true
       make_semi_active_every_cp: true
-      solver_thread_cnt: 16
+      solver_thread_cnt: 24
       max_added_batch_count: 8
       skip_if_estimated_neh_exceeds_remaining: true
       full_neh_estimate_safety_factor: 1.0
@@ -365,12 +365,12 @@
     - *safe_pw009
 - method: solve_base_cp_model_from_final_time_reserve
   computational_time: null
-  solver_thread_cnt: 16
+  solver_thread_cnt: 24
   use_lns_only: true
   consume_all_remaining: true
   tighten_ranges: true
   link_job_completion: true
-  cp_model_probing_level: 1
+  cp_model_probing_level: 2
   cp_sat_params:
     exploit_best_solution: true
     diversify_lns_params: true
