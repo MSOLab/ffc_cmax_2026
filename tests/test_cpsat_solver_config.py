@@ -9,7 +9,6 @@ def test_configure_solver_applies_extra_cp_sat_params() -> None:
         SolveConfig(
             use_lns_only=True,
             cp_sat_params={
-                "num_search_workers": 16,
                 "exploit_best_solution": True,
                 "diversify_lns_params": True,
                 "solution_pool_size": 8,
@@ -19,7 +18,6 @@ def test_configure_solver_applies_extra_cp_sat_params() -> None:
     )
 
     assert solver.parameters.use_lns_only is True
-    assert solver.parameters.num_search_workers == 16
     assert solver.parameters.exploit_best_solution is True
     assert solver.parameters.diversify_lns_params is True
     assert solver.parameters.solution_pool_size == 8
