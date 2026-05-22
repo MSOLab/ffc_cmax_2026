@@ -32,34 +32,41 @@ solution)를 생성하는 알고리즘이다.
 - **Restore / Polish 계열**: `restore_modes`, `polish_profile_modes`,
   `polish_use_lns_only` — 복원 방식과 선택적 재최적화를 제어한다.
 
-전체 목록과 기본값은 「파라미터 요약」 표를 참조.
+주요 파라미터는 「파라미터 요약」 표를 참조. 정확한 기본값은 함수 시그니처를 참조한다.
 
 ### 변수 (Variables)
 
 이 알고리즘은 CP 결정변수를 직접 정의하지 않는다. 대신 절차 내에서 다음 상태를 추적한다:
 
-- **`tau_schedule_candidates`** (`list`): 축소 문제에서 생성된 모든 후보해 목록.
-  dispatch, NEH, PW-CP, CP-SAT 각 단계의 결과가 여기에 추가된다.
-- **`restored_candidates`** (`list`): 후보해를 원래 가공 시간으로 복원한 결과.
-  각 후보 × restore 모드(`stage_sequence`, `machine_sequence`) 조합이다.
-- **`best_schedule`** (`HybridFlowshopLiteSchedule`): 후보 중 makespan이 가장 작은
-  최종 선택 해. `solution_manager.register()`로 등록된다.
-- **`surrogate_instance`** (`HybridFlowshopParameters`): τ로 축소된 인스턴스.
+- **`scaled_instance`** (`HybridFlowshopParameters`): τ로 축소된 인스턴스.
   `_make_tau_coarsened_instance(tau)`가 생성하며, `p[j,i] = max(1, ceil(p[j,i]/τ))`.
+- **`tau_schedule_candidates`** (`list[_TauScheduleCandidate]`): 한 τ값에서
+  축소 문제로부터 생성된 후보해 목록. dispatch, NEH, PW-CP, CP-SAT 각 단계의
+  결과가 시그니처 중복 제거를 거쳐 누적된다.
+- **`best_schedule` / `best_obj` / `best_label`**: 지금까지 평가된 모든
+  복원·정련 후보 중 원래 문제 makespan이 가장 작은 incumbent와 그 값·출처 라벨.
+  절차 종료 시 `best_schedule`이 `solution_manager`에 등록된다.
+- **`candidate_rows`** (`list[dict]`): 모든 후보의 `(tau, surrogate_source,
+  restore_mode, phase, obj, ...)` 기록. `save_candidate_artifacts=True`면
+  CSV로 저장된다.
+
+복원·정련 후보해는 별도 리스트에 모이지 않고, 생성 즉시 `maybe_record_candidate`가
+`candidate_rows`에 기록하고 incumbent 갱신 여부를 판정한다.
 
 ### 목적 (Objective)
 
 모든 후보해(restored + polished) 중 **makespan이 가장 작은 해**를 초기해로 선택한다.
-각 후보해 자체는 semi-active 정규화(`make_semi_active`)가 적용되어 불필요한 idle이
-제거된 상태이다.
+`make_semi_active=True`(기본값)이면 각 후보해에 semi-active 정규화가 적용되어
+불필요한 idle이 제거된다.
 
 ### 제약 (Constraints)
 
 명시적 CP 제약이 아닌, 절차가 보장하는 불변식(invariant)이다:
 
 1. **스케줄 실행 가능성**: 복원된 모든 후보해는 원래 가공 시간에서 유효한
-   Hybrid Flowshop 스케줄이다. `restore_original_schedule_from_tau_schedule`이
-   greedy 기계 배정 후 `make_semi_active()`로 정규화하여 이를 보장한다.
+   Hybrid Flowshop 스케줄이다. `_restore_original_schedule_from_tau_schedule`이
+   복원 직후 `validate_schedule()`로 이를 검증한다(`make_semi_active`는 idle
+   제거용 정규화일 뿐 실행 가능성 자체를 보장하지는 않는다).
 2. **작업 순서 보존**: tau 해의 순서 정보가 복원 시 보존된다.
    `stage_sequence` 모드는 스테이지 내 시간 순서를,
    `machine_sequence` 모드는 기계 내 작업 순서를 그대로 유지한다.
@@ -73,13 +80,19 @@ solution)를 생성하는 알고리즘이다.
 1. **문제 축소 (Tau Coarsening)**: 모든 가공 시간 `p[j,i]`를
    `max(1, ceil(p[j,i] / τ))`로 변환. 작업 수와 기계 수는 유지되지만
    가공 시간이 짧아져 CP 모델이 훨씬 빠르게 풀린다.
-2. **다양한 경로로 후보해 생성**: 축소된 문제에서 dispatch 휴리스틱 → NEH → PW-CP → CP-SAT 순으로 여러 경로를 통해 다양한 후보해를 확보한다.
+2. **다양한 경로로 후보해 생성**: 축소된 문제에서 dispatch 휴리스틱, NEH-CP, PW-CP, CP-SAT 등 여러 경로를 통해 다양한 후보해를 확보한다. 단계 실행 순서는 `surrogate_neh_position`에 따라 달라진다(파이프라인 상세 참조).
 3. **복원 (Restore)**: 축소된 후보해의 순서/기계 할당 정보를 원래 가공 시간에 적용하여 원래 문제의 실행 가능해로 변환한다.
 4. **최선 선택**: 모든 복원된 후보해 중 가장 작은 makespan을 가진 해를 초기해로 채택한다.
 
 ---
 
 ## 파이프라인 단계별 상세
+
+> **NEH 실행 위치에 따른 순서 차이**: `surrogate_neh_position`의 기본값은
+> `after_cp`이다. `before_cp`이면 `dispatch → NEH → PW-CP → CP` 순,
+> `after_cp`이면 `dispatch → CP → NEH` 순으로 실행되며 이때 **PW-CP chain은
+> 실행되지 않는다**. 아래 1~5절은 `before_cp` 기준 순서로 기술하되, 각 절에서
+> `after_cp`와의 차이를 명시한다.
 
 ### 1. Tau Coarsening (문제 축소)
 
@@ -105,18 +118,39 @@ scaled_instance = _make_tau_coarsened_instance(tau)
 
 ### 3. NEH-CP 개선
 
-축소 문제에서 dispatch 최적해를 기준으로 NEH-CP를 실행한다. NEH의 각 삽입(insertion) 단계에서 작은 CP 서브문제를 풀어 최적의 작업 순서를 결정한다.
+NEH-CP는 `surrogate_neh_enabled=True`일 때 동작하며, NEH의 각 삽입(insertion)
+단계에서 작은 CP 서브문제를 풀어 최적의 작업 순서를 결정한다. `surrogate_neh_position`
+값에 따라 실행 위치와 동작이 다르다.
+
+#### before_cp — dispatch 결과를 NEH로 개선 후 CP에 전달
+
+dispatch 최적해를 시작점으로 NEH-CP를 실행하고, 그 결과를 surrogate CP의
+reference(시작점)로 넘긴다. **이 경로에서만 PW-CP chain(4절)이 동작한다.**
+`surrogate_dispatch_before_cp=True`이고 `surrogate_neh_sources`에 `"dispatch"`가
+포함되어야 실행된다.
 
 | 파라미터 | 의미 |
 |----------|------|
-| added_batch_sizes | NEH가 한 번에 삽입할 작업 수 |
-| sequential | True면 각 batch size의 결과가 다음 NEH의 입력으로 연결 |
-| cp_tl_nc_multiplier | NEH 내 CP 서브문제당 시간 제한 배율 |
+| `surrogate_neh_added_batch_sizes` | NEH가 한 번에 삽입할 작업 수 목록. 목록 전체를 순회 |
+| `surrogate_neh_sequential` | True면 각 batch size의 결과가 다음 NEH의 입력으로 연결 |
+| `surrogate_neh_cp_tl_nc_multiplier` | NEH 내 CP 서브문제당 시간 제한 배율 |
 
 ```text
-예: sequential=True, batch_sizes=[15]
+예: sequential=True, added_batch_sizes=[15]
   dispatch → NEH(batch=15) → dispatch_neh_b15
 ```
+
+`surrogate_neh_also_solve_dispatch_cp=True`이면, NEH-CP 개선과 별개로 dispatch
+최적해를 reference로 한 surrogate CP를 한 번 더 풀어 그 결과(`dispatch_hint_cp`
+후보)를 추가로 확보한다.
+
+#### after_cp — CP 후보해를 NEH로 개선 (기본값)
+
+surrogate CP 풀이가 끝난 뒤, `tau_schedule_candidates` 중 source가
+`surrogate_neh_sources`에 속하는 후보 각각에 NEH-CP를 적용해 `{source}_neh`
+후보를 추가한다. 이 경로는 **스칼라 `surrogate_neh_added_batch_size` 하나만**
+사용하며, 목록 `surrogate_neh_added_batch_sizes`와 `surrogate_neh_sequential`은
+무시된다. PW-CP chain도 실행되지 않는다.
 
 ### 4. PW-CP Chain (Prefix-Window CP)
 
@@ -142,10 +176,10 @@ PW-CP chain은 NEH가 `before_cp` 위치로 실행되어 결과를 산출한 경
 ### 5. Surrogate CP Solve
 
 축소된 인스턴스에 대해 CP-SAT 모델을 풀어 최적해를 구한다.
-`surrogate_dispatch_before_cp=True`인 경우, PW-CP 체인 중 makespan이
-가장 작은 결과(PW-CP 미사용 시 NEH 최선 결과, NEH도 미사용 시 best
-dispatch)를 reference schedule로 사용하여 시작점을 제공한다.
-`surrogate_dispatch_before_cp=False`이면 reference 없이 푼다.
+`surrogate_dispatch_before_cp=True`인 경우 reference schedule을 시작점으로
+제공한다. `before_cp` NEH 경로에서는 PW-CP 체인 최선해(PW-CP 미사용 시 NEH
+최선 결과)를, NEH가 `after_cp`이거나 비활성이면 best dispatch를 reference로
+사용한다. `surrogate_dispatch_before_cp=False`이면 reference 없이 푼다.
 
 ```text
 CP 모델:
@@ -176,7 +210,8 @@ CP 모델:
   → 같은 기계에 원래 가공 시간으로 add_operation_2_mc
 ```
 
-두 방식 모두 이후 `make_semi_active()`로 정규화하여 불필요한 idle time을 제거한다.
+`make_semi_active=True`(기본값)이면 두 방식 모두 복원 후 정규화하여 불필요한
+idle time을 제거하며, 이후 `validate_schedule()`로 실행 가능성을 검증한다.
 
 ```text
 각 tau 후보 → stage_sequence 복원 → restored_schedule_A
@@ -185,7 +220,9 @@ CP 모델:
 
 ### 7. Polish (원래 문제 CP 재탐색, 선택사항)
 
-`polish_tl_nc_multiplier != null`인 경우, 복원된 해를 reference로 하여 **원래 문제**에서 CP로 재탐색한다.
+Polish는 `polish_tl_nc_multiplier`와 `polish_computational_time` 중 **하나라도
+지정된 경우** 실행되며, 복원된 해를 reference로 하여 **원래 문제**에서 CP로
+재탐색한다. 둘 다 `null`이면 polish 단계 전체가 생략된다.
 
 polish_profile_mode에 따라 복원된 해의 제약 강도가 달라진다:
 
@@ -216,19 +253,20 @@ tau=5 source=dispatch_neh_b15_pw5 mode=stage_sequence phase=restored
 
 ## 후보해 파이프라인 요약
 
-단일 τ값 기준 총 후보해 수:
+단일 τ값 기준 후보해 수 (R = `restore_modes` 수, P = `polish_profile_modes` 수):
 
 | 단계 | 생성 수 | 비고 |
 |------|---------|------|
-| Dispatch | ~N개 (최대 12) | cap_portions × variants × methods, 중복 제거 |
-| NEH | 1개 | batch_size 당 1개, sequential chain |
-| PW-CP Chain | ~M개 (최대 5) | unfixed_batch_count 2~6 |
+| Dispatch | ~N개 | `include_surrogate_dispatch_candidate=True`일 때만 후보로 등록. 중복 제거 후 최대 `candidate_top_k`개 |
+| NEH (before_cp) | added_batch_sizes 당 1개 | sequential chain |
+| NEH (after_cp, 기본값) | 대상 후보 당 1개 | source가 `surrogate_neh_sources`에 속하는 후보마다 |
+| PW-CP Chain | ~M개 (최대 5) | `before_cp` NEH 성공 시에만 동작, unfixed_batch_count 2~6 |
 | CP Solve 최종해 | 1개 | |
-| CP Solve Snapshots | ~K개 (최대 20) | CP 중간 해 |
-| **Coarsened 후보 합계** | **~N+M+K+2개** | |
-| Restore (×2) | coarsened × 2 | stage_sequence + machine_sequence |
-| Polish (선택) | restore 당 P개 | polish_profile_modes 수만큼 |
-| **전체 평가 후보** | **coarsened × 2 × (1 + P)** | restored 2개 + polished 2P개 |
+| CP Solve Snapshots | ~K개 | `surrogate_cp_snapshot_solution_limit` 만큼 |
+| **Coarsened 후보 합계** | **~N+M+K+(NEH 수)+1개** | 축소 문제 공간의 누적 후보 |
+| Restore | coarsened × R | `restore_modes` 각각 |
+| Polish (선택) | restore 당 P개 | `polish_profile_modes` 수만큼 |
+| **전체 평가 후보** | **coarsened × R × (1 + P)** | restored + polished |
 
 ---
 
@@ -241,21 +279,25 @@ for each τ in tau_values:
   │
   ├── 1. τ-축소 인스턴스 생성
   │
-  ├── 2. Dispatch 초기해 생성 (축소 문제)
-  │     └── 여러 cap_portion, 방법, 정렬 순서 조합 → ~N개 후보
+  ├── 2. [선택] Dispatch 초기해 생성 (축소 문제)
+  │     · surrogate_dispatch_before_cp 또는
+  │       include_surrogate_dispatch_candidate 가 True일 때만 수행
+  │     · include_surrogate_dispatch_candidate=True 이면 결과를 후보로 등록
   │
-  ├── 3. [선택] NEH-CP 개선 (축소 문제, best dispatch 대상)
-  │     └── added_batch_size 목록 순차 적용 → 1개 후보
+  ├── 3a. [neh_position=before_cp] NEH-CP 개선 (best dispatch 대상)
+  │     ├── added_batch_sizes 목록 순차 적용 → CP reference 갱신
+  │     └── 4. [선택] PW-CP Chain (best NEH 결과 대상) → CP reference 갱신
   │
-  ├── 4. [선택] PW-CP Chain (축소 문제, best NEH 결과 대상)
-  │     └── unfixed_batch_count 증가시키며 chain → ~M개 후보
-  │
-  ├── 5. Surrogate CP Solve (축소 문제, best PW-CP 결과를 reference로)
+  ├── 5. Surrogate CP Solve (축소 문제)
+  │     ├── before_cp: NEH/PW-CP 최선해를 reference로 사용
   │     ├── 최종 CP 해 → 1개 후보
   │     └── Snapshot들 (중간 해) → 최대 K개 후보
   │
+  ├── 3b. [neh_position=after_cp, 기본값] CP 후보해를 NEH-CP로 개선
+  │     └── source가 surrogate_neh_sources에 속하는 후보 → {source}_neh 추가
+  │
   ├── 6. 모든 후보해 Restore (원래 문제로 복원)
-  │     └── 각 후보 × {stage_sequence, machine_sequence}
+  │     └── 각 후보 × restore_modes
   │
   └── 7. [선택] Polish (원래 문제 CP 재최적화)
         └── 복원된 해를 reference로 CP 재탐색
@@ -360,8 +402,13 @@ for each τ in tau_values:
 
 | 파라미터 | 타입 | 설명 |
 |----------|------|------|
-| `surrogate_tl_nc_multiplier` | `float \| None` | 축소 CP 시간 = multiplier × jobs × stages. None이면 explicit time |
-| `polish_tl_nc_multiplier` | `float \| None` | Polish CP 시간. **null이면 polish 생략** |
+| `surrogate_computational_time` | `float \| None` | 축소 CP 명시 시간 |
+| `surrogate_tl_nc_multiplier` | `float \| None` | 축소 CP 시간 = multiplier × jobs × stages |
+| `polish_computational_time` | `float \| None` | Polish CP 명시 시간 |
+| `polish_tl_nc_multiplier` | `float \| None` | Polish CP 시간 = multiplier × jobs × stages |
+
+`*_tl_nc_multiplier`가 지정되면 그 값이 우선하며 `*_computational_time`은 무시된다.
+**`polish_tl_nc_multiplier`와 `polish_computational_time`이 둘 다 `null`이면 polish 단계가 생략된다.**
 
 ### Dispatch
 
@@ -379,11 +426,13 @@ for each τ in tau_values:
 | 파라미터 | 타입 | 설명 |
 |----------|------|------|
 | `surrogate_neh_enabled` | `bool` | NEH-CP 개선 사용 |
-| `surrogate_neh_position` | `str` | CP 전(`before_cp`) 또는 후(`after_cp`) |
+| `surrogate_neh_position` | `str` | CP 전(`before_cp`) 또는 후(`after_cp`). 기본값 `after_cp` |
 | `surrogate_neh_tau_values` | `Sequence[int] \| None` | 적용할 τ 필터 |
-| `surrogate_neh_sources` | `Sequence[str]` | NEH를 적용할 후보 소스 |
-| `surrogate_neh_added_batch_sizes` | `Sequence[int]` | NEH batch size 목록 |
-| `surrogate_neh_sequential` | `bool` | batch size 간 chain 연결 |
+| `surrogate_neh_sources` | `Sequence[str]` | NEH를 적용할 후보 소스. `before_cp`에서는 `"dispatch"` 포함 필수 |
+| `surrogate_neh_added_batch_size` | `int` | NEH batch size (스칼라). **`after_cp` 경로가 사용** |
+| `surrogate_neh_added_batch_sizes` | `Sequence[int] \| None` | NEH batch size 목록. **`before_cp` 경로만 사용** |
+| `surrogate_neh_sequential` | `bool` | batch size 간 chain 연결 (`before_cp` 경로만) |
+| `surrogate_neh_also_solve_dispatch_cp` | `bool` | `before_cp`에서 dispatch 최적해로 surrogate CP를 추가로 풀어 후보 확보 |
 | `surrogate_neh_cp_tl_nc_multiplier` | `float \| None` | NEH 내 CP 시간 배율 |
 | `surrogate_neh_use_lns_only` | `bool` | NEH CP에서 LNS만 사용 |
 
