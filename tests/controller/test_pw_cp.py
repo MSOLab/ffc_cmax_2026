@@ -311,6 +311,7 @@ def test_run_keeps_batch_union_across_stages(monkeypatch, tmp_path):
         return None
 
     monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", fake_slack)
+    monkeypatch.setattr(ctor, "_solve_makespan_batch", fake_makespan)
 
     instance = _make_instance(
         ["s1", "s2"],
@@ -444,6 +445,7 @@ def test_run_records_only_accepted_incumbent_improvements(monkeypatch, tmp_path)
         lambda *, incumbent, stage_2_partition, stage_2_job_2_p_dict, batch_idx: SimpleNamespace(
             non_time_fixed_op_count=1,
             batch_idx=batch_idx,
+            is_right_time_fixed_empty=False,
         ),
     )
     monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", lambda **kwargs: object())

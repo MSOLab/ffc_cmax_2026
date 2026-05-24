@@ -412,7 +412,17 @@ class PwCpConstructor:
                     non_time_fixed_op_time_limit_multiplier=non_time_fixed_op_time_limit_multiplier,
                 )
 
-                candidate = self._solve_batch_pw_cp_model(
+                # Windows with right-time-fixed ops use common_spacing
+                # maximization (a right boundary exists to create slack
+                # against). The final windows where the unfixed region reaches
+                # the timeline end have no right-time-fixed ops, so makespan is
+                # minimized directly instead.
+                solve_batch = (
+                    self._solve_makespan_batch
+                    if spec.is_right_time_fixed_empty
+                    else self._solve_batch_pw_cp_model
+                )
+                candidate = solve_batch(
                     spec=spec,
                     instance=instance,
                     stage_2_job_2_p_dict=stage_2_job_2_p_dict,
@@ -852,7 +862,7 @@ class PwCpConstructor:
             tighten_ranges=tighten_ranges,
         )
         dummy_bar_vars: DummyBarVars = self.builder.make_dummy_bar_vars(
-            mdl, params, horizon, spec.stage_2_mc_2_window
+            mdl, params, horizon, spec.stage_2_mc_2_window, include_right_bars=False
         )
         # Constraints
         self.builder.add_non_fixed_job_precedence_constraints(
@@ -1101,6 +1111,7 @@ class PwCpConstructor:
                 incumbent_makespan_before=incumbent_obj,
                 candidate_makespan=None,
                 accepted=False,
+                objective_name="makespan",
             )
             logging.info(
                 "Makespan batch: no feasible solution found. "
@@ -1126,6 +1137,7 @@ class PwCpConstructor:
             incumbent_makespan_before=incumbent_obj,
             candidate_makespan=candidate_obj,
             accepted=candidate_obj < incumbent_obj,
+            objective_name="makespan",
         )
 
         logging.info(
@@ -1165,12 +1177,13 @@ class PwCpConstructor:
         incumbent_makespan_before: int,
         candidate_makespan: int | None,
         accepted: bool,
+        objective_name: str = "common_spacing",
     ) -> None:
         self._require_state().subproblem_logs.append(
             PwCpSubproblemLog(
                 batch_idx=spec.batch_idx,
                 subproblem_idx=spec.subproblem_idx,
-                objective_name="common_spacing",
+                objective_name=objective_name,
                 time_limit_sec=time_limit_sec,
                 elapsed_time_sec=report.elapsed_time,
                 status=report.status.to_solver_status_enum().value,

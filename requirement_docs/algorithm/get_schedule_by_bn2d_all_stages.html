@@ -1,0 +1,724 @@
+<!doctype html>
+<!--
+  Spatial HTML view of get_schedule_by_bn2d_all_stages.md
+  Source: requirement_docs/algorithm/get_schedule_by_bn2d_all_stages.md (authoritative)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BN2D All-Stages (get_schedule_by_bn2d_all_stages)</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --border: #e4e2da;
+    --border-soft: #efede5;
+    --text: #1a1a1a;
+    --muted: #5e5e58;
+    --faint: #8a8a82;
+    --accent: #2454b8;
+    --accent-soft: #e6edfa;
+    --code-bg: #f3f2ec;
+    --code-text: #2c2c28;
+    --ok: #1e7a3a;
+    --ok-bg: #e3f2e9;
+    --warn: #a55a07;
+    --warn-bg: #fbeed5;
+    --danger: #b3261e;
+    --danger-bg: #fbe2e0;
+    --info: #1f5a8a;
+    --info-bg: #e3eff8;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.03);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, sans-serif;
+    font-size: 15px; line-height: 1.62; -webkit-font-smoothing: antialiased;
+  }
+  code, pre, .mono { font-family: ui-monospace, monospace; }
+  code { font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: var(--code-text); }
+  pre { background: #1f2024; color: #e6e6e0; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; margin: 12px 0; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: static !important; height: auto !important; border-right: 0; border-bottom: 1px solid var(--border); }
+  }
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 18px 28px 28px; border-right: 1px solid var(--border-soft);
+    background: var(--bg); font-size: 13px;
+  }
+  .toc .title { font-weight: 600; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+  .toc .crumb { color: var(--faint); font-size: 11px; margin-bottom: 14px; }
+  .toc .label { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: .08em; text-transform: uppercase; margin: 16px 0 6px; }
+  .toc a { display: block; padding: 3px 0; color: var(--muted); border-left: 2px solid transparent; padding-left: 10px; margin-left: -10px; }
+  .toc a:hover { color: var(--text); text-decoration: none; border-left-color: var(--border); }
+
+  main { padding: 36px 48px 80px; max-width: 920px; }
+  @media (max-width: 900px) { main { padding: 24px 20px 60px; } }
+
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); letter-spacing: -.005em; }
+  h3 { font-size: 15.5px; margin: 26px 0 10px; }
+  h4 { font-size: 13.5px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+  .meta { color: var(--faint); font-size: 12.5px; margin-bottom: 24px; }
+
+  .tldr {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 18px 0 28px;
+  }
+  .tldr h4 { margin: 0 0 6px; color: var(--info); text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .tldr ul { margin: 4px 0 0; padding-left: 20px; }
+  .tldr li { margin: 3px 0; font-size: 14px; }
+
+  .invariants {
+    background: #f4faee; border: 1px solid #c2d5b5; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .invariants h4 { color: var(--ok); margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+
+  .badge {
+    display: inline-block; font-size: 10.5px; font-weight: 600;
+    padding: 2px 7px; border-radius: 10px; vertical-align: middle;
+    text-transform: uppercase; letter-spacing: .04em; line-height: 1.5;
+  }
+  .badge.ok     { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn   { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger { background: var(--danger-bg); color: var(--danger); }
+  .badge.info   { background: var(--info-bg);   color: var(--info); }
+  .badge.muted  { background: #e8e7e0;          color: #5a5a55; }
+
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  th { background: #f3f2ec; font-weight: 600; font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: #fbfaf3; }
+
+  .helpers code { background: transparent; padding: 0; color: var(--text); font-weight: 500; }
+  .helpers td:nth-child(2) { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .card h4 { margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--text); }
+  .card p { margin: 4px 0; font-size: 13.5px; }
+  .card .path { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); word-break: break-all; }
+  .card.template     { border-color: #c2d5b5; background: #f4faee; }
+  .card.template h4  { color: var(--ok); }
+  .card.not-template { border-color: #e7d5c5; background: #fbf3eb; }
+  .card.not-template h4 { color: var(--warn); }
+
+  .pipeline {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0; font-size: 13.5px;
+  }
+  .pipeline h4 { color: var(--info); margin: 0 0 8px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .pipeline .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; font-family: ui-monospace, monospace; font-size: 12px; }
+  .pipeline .step { background: #fff; padding: 4px 9px; border-radius: 4px; border: 1px solid #c9def0; }
+  .pipeline .step-highlight { background: #fff; padding: 4px 9px; border-radius: 4px; border: 2px solid var(--accent); font-weight: 600; }
+  .pipeline .arrow { color: var(--info); font-weight: 600; }
+
+  .partition-fig, .modmap {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; margin: 14px 0; box-shadow: var(--shadow);
+  }
+  .partition-fig figcaption, .modmap figcaption {
+    font-size: 12px; color: var(--muted); margin-top: 10px; text-align: center;
+  }
+
+  .risks { display: grid; gap: 10px; margin: 12px 0; }
+  .risk {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    padding: 12px 16px;
+  }
+  .risk .hd { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .risk .hd h4 { margin: 0; font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text); }
+  .risk .body { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+  .risk.sev-high { border-left: 4px solid var(--danger); }
+  .risk.sev-med  { border-left: 4px solid var(--warn); }
+  .risk.sev-low  { border-left: 4px solid var(--ok); }
+
+  details { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 6px; padding: 8px 14px; margin: 10px 0; }
+  details[open] { background: #fbfaf3; }
+  summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--muted); user-select: none; }
+  summary:hover { color: var(--text); }
+  details pre, details p { margin-top: 10px; }
+
+  ul.plain { list-style: none; padding-left: 0; }
+  ul.plain li { padding: 4px 0; border-bottom: 1px dashed var(--border-soft); font-size: 12px; }
+  ul.plain li:last-child { border-bottom: 0; }
+
+  .scenario-matrix {
+    display: grid; grid-template-columns: 80px 1fr 1fr; gap: 8px; margin: 16px 0; max-width: 540px;
+    font-size: 13.5px;
+  }
+  .scenario-matrix .head, .scenario-matrix .row-head {
+    font-weight: 600; color: var(--muted); padding: 6px 8px; text-align: center;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .scenario-matrix .row-head { padding: 14px 8px; align-self: center; }
+  .scenario-matrix .cell {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; box-shadow: var(--shadow); text-align: center;
+  }
+  .scenario-matrix .cell .name { font-family: ui-monospace, monospace; font-size: 12.5px; color: var(--accent); font-weight: 600; }
+  .scenario-matrix .cell .desc { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+  .decisions { display: grid; gap: 10px; margin: 14px 0; }
+  .decision {
+    display: grid; grid-template-columns: 170px 1fr; gap: 14px;
+    padding: 10px 14px; border-left: 3px solid var(--accent); background: #f6f8fc; border-radius: 0 6px 6px 0;
+  }
+  .decision .key { font-weight: 600; color: var(--accent); font-size: 13px; }
+  .decision .val { font-size: 13.5px; }
+  .decision.deferred { border-left-color: var(--faint); background: #f4f3ed; }
+  .decision.deferred .key { color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="title">BN2D All-Stages</div>
+  <div class="crumb">requirement_docs/algorithm/get_schedule_by_bn2d_all_stages.html</div>
+
+  <div class="label">Peers</div>
+  <a href="pw_cp.md" style="color: var(--accent); font-size: 12.5px;">→ PW-CP</a>
+  <a href="initialize_by_tau_coarsened_cp.md" style="color: var(--accent); font-size: 12.5px;">→ Tau-Coarsened CP</a>
+
+  <div class="label">Sections</div>
+  <a href="#tldr">TL;DR</a>
+  <a href="#deps">Module Dependencies</a>
+  <a href="#problem">Problem Description</a>
+  <a href="#params">Parameters</a>
+  <a href="#vars">Variables</a>
+  <a href="#objective">Objective</a>
+  <a href="#constraints">Constraints</a>
+  <a href="#core-idea">Core Idea</a>
+  <a href="#bottleneck">Bottleneck Identification</a>
+  <a href="#heuristic">BN2D Bottleneck Heuristic</a>
+  <a href="#twoway">Two-Way Propagation</a>
+  <a href="#flow">Execution Flow</a>
+  <a href="#param-table">Parameter Summary</a>
+  <a href="#caveats">Caveats</a>
+
+  <div class="label">Glossary</div>
+  <ul class="plain">
+    <li><b>BN2D</b> — Bottleneck-based Two-Way Dispatching</li>
+    <li><b>DS</b> — Dispatch by Stage (stage-by-stage, job priority)</li>
+    <li><b>DJ</b> — Dispatch by Job (job-by-job through all stages)</li>
+    <li><b>L-set</b> — Left cap jobs (small r_j, dispatched first at bottleneck)</li>
+    <li><b>R-set</b> — Right cap jobs (small tr_j, dispatched last at bottleneck)</li>
+    <li><b>CP</b> — Constraint Programming (CP-SAT)</li>
+    <li><b>r_j</b> — Release time proxy = sum of processing times before bottleneck</li>
+    <li><b>tr_j</b> — Tail proxy = sum of processing times after bottleneck</li>
+  </ul>
+</nav>
+
+<main>
+
+<h1>BN2D All-Stages (get_schedule_by_bn2d_all_stages)</h1>
+<div class="meta">
+  requirement_docs/algorithm/get_schedule_by_bn2d_all_stages.md
+  · <span>Peers: <a href="pw_cp.md">PW-CP</a>, <a href="initialize_by_tau_coarsened_cp.md">Tau-Coarsened CP</a></span>
+</div>
+
+<section id="tldr" class="tldr">
+  <h4>At a glance</h4>
+  <ul>
+    <li>BN2D는 병목 스테이지를 기준으로 Hybrid Flowshop을 분해하는 구축적 휴리스틱</li>
+    <li><b>모든 스테이지를 차례로 병목으로 가정</b>하여 BN2D를 적용, 최소 makespan 채택</li>
+    <li>병목 스케줄을 L(좌측 캡) + mid + R(우측 캡) 3분할 후 양방향 전파</li>
+    <li>전방(former) 스테이지는 <b>시간 역전(reversed time)</b> 기법으로 디스패치</li>
+  </ul>
+</section>
+
+<section id="deps">
+<h2>Module Dependencies</h2>
+
+<figure class="modmap">
+  <svg viewBox="0 0 760 220" width="100%" style="max-width: 740px; display:block; margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#7a7a72"/>
+      </marker>
+    </defs>
+    <rect x="20" y="20" width="340" height="180" fill="#e6edfa" stroke="#2454b8" rx="6"/>
+    <text x="190" y="40" font-size="12" font-weight="700" text-anchor="middle" fill="#1f5a8a" font-family="system-ui">BN2D Dispatcher — bn2d.py</text>
+    <rect x="40" y="56" width="300" height="28" fill="#fff" stroke="#2454b8" rx="4"/>
+    <text x="190" y="75" font-size="11" text-anchor="middle" font-family="ui-monospace, monospace">get_schedule_by_bn2d_all_stages</text>
+    <rect x="40" y="92" width="300" height="28" fill="#fff" stroke="#2454b8" rx="4"/>
+    <text x="190" y="111" font-size="11" text-anchor="middle" font-family="ui-monospace, monospace">_get_schedule_from_bottleneck_stage</text>
+    <rect x="40" y="128" width="300" height="28" fill="#fff" stroke="#2454b8" rx="4"/>
+    <text x="190" y="147" font-size="11" text-anchor="middle" font-family="ui-monospace, monospace">_get_bottleneck_stage_schedule_heuristic</text>
+    <rect x="40" y="164" width="300" height="28" fill="#fff" stroke="#2454b8" rx="4"/>
+    <text x="190" y="183" font-size="11" text-anchor="middle" font-family="ui-monospace, monospace">_create_reversed_instance / _dispatch_former</text>
+    <rect x="400" y="20" width="340" height="80" fill="#f4faee" stroke="#c2d5b5" rx="6"/>
+    <text x="570" y="40" font-size="12" font-weight="700" text-anchor="middle" fill="#1e7a3a" font-family="system-ui">External</text>
+    <rect x="420" y="56" width="300" height="28" fill="#fff" stroke="#1e7a3a" rx="4"/>
+    <text x="570" y="75" font-size="11" text-anchor="middle" font-family="ui-monospace, monospace">solve_selection_problem  (select_and_assign.py)</text>
+    <rect x="400" y="110" width="340" height="80" fill="#fbf3eb" stroke="#e7d5c5" rx="6"/>
+    <text x="570" y="130" font-size="12" font-weight="700" text-anchor="middle" fill="#a55a07" font-family="system-ui">Config</text>
+    <rect x="420" y="146" width="300" height="28" fill="#fff" stroke="#a55a07" rx="4"/>
+    <text x="570" y="165" font-size="11" text-anchor="middle" font-family="ui-monospace, monospace">BN2DOption  (bn2d_option.py)</text>
+    <line x1="340" y1="70"  x2="420" y2="70"  stroke="#7a7a72" stroke-width="1.2" marker-end="url(#arrow)"/>
+    <line x1="340" y1="142" x2="420" y2="160" stroke="#7a7a72" stroke-width="1.2" marker-end="url(#arrow)"/>
+  </svg>
+  <figcaption>Call dependency graph: entry point → internal helpers → external solver / config</figcaption>
+</figure>
+
+<p>호출: <code>def get_schedule_by_bn2d_all_stages</code> (<code>hybridflowshop/dispatcher/bn2d.py:645–672</code>)</p>
+</section>
+
+<section id="problem">
+<h2>Problem Description</h2>
+
+<h3 id="params">Parameters</h3>
+<p>알고리즘 동작을 제어하는 입력 설정값은 <code>BN2DOption</code> dataclass로 전달된다. 전체 목록·기본값은 <a href="#param-table">Parameter Summary</a>를 참조.</p>
+
+<h4>병목 집중도 파라미터</h4>
+<p>좌/우 캡(cap) 작업 수를 결정한다. <code>_cap_multiplier</code>가 우선 적용되고, <code>None</code>이면 <code>_cap_portion</code>이 사용된다. 둘 다 <code>None</code>이면 해당 방향의 캡을 사용하지 않는다.</p>
+
+<table>
+  <thead><tr><th>Parameter Pair</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>left_cap_multiplier</code>, <code>left_cap_portion</code></td><td>좌측 캡 = 일찍 시작해야 할 작업군의 크기</td></tr>
+    <tr><td><code>right_cap_multiplier</code>, <code>right_cap_portion</code></td><td>우측 캡 = 늦게 끝내야 할 작업군의 크기</td></tr>
+  </tbody>
+</table>
+
+<h4>MID 작업 순서 제어</h4>
+<p>병목 스테이지에서 좌/우 캡 사이에 위치하는 mid-job들의 순서를 결정한다. 우선순위는 <code>randomize_mid_all</code> &gt; <code>reverse_mid_even</code> &gt; <code>reverse_mid_all</code> 순서로 적용된다.</p>
+
+<h4>디스패치 방식</h4>
+<table>
+  <thead><tr><th>Parameter</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>mixed_schedule_for_former_stages</code></td><td>전방 스테이지에 Mixed dispatch 사용</td></tr>
+    <tr><td><code>mixed_schedule_for_later_stages</code></td><td>후방 스테이지에 Mixed dispatch 사용</td></tr>
+    <tr><td><code>machine_then_job</code></td><td>True면 기계 우선, False면 작업 우선 디스패치</td></tr>
+  </tbody>
+</table>
+
+<h4>정규화</h4>
+<ul>
+  <li><code>normalize_by_stage_cnt</code>: <code>r_j</code>(전방 합)와 <code>tr_j</code>(후방 합)를 각각 스테이지 수로 나누고 올림. 전/후방 스테이지 수가 0이면 해당 방향은 정규화하지 않음.</li>
+</ul>
+
+<h3 id="vars">Variables</h3>
+<p>알고리즘이 풀이 과정에서 추적하는 상태 변수다. CP 모델이 아니므로 명시적 결정변수는 없으며, 휴리스틱이 절차적으로 관리하는 값들이다.</p>
+
+<table>
+  <thead><tr><th>Variable</th><th>Type</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>bottleneck_stage_id</code></td><td><code>StageIdType</code></td><td>현재 시도 중인 병목 스테이지</td></tr>
+    <tr><td><code>r_dict</code></td><td><code>dict[JobIdType, int]</code></td><td>작업 j의 전방 스테이지 가공시간 합 (= release time proxy)</td></tr>
+    <tr><td><code>p_dict</code></td><td><code>dict[JobIdType, int]</code></td><td>병목 스테이지에서의 가공시간</td></tr>
+    <tr><td><code>tr_dict</code></td><td><code>dict[JobIdType, int]</code></td><td>작업 j의 후방 스테이지 가공시간 합 (= tail proxy)</td></tr>
+    <tr><td><code>left_cap_job_id_list</code>, <code>right_cap_job_id_list</code></td><td><code>list[str]</code></td><td>좌/우 캡에 선정된 작업 ID 목록</td></tr>
+    <tr><td><code>mid_job_id_list</code></td><td><code>list[str]</code></td><td>캡에 속하지 않은 나머지 작업</td></tr>
+    <tr><td><code>sorted_j_list</code></td><td><code>list[JobIdType]</code></td><td>L + mid + R 순서로 결합된 최종 작업 순서</td></tr>
+    <tr><td><code>job_2_bottleneck_end_time</code></td><td><code>dict[JobIdType, int]</code></td><td>병목 스테이지에서의 작업별 종료 시각</td></tr>
+    <tr><td><code>job_2_bottleneck_start_time</code></td><td><code>dict[JobIdType, int]</code></td><td>병목 스테이지에서의 작업별 시작 시각</td></tr>
+    <tr><td><code>bcmax</code></td><td><code>int</code></td><td>병목 스테이지 스케줄의 makespan</td></tr>
+    <tr><td><code>discrepancy</code></td><td><code>int</code></td><td>전방 스케줄 makespan과 bcmax의 차이</td></tr>
+  </tbody>
+</table>
+
+<h3 id="objective">Objective</h3>
+<p>makespan = <code>max(end_time_{j,k})</code> (모든 작업 j, 스테이지 k) 을 최소화한다.</p>
+<p>BN2D는 makespan을 직접 최적화하는 대신 <b>병목 스테이지의 부하를 가장 효율적으로 배치</b>하고, 그 결과를 전후방으로 전파하는 방식으로 간접적으로 makespan을 줄인다.</p>
+<ul>
+  <li>병목 스테이지에서의 추정 makespan: <code>max(end_time_j + tr_j)</code></li>
+  <li><code>tr_j</code>는 후방 스테이지 처리시간의 대리값이므로, 병목 종료 후 남은 작업량을 반영한 makespan 추정치다.</li>
+</ul>
+
+<h3 id="constraints">Constraints</h3>
+<div class="invariants">
+  <h4>Invariants (algorithmic guarantees)</h4>
+  <ul>
+    <li><b>작업 단위 처리</b>: 각 작업 j는 각 스테이지 k를 정확히 한 번 통과하며, 가공시간 <code>p[j,k]</code> 동안 하나의 기계를 점유한다.</li>
+    <li><b>스테이지 선행 제약</b>: 동일 작업에 대해 스테이지 k의 종료 시각 ≤ 스테이지 k+1의 시작 시각.</li>
+    <li><b>기계 용량</b>: 각 기계는 한 번에 하나의 작업만 처리한다.</li>
+    <li><b>Release time</b>: 병목 스테이지에서 작업 j는 <code>r_j</code>(전방 가공시간 합) 이전에 시작할 수 없다. 전방 스테이지 디스패치 시에도 release time이 적용된다.</li>
+    <li><b>작업 순서 불변식 (병목 스테이지)</b>: L(좌측 캡) → mid → R(우측 캡) 순서로 디스패치된다. 이 순서는 <code>dispatch_stage_by_jobs</code>에 전달되어 readiness(기계 가용 시간, release time)를 고려한 실제 기계 배정의 tie-break으로 사용된다.</li>
+    <li><b>전방 스케줄 시간 역전</b>: 전방 스테이지는 bottleneck start time을 <code>bcmax - start_time</code>으로 변환한 역시간(reversed time) 도메인에서 디스패치되며, 최종 결과는 다시 원래 시간축으로 변환된다.</li>
+  </ul>
+</div>
+</section>
+
+<hr>
+
+<section id="core-idea">
+<h2>Core Idea</h2>
+<p>BN2D의 핵심은 <b>병목 스테이지를 기준으로 한 분해</b>와 <b>양방향 전파</b>다.</p>
+
+<div class="pipeline">
+  <h4>Three-step decomposition</h4>
+  <div class="flow">
+    <span class="step-highlight">1. Bottleneck Focus</span><span class="arrow">→</span>
+    <span class="step-highlight">2. L-mid-R Partition</span><span class="arrow">→</span>
+    <span class="step-highlight">3. Two-Way Propagation</span>
+  </div>
+  <div class="flow" style="margin-top: 10px;">
+    <span class="step">Bottleneck stage job order determines overall makespan</span>
+    <span class="arrow">|</span>
+    <span class="step">Left cap (small r_j) + mid (r_j - tr_j sort) + Right cap (small tr_j)</span>
+    <span class="arrow">|</span>
+    <span class="step">Forward to later stages + backward (reversed time) to former stages</span>
+  </div>
+</div>
+</section>
+
+<section id="bottleneck">
+<h2>Bottleneck Stage Identification</h2>
+<p><code>_get_bottleneck_stage()</code> (bn2d.py:305)</p>
+
+<pre><code>stage_id_2_bottleneck_index[s] = sum(p[j,s] for j in jobs) / machine_cnt[s]
+bottleneck = stage_id_2_bottleneck_index 의 최대값을 가진 스테이지</code></pre>
+
+<p>모든 스테이지에 대해 <b>총 가공시간 ÷ 기계 수</b> (=스테이지당 평균 부하)를 계산하고, 가장 큰 값을 가진 스테이지를 병목으로 선정한다. (<code>get_schedule_by_bn2d_single_stage</code>에서만 사용됨. <code>_all_stages</code> 버전은 모든 스테이지를 순회하므로 이 메서드를 호출하지 않는다.)</p>
+</section>
+
+<hr>
+
+<section id="heuristic">
+<h2>BN2D Bottleneck Heuristic</h2>
+<p><code>_get_bottleneck_stage_schedule_heuristic()</code> (bn2d.py:53–211)</p>
+<p>병목 스테이지 하나에 대한 작업 순서를 결정하고, 해당 스테이지만의 스케줄을 생성한다.</p>
+
+<div class="pipeline">
+  <h4>6-step heuristic pipeline</h4>
+  <div class="flow">
+    <span class="step">1. r_j / tr_j</span><span class="arrow">→</span>
+    <span class="step">2. Cap count</span><span class="arrow">→</span>
+    <span class="step">3. Select L / R</span><span class="arrow">→</span>
+    <span class="step">4. Mid order</span><span class="arrow">→</span>
+    <span class="step">5. Dispatch</span><span class="arrow">→</span>
+    <span class="step">6. Estimate</span>
+  </div>
+</div>
+
+<h3>1. 전/후방 가공시간 합 (<code>r_j</code>, <code>tr_j</code>)</h3>
+
+<pre><code>r_j  = sum(p[j,s] for s in before_bottleneck_stages)    // release time proxy
+p_j  = p[j, bottleneck_stage]                             // bottleneck processing time
+tr_j = sum(p[j,s] for s in after_bottleneck_stages)      // tail proxy
+
+if normalize_by_stage_cnt and stage_cnt &gt; 0:
+    r_j  = ceil(r_j  / before_stage_cnt)
+    tr_j = ceil(tr_j / after_stage_cnt)</code></pre>
+
+<p><code>r_j</code>는 작업 j가 병목 스테이지에 도착하기 전까지 전방에서 처리되어야 할 총 시간이므로, 병목에서의 release time 역할을 한다. <code>tr_j</code>는 병목 이후 후방 스테이지에서 처리되어야 할 총 시간이다.</p>
+
+<h3>2. 좌/우 캡 작업 수 산정</h3>
+
+<pre><code>if left_cap_multiplier is not None:
+    left_cap_op_cnt = left_cap_multiplier × machine_cnt
+elif left_cap_portion is not None:
+    left_cap_op_cnt = int(left_cap_portion × job_cnt)
+else:
+    left_cap_op_cnt = 0
+
+// 동일한 방식으로 right_cap_op_cnt 산정</code></pre>
+
+<p><code>_multiplier</code>는 기계 수 기반, <code>_portion</code>은 전체 작업 수 기반이다.</p>
+
+<h3>3. 좌/우 캡 선정</h3>
+<p><code>left_cap_op_cnt &gt; 0</code> 또는 <code>right_cap_op_cnt &gt; 0</code>인 경우에만 실행된다.</p>
+
+<div class="grid-2">
+  <div class="card template">
+    <h4>Primary: CP-SAT <span class="badge ok">optimal</span></h4>
+    <p><code>solve_selection_problem()</code> 호출</p>
+    <div class="decisions" style="margin: 8px 0;">
+      <div class="decision">
+        <div class="key">Variables</div>
+        <div class="val"><code>x_j ∈ {0,1}</code> (L), <code>y_j ∈ {0,1}</code> (R)</div>
+      </div>
+      <div class="decision">
+        <div class="key">Constraints</div>
+        <div class="val"><code>x_j + y_j ≤ 1</code>, <code>Σ x_j = K_L</code>, <code>Σ y_j = K_R</code></div>
+      </div>
+      <div class="decision">
+        <div class="key">1st objective</div>
+        <div class="val"><code>min Σ(r_j·x_j + tr_j·y_j)</code> — L은 r_j가 작은 작업, R은 tr_j가 작은 작업을 선호</div>
+      </div>
+      <div class="decision">
+        <div class="key">2nd objective</div>
+        <div class="val"><code>min Σ idx_j·(x_j + y_j)</code> — tie-break, job index sum</div>
+      </div>
+    </div>
+    <p>OPTIMAL / FEASIBLE → L_set sorted by r_j ascending, R_set by tr_j descending</p>
+  </div>
+  <div class="card not-template">
+    <h4>Fallback: Greedy <span class="badge warn">heuristic</span></h4>
+    <p>CP-SAT이 infeasible 반환 시</p>
+    <ul>
+      <li><b>L_set</b>: 전체 작업을 <code>r_j</code> 오름차순 정렬 후 상위 <code>K_L</code>개 선택</li>
+      <li><b>R_set</b>: L_set에 포함되지 않은 작업 중 <code>tr_j</code> 오름차순 정렬 후 상위 <code>K_R</code>개 선택</li>
+    </ul>
+  </div>
+</div>
+
+<h3>4. Mid 작업 순서 결정</h3>
+<p>좌/우 캡에 속하지 않은 나머지 작업들:</p>
+
+<pre><code>mid_set = all_jobs \ (L_set ∪ R_set)
+
+if randomize_mid_all:
+    shuffle(mid_set)
+else:
+    sort mid_set by (r_j - tr_j, tiebreak_rank) ascending
+    if reverse_mid_even:
+        reverse_even_positions(mid_set)    // 1-based even index 뒤집기
+    elif reverse_mid_all:
+        reverse(mid_set)</code></pre>
+
+<p>정렬 기준 <code>r_j - tr_j</code>는 작업이 전방 압력(일찍 시작해야 함)과 후방 압력(늦게 끝나야 함) 중 어느 쪽이 더 큰지를 나타낸다. 값이 작을수록(음수) 전방 압력이 크므로 먼저 처리한다.</p>
+
+<h3>5. Bottleneck 스테이지 디스패치</h3>
+
+<pre><code>sorted_j_list = L_set + mid_set + R_set
+dispatch_stage_by_jobs(bottleneck_stage_id, sorted_j_list, p_dict, job_2_release=r_dict)</code></pre>
+
+<p><code>dispatch_stage_by_jobs</code>는 주어진 작업 순서를 tie-break 우선순위로 사용하여, 각 기계의 가용 시각과 release time(<code>r_dict</code>)을 고려해 실제 기계를 배정한다.</p>
+
+<h3>6. Makespan 추정</h3>
+
+<pre><code>end_time_dict = schedule.get_jik_2_end_time_map()
+makespan = max(end_time + tr_dict[job_id] for all operations)</code></pre>
+
+<p><code>tr_j</code>를 후방 처리시간의 대리값으로 사용하여, 병목 스케줄만으로 전체 makespan을 추정한다.</p>
+
+</section>
+
+<hr>
+
+<section id="twoway">
+<h2>Two-Way Propagation</h2>
+<p><code>_get_schedule_from_bottleneck_stage()</code> (bn2d.py:325–445)</p>
+<p>병목 스케줄을 기준으로 전방(이전 스테이지)과 후방(이후 스테이지)을 각각 디스패치하여 전체 스케줄을 완성한다.</p>
+
+<h3>Later Stages (후방)</h3>
+
+<pre><code>later_stage_list = stages[bottleneck_index + 1:]</code></pre>
+
+<p>후방 스테이지가 존재하면:</p>
+<ol>
+  <li>작업을 병목 스테이지 <b>종료 시각</b> 오름차순 정렬</li>
+  <li>디스패치 방식 (option에 따라):
+    <ul>
+      <li><b>A. Mixed dispatch</b> (<code>mixed_schedule_for_later_stages=True</code>): <code>mixed_dispatcher.get_best_mixed_schedule_by_sequence()</code> 호출. <code>job_2_release_t = job_2_bottleneck_end_time</code>으로 설정하여 각 작업이 병목을 통과한 후에만 시작하도록 보장.</li>
+      <li><b>B. DS/DJ 병행</b> (기본값):
+        <ul>
+          <li>DS (dispatch_stage_by_jobs): 스테이지 단위로, 작업 순서를 tie-break priority로 사용하여 디스패치</li>
+          <li>DJ (dispatch_job_by_stages): 작업 단위로, 각 작업을 모든 후방 스테이지에 순차 디스패치</li>
+          <li>두 결과 중 makespan이 더 작은 것을 채택</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+</ol>
+<p>후방 스테이지가 없으면 병목 스케줄을 그대로 사용한다.</p>
+
+<h3>Former Stages (전방)</h3>
+
+<pre><code>before_stage_list = stages[:bottleneck_index]</code></pre>
+
+<p>전방 스테이지가 존재하면:</p>
+
+<h4>1. 역시간 인스턴스 생성</h4>
+<p><code>_create_reversed_instance_for_former_stages</code> (bn2d.py:213):</p>
+
+<pre><code>stage_list = reverse(before_stage_list)     // 스테이지 순서 역전
+job_2_release_t = {j: bcmax - bottleneck_start_time_j}
+reversed_instance = create_instance_of_stage_subset(instance, stage_list)</code></pre>
+
+<p>전방 스테이지의 디스패치를 위해 시간을 역전시킨다. 병목 시작 시각이 늦은 작업일수록 역시간 도메인에서 release time이 작아져 더 일찍 디스패치된다.</p>
+
+<h4>2. 전방 스테이지 디스패치</h4>
+<p><code>_dispatch_former_stages</code> (bn2d.py:245):</p>
+<p>작업을 역시간 release time 오름차순 정렬 후 디스패치:</p>
+<ul>
+  <li><b>Mixed dispatch 사용</b> (<code>mixed_schedule_for_former_stages=True</code>): <code>MixedDispatcher.get_best_mixed_schedule_by_sequence()</code> 호출</li>
+  <li><b>DS/DJ 병행</b> (기본값):
+    <ul>
+      <li>DS: <code>dispatch_stages_by_job_sequence</code> — 스테이지 단위</li>
+      <li>DJ: <code>dispatch_job_sequence_by_stages</code> — 작업 단위</li>
+      <li>더 좋은 쪽 채택</li>
+    </ul>
+  </li>
+</ul>
+
+<h4>3. 스케줄 병합</h4>
+
+<pre><code>discrepancy = former_schedule_makespan - bcmax
+schedule.right_shift(discrepancy)
+
+// 역시간 결과를 원래 시간으로 변환하여 추가
+for each operation in former_schedule:
+    start_time = former_schedule_makespan - end_time
+    schedule.add_ops_times_2_mc(stage_id, mc_id, job_id, start_time, start_time + duration)</code></pre>
+
+<p>역시간 도메인에서 디스패치된 전방 스테이지의 각 operation은 <code>former_schedule_makespan - end_time</code>으로 원래 시간축으로 변환된다. 전방 스케줄이 <code>bcmax</code>보다 길면(<code>discrepancy &gt; 0</code>), 기존 스케줄을 우측으로 밀어(shift) 시간 충돌을 방지한다.</p>
+</section>
+
+<hr>
+
+<section id="flow">
+<h2>Execution Flow</h2>
+
+<details open>
+  <summary><code>get_schedule_by_bn2d_all_stages</code> full pseudocode (bn2d.py:645–672)</summary>
+  <pre><code>입력: BN2DOption, gantt_draw_func (optional)
+
+1. best_obj = None, best_sch = None
+
+2. for each bottleneck_stage_id in self.stage_id_list:
+   │
+   ├── 2a. _get_schedule_from_bottleneck_stage(bottleneck_stage_id, option)
+   │   │
+   │   ├── _get_bottleneck_stage_schedule_heuristic
+   │   │   ├── r_j, tr_j 계산 (전/후방 가공시간 합)
+   │   │   ├── 캡 작업 수 산정
+   │   │   ├── solve_selection_problem (또는 greedy fallback)
+   │   │   │   └── L_set, R_set 선정
+   │   │   ├── mid_set 순서 결정
+   │   │   ├── L + mid + R → bottleneck dispatch
+   │   │   └── makespan 추정 (max(end_time + tr_j))
+   │   │
+   │   ├── 후방 스테이지 디스패치
+   │   │   └── 병목 종료 시각 순 → mixed 또는 DS/DJ
+   │   │
+   │   └── 전방 스테이지 디스패치
+   │       ├── 역시간 인스턴스 생성
+   │       ├── release time 순 → mixed 또는 DS/DJ
+   │       └── 시간축 변환 후 기존 스케줄에 병합
+   │
+   └── 2b. if makespan &lt; best_obj:
+               best_obj, best_sch 갱신
+
+3. return best_sch (모든 후보 중 최소 makespan)
+         또는 None (stage_id_list가 빈 경우)</code></pre>
+</details>
+
+<p><code>gantt_draw_func</code>가 주어지면 각 병목 스테이지 시도마다 Gantt 차트를 출력한다. <code>_get_schedule_from_bottleneck_stage</code> 내부에서 병목 스테이지 스케줄 단계와 후방 스테이지까지 디스패치된 스케줄 단계(전방 스테이지 병합 전)에서 각각 호출된다.</p>
+</section>
+
+<hr>
+
+<section id="param-table">
+<h2>Parameter Summary</h2>
+
+<h3>BN2DOption</h3>
+<div class="helpers">
+<table>
+  <thead><tr><th>Parameter</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>left_cap_multiplier</code></td><td><code>None</code></td><td>좌측 캡 작업 수 = <code>multiplier × machine_cnt</code>. <code>portion</code>보다 우선</td></tr>
+    <tr><td><code>right_cap_multiplier</code></td><td><code>None</code></td><td>우측 캡 작업 수 = <code>multiplier × machine_cnt</code></td></tr>
+    <tr><td><code>left_cap_portion</code></td><td><code>None</code></td><td>좌측 캡 작업 수 = <code>int(portion × job_cnt)</code></td></tr>
+    <tr><td><code>right_cap_portion</code></td><td><code>None</code></td><td>우측 캡 작업 수 = <code>int(portion × job_cnt)</code></td></tr>
+    <tr><td><code>normalize_by_stage_cnt</code></td><td><code>False</code></td><td><code>r_j</code>, <code>tr_j</code>를 스테이지 수로 정규화</td></tr>
+    <tr><td><code>randomize_mid_all</code></td><td><code>False</code></td><td>mid 작업 순서 랜덤 셔플 (최우선)</td></tr>
+    <tr><td><code>reverse_mid_even</code></td><td><code>False</code></td><td>mid에서 1-based 짝수 위치 작업 순서 역전</td></tr>
+    <tr><td><code>reverse_mid_all</code></td><td><code>False</code></td><td>mid 전체 순서 역전</td></tr>
+    <tr><td><code>mixed_schedule_for_former_stages</code></td><td><code>False</code></td><td>전방 스테이지에 Mixed dispatch 사용</td></tr>
+    <tr><td><code>mixed_schedule_for_later_stages</code></td><td><code>False</code></td><td>후방 스테이지에 Mixed dispatch 사용</td></tr>
+    <tr><td><code>machine_then_job</code></td><td><code>False</code></td><td>True면 기계 우선, False면 작업 우선 디스패치</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Method Signature</h3>
+<div class="helpers">
+<table>
+  <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>option</code></td><td><code>BN2DOption</code></td><td>BN2D 동작 제어 파라미터</td></tr>
+    <tr><td><code>gantt_draw_func</code></td><td><code>Callable | None</code></td><td>Gantt 차트 출력 함수. <code>(schedule, force_start, force_end)</code> 시그니처이며 <code>force_end</code>는 생략 가능</td></tr>
+    <tr><td><b>Return</b></td><td><code>HybridFlowshopLiteSchedule | None</code></td><td>최소 makespan 스케줄, 또는 <code>stage_id_list</code>가 빈 경우 <code>None</code></td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<hr>
+
+<section id="caveats">
+<h2>Caveats</h2>
+
+<div class="risks">
+  <div class="risk sev-low">
+    <div class="hd">
+      <h4>1. Robustness through exhaustive bottleneck search</h4>
+      <span class="badge ok">low</span>
+    </div>
+    <div class="body"><code>get_schedule_by_bn2d_all_stages</code>는 <code>_get_bottleneck_stage</code>로 식별한 병목만 사용하는 <code>_single_stage</code> 버전과 달리, 모든 스테이지를 순회한다. 계산량은 스테이지 수에 비례하지만, 병목 식별 오류에 강건하다(robust).</div>
+  </div>
+
+  <div class="risk sev-med">
+    <div class="hd">
+      <h4>2. Bottleneck makespan estimate is approximate</h4>
+      <span class="badge warn">medium</span>
+    </div>
+    <div class="body">병목 스케줄 단계의 makespan은 <code>end_time + tr_j</code>로 추정되지만, 실제 후방 디스패치 결과와 차이가 발생할 수 있다. 특히 병렬 기계가 많은 스테이지에서 <code>tr_j</code> 합이 실제 처리 시간보다 길어질 수 있다.</div>
+  </div>
+
+  <div class="risk sev-low">
+    <div class="hd">
+      <h4>3. Time reversal reuses the same dispatch algorithms</h4>
+      <span class="badge ok">low</span>
+    </div>
+    <div class="body">역시간 도메인에서의 디스패치는 원래 문제와 동일한 구조(연속 스테이지, 병렬 기계)이므로 동일한 디스패치 알고리즘을 재사용할 수 있다. 스테이지 순서가 역전된다는 점에 주의.</div>
+  </div>
+
+  <div class="risk sev-med">
+    <div class="hd">
+      <h4>4. L-mid-R partition is sensitive to cap sizing</h4>
+      <span class="badge warn">medium</span>
+    </div>
+    <div class="body">캡 작업 수(<code>cap_multiplier</code>, <code>cap_portion</code>)와 mid 순서 규칙(<code>reverse_mid_even</code>, <code>randomize_mid_all</code>)에 따라 결과가 크게 달라질 수 있다. 가장 효과적인 조합은 문제 인스턴스 특성에 의존하므로, 여러 설정을 시도하는 것이 바람직하다.</div>
+  </div>
+
+  <div class="risk sev-low">
+    <div class="hd">
+      <h4>5. Greedy fallback is a safety net</h4>
+      <span class="badge ok">low</span>
+    </div>
+    <div class="body"><code>solve_selection_problem</code>이 infeasible을 반환하면 greedy fallback으로 전환된다. CP-SAT이 infeasible을 반환하는 경우는 매우 드물지만(K_L + K_R ≤ job_count가 보장됨), 안전장치로 존재한다.</div>
+  </div>
+
+  <div class="risk sev-low">
+    <div class="hd">
+      <h4>6. Mixed dispatch vs DS/DJ trade-off</h4>
+      <span class="badge ok">low</span>
+    </div>
+    <div class="body">Mixed dispatch는 head-tail 개념으로 일부 작업을 우선 디스패치하는 방식으로, DS/DJ 병행보다 일반적으로 더 좋은 결과를 내지만 계산량이 더 크다.</div>
+  </div>
+</div>
+</section>
+
+<hr>
+<p style="font-size: 12px; color: var(--faint);">Source: <code>requirement_docs/algorithm/get_schedule_by_bn2d_all_stages.md</code> (markdown remains authoritative; this HTML is a spatial view).</p>
+
+</main>
+</div>
+</body>
+</html>
