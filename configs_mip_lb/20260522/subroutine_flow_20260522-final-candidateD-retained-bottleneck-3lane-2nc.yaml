@@ -155,8 +155,8 @@
   large_workload_tl_nc_multiplier: 0.25
   high_stage_min_stage_count: 15
   high_stage_min_workload_size: 1200
-  high_stage_tl_nc_multiplier: 0.30
-  default_tl_nc_multiplier: 0.20
+  high_stage_tl_nc_multiplier: 0.25
+  default_tl_nc_multiplier: 0.25
 - method: suffix_probe_portfolio
   # Final 20260522 flow:
   # - Keep Candidate D tau-first / retained-CP backbone.
@@ -369,7 +369,7 @@
   use_lns_only: true
   consume_all_remaining: true
   tighten_ranges: true
-  link_job_completion: true
+  link_job_completion: false
   cp_model_probing_level: 2
   cp_sat_params:
     exploit_best_solution: true
