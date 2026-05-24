@@ -307,6 +307,10 @@ for each τ in tau_values:
 
 ### 구체 설정 예시 (Subroutine Flow YAML)
 
+`uv run main.py`로 실행되는 production flow의 확정 설정이다. 출처:
+`configs_mip_lb/20260522/subroutine_flow_20260522-final-candidateD-retained-bottleneck-3lane-2nc.yaml`
+(`main_metadata_mip_lb.yaml`의 `subroutine_flow_rel_path`가 가리키는 파일).
+
 ```yaml
 - method: initialize_by_tau_coarsened_cp
   tau_values:
@@ -321,9 +325,9 @@ for each τ in tau_values:
   surrogate_dispatch_before_cp: true
   include_surrogate_dispatch_candidate: true
   surrogate_dispatch_cap_portions:
-  - 0.2
+  - 0.20
   - 0.25
-  - 0.3
+  - 0.30
   surrogate_dispatch_method_list:
   - bn2d_all_stages
   - best_of_mixed_dispatches
@@ -338,8 +342,11 @@ for each τ in tau_values:
   surrogate_neh_added_batch_sizes:
   - 15
   surrogate_neh_sequential: true
+  surrogate_neh_also_solve_dispatch_cp: false
   surrogate_neh_cp_tl_nc_multiplier: 0.0015
   surrogate_neh_use_lns_only: true
+  surrogate_neh_minimize_sum_ci_lex: false
+  surrogate_neh_cp_tl_nc_multiplier_2nd_obj: null
   surrogate_pw_cp_enabled: true
   surrogate_pw_cp_tau_values:
   - 5
@@ -352,41 +359,58 @@ for each τ in tau_values:
   surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier: 0.0015
   surrogate_pw_cp_use_lns_only: false
   surrogate_pw_cp_stop_on_no_improvement: false
-  solver_thread_cnt: 16
+  solver_thread_cnt: 24
+  surrogate_use_lns_only: false
+  surrogate_cp_snapshot_solution_limit: 20
+  polish_use_lns_only: false
+  cp_model_probing_level: 1
   cp_sat_params:
+    exploit_best_solution: true
     diversify_lns_params: true
     solution_pool_size: 8
-  surrogate_cp_snapshot_solution_limit: 20
-  save_candidate_artifacts: true
   make_semi_active: true
+  save_candidate_artifacts: false
+  error_if_infeasible: false
+  draw_gantt: false
 ```
+
+`stopping_criteria_2nc.yaml`의 `timelimit_n_by_c_multiplier: 2` 가 곱해져 전체
+인스턴스 시간 한도는 `2 × job_count × stage_count` 초가 되고, 그 안에서 위
+`surrogate_tl_nc_multiplier: 0.12` 로 surrogate CP에 `0.12 × J × S` 초가
+할당된다.
 
 위 설정에서 실제 실행 순서:
 
 ```text
 τ=5 인스턴스 생성
     │
-    ├── dispatch × 12 (모든 조합)
-    │     └── tau_schedule_candidates 추가 (중복 제거)
+    ├── dispatch × 12 (2 methods × 3 cap_portions × 2 mtj/jtm variants)
+    │     └── tau_schedule_candidates 추가 (중복 제거, top_k=20)
     │
-    ├── NEH(batch=15) ← best dispatch
+    ├── NEH(batch=15) ← best dispatch (use_lns_only=true)
     │     ├── tau_schedule_candidates 추가
-    │     └── PW-CP chain(unfixed=2~6) ← NEH 결과
+    │     └── PW-CP chain(unfixed=2~6) ← NEH 결과 (use_lns_only=false)
     │           ├── 각 단계 tau_schedule_candidates 추가
     │           └── 최종 best → CP reference
     │
-    ├── CP Solve (0.12 × J × S sec) ← PW-CP 최종 결과
+    ├── CP Solve (0.12 × J × S sec, 24 threads) ← PW-CP 최종 결과
     │     ├── 최종해 tau_schedule_candidates 추가
     │     └── snapshot 최대 20개 추가
     │
-    ├── for each candidate (~39개):
+    ├── for each candidate (최대 ~39개):
     │     ├── stage_sequence restore → 평가
     │     └── machine_sequence restore → 평가
     │
-    └── (polish_tl_nc_multiplier=null → 생략)
+    └── (polish_tl_nc_multiplier=null → polish 전체 생략)
 
-최종: ~78개 restored 해 중 makespan 최소 선택
+최종: 모든 restored 해 중 makespan 최소 선택 → solution_manager 등록
 ```
+
+> 후속 단계: 이 초기해를 받은 뒤 production flow는
+> `critical_schedule_repair_ls` → `apply_retained_stage_cp_lb` →
+> `dispatch_from_retained_cp` → workload-adaptive retained CP → 최종
+> `solve_base_cp_model_from_final_time_reserve` 로 이어지지만, 그 단계들은
+> 별도 문서에서 다룬다.
 
 ---
 
