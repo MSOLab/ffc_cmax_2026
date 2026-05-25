@@ -1,19 +1,19 @@
 pra_common_params_rel_path: resources/ff2020_common_params.yaml
 baseline_csv_path: resources/ff2020big_ref/fan2023.csv
 input_dir: resources/ff2020big
-benchmark_idx_list:
-  - 1
-  - 25
-  - 49
-  - 73
-  - 97
-  - 121
-  - 145
-  - 169
-  - 193
-  - 217
-# first: 1
-# last: 240
+# benchmark_idx_list:
+#   - 1
+#   - 25
+#   - 49
+#   - 73
+#   - 97
+#   - 121
+#   - 145
+#   - 169
+#   - 193
+#   - 217
+first: 1
+last: 240
 benchmark_filename_format: '{}.txt'
 benchmark_order_strategy: mixed_stratified
 benchmark_order_seed: 42
