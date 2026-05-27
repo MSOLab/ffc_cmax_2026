@@ -1,0 +1,27 @@
+# Ablation P1 (init comparison) - MD-only.
+# Calls initialize_by_best_of_mixed_dispatches directly with the three
+# (machine_then_job, head_for_all_stages) combinations that the baseline
+# dispatch portfolio runs for the MD method. MD here is the thesis Mixed
+# Dispatch subroutine: Palmer / Gupta / CDS priority sequences x mixed-
+# dispatch head-size ladder. No BN2D, no QSR, no CP-LB, no improvement
+# chain, no Base-CP.
+- method: set_step_checkpointing
+  enabled: false
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_best_of_mixed_dispatches
+  machine_then_job: true
+  head_for_all_stages: false
+  error_if_infeasible: false
+  draw_gantt: false
+- method: initialize_by_best_of_mixed_dispatches
+  machine_then_job: true
+  head_for_all_stages: true
+  error_if_infeasible: false
+  draw_gantt: false
+- method: initialize_by_best_of_mixed_dispatches
+  machine_then_job: false
+  head_for_all_stages: true
+  error_if_infeasible: false
+  draw_gantt: false

@@ -1,0 +1,55 @@
+pra_common_params_rel_path: resources/ff2020_common_params.yaml
+baseline_csv_path: resources/ff2020big_ref/fan2023.csv
+input_dir: resources/ff2020big
+first: 1
+last: 240
+benchmark_filename_format: '{}.txt'
+benchmark_order_strategy: mixed_stratified
+benchmark_order_seed: 42
+benchmark_order_wave_size: 4
+dicts_of_i_o_data_path:
+- stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
+  subroutine_flow_rel_path: configs_ablation_p1/subroutine_flow_i1_md_only.yaml
+  output_dir: ff2020/ablation_p1_i1_md_only
+  description: 'Thesis P1 ablation 1-1 - i1: MD only. Runs the Mixed Dispatch
+    subroutine (Palmer/Gupta/CDS x mixed-dispatch head-size ladder) by
+    calling initialize_by_best_of_mixed_dispatches three times, one per
+    (machine_then_job, head_for_all_stages) combination of the baseline
+    portfolio. No BN2D, no QSR, no CP-LB, no improvement chain, no Base-CP.'
+- stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
+  subroutine_flow_rel_path: configs_ablation_p1/subroutine_flow_i2_bn2d_only.yaml
+  output_dir: ff2020/ablation_p1_i2_bn2d_only
+  description: 'Thesis P1 ablation 1-1 - i2: BN2D only. Runs the
+    bottleneck-based two-direction dispatching subroutine by calling
+    bn2d_all_stage twice (BN2D ignores head_for_all_stages, so the
+    baseline portfolio only generates two effective BN2D configs:
+    machine_then_job=true and =false, both with cap=0.25). No MD, no QSR,
+    no CP-LB, no improvement chain, no Base-CP.'
+- stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
+  subroutine_flow_rel_path: configs_ablation_p1/subroutine_flow_i3_qsr_only.yaml
+  output_dir: ff2020/ablation_p1_i3_qsr_only
+  description: 'Thesis P1 ablation 1-1 - i3: QSR only. Runs initialize_by_tau_coarsened_cp
+    with the published 24-thread baseline parameters followed by the
+    critical-schedule LS repair that the thesis treats as part of QSR. The
+    surrogate keeps its own internal dispatch portfolio (bn2d + mixed) since
+    that is part of the QSR definition. No upstream MD/BN2D dispatch_portfolio,
+    no CP-LB, no improvement chain, no Base-CP.'
+- stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
+  subroutine_flow_rel_path: configs_ablation_p1/subroutine_flow_i4_init_full.yaml
+  output_dir: ff2020/ablation_p1_i4_init_full
+  description: 'Thesis P1 ablation 1-1 - i4: full initialization block, no
+    improvement. Runs the four init components in the same order as the
+    published 24-thread baseline (MD+BN2D dispatch portfolio, QSR with
+    critical-schedule repair, CP-LB quantile + dispatch, CP-LB
+    workload-adaptive + dispatch). Serves as the reference cell for i1/i2/i3
+    single-method runs. No NEH-CP, no ISW-CP, no Base-CP.'
+output_dir_scenarios: Outputs_scenarios
+scenario_log_filename: hfs_multi_scenario_runner.log
+result_dir_name: results
+instance_worker_cnt: 4
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: '{}_result_gantt.png'
+draw_progress_plot: false
+progress_plot_filename_format: '{}_progress_plot.png'
+drop_first_values_percent: 0.0
