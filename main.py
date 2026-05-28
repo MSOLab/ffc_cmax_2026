@@ -25,7 +25,7 @@ from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
-MAIN_METADATA_FILENAME = "main_metadata_p1_init_i5_resume.yaml"
+MAIN_METADATA_FILENAME = "main_metadata_p1_improv_ablation.yaml"
 
 
 def order_instances_for_execution(
