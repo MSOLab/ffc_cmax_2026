@@ -35,14 +35,15 @@ dicts_of_i_o_data_path:
     that is part of the QSR definition. No upstream MD/BN2D dispatch_portfolio,
     no CP-LB, no improvement chain, no Base-CP.'
 - stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
-  subroutine_flow_rel_path: configs_ablation_p1/subroutine_flow_i4_init_full.yaml
-  output_dir: ff2020/ablation_p1_i4_init_full
-  description: 'Thesis P1 ablation 1-1 - i4: full initialization block, no
-    improvement. Runs the four init components in the same order as the
+  subroutine_flow_rel_path: configs_ablation_p1/subroutine_flow_i4_md_bn2d_qsr_cplb.yaml
+  output_dir: ff2020/ablation_p1_i4_md_bn2d_qsr_cplb
+  description: 'Thesis P1 ablation 1-1 - i4: MD+BN2D+QSR+CP-LB (initialization
+    without NEH-CP). Runs the four init components in the same order as the
     published 24-thread baseline (MD+BN2D dispatch portfolio, QSR with
     critical-schedule repair, CP-LB quantile + dispatch, CP-LB
     workload-adaptive + dispatch). Serves as the reference cell for i1/i2/i3
-    single-method runs. No NEH-CP, no ISW-CP, no Base-CP.'
+    single-method runs and as the resume base for i5, which appends the NEH-CP
+    step to complete the full initialization. No NEH-CP, no ISW-CP, no Base-CP.'
 output_dir_scenarios: Outputs_scenarios
 scenario_log_filename: hfs_multi_scenario_runner.log
 result_dir_name: results
