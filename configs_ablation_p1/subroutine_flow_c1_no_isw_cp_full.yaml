@@ -1,14 +1,8 @@
-# Ablation P1 (init comparison) - i5: full Initialization INCLUDING NEH-CP.
-# RESUME flow. The leading steps are an exact copy of
-# subroutine_flow_i4_md_bn2d_qsr_cplb.yaml (the i4 building block:
-# MD+BN2D dispatch portfolio, QSR with critical-schedule repair, CP-LB quantile
-# + dispatch, CP-LB workload-adaptive + dispatch). They form the resume prefix
-# and must match the cached i4 flow byte-for-byte (after normalization).
-# The appended suffix_probe_portfolio step runs the NEH-CP 3-lane probe race plus
-# the neh15/20/25/30 suffix ladder (ISW-CP / incremental_pw_cp deliberately
-# excluded). There is NO set_stage_workload_adaptive_final_time_reserve and NO
-# Base-CP step, so NEH-CP is given all remaining 2nc budget. Final cell of the
-# initialization ablation study; resumed from ablation_i4_md_bn2d_qsr_cplb.
+# Ablation P1: Init -> NEH-CP -> Base-CP.
+# Derived from configs_mip_lb/20260522/subroutine_flow_20260522-final-candidateD-retained-bottleneck-3lane-2nc.yaml.
+# Disables ISW-CP only: removes the incremental_pw_cp steps (safe_pw005 and
+# safe_pw009) from the suffix_probe_portfolio block. The NEH-CP probe race
+# and the neh_cp suffix ladder (15/20/25/30) remain active.
 - method: set_step_checkpointing
   enabled: false
 - method: set_random_seed
@@ -161,8 +155,13 @@
   save_cp_dispatch_artifacts: false
   error_if_infeasible: false
   draw_gantt: false
-# --- Appended for i5: NEH-CP only (no final-time-reserve, no Base-CP, no pw_cp).
-# Copied verbatim from configs_ablation_p1/subroutine_flow_c2_init_neh_cp.yaml.
+- method: set_stage_workload_adaptive_final_time_reserve
+  large_workload_threshold: 1800
+  large_workload_tl_nc_multiplier: 0.25
+  high_stage_min_stage_count: 15
+  high_stage_min_workload_size: 1200
+  high_stage_tl_nc_multiplier: 0.25
+  default_tl_nc_multiplier: 0.25
 - method: suffix_probe_portfolio
   solver_thread_cnt: 24
   accept_equal_obj_from_later_lane: false
@@ -333,3 +332,17 @@
         - *safe_neh20
         - *safe_neh25
         - *safe_neh30
+- method: solve_base_cp_model_from_final_time_reserve
+  computational_time: null
+  tl_nc_multiplier: 2 # use all remaining time
+  solver_thread_cnt: 24
+  use_lns_only: true
+  consume_all_remaining: true
+  tighten_ranges: true
+  link_job_completion: false
+  cp_model_probing_level: 2
+  cp_sat_params:
+    exploit_best_solution: true
+    diversify_lns_params: true
+    solution_pool_size: 8
+  log_search_progress: false
