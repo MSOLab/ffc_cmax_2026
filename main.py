@@ -89,7 +89,9 @@ def _mixed_stratified_order(
     return mixed
 
 
-def _instance_workload_score(instance: HybridFlowshopParameters) -> tuple[int, int, int]:
+def _instance_workload_score(
+    instance: HybridFlowshopParameters,
+) -> tuple[int, int, int]:
     job_count = int(getattr(instance, "job_count", 0) or 0)
     stage_count = int(getattr(instance, "stage_count", 0) or 0)
     machine_count_per_stage = getattr(instance, "machine_count_per_stage", None)
@@ -98,7 +100,9 @@ def _instance_workload_score(instance: HybridFlowshopParameters) -> tuple[int, i
     else:
         stage_2_machines_map = getattr(instance, "stage_2_machines_map", None)
         if isinstance(stage_2_machines_map, dict) and stage_2_machines_map:
-            machine_scale = sum(_machine_count(v) for v in stage_2_machines_map.values())
+            machine_scale = sum(
+                _machine_count(v) for v in stage_2_machines_map.values()
+            )
         else:
             machine_scale = stage_count
     return job_count * machine_scale, job_count, stage_count
