@@ -53,6 +53,13 @@ class LabelControlledGanttPlotter(GanttPlotter):
         # When set, place x-axis ticks at multiples of this step via
         # MultipleLocator; labels render as integer time coordinates.
         self.x_tick_step = x_tick_step
+        # Stage separators: a thick grey dash-dot ("-.-.-") horizontal line drawn
+        # in the whitespace gap between the last machine lane of one stage and the
+        # first of the next. Not a text label -> independent of show_labels (like
+        # vlines). Always on; tweak via these attributes.
+        self.stage_separator_color = "#6b6b6b"
+        self.stage_separator_linewidth = 2.2
+        self.stage_separator_linestyle = "-."
 
     def draw_operation_bars(
         self,
@@ -104,6 +111,8 @@ class LabelControlledGanttPlotter(GanttPlotter):
         assert self.ax is not None
         # Instance meta / generic title: never shown.
         self.ax.set_title("")
+        # Stage separators (thick grey dash-dot lines between stages).
+        self._draw_stage_separators(args, kwargs)
         # Red dashed vertical window-boundary lines (drawn after the bars so
         # they stay on top). Not a text label -> independent of show_labels.
         if self.vlines:
@@ -126,6 +135,52 @@ class LabelControlledGanttPlotter(GanttPlotter):
         # AFTER super() set the xlim so the locator spans this panel's own axis.
         if self.show_x_ticks and self.x_tick_step is not None:
             self.ax.xaxis.set_major_locator(MultipleLocator(self.x_tick_step))
+
+    def _draw_stage_separators(self, args, kwargs) -> None:
+        """Draw a grey dash-dot horizontal line between consecutive stages.
+
+        Machine lanes are stacked stage-by-stage at integer y (lane idx i spans
+        ``[i, i + bar_height]``; ``machine_height`` is the lane pitch). A stage
+        boundary after a cumulative ``c`` lanes sits in the whitespace gap
+        between lane ``c-1`` (bottom ``c-1+bar_height``) and lane ``c`` (top
+        ``c``); we centre the line in that gap. The lane order here mirrors
+        ``GanttPlotter.create_machine_lanes`` exactly so boundaries align.
+        """
+        assert self.ax is not None
+        # start_time_map is the first positional arg of plot_hybrid_flowshop.
+        start_time_map = args[0] if args else kwargs.get("start_time_map")
+        if not start_time_map:
+            return
+        stage_list = kwargs.get("stage_list")
+        if not stage_list:
+            stage_list = sorted({stage for (_, stage, _) in start_time_map})
+        machine_list_per_stage = kwargs.get("machine_list_per_stage")
+
+        # Lanes per stage, in render order (same resolution as the painter).
+        lanes_per_stage: list[int] = []
+        for stage in stage_list:
+            machines = (
+                machine_list_per_stage.get(stage) if machine_list_per_stage else None
+            )
+            if not machines:
+                machines = sorted(
+                    {mc for (_, stg, mc) in start_time_map if stg == stage}
+                )
+            lanes_per_stage.append(len(machines))
+
+        gap = self.machine_height - self.bar_height  # whitespace between lanes
+        cumulative = 0
+        for lane_count in lanes_per_stage[:-1]:  # no line after the last stage
+            cumulative += lane_count
+            # Centre of the gap below the last lane of this stage.
+            separator_y = cumulative * self.machine_height - gap / 2
+            self.ax.axhline(
+                y=separator_y,
+                color=self.stage_separator_color,
+                linestyle=self.stage_separator_linestyle,
+                linewidth=self.stage_separator_linewidth,
+                zorder=4,
+            )
 
 
 def render_panel(

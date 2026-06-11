@@ -28,6 +28,7 @@ STEPS: list[str] = [
     "run_md.py",
     "run_bn2d.py",
     "run_cp_lb.py",
+    "run_neh_cp.py",
     "run_isw_cp.py",
     "run_qsr.py",
 ]

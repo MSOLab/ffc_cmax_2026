@@ -243,3 +243,83 @@ surrogate가 너무 작아져 구조가 안 보이므로 폐기.
 **구현 변경 요약**: `run_qsr.py` `TAU=5→25`; surrogate 패널 렌더에 `show_x_ticks=True, x_tick_step=4`,
 원본/복원/repair 패널에 `show_x_ticks=True, x_tick_step=100`; `render.py`에 x눈금 타깃 옵션 추가;
 헤더 주석·`qsr/panels.md`에 τ=25 과장 사유 명시. 다른 알고리즘(MD/BN2D/CP-LB/ISW-CP) 패널은 불변.
+
+---
+
+## 10. 추가 — NEH-CP 패널 (`run_neh_cp.py`, 2026-06-12, 6567d60 이후)
+
+**배경.** §2.1에서 NEH-CP는 QSR 내부 Schedule 단계의 **컴포넌트**로만 언급되고 독립 패널
+스토리보드가 없었다. 방어 슬라이드에서 NEH-CP(점진 삽입 + CP 재최적화)를 단독으로 보여줄
+Gantt 빌드가 필요하므로, MD/ISW-CP와 동급의 standalone 패널 세트를 추가한다.
+
+**알고리즘(근거 `controller/neh_cp.py::NehCpConstructor.run`).**
+NEH 계열의 **점진 구성(incremental construction)**에 CP 재최적화를 결합:
+
+1. 참조 스케줄에서 **삽입 우선순위 시퀀스** 결정(기본 `get_midpoint_sequence`; 1st-stage /
+   bottleneck / override 옵션). 이 시퀀스가 곧 job 삽입 순서.
+2. tail job들을 `added_batch_size` 단위 **배치로 분할**(데모: size=2 → 5배치).
+3. 각 배치마다:
+   - (a) **dispatch**: 새 배치 job들을 현재 부분해 위에 `MixedDispatcher`
+     (`head_for_all_stages=True`)로 올림 → 부분해가 커짐.
+   - (b) **CP 재최적화**: 현재 job 부분집합에 대해 CP 서브모델을 풂. dispatch 결과를 hint로,
+     오래된 op들의 상대순서는 profile-fix 제약으로 고정(batch ≥ `profile_fix_min_batch_idx`),
+     UNFIXED op만 재배치 → makespan ↓ (dispatch보다 나을 때만 채택).
+   - (c) 아직 안 들어간 tail job들을 추가 dispatch해 **원문제 feasible full 스케줄** 생성,
+     배치별 best full 추적.
+4. 배치 전부 또는 시간예산 소진 시 종료, **best full 스케줄 반환**.
+
+**비침습 캡처 전략(§2.1 zero-edit 유지).** `hybridflowshop/**` 무수정. 드라이버에서
+`NehCpConstructor`를 만들되 인스턴스의 `_solve_cp_model` 바운드 메서드를 **스크립트에서 래핑**
+(속성 재할당)해 배치마다 (dispatch 직후 partial, CP 직후 partial, 현재 job subset,
+job→삽입배치 맵)를 캡처한 뒤 실제 `run()`을 호출. 라이브러리 동작·seed·시간예산은 불변
+(ISW-CP 패널이 `_build_batch_spec`/solve helper를 직접 구동한 것과 같은 결).
+설명 모드 가드 무력화(§2.4): `skip_if_estimated_neh_exceeds_remaining=False`,
+`stop_before_final_reserve=False`, 넉넉한 `max_time_per_add`로 모든 배치가 항상 실행되게 함.
+
+**패널 스토리보드** (`analysis_outputs/20260612_p1_algo_explainer/neh_cp/step_NN.svg`):
+
+1. `step_01_insertion_sequence.md` — 삽입 우선순위 시퀀스 + 배치 분할(표/노트, Gantt 아님).
+2. `step_02_batch1_partial.svg` — 배치1 삽입·CP 후 부분해(새 job 강조). "구성 시드(2 jobs)".
+3. `step_03_batch2_dispatch.svg` — 배치2 dispatch 직후(새 job 강조, **CP 전**).
+4. `step_04_batch2_cp.svg` — 배치2 **CP 후**(같은 강조). dispatch→CP makespan ↓ = **-CP 펀치라인**.
+5. `step_05_batch3_partial.svg` … 6. `step_06_batch4_partial.svg` … 7. `step_07_batch5_partial.svg`
+   — 배치별 CP 후 부분해가 채워지는 **점진 성장**(매 패널 새 배치 job 강조; 배치5 = 전 job).
+8. `step_08_final_full.svg` — 반환된 best full 스케줄 + makespan 주석(배치별 full 중 최소).
+
+**공통 규칙 준수.** 색: 데모 10 job 고정 팔레트. 축: 한 빌드 내 `force_start=0`,
+`force_end = max(부분해·full makespan)` 공유 → 부분해 성장이 한 축에서 보임.
+강조: `highlight_op_set`로 **현재 배치에 새로 삽입된 job**(= `job_2_inserted_batch_idx==batch`).
+라벨: §2.3.1 기본 off(무라벨 클린 차트). `build_all.py`에 `run_neh_cp` 추가.
+
+**데모 수치(seed=42, batch_size=2, midpoint seq).** seed incumbent=426;
+배치별 dispatch→CP: 96→96, 244→**234**, 327→**321**, 377→377, 427→427;
+best full=426. 배치2·3에서 CP가 dispatch를 각각 −10/−6 개선 → 재최적화 효과가 시각적으로 또렷.
+
+**배치 크기 파라미터화.** `run_neh_cp.py`는 `--batch-size N`(기본 2)을 받아 삽입 입도를 바꾼다.
+기본값(2)은 `neh_cp/`에, 그 외는 `neh_cp_bs<N>/`에 출력(기존 패널 불변). `build_all.py`는 기본 2만 생성.
+- **batch_size=3 예시**(`neh_cp_bs3/`, 4배치=[3,3,3,1]): 배치별 dispatch→CP
+  174→174, 335→**308**, 414→414, 434→434; best full=426. 배치2에서 CP가 dispatch를 **−27** 개선해
+  더 큰 입도에서 재최적화 효과가 한층 또렷(step_03/step_04 대비).
+
+---
+
+## 11. 추가 — 스테이지 구분선 (모든 패널 공통, 2026-06-12)
+
+**문제.** 데모는 stage당 2 machine이라 한 패널에 머신 행이 여러 개 쌓이는데(데모: 4 stage × 2 =
+8행), 행 사이에 스테이지 경계 표시가 없어 어느 행이 어느 stage인지 슬라이드에서 읽기 불편.
+
+**결정.** 모든 Gantt 패널에 **stage 사이 수평 구분선**을 추가. 스타일은 **굵은 회색 dash-dot
+(`-.-.-`)**: `color="#6b6b6b"`, `linestyle="-."`, `linewidth=2.2`, `zorder=4`.
+
+**구현(비침습).** `render.py::LabelControlledGanttPlotter`에만 추가(`painter/gantt.py` 무수정).
+`plot_hybrid_flowshop` 오버라이드가 `super()` 후 `_draw_stage_separators`를 호출:
+머신 lane은 stage→machine 순으로 정수 y에 쌓이고(lane idx i = `[i, i+bar_height]`,
+pitch=`machine_height`), stage 누적 lane 수 c 지점의 경계선은 lane c-1 막대 하단과 lane c 막대
+상단 사이 빈 구간 중앙 `y = c·machine_height − (machine_height−bar_height)/2`에 그림. lane 순서는
+`GanttPlotter.create_machine_lanes`와 동일하게 재현해 경계가 정확히 정렬됨. 마지막 stage 뒤에는
+선 없음.
+
+- 텍스트 라벨이 아니므로 **`show_labels`와 무관하게 항상 표시**(window 경계선·vlines와 같은 결, §2.3.1).
+- ISW-CP의 빨강 점선 세로 window 경계, NEH-CP 강조(굵은 검정 테두리), 5영역 색과 충돌 없이 공존 확인.
+- 스타일은 `stage_separator_color/_linewidth/_linestyle` 인스턴스 속성으로 조정 가능.
+- `build_all.py` 재실행으로 MD/BN2D/CP-LB/NEH-CP/ISW-CP/QSR 전 패널 재생성(+ `neh_cp_bs3` 별도).
