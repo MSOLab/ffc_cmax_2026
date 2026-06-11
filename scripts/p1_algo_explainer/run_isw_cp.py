@@ -8,9 +8,10 @@ anchors, then slides forward; once a pass stops improving, the UNFIXED width is
 incrementally enlarged.
 
 Storyboard (one SVG per Gantt panel under
-``analysis_outputs/20260612_p1_algo_explainer/isw_cp/``), reusing the existing
-``fig/isw_cp_5_partition_p1.pdf`` style (5-region coloring + red dashed window
-boundary):
+``analysis_outputs/20260612_p1_algo_explainer/isw_cp/``), in the sister repo
+ffc_dw_wET_2026's pw_cp/visual.py style: 5-region bar coloring, a black-bordered
+UNFIXED core, and -- instead of one global window -- per-machine LTF/active/RTF
+background bands with dashed time-fixed boundary segments on each lane:
 
   step_01  5-region partition at window position w (LTF/LPF/UNFIXED/RPF/RTF)
   step_02  right-justify (backward ALAP pass on non-LTF ops): before -> after
@@ -83,7 +84,10 @@ from hybridflowshop.controller.pw_cp import (  # noqa: E402
     PwCpConstructor,
     PwCpRunState,
 )
-from hybridflowshop.cpsat_model_2.pw_cp import OperationPartition  # noqa: E402
+from hybridflowshop.cpsat_model_2.pw_cp import (  # noqa: E402
+    OperationPartition,
+    create_pw_cp_schedule,
+)
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule  # noqa: E402
 from mbls.cpsat import ObjValueBoundStore  # noqa: E402
 
@@ -107,14 +111,18 @@ WINDOW_START = 3  # window position w for the partition / right-justify / solve 
 
 OpKey = tuple[str, str, str]  # (job, stage, machine)
 
-# Five visually distinct region colors. UNFIXED is the most salient (strong
-# orange); the fixed regions are muted blues/greys so the active window pops.
+# Five region colors, mirroring the sister repo ffc_dw_wET_2026's
+# pw_cp/visual.py palette: blue-grays for the time-fixed anchors (LTF/RTF),
+# ambers for the profile-fixed shoulders (LPF/RPF), and a green UNFIXED core.
+# UNFIXED is additionally made salient at draw time via a thick black border
+# (passed as the panel's highlight_op_set), so the active window pops without
+# needing a clashing color.
 REGION_COLORS: dict[str, str] = {
-    "left_time_fixed": "#9aa7b5",  # muted slate grey (anchored, far left)
-    "left_profile_fixed": "#7fb3d5",  # light blue (order kept, may shift)
-    "unfixed": "#f39c12",  # strong orange (most salient: being re-optimised)
-    "right_profile_fixed": "#a3d977",  # light green (order kept, may shift)
-    "right_time_fixed": "#bcaaa4",  # muted brown-grey (anchored, far right)
+    "left_time_fixed": "#90A4AE",  # blue-grey (anchored, far left)
+    "left_profile_fixed": "#FFCC80",  # light amber (order kept, may shift)
+    "unfixed": "#81C784",  # green (the re-optimised core; bordered)
+    "right_profile_fixed": "#FF9800",  # strong amber (order kept, may shift)
+    "right_time_fixed": "#607D8B",  # dark blue-grey (anchored, far right)
 }
 REGION_LABEL: dict[str, str] = {
     "left_time_fixed": "LTF",
@@ -123,6 +131,20 @@ REGION_LABEL: dict[str, str] = {
     "right_profile_fixed": "RPF",
     "right_time_fixed": "RTF",
 }
+
+# (LTF-zone, active-zone, RTF-zone) colors for the faint per-lane background
+# bands. The middle band spans the LPF/UNFIXED/RPF "active" region, so it reuses
+# the UNFIXED green.
+BAND_REGION_COLORS: tuple[str, str, str] = (
+    REGION_COLORS["left_time_fixed"],
+    REGION_COLORS["unfixed"],
+    REGION_COLORS["right_time_fixed"],
+)
+
+# Legend (color key) shown on every ISW-CP panel.
+REGION_LEGEND: list[tuple[str, str]] = [
+    (REGION_LABEL[name], color) for name, color in REGION_COLORS.items()
+]
 
 
 def load_instance() -> HybridFlowshopParameters:
@@ -177,46 +199,95 @@ def build_stage_partitions(
     return stage_2_partition
 
 
-def partition_to_op_color_map(
+def partition_to_js_color_map(
     stage_2_partition: dict[str, OperationPartition],
-) -> dict[OpKey, str]:
-    """Map each (job, stage, mc) op to its region color."""
-    op_color_map: dict[OpKey, str] = {}
+) -> dict[tuple[str, str], str]:
+    """Map each (job, stage) to its region color.
+
+    Keyed by (job, stage) -- NOT (job, stage, mc) -- because a job has exactly
+    one op per stage, and the window-solve candidate may reassign an op to the
+    other machine in its stage. A (job, stage, mc) key would then miss the
+    reassigned op against the after-schedule, dropping it back to the by-job
+    color; the (job, stage) key is reassignment-proof.
+    """
+    js_color: dict[tuple[str, str], str] = {}
     for stage_id, partition in stage_2_partition.items():
         for region_name, color in REGION_COLORS.items():
-            for job_id, mc_id in getattr(partition, region_name):
-                op_color_map[(job_id, stage_id, mc_id)] = color
-    return op_color_map
+            for job_id, _mc_id in getattr(partition, region_name):
+                js_color[(job_id, stage_id)] = color
+    return js_color
 
 
-def window_boundary_vlines(
+def schedule_region_color_map(
     schedule: HybridFlowshopLiteSchedule,
     stage_2_partition: dict[str, OperationPartition],
-) -> list[float]:
-    """Red dashed boundaries bracketing the UNFIXED region across all stages.
+) -> dict[OpKey, str]:
+    """Color a schedule's ACTUAL ops by region, via the (job, stage) lookup.
 
-    The left boundary is the earliest start among UNFIXED ops; the right
-    boundary is the latest end among UNFIXED ops (a single visual window band).
+    Building the map from the schedule's own (job, stage, mc) keys guarantees
+    every drawn bar is region-colored even after the window solve moves an op to
+    a different machine."""
+    js_color = partition_to_js_color_map(stage_2_partition)
+    start_map = schedule.get_jik_2_start_time_map()
+    return {
+        (job_id, stage_id, mc_id): js_color[(job_id, stage_id)]
+        for (job_id, stage_id, mc_id) in start_map
+        if (job_id, stage_id) in js_color
+    }
+
+
+def compute_lane_boundaries(
+    schedule: HybridFlowshopLiteSchedule,
+    stage_2_partition: dict[str, OperationPartition],
+    stage_list: list[str],
+    machines_per_stage,
+    *,
+    force_start: int,
+    force_end: int,
+) -> dict[tuple[str, str], tuple[float, float]]:
+    """Per-machine (stage, mc) -> (left_b, right_b) time-fixed boundaries.
+
+    Mirrors ffc_dw_wET_2026's pw_cp/visual.py: on each machine the left boundary
+    is the rightmost end among that machine's LTF ops (default ``force_start``
+    when it has none), and the right boundary is the leftmost start among its RTF
+    ops (default ``force_end``). The render layer paints the LTF / active / RTF
+    background bands and dashed boundary segments from this map.
     """
     start_map = schedule.get_jik_2_start_time_map()
     end_map = schedule.get_jik_2_end_time_map()
-    # Match by (job, stage): the window subproblem solve may reassign an UNFIXED
-    # op to the other machine in its stage, so the partition's recorded mc_id is
-    # not reliable against the after-schedule maps.
-    unfixed_js: set[tuple[str, str]] = {
+    lane_boundaries: dict[tuple[str, str], tuple[float, float]] = {}
+    for stage_id in stage_list:
+        partition = stage_2_partition.get(stage_id)
+        for mc_id in machines_per_stage.get(stage_id, []):
+            ltf_ends: list[int] = []
+            rtf_starts: list[int] = []
+            if partition is not None:
+                for job_id, k in partition.left_time_fixed:
+                    if k == mc_id:
+                        end_t = end_map.get((job_id, stage_id, k))
+                        if end_t is not None:
+                            ltf_ends.append(end_t)
+                for job_id, k in partition.right_time_fixed:
+                    if k == mc_id:
+                        start_t = start_map.get((job_id, stage_id, k))
+                        if start_t is not None:
+                            rtf_starts.append(start_t)
+            left_b = max(ltf_ends) if ltf_ends else float(force_start)
+            right_b = min(rtf_starts) if rtf_starts else float(force_end)
+            lane_boundaries[(stage_id, mc_id)] = (float(left_b), float(right_b))
+    return lane_boundaries
+
+
+def unfixed_op_set(
+    stage_2_partition: dict[str, OperationPartition],
+) -> set[tuple[str, str]]:
+    """(job, stage) keys of the UNFIXED ops, used as the panel highlight set so
+    the active window's bars get a thick black border."""
+    return {
         (job_id, stage_id)
         for stage_id, partition in stage_2_partition.items()
         for job_id, _ in partition.unfixed
     }
-    unfixed_starts: list[int] = []
-    unfixed_ends: list[int] = []
-    for (job_id, stage_id, _mc_id), s_time in start_map.items():
-        if (job_id, stage_id) in unfixed_js:
-            unfixed_starts.append(s_time)
-            unfixed_ends.append(end_map[(job_id, stage_id, _mc_id)])
-    if not unfixed_starts:
-        return []
-    return [float(min(unfixed_starts)), float(max(unfixed_ends))]
 
 
 def solve_one_window(
@@ -232,8 +303,18 @@ def solve_one_window(
 
     Returns (right_justified_before, candidate_after). The "before" schedule is
     spec.init_schedule, i.e. the incumbent after the backward right-justify pass
-    that _build_batch_spec performs internally; "after" is the CP candidate
-    (or None if no feasible improvement was found).
+    that _build_batch_spec performs internally.
+
+    The "after" is the RAW CP subproblem solution, taken straight from
+    ``create_pw_cp_schedule`` BEFORE production's ``make_semi_active`` left-shift
+    (pw_cp.py:1021). This is deliberate for the figure: in the raw CP solution
+    the time-fixed ops (LTF/RTF) sit at EXACTLY their before/right-justified
+    positions -- they are constants of the subproblem, not decision variables --
+    so the panel honestly shows only the UNFIXED window being rearranged.
+    Production's later semi-active left-shift (which makes RTF appear to move
+    during the solve) is a separate post-pass and is intentionally omitted here.
+    Falls back to the production helper (with semi-active) only when a window has
+    no right-time-fixed ops, where the distinction is moot.
     """
     # The solve helpers and _build_batch_spec require an active run state.
     sub_obj_store: ObjValueBoundStore[int] = ObjValueBoundStore[int]()
@@ -253,27 +334,60 @@ def solve_one_window(
             batch_idx=batch_idx,
         )
         before = spec.init_schedule
-        solve_batch = (
-            constructor._solve_makespan_batch
-            if spec.is_right_time_fixed_empty
-            else constructor._solve_batch_pw_cp_model
-        )
-        candidate = solve_batch(
+
+        if spec.is_right_time_fixed_empty:
+            # No RTF ops: the semi-active distinction does not matter, so reuse
+            # the production helper as-is.
+            candidate = constructor._solve_makespan_batch(
+                spec=spec,
+                instance=instance,
+                stage_2_job_2_p_dict=stage_2_job_2_p_dict,
+                profile_fix_by_machine=False,
+                machine_precedence_stride=1,
+                stage_precedence_min_processing_time_diff=None,
+                stage_precedence_min_processing_time_diff_ratio=None,
+                max_time_per_batch=None,
+                solver_thread_cnt=THREADS,
+                use_lns_only=False,
+                tighten_ranges=False,
+                debug_export=False,
+            )
+            return before, candidate
+
+        # RTF present: replay _solve_batch_pw_cp_model's body, but stop at the
+        # raw CP schedule (skip make_semi_active) so LTF/RTF stay pinned.
+        mdl, params, variables = constructor._prepare_pw_cp_model(
             spec=spec,
             instance=instance,
-            stage_2_job_2_p_dict=stage_2_job_2_p_dict,
             profile_fix_by_machine=False,
             machine_precedence_stride=1,
             stage_precedence_min_processing_time_diff=None,
             stage_precedence_min_processing_time_diff_ratio=None,
-            max_time_per_batch=None,
-            solver_thread_cnt=THREADS,
-            use_lns_only=False,
             tighten_ranges=False,
-            debug_export=False,
         )
-        if candidate is not None:
-            candidate.make_semi_active(stage_2_job_2_p_dict)
+        timelimit = constructor.ctx.get_remaining_time_limit(None)
+        report = constructor.ctx.solve_cp_model_2(
+            mdl,
+            timelimit,
+            THREADS,
+            e_timer=ElapsedTimer(),
+            obj_value_is_valid=False,
+            obj_bound_is_valid=False,
+            use_lns_only=False,
+            log_level_obj_value=logging.NOTSET,
+            log_level_obj_bound=logging.NOTSET,
+            log_search_progress=False,
+            last_timestamp_note=f"batch={spec.batch_idx + 1}",
+        )
+        if not getattr(report, "is_feasible", False):
+            return before, None
+        candidate = create_pw_cp_schedule(
+            constructor.ctx.solver,
+            params,
+            spec.stage_2_partition,
+            spec.init_schedule,
+            variables,
+        )
         return before, candidate
     finally:
         constructor._st = None
@@ -282,6 +396,51 @@ def solve_one_window(
 def region_legend_text() -> str:
     return " | ".join(
         f"{REGION_LABEL[name]}={color}" for name, color in REGION_COLORS.items()
+    )
+
+
+def render_isw_panel(
+    out_path,
+    schedule: HybridFlowshopLiteSchedule,
+    partition: dict[str, OperationPartition],
+    *,
+    all_jobs,
+    all_stages,
+    machines_map,
+    force_start: int,
+    force_end: int,
+) -> None:
+    """Render one ISW-CP partition panel in the sister-repo 5-region style.
+
+    Bars are region-colored (resolved from the schedule's ACTUAL ops, so a
+    window-solve machine reassignment never drops an op back to its by-job
+    color); the UNFIXED ops get a thick black border (via ``highlight_op_set``);
+    each lane carries its own LTF/active/RTF background bands and dashed
+    time-fixed boundaries; a region legend is drawn. Boundaries are computed from
+    ``schedule`` so before/after panels stay self-consistent.
+    """
+    render_panel(
+        out_path,
+        schedule.get_jik_2_start_time_map(),
+        schedule.get_jik_2_end_time_map(),
+        all_job_list=all_jobs,
+        force_start=force_start,
+        force_end=force_end,
+        show_labels=False,
+        stage_list=all_stages,
+        machine_list_per_stage=machines_map,
+        op_color_map=schedule_region_color_map(schedule, partition),
+        highlight_op_set=unfixed_op_set(partition),
+        lane_boundaries=compute_lane_boundaries(
+            schedule,
+            partition,
+            list(all_stages),
+            machines_map,
+            force_start=force_start,
+            force_end=force_end,
+        ),
+        band_region_colors=BAND_REGION_COLORS,
+        region_legend=REGION_LEGEND,
     )
 
 
@@ -317,20 +476,15 @@ def main() -> None:
         left_profile_fixed_batch_count=LEFT_PF,
         right_profile_fixed_batch_count=RIGHT_PF,
     )
-    color_w = partition_to_op_color_map(part_w)
-    vlines_w = window_boundary_vlines(incumbent, part_w)
-    render_panel(
+    render_isw_panel(
         OUT_DIR / "step_01_partition.svg",
-        incumbent.get_jik_2_start_time_map(),
-        incumbent.get_jik_2_end_time_map(),
-        all_job_list=all_jobs,
+        incumbent,
+        part_w,
+        all_jobs=all_jobs,
+        all_stages=all_stages,
+        machines_map=machines_map,
         force_start=force_start,
         force_end=force_end,
-        show_labels=False,
-        stage_list=all_stages,
-        machine_list_per_stage=machines_map,
-        op_color_map=color_w,
-        vlines=vlines_w,
     )
     captions.append(
         (
@@ -338,7 +492,9 @@ def main() -> None:
             f"5-region partition at window position w={WINDOW_START} "
             f"(U={UNFIXED_COUNT}, LPF={LEFT_PF}, RPF={RIGHT_PF}). Ops on each "
             f"stage are time-ordered into batches; colors = {region_legend_text()}. "
-            f"Red dashed lines bracket the UNFIXED window.",
+            "Each lane shows its own LTF/active/RTF bands; dashed segments mark "
+            "the per-machine time-fixed boundaries; the UNFIXED bars are "
+            "black-bordered.",
         )
     )
 
@@ -350,36 +506,26 @@ def main() -> None:
     for stage_id, partition in part_w.items():
         for job_id, mc_id in partition.non_left_time_fixed:
             non_ltf_op_set.add((job_id, stage_id, mc_id))
-    rj_schedule.make_right_justified(
-        stage_2_job_2_p_dict, operation_set=non_ltf_op_set
-    )
-    render_panel(
+    rj_schedule.make_right_justified(stage_2_job_2_p_dict, operation_set=non_ltf_op_set)
+    render_isw_panel(
         OUT_DIR / "step_02a_right_justify_before.svg",
-        incumbent.get_jik_2_start_time_map(),
-        incumbent.get_jik_2_end_time_map(),
-        all_job_list=all_jobs,
+        incumbent,
+        part_w,
+        all_jobs=all_jobs,
+        all_stages=all_stages,
+        machines_map=machines_map,
         force_start=force_start,
         force_end=force_end,
-        show_labels=False,
-        stage_list=all_stages,
-        machine_list_per_stage=machines_map,
-        op_color_map=color_w,
-        vlines=vlines_w,
     )
-    rj_color = partition_to_op_color_map(part_w)
-    rj_vlines = window_boundary_vlines(rj_schedule, part_w)
-    render_panel(
+    render_isw_panel(
         OUT_DIR / "step_02b_right_justify_after.svg",
-        rj_schedule.get_jik_2_start_time_map(),
-        rj_schedule.get_jik_2_end_time_map(),
-        all_job_list=all_jobs,
+        rj_schedule,
+        part_w,
+        all_jobs=all_jobs,
+        all_stages=all_stages,
+        machines_map=machines_map,
         force_start=force_start,
         force_end=force_end,
-        show_labels=False,
-        stage_list=all_stages,
-        machine_list_per_stage=machines_map,
-        op_color_map=rj_color,
-        vlines=rj_vlines,
     )
     captions.append(
         (
@@ -407,54 +553,39 @@ def main() -> None:
         part_w,
         batch_idx=WINDOW_START,
     )
-    before_vlines = window_boundary_vlines(before, part_w)
-    render_panel(
+    render_isw_panel(
         OUT_DIR / "step_03a_window_solve_before.svg",
-        before.get_jik_2_start_time_map(),
-        before.get_jik_2_end_time_map(),
-        all_job_list=all_jobs,
+        before,
+        part_w,
+        all_jobs=all_jobs,
+        all_stages=all_stages,
+        machines_map=machines_map,
         force_start=force_start,
         force_end=force_end,
-        show_labels=False,
-        stage_list=all_stages,
-        machine_list_per_stage=machines_map,
-        op_color_map=partition_to_op_color_map(part_w),
-        vlines=before_vlines,
     )
     after_schedule = candidate if candidate is not None else before
-    # Re-color from the same partition; UNFIXED op (job,stage) identities are
-    # unchanged by the solve (only their start times / machine move).
-    after_color = partition_to_op_color_map(part_w)
-    # The candidate may reassign UNFIXED ops to the other machine in the stage;
-    # rebuild UNFIXED color keys from the candidate's actual (job, stage, mc).
-    after_start_map = after_schedule.get_jik_2_start_time_map()
-    unfixed_js = {
-        (job_id, stage_id)
-        for stage_id, partition in part_w.items()
-        for job_id, _ in partition.unfixed
-    }
-    for (job_id, stage_id, mc_id) in after_start_map:
-        if (job_id, stage_id) in unfixed_js:
-            after_color[(job_id, stage_id, mc_id)] = REGION_COLORS["unfixed"]
-    after_vlines = window_boundary_vlines(after_schedule, part_w)
-    render_panel(
+    # The candidate may reassign active-region ops to the other machine in their
+    # stage; render_isw_panel colors from after_schedule's ACTUAL ops via the
+    # (job, stage) region lookup, so every bar keeps its region color.
+    render_isw_panel(
         OUT_DIR / "step_03b_window_solve_after.svg",
-        after_schedule.get_jik_2_start_time_map(),
-        after_schedule.get_jik_2_end_time_map(),
-        all_job_list=all_jobs,
+        after_schedule,
+        part_w,
+        all_jobs=all_jobs,
+        all_stages=all_stages,
+        machines_map=machines_map,
         force_start=force_start,
         force_end=force_end,
-        show_labels=False,
-        stage_list=all_stages,
-        machine_list_per_stage=machines_map,
-        op_color_map=after_color,
-        vlines=after_vlines,
     )
     if candidate is not None:
         solve_note = (
-            "Window subproblem solve (after): CP re-optimises the UNFIXED ops "
-            "(LPF/RPF keep within-stage order & may shift; LTF/RTF stay fixed). "
-            f"Candidate makespan={int(candidate.makespan)} "
+            "Window subproblem solve (after, raw CP solution): the UNFIXED ops "
+            "are re-optimised (LPF/RPF keep within-stage order & may shift) while "
+            "the time-fixed LTF/RTF ops stay at EXACTLY their before positions -- "
+            "they are constants of the subproblem, so every grey/blue-grey bar is "
+            "unchanged from the before panel. Production then applies a separate "
+            "make_semi_active left-shift (omitted here so 'time-fixed' reads "
+            f"honestly). Candidate makespan={int(candidate.makespan)} "
             f"(before={int(before.makespan)})."
         )
     else:
@@ -475,7 +606,11 @@ def main() -> None:
     captions.append(("step_03b_window_solve_after.svg", solve_note))
 
     # --- step_04: slide -> 3 consecutive window positions (partition-colored) ---
-    slide_positions = [WINDOW_START, WINDOW_START + STEP_SIZE, WINDOW_START + 2 * STEP_SIZE]
+    slide_positions = [
+        WINDOW_START,
+        WINDOW_START + STEP_SIZE,
+        WINDOW_START + 2 * STEP_SIZE,
+    ]
     max_window_start = len(all_jobs) - UNFIXED_COUNT  # batches per stage == n_jobs
     slide_positions = [p for p in slide_positions if p <= max_window_start]
     for slot, w in enumerate(slide_positions, start=1):
@@ -488,26 +623,23 @@ def main() -> None:
             right_profile_fixed_batch_count=RIGHT_PF,
         )
         out_name = f"step_04_slide_{slot}_w{w}.svg"
-        render_panel(
+        render_isw_panel(
             OUT_DIR / out_name,
-            incumbent.get_jik_2_start_time_map(),
-            incumbent.get_jik_2_end_time_map(),
-            all_job_list=all_jobs,
+            incumbent,
+            part,
+            all_jobs=all_jobs,
+            all_stages=all_stages,
+            machines_map=machines_map,
             force_start=force_start,
             force_end=force_end,
-            show_labels=False,
-            stage_list=all_stages,
-            machine_list_per_stage=machines_map,
-            op_color_map=partition_to_op_color_map(part),
-            vlines=window_boundary_vlines(incumbent, part),
         )
         captions.append(
             (
                 out_name,
                 f"Slide {slot}/{len(slide_positions)}: window at w={w} "
                 f"(advances by Delta=step_size={STEP_SIZE} each pass). The "
-                "UNFIXED band and red boundaries move right while the partition "
-                "structure is preserved.",
+                "UNFIXED core (black-bordered) and the per-lane boundaries move "
+                "right while the partition structure is preserved.",
             )
         )
 
@@ -526,18 +658,15 @@ def main() -> None:
             right_profile_fixed_batch_count=RIGHT_PF if tag == "narrow" else 0,
         )
         out_name = f"step_05_enlarge_{tag}_U{u}.svg"
-        render_panel(
+        render_isw_panel(
             OUT_DIR / out_name,
-            incumbent.get_jik_2_start_time_map(),
-            incumbent.get_jik_2_end_time_map(),
-            all_job_list=all_jobs,
+            incumbent,
+            part,
+            all_jobs=all_jobs,
+            all_stages=all_stages,
+            machines_map=machines_map,
             force_start=force_start,
             force_end=force_end,
-            show_labels=False,
-            stage_list=all_stages,
-            machine_list_per_stage=machines_map,
-            op_color_map=partition_to_op_color_map(part),
-            vlines=window_boundary_vlines(incumbent, part),
         )
         captions.append(
             (
@@ -545,8 +674,8 @@ def main() -> None:
                 f"Incremental enlargement ({tag}): UNFIXED width U={u} "
                 f"(U0={UNFIXED_COUNT} -> U_max={UNFIXED_COUNT_WIDE}). When a "
                 "pass stops improving, U grows so the next window re-optimises "
-                "a larger block. The orange UNFIXED band widens between the "
-                "panels.",
+                "a larger block. The green black-bordered UNFIXED core widens "
+                "between the panels.",
             )
         )
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping, Sequence
 
+import matplotlib.patches as mpatches
 from matplotlib.ticker import MultipleLocator
 
 from hybridflowshop.painter.gantt import GanttPlotter
@@ -36,6 +37,9 @@ class LabelControlledGanttPlotter(GanttPlotter):
         vlines: Sequence[float] | None = None,
         show_x_ticks: bool = False,
         x_tick_step: int | None = None,
+        lane_boundaries: Mapping[tuple[str, str], tuple[float, float]] | None = None,
+        band_region_colors: tuple[str, str, str] | None = None,
+        region_legend: Sequence[tuple[str, str]] | None = None,
     ) -> None:
         super().__init__()
         self.show_labels = show_labels
@@ -45,6 +49,20 @@ class LabelControlledGanttPlotter(GanttPlotter):
         self.op_color_map = op_color_map
         # Optional red dashed vertical lines (e.g. ISW-CP window boundaries).
         self.vlines = vlines
+        # ISW-CP 5-region partition (ref ffc_dw_wET_2026 visual.py): instead of a
+        # single global window, every machine lane gets its OWN left/right
+        # time-fixed boundary. ``lane_boundaries`` maps (stage, machine) ->
+        # (left_b, right_b): left_b = rightmost LTF end on that machine, right_b
+        # = leftmost RTF start. Behind the bars we lay three faint background
+        # bands -- [x0, left_b] LTF zone, [left_b, right_b] active (LPF/UNFIXED/
+        # RPF) zone, [right_b, x1] RTF zone -- and draw a short dashed segment at
+        # each boundary, spanning only that lane. This gives every lane its own
+        # fixed/unfixed context, which the global red window could not express.
+        self.lane_boundaries = lane_boundaries
+        # (LTF-zone, active-zone, RTF-zone) hex colors for the background bands.
+        self.band_region_colors = band_region_colors
+        # Optional [(label, hex_color), ...] for a region color key (legend).
+        self.region_legend = region_legend
         # QSR compression visualization (plan §9): numeric x-axis ticks even
         # when show_labels=False. The tick NUMBERS (time coordinates) carry the
         # tau-compression story, not bar width. Independent of show_labels and
@@ -81,7 +99,10 @@ class LabelControlledGanttPlotter(GanttPlotter):
             e_time = end_time_map[(job, stage, machine)]
             y = machine_to_y[(stage, machine)]
             color = job_to_color[job]
-            if self.op_color_map is not None and (job, stage, machine) in self.op_color_map:
+            if (
+                self.op_color_map is not None
+                and (job, stage, machine) in self.op_color_map
+            ):
                 color = self.op_color_map[(job, stage, machine)]
             is_highlight = (
                 highlight_op_set is not None and (job, stage) in highlight_op_set
@@ -111,6 +132,8 @@ class LabelControlledGanttPlotter(GanttPlotter):
         assert self.ax is not None
         # Instance meta / generic title: never shown.
         self.ax.set_title("")
+        # Per-lane partition bands + boundaries (ISW-CP 5-region viz).
+        self._draw_lane_partition_bands(args, kwargs)
         # Stage separators (thick grey dash-dot lines between stages).
         self._draw_stage_separators(args, kwargs)
         # Red dashed vertical window-boundary lines (drawn after the bars so
@@ -135,6 +158,121 @@ class LabelControlledGanttPlotter(GanttPlotter):
         # AFTER super() set the xlim so the locator spans this panel's own axis.
         if self.show_x_ticks and self.x_tick_step is not None:
             self.ax.xaxis.set_major_locator(MultipleLocator(self.x_tick_step))
+        # Region color key (ISW-CP). A legend is a color key, not instance meta,
+        # so it is allowed even with show_labels off.
+        if self.region_legend:
+            handles = [
+                mpatches.Patch(facecolor=color, edgecolor="black", label=label)
+                for label, color in self.region_legend
+            ]
+            self.ax.legend(
+                handles=handles,
+                loc="upper right",
+                fontsize=8,
+                ncol=len(handles),
+                framealpha=0.85,
+                handlelength=1.2,
+                columnspacing=1.0,
+            )
+
+    def _lane_order(self, args, kwargs) -> list[tuple[str, str]]:
+        """Resolve (stage, machine) lanes in painter render order.
+
+        Mirrors ``GanttPlotter.create_machine_lanes``: lane idx i -> y = i.
+        """
+        start_time_map = args[0] if args else kwargs.get("start_time_map")
+        if not start_time_map:
+            return []
+        stage_list = kwargs.get("stage_list")
+        if not stage_list:
+            stage_list = sorted({stage for (_, stage, _) in start_time_map})
+        machine_list_per_stage = kwargs.get("machine_list_per_stage")
+        lanes: list[tuple[str, str]] = []
+        for stage in stage_list:
+            machines = (
+                machine_list_per_stage.get(stage) if machine_list_per_stage else None
+            )
+            if not machines:
+                machines = sorted(
+                    {mc for (_, stg, mc) in start_time_map if stg == stage}
+                )
+            for mc in machines:
+                lanes.append((stage, mc))
+        return lanes
+
+    def _draw_lane_partition_bands(self, args, kwargs) -> None:
+        """Lay faint per-lane LTF/active/RTF bands + dashed boundary segments.
+
+        Each lane ``i`` (the bars span ``[i, i + bar_height]``) gets, behind the
+        bars, three background bands split at its ``(left_b, right_b)`` boundary,
+        plus a short dashed vertical segment at each boundary confined to that
+        lane. Boundaries that coincide with the panel's x-extent are omitted (no
+        LTF / no RTF on that machine -> nothing to mark).
+        """
+        if not self.lane_boundaries:
+            return
+        assert self.ax is not None
+        ltf_color, active_color, rtf_color = self.band_region_colors or (
+            "#90A4AE",
+            "#81C784",
+            "#607D8B",
+        )
+        x0, x1 = self.ax.get_xlim()
+        for idx, lane in enumerate(self._lane_order(args, kwargs)):
+            bounds = self.lane_boundaries.get(lane)
+            if bounds is None:
+                continue
+            left_b, right_b = bounds
+            left_b = max(x0, min(left_b, x1))
+            right_b = max(x0, min(right_b, x1))
+            y0 = float(idx)
+            h = self.bar_height
+            if left_b > x0:
+                self.ax.add_patch(
+                    mpatches.Rectangle(
+                        (x0, y0),
+                        left_b - x0,
+                        h,
+                        facecolor=ltf_color,
+                        alpha=0.10,
+                        edgecolor="none",
+                        zorder=0,
+                    )
+                )
+            if right_b > left_b:
+                self.ax.add_patch(
+                    mpatches.Rectangle(
+                        (left_b, y0),
+                        right_b - left_b,
+                        h,
+                        facecolor=active_color,
+                        alpha=0.07,
+                        edgecolor="none",
+                        zorder=0,
+                    )
+                )
+            if right_b < x1:
+                self.ax.add_patch(
+                    mpatches.Rectangle(
+                        (right_b, y0),
+                        x1 - right_b,
+                        h,
+                        facecolor=rtf_color,
+                        alpha=0.10,
+                        edgecolor="none",
+                        zorder=0,
+                    )
+                )
+            for boundary in (left_b, right_b):
+                if x0 < boundary < x1:
+                    self.ax.plot(
+                        [boundary, boundary],
+                        [y0, y0 + h],
+                        color="#37474F",
+                        linestyle=(0, (5, 3)),
+                        linewidth=1.3,
+                        zorder=3,
+                    )
 
     def _draw_stage_separators(self, args, kwargs) -> None:
         """Draw a grey dash-dot horizontal line between consecutive stages.
@@ -195,11 +333,13 @@ def render_panel(
     show_labels: bool = False,
     stage_list: Sequence[str] | None = None,
     machine_list_per_stage: Mapping[str, Sequence[str]] | None = None,
-    op_color_map: Mapping[OpKey, tuple[float, float, float, float] | str]
-    | None = None,
+    op_color_map: Mapping[OpKey, tuple[float, float, float, float] | str] | None = None,
     vlines: Sequence[float] | None = None,
     show_x_ticks: bool = False,
     x_tick_step: int | None = None,
+    lane_boundaries: Mapping[tuple[str, str], tuple[float, float]] | None = None,
+    band_region_colors: tuple[str, str, str] | None = None,
+    region_legend: Sequence[tuple[str, str]] | None = None,
 ) -> Path:
     """Instantiate the label-controlled plotter and export one SVG panel.
 
@@ -221,6 +361,14 @@ def render_panel(
     * ``x_tick_step``: place x-axis ticks at multiples of this step. The tick
       NUMBER spacing ratio (real 100 : surrogate 4 = tau) carries the
       compression story; bar width is the same on both axes.
+
+    ISW-CP 5-region extensions (all default off -> existing callers unchanged):
+
+    * ``lane_boundaries``: (stage, machine) -> (left_b, right_b) per-lane
+      time-fixed boundaries; the renderer paints faint LTF/active/RTF bands and
+      dashed boundary segments per lane (sister-repo pw_cp/visual.py style).
+    * ``band_region_colors``: (LTF-zone, active-zone, RTF-zone) band colors.
+    * ``region_legend``: [(label, hex_color), ...] color key drawn upper-right.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,6 +379,9 @@ def render_panel(
         vlines=vlines,
         show_x_ticks=show_x_ticks,
         x_tick_step=x_tick_step,
+        lane_boundaries=lane_boundaries,
+        band_region_colors=band_region_colors,
+        region_legend=region_legend,
     )
     plotter.export_hybrid_flowshop_plot(
         file_path=out_path,
