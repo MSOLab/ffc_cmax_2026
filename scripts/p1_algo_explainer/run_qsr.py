@@ -8,7 +8,9 @@ full resolution and finish with a local repair.
 
 Storyboard (SVGs under ``analysis_outputs/20260612_p1_algo_explainer/qsr/``):
 
-  step_01  QUANTIZE (left)   original full-resolution schedule (real p_ij)
+  step_01  QUANTIZE (left)   a real-resolution schedule, shown ONLY to anchor the
+                             100-axis -- NOT a baseline. QSR quantizes the
+                             INSTANCE p_ij, not this schedule (pure constructor).
   step_02  QUANTIZE (right)  surrogate dispatch (width = ceil(p / tau), tau=25)
                              -> deliberately NOT a shared axis: every panel
                                 auto-fits its own makespan. The compression
@@ -20,7 +22,9 @@ Storyboard (SVGs under ``analysis_outputs/20260612_p1_algo_explainer/qsr/``):
   step_05  RECONSTRUCT  machine-sequence restore (original p_ij)
   step_06  RECONSTRUCT  stage-sequence restore   (original p_ij)
                              -> better one (by makespan) is marked the winner.
-  step_07  REPAIR (before)  best restore installed as incumbent
+  step_07  REPAIR (before)  the reconstruction installed as QSR's OWN first
+                             incumbent (pure constructor -- not an improvement
+                             over the step_01 reference)
   step_08  REPAIR (after)   critical-cone local search result
                              -> makespan drops.
 
@@ -73,9 +77,14 @@ return as a snapshot. The orchestration mirrors the real subroutine
                 the better by makespan (maybe_record_candidate @ 3139); we render
                 both and mark the winner.
   4. REPAIR     ctrl.critical_cone_cp(...)                          (@ 716)
-                The critical-cone operator works on the controller incumbent, so
-                the chosen restore is registered (solution_manager.register, the
-                same call the real subroutine uses @ 3983) and then repaired.
+                The critical-cone operator works on the controller incumbent.
+                QSR is a pure constructor: production registers the reconstructed
+                schedule as the FIRST incumbent (is_init @ 3983) and polishes THAT
+                (reference_schedule=restored_schedule @ 3914). The explainer seeds
+                a dispatch only for the step_01 picture, so before repair it RESETS
+                the manager and installs the reconstruction as the first incumbent
+                -- otherwise the better dispatch leaks in and the wrong schedule
+                gets repaired.
 
 A generous ``computational_time`` (a few seconds) is passed to the surrogate CP
 so the tiny 10x4 demo actually solves to optimality (plan §2.4 -- avoid the
@@ -169,24 +178,36 @@ def makespan_tail_highlight(
     }
 
 
-def install_as_incumbent(
+def install_as_first_incumbent(
     controller: HybridFlowShopCpLnsController,
     schedule: HybridFlowshopLiteSchedule,
 ) -> None:
-    """Register ``schedule`` on the controller's solution manager.
+    """Make ``schedule`` the QSR pipeline's OWN first incumbent, then repair it.
 
-    Uses the exact ``solution_manager.register`` path the real tau-coarsen
-    subroutine uses (@ 3983) so the critical-cone operator sees it as the
-    incumbent to repair.
+    QSR (``initialize_by_tau_coarsened_cp``) is a *pure constructor*: it does not
+    start from a pre-existing incumbent. Production registers the reconstructed
+    schedule as the FIRST incumbent (is_init, @ 3983) and polishes THAT
+    (reference_schedule=restored_schedule @ 3914).
+
+    The explainer seeds a dispatch schedule only to draw the step_01 axis-
+    reference panel. If we left it in the manager, ``register`` would KEEP the
+    better dispatch and the critical-cone repair would polish the dispatch
+    instead of the reconstruction -- repairing the wrong schedule. So we clear
+    the manager and install the reconstruction as the genuine first incumbent,
+    exactly the schedule production polishes.
     """
+    manager = controller.solution_manager
+    manager.incumbent_solution = None
+    manager.best_obj_value = None
+    manager.best_obj_bound = None
     report = controller._make_subroutine_report(
         elapsed_time=0.0,
         obj_value=float(schedule.makespan),
         obj_bound=None,
-        is_init=controller.solution_manager.get_incumbent() is None,
+        is_init=True,
         subroutine_name="qsr_explainer_install_restore",
     )
-    controller.solution_manager.register(report, schedule)
+    manager.register(report, schedule)
 
 
 def main() -> None:
@@ -262,8 +283,10 @@ def main() -> None:
         best_restore = restore_machine
     best_restore_ms = int(best_restore.makespan)
 
-    # 4. REPAIR: install the best restore as incumbent, run critical-cone CP.
-    install_as_incumbent(ctrl, best_restore)
+    # 4. REPAIR: make the reconstruction QSR's own first incumbent, then
+    # critical-cone CP. The seeded dispatch (step_01) is cleared first so it
+    # cannot leak in -- QSR is a constructor and repairs its OWN restore.
+    install_as_first_incumbent(ctrl, best_restore)
     repair_before = ctrl.solution_manager.get_incumbent()
     assert repair_before is not None
     repair_before_ms = int(repair_before.makespan)
@@ -314,9 +337,12 @@ def main() -> None:
         "quantize_original",
         original_schedule,
         note=(
-            "QUANTIZE (left): original full-resolution schedule with real p_ij. "
-            f"makespan={original_ms} ({real_axis_note}). Caption: "
-            "'x눈금 100단위 (real time)'."
+            "QUANTIZE (left): a full-resolution (real p_ij) schedule, shown ONLY "
+            "to anchor the real-time 100-axis. QSR quantizes the INSTANCE "
+            "(p_ij -> ceil(p/tau)), not this schedule -- it is a pure constructor "
+            f"with no baseline, so this makespan is NOT a reference value "
+            f"({real_axis_note}). Caption: '실해상도(real-time) 100축 예시 -- "
+            "처리시간만 1/tau로 다운샘플(순서 비교 대상 아님)'."
         ),
     )
     recorder.record_schedule(
@@ -374,7 +400,9 @@ def main() -> None:
         repair_before,
         highlight=makespan_tail_highlight(repair_before),
         note=(
-            f"REPAIR (before): best restore ({best_mode}) installed as incumbent. "
+            f"REPAIR (before): the reconstruction ({best_mode}) is QSR's own "
+            "first incumbent (pure constructor -- this IS the schedule QSR built, "
+            "not an improvement over anything). "
             f"makespan={repair_before_ms} ({real_axis_note})."
         ),
     )
@@ -425,13 +453,15 @@ def main() -> None:
         "(4,8,12,...). 눈금 간격비 100:4 = 25 = tau 가 압축률이며, 막대 너비는 양쪽이 동일.",
         "",
         f"- tau = {TAU} (surrogate width = ceil(p / {TAU})).",
-        f"- original makespan         : {original_ms}",
+        f"- step_01 axis-reference    : {original_ms} (real p_ij schedule; NOT a "
+        "baseline -- QSR is a pure constructor)",
         f"- surrogate dispatch        : {surrogate_dispatch_ms}",
         f"- surrogate CP before->after: {surrogate_before_ms} -> {surrogate_cp_ms} "
         f"(status={surrogate_report.status.name})",
         f"- restore machine-sequence  : {restore_machine_ms}",
         f"- restore stage-sequence    : {restore_stage_ms}  ({winner_note})",
-        f"- repair before->after      : {repair_before_ms} -> {repaired_ms}",
+        f"- QSR build -> repair        : {repair_before_ms} -> {repaired_ms} "
+        "(reconstruction polished; QSR's own trajectory)",
         "",
         "## Panels",
         "",
