@@ -126,6 +126,26 @@ class LabelControlledGanttPlotter(GanttPlotter):
         if self.op_color_map is not None and not kwargs.get("highlight", False):
             self.bar_alpha = 1.0
         super().draw_operation_bar(*args, **kwargs)
+        # Highlighted bars (e.g. MD mixed-dispatch head jobs) get a red border
+        # instead of the parent's hardcoded black edge. Overlay an unfilled
+        # red-edged rectangle over the same geometry; same linewidth fully
+        # covers the black edge. Keeps gantt.py unmodified (module docstring).
+        if kwargs.get("highlight", False):
+            assert self.ax is not None
+            s_time = kwargs["s_time"]
+            e_time = kwargs["e_time"]
+            y = kwargs["y"]
+            self.ax.add_patch(
+                mpatches.Rectangle(
+                    (s_time, y),
+                    e_time - s_time,
+                    self.bar_height,
+                    facecolor="none",
+                    edgecolor="#FF0000",
+                    linewidth=3.0,
+                    zorder=3,
+                )
+            )
 
     def plot_hybrid_flowshop(self, *args, **kwargs):  # type: ignore[override]
         super().plot_hybrid_flowshop(*args, **kwargs)
