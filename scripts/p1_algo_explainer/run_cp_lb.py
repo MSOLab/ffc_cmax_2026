@@ -572,10 +572,18 @@ def main() -> None:
     captions: list[tuple[str, str]] = []
     for idx, snap in enumerate(recorder.snapshots, start=1):
         out_name = f"step_{idx:02d}_{snap.label}.svg"
-        # step_03 uses the synthetic relaxation lanes; others use real machines.
+        # step_03 keeps ALL stages on the y-axis so the dropped stages read as
+        # empty lanes (the slide shows the full 15-stage axis, not just the
+        # retained subset). Retained stages use the synthetic relaxation lanes;
+        # dropped stages fall back to their real machine lanes, which carry no
+        # bars and therefore render as blank rows.
         if snap.label == "relaxation_lower_bound":
-            stage_list = adap_R
-            machine_list_per_stage = relax_machines
+            stage_list = all_stages
+            machine_list_per_stage = {
+                stage: relax_machines.get(stage)
+                or instance.stage_2_machines_map[stage]
+                for stage in all_stages
+            }
         else:
             stage_list = all_stages
             machine_list_per_stage = instance.stage_2_machines_map
