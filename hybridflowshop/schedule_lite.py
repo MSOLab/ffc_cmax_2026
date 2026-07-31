@@ -347,7 +347,6 @@ class HybridFlowshopLiteSchedule:
         if default_if_missing is not None:
             return default_if_missing
         raise ValueError(f"Job ID {job_id} not found in stage ID {stage_id}")
-        return self.__stage_2_job_2_end_time[stage_id][job_id]
 
     def get_prev_stage_end_time(
         self,
