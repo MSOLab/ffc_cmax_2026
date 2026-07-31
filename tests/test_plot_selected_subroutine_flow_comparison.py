@@ -16,20 +16,36 @@ def test_run_cli_creates_html_from_explicit_paths(tmp_path: Path, caplog) -> Non
     output_path = tmp_path / "comparison.html"
 
     rows_1 = [
-        {"instance_id": "1", "subroutine_name": "initialize", "norm_time": 0.10, "rpd_f": 0.08},
-        {"instance_id": "1", "subroutine_name": "repeat", "norm_time": 0.30, "rpd_f": 0.04},
+        {
+            "instance_id": "1",
+            "subroutine_name": "initialize",
+            "norm_time": 0.10,
+            "rpd_f": 0.08,
+        },
+        {
+            "instance_id": "1",
+            "subroutine_name": "repeat",
+            "norm_time": 0.30,
+            "rpd_f": 0.04,
+        },
     ]
     rows_2 = [
-        {"instance_id": "1", "subroutine_name": "initialize", "norm_time": 0.12, "rpd_f": 0.07},
-        {"instance_id": "1", "subroutine_name": "repeat", "norm_time": 0.40, "rpd_f": 0.02},
+        {
+            "instance_id": "1",
+            "subroutine_name": "initialize",
+            "norm_time": 0.12,
+            "rpd_f": 0.07,
+        },
+        {
+            "instance_id": "1",
+            "subroutine_name": "repeat",
+            "norm_time": 0.40,
+            "rpd_f": 0.02,
+        },
     ]
 
-    _write_method_rpdf_summary(
-        scenario_1 / script_module.SUMMARY_FILENAME, rows_1
-    )
-    _write_method_rpdf_summary(
-        scenario_2 / script_module.SUMMARY_FILENAME, rows_2
-    )
+    _write_method_rpdf_summary(scenario_1 / script_module.SUMMARY_FILENAME, rows_1)
+    _write_method_rpdf_summary(scenario_2 / script_module.SUMMARY_FILENAME, rows_2)
 
     exit_code = script_module.run_cli(
         [
@@ -51,7 +67,9 @@ def test_run_cli_creates_html_from_explicit_paths(tmp_path: Path, caplog) -> Non
     assert "guide_marker_x" in content
     assert "range: [0, payload.x_max]" in content
     assert "range: [0, payload.y_max]" in content
-    assert "Falling back to endpoint CSV for selected-scenario comparison" in caplog.text
+    assert (
+        "Falling back to endpoint CSV for selected-scenario comparison" in caplog.text
+    )
 
 
 def test_run_cli_uses_global_scenario_path_list_when_args_are_empty(
@@ -63,11 +81,25 @@ def test_run_cli_uses_global_scenario_path_list_when_args_are_empty(
 
     _write_method_rpdf_summary(
         scenario_1 / script_module.SUMMARY_FILENAME,
-        [{"instance_id": "1", "subroutine_name": "initialize", "norm_time": 0.10, "rpd_f": 0.08}],
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "initialize",
+                "norm_time": 0.10,
+                "rpd_f": 0.08,
+            }
+        ],
     )
     _write_method_rpdf_summary(
         scenario_2 / script_module.SUMMARY_FILENAME,
-        [{"instance_id": "1", "subroutine_name": "initialize", "norm_time": 0.12, "rpd_f": 0.07}],
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "initialize",
+                "norm_time": 0.12,
+                "rpd_f": 0.07,
+            }
+        ],
     )
 
     monkeypatch.setattr(
@@ -93,15 +125,20 @@ def test_run_cli_fails_when_no_paths_are_resolved(
     assert "No scenario directories resolved" in caplog.text
 
 
-def test_run_cli_fails_when_summary_csv_is_missing(
-    tmp_path: Path, caplog
-) -> None:
+def test_run_cli_fails_when_summary_csv_is_missing(tmp_path: Path, caplog) -> None:
     scenario_1 = tmp_path / "Outputs_scenarios" / "run_a" / "ff2020" / "flow-01"
     scenario_2 = tmp_path / "Outputs_scenarios" / "run_b" / "ff2020" / "flow-02"
 
     _write_method_rpdf_summary(
         scenario_1 / script_module.SUMMARY_FILENAME,
-        [{"instance_id": "1", "subroutine_name": "initialize", "norm_time": 0.10, "rpd_f": 0.08}],
+        [
+            {
+                "instance_id": "1",
+                "subroutine_name": "initialize",
+                "norm_time": 0.10,
+                "rpd_f": 0.08,
+            }
+        ],
     )
     scenario_2.mkdir(parents=True, exist_ok=True)
 

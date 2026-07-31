@@ -301,8 +301,7 @@ class HybridFlowShopCpLnsControllerCore(
                 else:
                     resolved_sec = min(float(fallback_sec), remaining_sec)
                 logging.info(
-                    "[Final Reserve] Consuming %.3f sec%s "
-                    "(reserved_minimum=%.3f sec).",
+                    "[Final Reserve] Consuming %.3f sec%s (reserved_minimum=%.3f sec).",
                     resolved_sec,
                     f" for {label}" if label else "",
                     reserve_sec,

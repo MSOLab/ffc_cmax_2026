@@ -28,7 +28,9 @@ def _read_refs(path: Path | None) -> dict[str, float]:
     refs: dict[str, float] = {}
     with path.open(newline="") as f:
         for row in csv.DictReader(f):
-            instance_id = row.get("Instance") or row.get("instance_id") or row.get("insName")
+            instance_id = (
+                row.get("Instance") or row.get("instance_id") or row.get("insName")
+            )
             ref_value = row.get("UB") or row.get("ref_obj_value") or row.get("ref")
             if instance_id and ref_value:
                 refs[str(int(float(instance_id)))] = float(ref_value)
@@ -158,7 +160,9 @@ def main() -> int:
         for summary_path, row in rows_to_write:
             instance_id = str(int(float(row["insName"])))
             previous = latest_by_instance.get(instance_id)
-            if previous is None or _checkpoint_sort_key(summary_path) > _checkpoint_sort_key(previous[0]):
+            if previous is None or _checkpoint_sort_key(
+                summary_path
+            ) > _checkpoint_sort_key(previous[0]):
                 latest_by_instance[instance_id] = (summary_path, row)
         rows_to_write = sorted(
             latest_by_instance.values(),

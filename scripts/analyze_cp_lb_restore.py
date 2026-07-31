@@ -158,7 +158,9 @@ def read_method_phases(path: Path) -> dict[str, float]:
     return phases
 
 
-def load_run(label: str, scenario_dir: Path, ref: dict[str, InstanceInfo]) -> list[RestoreRecord]:
+def load_run(
+    label: str, scenario_dir: Path, ref: dict[str, InstanceInfo]
+) -> list[RestoreRecord]:
     records: list[RestoreRecord] = []
     for instance_dir in sorted(scenario_dir.iterdir()):
         if not instance_dir.is_dir() or not instance_dir.name.isdigit():
@@ -222,7 +224,9 @@ def summarize(records: list[RestoreRecord], top: int, focus: set[str]) -> None:
     final_records = [record for record in records if record.final_obj is not None]
     print(f"records={len(records)} final_records={len(final_records)}")
     if final_records:
-        print(f"mean_final_rpdf={mean(record.final_rpdf for record in final_records if record.final_rpdf is not None):.6f}")
+        print(
+            f"mean_final_rpdf={mean(record.final_rpdf for record in final_records if record.final_rpdf is not None):.6f}"
+        )
 
     by_mode: dict[str, list[RestoreRecord]] = {}
     by_type: dict[tuple[int, int], list[RestoreRecord]] = {}
@@ -231,7 +235,9 @@ def summarize(records: list[RestoreRecord], top: int, focus: set[str]) -> None:
         by_type.setdefault((record.n, record.c), []).append(record)
 
     print("\nby_mode")
-    print("mode,count,mean_final_rpdf,mean_relaxed_gain,mean_restore_gain,mean_restore_loss,mean_post_to_final_gain")
+    print(
+        "mode,count,mean_final_rpdf,mean_relaxed_gain,mean_restore_gain,mean_restore_loss,mean_post_to_final_gain"
+    )
     for mode, group in sorted(by_mode.items(), key=lambda item: item[0]):
         print(
             ",".join(
@@ -268,7 +274,9 @@ def summarize(records: list[RestoreRecord], top: int, focus: set[str]) -> None:
         print(detail_row(record))
 
     print("\nby_type")
-    print("n,c,count,mean_final_rpdf,mean_restore_gain,mean_restore_loss,mean_post_to_final_gain")
+    print(
+        "n,c,count,mean_final_rpdf,mean_restore_gain,mean_restore_loss,mean_post_to_final_gain"
+    )
     for (n, c), group in sorted(by_type.items()):
         print(
             f"{n},{c},{len(group)},"
@@ -329,7 +337,10 @@ def detail_row(record: RestoreRecord) -> str:
         record.dispatch_variant,
         record.retained_stages,
     ]
-    return ",".join('"' + value.replace('"', '""') + '"' if "," in value else value for value in values)
+    return ",".join(
+        '"' + value.replace('"', '""') + '"' if "," in value else value
+        for value in values
+    )
 
 
 def main() -> int:

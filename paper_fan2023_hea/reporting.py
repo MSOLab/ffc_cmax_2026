@@ -100,7 +100,12 @@ def write_convergence_plot(
     df = pd.DataFrame(history_rows)
     fig, ax = plt.subplots(figsize=(8, 4.5))
     for seed, group in df.groupby("seed"):
-        ax.step(group["elapsedSeconds"], group["bestObj"], where="post", label=f"seed {seed}")
+        ax.step(
+            group["elapsedSeconds"],
+            group["bestObj"],
+            where="post",
+            label=f"seed {seed}",
+        )
     ax.set_xlabel("elapsed seconds")
     ax.set_ylabel("best makespan")
     ax.set_title("Fan 2023 HEA convergence")

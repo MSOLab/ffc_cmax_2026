@@ -153,7 +153,9 @@ class GurobiProgressRecorder:
                 horizon_lb=None,
                 barrier_primal_obj=primal_obj,
                 barrier_dual_obj=dual_obj,
-                barrier_horizon_primal=_shift_to_horizon(self.range_base_time, primal_obj),
+                barrier_horizon_primal=_shift_to_horizon(
+                    self.range_base_time, primal_obj
+                ),
                 barrier_horizon_dual=_shift_to_horizon(self.range_base_time, dual_obj),
                 primal_inf=primal_inf,
                 dual_inf=dual_inf,
@@ -215,7 +217,9 @@ class GurobiProgressRecorder:
                 pass
 
 
-def _shift_to_horizon(range_base_time: float, objective_value: float | None) -> float | None:
+def _shift_to_horizon(
+    range_base_time: float, objective_value: float | None
+) -> float | None:
     if objective_value is None:
         return None
     return range_base_time + objective_value

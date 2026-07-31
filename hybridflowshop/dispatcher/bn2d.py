@@ -449,7 +449,8 @@ class BN2DDispatcher(BaseDispatcher):
         anchor_stage_ids: Sequence[StageIdType],
         stage_2_job_sequence: Mapping[StageIdType, Sequence[JobIdType]],
         option: BN2DOption,
-        stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]] | None = None,
+        stage_2_job_2_release: Mapping[StageIdType, Mapping[JobIdType, int]]
+        | None = None,
         anchor_dispatch_mode: str = "strict_start",
     ) -> HybridFlowshopLiteSchedule:
         """Dispatch around a fixed contiguous anchor band using BN2D-style two-way logic.
@@ -471,9 +472,13 @@ class BN2DDispatcher(BaseDispatcher):
             raise ValueError("anchor_stage_ids cannot be empty.")
 
         anchor_stage_ids = list(anchor_stage_ids)
-        anchor_stage_indices = [self.stage_id_list.index(stage_id) for stage_id in anchor_stage_ids]
+        anchor_stage_indices = [
+            self.stage_id_list.index(stage_id) for stage_id in anchor_stage_ids
+        ]
         expected_indices = list(
-            range(anchor_stage_indices[0], anchor_stage_indices[0] + len(anchor_stage_ids))
+            range(
+                anchor_stage_indices[0], anchor_stage_indices[0] + len(anchor_stage_ids)
+            )
         )
         if anchor_stage_indices != expected_indices:
             raise ValueError(
@@ -522,13 +527,15 @@ class BN2DDispatcher(BaseDispatcher):
             )
 
             if option.mixed_schedule_for_later_stages:
-                mixed_schedule = self.mixed_dispatcher.get_best_mixed_schedule_by_sequence(
-                    sorted_j_list,
-                    schedule=anchor_schedule.deepcopy(),
-                    from_stage=later_stage_list[0],
-                    job_2_release_t=job_2_last_anchor_end_time,
-                    machine_then_job=option.machine_then_job,
-                    draw_gantt_per_step=False,
+                mixed_schedule = (
+                    self.mixed_dispatcher.get_best_mixed_schedule_by_sequence(
+                        sorted_j_list,
+                        schedule=anchor_schedule.deepcopy(),
+                        from_stage=later_stage_list[0],
+                        job_2_release_t=job_2_last_anchor_end_time,
+                        machine_then_job=option.machine_then_job,
+                        draw_gantt_per_step=False,
+                    )
                 )
                 if mixed_schedule is None:
                     raise ValueError("Failed to get mixed schedule for later stages.")

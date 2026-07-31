@@ -84,7 +84,9 @@ def main() -> None:
         raise FileNotFoundError(f"Solution root not found: {solution_root}")
 
     output_dir = (
-        args.output_dir if args.output_dir is not None else solution_root.parent / "plots"
+        args.output_dir
+        if args.output_dir is not None
+        else solution_root.parent / "plots"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -109,13 +111,17 @@ def main() -> None:
             )
 
 
-def resolve_instance_dirs(solution_root: Path, instances: list[int] | None) -> list[Path]:
+def resolve_instance_dirs(
+    solution_root: Path, instances: list[int] | None
+) -> list[Path]:
     if instances:
         dirs = []
         for instance_id in instances:
             instance_dir = solution_root / str(instance_id)
             if not instance_dir.is_dir():
-                raise FileNotFoundError(f"Saved solution folder not found: {instance_dir}")
+                raise FileNotFoundError(
+                    f"Saved solution folder not found: {instance_dir}"
+                )
             dirs.append(instance_dir)
         return dirs
 
@@ -204,7 +210,9 @@ def plot_variable_pages(
             axis.axis("off")
 
         if image is not None:
-            colorbar = fig.colorbar(image, ax=axes.ravel().tolist(), shrink=0.92, pad=0.01)
+            colorbar = fig.colorbar(
+                image, ax=axes.ravel().tolist(), shrink=0.92, pad=0.01
+            )
             colorbar.set_label("Within (job, stage) share", fontsize=9)
         fig.suptitle(
             f"Instance {ins_name} - {variable_name} heatmaps by job (row-normalized)",
@@ -214,7 +222,9 @@ def plot_variable_pages(
         output_path = output_dir / f"{variable_name}_page{page_index:02d}.png"
         fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
         plt.close(fig)
-        log_progress(f"Wrote {variable_name} heatmap page for instance {ins_name}: {output_path}")
+        log_progress(
+            f"Wrote {variable_name} heatmap page for instance {ins_name}: {output_path}"
+        )
 
 
 def build_job_matrices(
@@ -247,7 +257,9 @@ def normalize_and_mask_matrices(
             row_sum = float(normalized_matrix[row_idx].sum())
             if row_sum > 0.0:
                 normalized_matrix[row_idx] /= row_sum
-        normalized[job_idx] = np.ma.masked_where(normalized_matrix <= 0.0, normalized_matrix)
+        normalized[job_idx] = np.ma.masked_where(
+            normalized_matrix <= 0.0, normalized_matrix
+        )
     return normalized
 
 

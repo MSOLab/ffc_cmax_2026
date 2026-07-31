@@ -66,10 +66,7 @@ class ReactiveParamTuner:
         capped_time_param_name: str | None = None,
         capped_time_param_value: float | None = None,
     ) -> Any:
-        if (
-            capped_time_param_name is not None
-            and capped_time_param_value is not None
-        ):
+        if capped_time_param_name is not None and capped_time_param_value is not None:
             if capped_time_param_name in self.current_kwargs:
                 self.current_kwargs[capped_time_param_name] = min(
                     self.current_kwargs[capped_time_param_name],

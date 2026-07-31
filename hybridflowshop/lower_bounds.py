@@ -40,9 +40,7 @@ def santos_stage_lower_bound(instance: Any, stage: str) -> int:
     if machine_count <= 0:
         raise ValueError(f"Stage {stage!r} must have at least one machine.")
 
-    left_sums = sorted(
-        sum(p[job, stages[s]] for s in range(stage_idx)) for job in jobs
-    )
+    left_sums = sorted(sum(p[job, stages[s]] for s in range(stage_idx)) for job in jobs)
     right_sums = sorted(
         sum(p[job, stages[s]] for s in range(stage_idx + 1, len(stages)))
         for job in jobs
@@ -95,13 +93,9 @@ def bin_packing_body_lower_bound(
         medium_jobs = [
             value for value in times if lower_bound / 2 < value <= lower_bound - p_bar
         ]
-        compact_jobs = [
-            value for value in times if p_bar <= value <= lower_bound / 2
-        ]
+        compact_jobs = [value for value in times if p_bar <= value <= lower_bound / 2]
 
-        medium_capacity_for_compact = lower_bound * len(medium_jobs) - sum(
-            medium_jobs
-        )
+        medium_capacity_for_compact = lower_bound * len(medium_jobs) - sum(medium_jobs)
         alpha_extra = math.ceil(
             (sum(compact_jobs) - medium_capacity_for_compact) / lower_bound
         )
@@ -146,9 +140,7 @@ def chen_lb4_stage_lower_bound(instance: Any, stage: str) -> int:
         len(instance.stage_2_machines_map[stage]),
     )
 
-    prefix_before = [
-        sum(p[job, stages[s]] for s in range(stage_idx)) for job in jobs
-    ]
+    prefix_before = [sum(p[job, stages[s]] for s in range(stage_idx)) for job in jobs]
     prefix_through = [
         sum(p[job, stages[s]] for s in range(stage_idx + 1)) for job in jobs
     ]

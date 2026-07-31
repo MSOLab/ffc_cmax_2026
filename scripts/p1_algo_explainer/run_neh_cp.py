@@ -134,9 +134,7 @@ class BatchCapture:
         }
 
 
-def highlight_for_jobs(
-    jobs: set[str], stage_list
-) -> set[tuple[str, str]]:
+def highlight_for_jobs(jobs: set[str], stage_list) -> set[tuple[str, str]]:
     """(job, stage) highlight set spanning every stage of the given jobs."""
     return {(job_id, stage_id) for job_id in jobs for stage_id in stage_list}
 
@@ -257,8 +255,10 @@ def main() -> None:
         )
 
     # --- step_01: insertion priority sequence + batch partition (note) ---
-    batches = [insertion_sequence[i : i + batch_size]
-               for i in range(0, len(insertion_sequence), batch_size)]
+    batches = [
+        insertion_sequence[i : i + batch_size]
+        for i in range(0, len(insertion_sequence), batch_size)
+    ]
     seq_note = (
         "NEH-CP incremental construction with per-insertion CP re-optimisation.\n\n"
         f"Reference (seed) schedule makespan = {seed_makespan}.\n\n"

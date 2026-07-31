@@ -87,7 +87,9 @@ def test_select_critical_cone_includes_tail_job_and_competitors() -> None:
     assert ("j2", "s3", "m1") in selected
 
 
-def test_critical_cone_operator_fixes_outside_and_requires_improvement(monkeypatch) -> None:
+def test_critical_cone_operator_fixes_outside_and_requires_improvement(
+    monkeypatch,
+) -> None:
     schedule = _make_schedule()
     ctrl = _make_controller(schedule)
     captured = {}

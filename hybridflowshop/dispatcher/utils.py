@@ -34,15 +34,17 @@ def get_stage_job_sequences_from_dispatch_windows(
                     f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
                 )
             processing_time = stage_2_job_2_p[stage_id][job_id]
-            sortable_rows.append((
-                _get_dispatch_window_sort_key(
-                    op_window,
-                    processing_time,
-                    job_idx,
-                    sort_rule=sort_rule,
-                ),
-                job_id,
-            ))
+            sortable_rows.append(
+                (
+                    _get_dispatch_window_sort_key(
+                        op_window,
+                        processing_time,
+                        job_idx,
+                        sort_rule=sort_rule,
+                    ),
+                    job_id,
+                )
+            )
         sortable_rows.sort(key=lambda row: row[0])
         stage_2_job_sequence[stage_id] = [job_id for _key, job_id in sortable_rows]
     return stage_2_job_sequence
@@ -70,15 +72,17 @@ def get_job_sequence_from_dispatch_windows_anchor_stage(
                 f"Missing dispatch-window information for stage={stage_idx}, job={job_idx}."
             )
         processing_time = stage_2_job_2_p[anchor_stage_id][job_id]
-        sortable_rows.append((
-            _get_dispatch_window_sort_key(
-                op_window,
-                processing_time,
-                job_idx,
-                sort_rule=sort_rule,
-            ),
-            job_id,
-        ))
+        sortable_rows.append(
+            (
+                _get_dispatch_window_sort_key(
+                    op_window,
+                    processing_time,
+                    job_idx,
+                    sort_rule=sort_rule,
+                ),
+                job_id,
+            )
+        )
     sortable_rows.sort(key=lambda row: row[0])
     return [job_id for _key, job_id in sortable_rows]
 
@@ -111,17 +115,19 @@ def get_job_sequence_from_dispatch_windows_aggregate(
             ls_list.append(ls)
             slack_list.append(ls - es)
             total_p += processing_time
-        sortable_rows.append((
-            _get_dispatch_window_aggregate_key(
-                es_list=es_list,
-                ls_list=ls_list,
-                slack_list=slack_list,
-                total_p=total_p,
-                job_idx=job_idx,
-                aggregation_rule=aggregation_rule,
-            ),
-            job_id,
-        ))
+        sortable_rows.append(
+            (
+                _get_dispatch_window_aggregate_key(
+                    es_list=es_list,
+                    ls_list=ls_list,
+                    slack_list=slack_list,
+                    total_p=total_p,
+                    job_idx=job_idx,
+                    aggregation_rule=aggregation_rule,
+                ),
+                job_id,
+            )
+        )
     sortable_rows.sort(key=lambda row: row[0])
     return [job_id for _key, job_id in sortable_rows]
 
@@ -174,9 +180,7 @@ def _get_dispatch_window_aggregate_key(
         return (sum(ls_list), sum(slack_list), sum(es_list), -total_p, job_idx)
     if aggregation_rule == "tail_ls_sum_slack_p_desc":
         return (ls_list[-1], sum(slack_list), es_list[-1], -total_p, job_idx)
-    raise ValueError(
-        f"Unknown dispatch-window aggregation_rule: {aggregation_rule}"
-    )
+    raise ValueError(f"Unknown dispatch-window aggregation_rule: {aggregation_rule}")
 
 
 def get_stage_job_release_times_from_dispatch_windows(
@@ -283,13 +287,17 @@ def get_bottleneck_anchor_stage_from_solution_payload(
         stage_idx = stage_id_to_idx[stage_id]
         machine_cnt = max(len(stage_2_machines[stage_id]), 1)
         avg_load = (
-            sum(float(proc) for proc in stage_2_job_2_p[stage_id].values()) / machine_cnt
+            sum(float(proc) for proc in stage_2_job_2_p[stage_id].values())
+            / machine_cnt
         )
         if delta > 0:
             congestion = max(
                 (
                     usage / (machine_cnt * delta)
-                    for (row_stage_idx, _bucket_idx), usage in stage_bucket_usage.items()
+                    for (
+                        row_stage_idx,
+                        _bucket_idx,
+                    ), usage in stage_bucket_usage.items()
                     if row_stage_idx == stage_idx
                 ),
                 default=0.0,
@@ -580,7 +588,10 @@ def _get_stage_machine_job_sequences(
     stage_id: StageIdType,
 ) -> dict[str, list[JobIdType]]:
     return {
-        mc_id: [job_id for _start, _end, job_id in schedule.get_job_sequence(stage_id, mc_id)]
+        mc_id: [
+            job_id
+            for _start, _end, job_id in schedule.get_job_sequence(stage_id, mc_id)
+        ]
         for mc_id in schedule.machines_per_stage[stage_id]
     }
 
@@ -628,9 +639,7 @@ def _get_temporal_insert_indices(
         base_idx,
         max(0, base_idx - 1),
     }
-    return sorted(
-        idx for idx in candidate_indices if 0 <= idx <= len(machine_rows)
-    )
+    return sorted(idx for idx in candidate_indices if 0 <= idx <= len(machine_rows))
 
 
 def improve_schedule_by_critical_cross_machine_insertions(
@@ -668,9 +677,7 @@ def improve_schedule_by_critical_cross_machine_insertions(
     best_schedule.make_semi_active(stage_2_job_2_duration)
     if _time_is_up():
         return best_schedule
-    if not _schedule_respects_stage_release_times(
-        best_schedule, stage_2_job_2_release
-    ):
+    if not _schedule_respects_stage_release_times(best_schedule, stage_2_job_2_release):
         return schedule.deepcopy()
 
     target_stage_id_set = set(target_stage_ids or [])
@@ -706,9 +713,9 @@ def improve_schedule_by_critical_cross_machine_insertions(
                     continue
 
                 pivot_start = best_schedule.get_job_start_time(stage_id, job_id)
-                machine_last_end_map = best_schedule.get_stage_2_mc_2_last_end_time_map()[
-                    stage_id
-                ]
+                machine_last_end_map = (
+                    best_schedule.get_stage_2_mc_2_last_end_time_map()[stage_id]
+                )
                 candidate_target_mcs = [
                     mc_id for mc_id in machine_ids if mc_id != source_mc
                 ]
@@ -717,7 +724,7 @@ def improve_schedule_by_critical_cross_machine_insertions(
                 )
                 if max_machine_candidates_per_op is not None:
                     candidate_target_mcs = candidate_target_mcs[
-                        : max_machine_candidates_per_op
+                        :max_machine_candidates_per_op
                     ]
 
                 for target_mc in candidate_target_mcs:

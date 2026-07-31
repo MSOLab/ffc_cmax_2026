@@ -18,9 +18,7 @@ class _FakeProcessingTimeManager:
         self, jobs: list[str], stages: list[str]
     ) -> dict[tuple[str, str], int]:
         return {
-            (job, stage): self.values[job, stage]
-            for job in jobs
-            for stage in stages
+            (job, stage): self.values[job, stage] for job in jobs for stage in stages
         }
 
 
@@ -42,8 +40,7 @@ def _paper_example_instance():
         job_id_list=jobs,
         stage_id_list=stages,
         stage_2_machines_map={
-            stage: [f"{stage}_m1", f"{stage}_m2", f"{stage}_m3"]
-            for stage in stages
+            stage: [f"{stage}_m1", f"{stage}_m2", f"{stage}_m3"] for stage in stages
         },
         p_manager=_FakeProcessingTimeManager(values),
     )
@@ -77,8 +74,7 @@ def test_santos_lower_bound_remains_available_for_comparison() -> None:
 
     assert simple_job_lower_bound(instance) == 250
     assert [
-        santos_stage_lower_bound(instance, stage)
-        for stage in instance.stage_id_list
+        santos_stage_lower_bound(instance, stage) for stage in instance.stage_id_list
     ] == [233, 237, 227, 251]
     assert santos_lower_bound(instance) == 251
     assert santos_lower_bound(instance) <= chen_lb4_lower_bound(instance)

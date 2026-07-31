@@ -160,9 +160,15 @@ def analyze_scenario_dir(
 
     flow = load_yaml(scenario_dir / "subroutine_flow.yaml", encoding="utf-8")
     if not isinstance(flow, list):
-        raise ValueError(f"Invalid subroutine flow at {scenario_dir / 'subroutine_flow.yaml'}")
+        raise ValueError(
+            f"Invalid subroutine flow at {scenario_dir / 'subroutine_flow.yaml'}"
+        )
     mip_step = next(
-        (step for step in flow if isinstance(step, dict) and step.get("method") == "apply_mip_lb"),
+        (
+            step
+            for step in flow
+            if isinstance(step, dict) and step.get("method") == "apply_mip_lb"
+        ),
         None,
     )
     if mip_step is None:
@@ -183,7 +189,9 @@ def analyze_scenario_dir(
         path for path in scenario_dir.iterdir() if path.is_dir() and path.name.isdigit()
     ):
         ins_name = instance_dir.name
-        metadata_path = instance_dir / "mip_lb" / "solutions" / ins_name / "metadata.json"
+        metadata_path = (
+            instance_dir / "mip_lb" / "solutions" / ins_name / "metadata.json"
+        )
         dispatch_summary_path = (
             instance_dir / "mip_lb" / "dispatch" / "dispatch_summary.yaml"
         )
@@ -282,7 +290,8 @@ def analyze_scenario_dir(
                 ),
                 "apply_over_nominal_time_limit": (
                     None
-                    if apply_elapsed_sec is None or nominal_mip_time_limit_sec in {None, 0.0}
+                    if apply_elapsed_sec is None
+                    or nominal_mip_time_limit_sec in {None, 0.0}
                     else float(apply_elapsed_sec / nominal_mip_time_limit_sec)
                 ),
                 "solver_over_nominal_time_limit": (
@@ -295,7 +304,9 @@ def analyze_scenario_dir(
                     None
                     if post_mip_dispatch_elapsed_sec is None
                     or nominal_mip_time_limit_sec in {None, 0.0}
-                    else float(post_mip_dispatch_elapsed_sec / nominal_mip_time_limit_sec)
+                    else float(
+                        post_mip_dispatch_elapsed_sec / nominal_mip_time_limit_sec
+                    )
                 ),
             }
         )
@@ -306,7 +317,10 @@ def analyze_scenario_dir(
             gap_to_best = _safe_float(row.get("gap_to_best"))
             elapsed_sec = _safe_float(row.get("elapsed_sec"))
             is_selected = bool(row.get("is_selected"))
-            is_best = best_candidate_makespan is not None and makespan == best_candidate_makespan
+            is_best = (
+                best_candidate_makespan is not None
+                and makespan == best_candidate_makespan
+            )
             variant_present_count[variant] += 1
             if is_selected:
                 variant_selected_count[variant] += 1
@@ -333,7 +347,9 @@ def analyze_scenario_dir(
                     "is_best": is_best,
                     "input_ub": input_ub,
                     "improvement_vs_input_ub": (
-                        None if input_ub is None or makespan is None else float(input_ub - makespan)
+                        None
+                        if input_ub is None or makespan is None
+                        else float(input_ub - makespan)
                     ),
                 }
             )
@@ -403,7 +419,9 @@ def analyze_scenario_dir(
         "solver_over_nominal_time_limit_mean": _safe_mean(solver_ratios),
         "solver_over_nominal_time_limit_median": _safe_median(solver_ratios),
         "post_dispatch_over_nominal_time_limit_mean": _safe_mean(post_dispatch_ratios),
-        "post_dispatch_over_nominal_time_limit_median": _safe_median(post_dispatch_ratios),
+        "post_dispatch_over_nominal_time_limit_median": _safe_median(
+            post_dispatch_ratios
+        ),
         "top_selected_variants": [
             {"variant": variant, "selected_count": count}
             for variant, count in variant_selected_count.most_common(10)

@@ -550,7 +550,9 @@ class BaseModelBuilder:
             stage_precedence_min_processing_time_diff_ratio is not None
             and stage_precedence_min_processing_time_diff_ratio < 0
         ):
-            raise ValueError("stage_precedence_min_processing_time_diff_ratio must be >= 0")
+            raise ValueError(
+                "stage_precedence_min_processing_time_diff_ratio must be >= 0"
+            )
 
         start_time_map = current_schedule.get_jik_2_start_time_map()
         end_time_map = current_schedule.get_jik_2_end_time_map()

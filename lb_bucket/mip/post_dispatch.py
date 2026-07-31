@@ -42,9 +42,7 @@ class PostMipDispatchDependencies:
     get_schedule_by_best_of_mixed_dispatches: Callable[
         ..., HybridFlowshopLiteSchedule | None
     ]
-    repair_post_mip_dispatch_candidate: Callable[
-        ..., HybridFlowshopLiteSchedule | None
-    ]
+    repair_post_mip_dispatch_candidate: Callable[..., HybridFlowshopLiteSchedule | None]
 
 
 @dataclass(frozen=True)

@@ -230,7 +230,9 @@ class HfsMultiScenarioRunner(
             progression_data = aggregate_scenario_progression(
                 working_dir,
                 baseline_df=getattr(self, "baseline_df", None),
-                baseline_instance_col=getattr(self, "baseline_instance_col", "Instance"),
+                baseline_instance_col=getattr(
+                    self, "baseline_instance_col", "Instance"
+                ),
                 baseline_obj_val_col=getattr(self, "baseline_obj_val_col", "UB"),
                 omitted_subroutines={
                     "set_random_seed",

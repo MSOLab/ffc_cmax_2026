@@ -234,7 +234,9 @@ class MainMetadata(BaseModel):
             self.benchmark_order_wave_size is not None
             and self.benchmark_order_wave_size <= 0
         ):
-            raise ValueError("benchmark_order_wave_size must be positive when provided.")
+            raise ValueError(
+                "benchmark_order_wave_size must be positive when provided."
+            )
         return self
 
     def to_dict(self) -> dict[str, Any]:

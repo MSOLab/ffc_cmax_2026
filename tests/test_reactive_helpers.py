@@ -187,8 +187,7 @@ def test_reactive_looper_supports_radius_and_tl_nc_multiplier():
 
     assert looper._get_size_param_name("random_stage_band_stage_ns") == "radius"
     assert (
-        looper._get_time_param_name("random_stage_band_stage_ns")
-        == "tl_nc_multiplier"
+        looper._get_time_param_name("random_stage_band_stage_ns") == "tl_nc_multiplier"
     )
 
     looper.obj_value_before_step = 1.0

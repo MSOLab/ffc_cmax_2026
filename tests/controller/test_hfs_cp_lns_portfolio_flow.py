@@ -112,7 +112,9 @@ def test_bound_gap_guarded_incremental_sw_cp_skips_when_gap_is_small(
         _FakeSchedule(1050), best_obj_bound=1000.0
     )
     calls = []
-    monkeypatch.setattr(ctrl, "incremental_sw_cp", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(
+        ctrl, "incremental_sw_cp", lambda **kwargs: calls.append(kwargs)
+    )
 
     ctrl.bound_gap_guarded_incremental_sw_cp(
         solver_thread_cnt=16,
@@ -131,7 +133,9 @@ def test_bound_gap_guarded_incremental_sw_cp_runs_when_gap_is_large(
         _FakeSchedule(1080), best_obj_bound=1000.0
     )
     calls = []
-    monkeypatch.setattr(ctrl, "incremental_sw_cp", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(
+        ctrl, "incremental_sw_cp", lambda **kwargs: calls.append(kwargs)
+    )
 
     ctrl.bound_gap_guarded_incremental_sw_cp(
         solver_thread_cnt=16,
@@ -1112,8 +1116,7 @@ def test_initialize_by_dispatch_portfolio_can_select_earlier_near_best(
     ]
     assert mid_order_calls
     assert all(
-        config["method_list"] == ["bn2d_all_stages"]
-        for config in mid_order_calls
+        config["method_list"] == ["bn2d_all_stages"] for config in mid_order_calls
     )
 
 
@@ -1330,9 +1333,7 @@ def test_neh_cp_sequence_beam_runs_diverse_candidates_and_registers_best(
     ctrl.job_2_stage_2_p_dict = {}
     ctrl.stage_2_job_2_p_dict = {}
     ctrl.last_retained_cp_dispatch_candidate_schedules = {
-        "best_same_sequence": _FakeSchedule(
-            95, label="same", seq=["A", "B", "C", "D"]
-        ),
+        "best_same_sequence": _FakeSchedule(95, label="same", seq=["A", "B", "C", "D"]),
         "diverse_candidate": _FakeSchedule(
             98, label="diverse", seq=["D", "C", "B", "A"]
         ),

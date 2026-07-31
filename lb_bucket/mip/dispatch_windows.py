@@ -38,7 +38,9 @@ def compute_dispatch_window_payload(
         dispatch_cmax = float(cmax)
     elif metadata.get("horizon_ub") is not None:
         dispatch_cmax = float(metadata["horizon_ub"])
-    elif metadata.get("objective_ub") is not None and metadata.get("t_lower") is not None:
+    elif (
+        metadata.get("objective_ub") is not None and metadata.get("t_lower") is not None
+    ):
         dispatch_cmax = float(metadata["t_lower"]) * float(delta) + float(
             metadata["objective_ub"]
         )
@@ -69,7 +71,9 @@ def compute_dispatch_window_payload(
                 "b",
                 tol,
             )
-            processing_time = instance.processing_times_by_stage[stage_idx - 1][job_idx - 1]
+            processing_time = instance.processing_times_by_stage[stage_idx - 1][
+                job_idx - 1
+            ]
             x_at_a_bucket = float(x_bucket_map.get((stage_idx, job_idx, a_bucket), 0.0))
             x_at_b_bucket = float(x_bucket_map.get((stage_idx, job_idx, b_bucket), 0.0))
             spans_two_buckets = a_bucket != b_bucket
@@ -123,12 +127,13 @@ def build_dispatch_window_lookup(
     dispatch_window_rows: list[dict[str, Any]],
 ) -> dict[tuple[int, int], dict[str, Any]]:
     return {
-        (int(row["stage"]), int(row["job"])): dict(row)
-        for row in dispatch_window_rows
+        (int(row["stage"]), int(row["job"])): dict(row) for row in dispatch_window_rows
     }
 
 
-def _build_weighted_bucket_map(rows: list[dict[str, Any]]) -> dict[tuple[int, int], float]:
+def _build_weighted_bucket_map(
+    rows: list[dict[str, Any]],
+) -> dict[tuple[int, int], float]:
     weighted_map: dict[tuple[int, int], float] = {}
     for row in rows:
         key = (int(row["stage"]), int(row["job"]))

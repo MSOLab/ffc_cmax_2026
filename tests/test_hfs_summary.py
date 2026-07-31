@@ -165,10 +165,7 @@ def test_create_summary_row_includes_mip_lb_columns(tmp_path: Path) -> None:
     assert summary_row["mipLbSolverRuntimeSec"] == 7.5
     assert summary_row["mipLbApplyElapsedSec"] == 8.1
     assert summary_row["mipLbDispatchCmax"] == 980
-    assert (
-        summary_row["mipLbSelectedDispatchVariant"]
-        == "best_of_mixed_dispatches"
-    )
+    assert summary_row["mipLbSelectedDispatchVariant"] == "best_of_mixed_dispatches"
     assert summary_row["retainedCpBound"] == 860
     assert summary_row["retainedCpCallCount"] == 2
     assert summary_row["retainedCpBounds"] == "840;860"

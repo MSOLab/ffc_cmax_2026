@@ -174,7 +174,12 @@ def extract_complete_encoding(
         machines: list[MachineEncoding] = []
         for mc_id in schedule.machines_per_stage[stage_id]:
             machines.append(
-                tuple(job_id for _start, _end, job_id in schedule.get_job_sequence(stage_id, mc_id))
+                tuple(
+                    job_id
+                    for _start, _end, job_id in schedule.get_job_sequence(
+                        stage_id, mc_id
+                    )
+                )
             )
         stages.append(tuple(machines))
     return tuple(stages)
@@ -233,11 +238,7 @@ def validate_complete_encoding(
                 f"Encoding machine count mismatch at stage {stage_id}: "
                 f"{len(encoding[stage_idx])} != {expected_machine_count}"
             )
-        seen = [
-            job_id
-            for machine_seq in encoding[stage_idx]
-            for job_id in machine_seq
-        ]
+        seen = [job_id for machine_seq in encoding[stage_idx] for job_id in machine_seq]
         if set(seen) != expected_jobs or len(seen) != len(expected_jobs):
             raise ValueError(f"Encoding is not a job permutation at stage {stage_id}.")
 

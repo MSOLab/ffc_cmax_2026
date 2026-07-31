@@ -31,7 +31,9 @@ class PaperRunConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_benchmark_selection(self) -> PaperRunConfig:
         has_list = bool(self.benchmark_idx_list)
-        has_range = self.benchmark_idx_start is not None or self.benchmark_idx_end is not None
+        has_range = (
+            self.benchmark_idx_start is not None or self.benchmark_idx_end is not None
+        )
         if not has_list and not has_range:
             raise ValueError(
                 "Provide benchmark_idx_list or benchmark_idx_start/benchmark_idx_end."
@@ -60,8 +62,7 @@ class PaperRunConfig(BaseModel):
 
     def benchmark_filenames(self) -> list[str]:
         return [
-            self.benchmark_filename_format.format(idx)
-            for idx in self.benchmark_indices
+            self.benchmark_filename_format.format(idx) for idx in self.benchmark_indices
         ]
 
 

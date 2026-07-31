@@ -112,7 +112,10 @@ class HfsSubroutineReportStatistics(SubroutineReportStatistics[HfsSubroutineRepo
             # Remove "firstBound" from the return dictionary
             return_dict.pop("firstBound", None)
             return_dict["initBound"] = init_obj_bound
-        if best_obj_bound_report is not None and best_obj_bound_report.obj_bound is not None:
+        if (
+            best_obj_bound_report is not None
+            and best_obj_bound_report.obj_bound is not None
+        ):
             # Override bestBound with the best obj_bound report, not the best obj_value report
             return_dict["bestBound"] = best_obj_bound_report.obj_bound
         if type(best_obj_bound_report) is HfsCpsatSolverReport:

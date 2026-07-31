@@ -40,7 +40,9 @@ def elitist_tournament_selection(
             list(population),
             k=min(tournament_size, len(population)),
         )
-        winner = min(contenders, key=lambda individual: individual.obj_value or float("inf"))
+        winner = min(
+            contenders, key=lambda individual: individual.obj_value or float("inf")
+        )
         next_population.append(clone_individual(winner))
 
     for idx in range(elite_count, len(next_population)):

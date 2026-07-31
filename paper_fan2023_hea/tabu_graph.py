@@ -151,7 +151,9 @@ def build_critical_context(
 ) -> CriticalContext:
     decoded = decode_encoding(instance, encoding)
     schedule = decoded.schedule
-    stage_to_idx = {stage_id: idx for idx, stage_id in enumerate(instance.stage_id_list)}
+    stage_to_idx = {
+        stage_id: idx for idx, stage_id in enumerate(instance.stage_id_list)
+    }
     starts: dict[tuple[int, JobId], int] = {}
     ends: dict[tuple[int, JobId], int] = {}
     loc: dict[tuple[int, JobId], OperationRef] = {}
@@ -176,7 +178,9 @@ def build_critical_context(
     )
     critical_blocks: list[list[OperationRef]] = []
     for block in raw_blocks:
-        refs = [loc[(stage_to_idx[stage_id], job_id)] for job_id, stage_id, _mc in block]
+        refs = [
+            loc[(stage_to_idx[stage_id], job_id)] for job_id, stage_id, _mc in block
+        ]
         refs.sort(key=lambda ref: ref.pos)
         critical_blocks.append(refs)
 
@@ -237,7 +241,9 @@ def apply_move(encoding: CompleteEncoding, move: Move) -> CompleteEncoding:
         target_seq.insert(dst_pos, job_id)
     else:
         raise ValueError(f"Unsupported move kind: {move.kind}")
-    return tuple(tuple(tuple(machine_seq) for machine_seq in stage) for stage in mutable)
+    return tuple(
+        tuple(tuple(machine_seq) for machine_seq in stage) for stage in mutable
+    )
 
 
 def is_complete_encoding(
@@ -262,7 +268,11 @@ def is_acyclic_encoding(
     explicit check keeps the TS legality contract testable.
     """
 
-    nodes = [(stage_idx, job_id) for stage_idx in range(len(instance.stage_id_list)) for job_id in instance.job_id_list]
+    nodes = [
+        (stage_idx, job_id)
+        for stage_idx in range(len(instance.stage_id_list))
+        for job_id in instance.job_id_list
+    ]
     adjacency: dict[tuple[int, JobId], list[tuple[int, JobId]]] = {
         node: [] for node in nodes
     }
@@ -457,9 +467,9 @@ def _k_insertion_positions(
         for pos in right_positions:
             insertion_positions.add(pos)
 
-    return sorted(pos for pos in insertion_positions if 0 <= pos <= len(target_seq)) or [
-        len(target_seq)
-    ]
+    return sorted(
+        pos for pos in insertion_positions if 0 <= pos <= len(target_seq)
+    ) or [len(target_seq)]
 
 
 def _theorem_1_allows_first_after_last(
@@ -521,13 +531,17 @@ def _duration(instance: HfsLikeInstance, op: OperationRef | None) -> int:
     return int(instance.stage_2_job_2_p_map[stage_id][op.job_id])
 
 
-def _head(instance: HfsLikeInstance, ctx: CriticalContext, op: OperationRef | None) -> int:
+def _head(
+    instance: HfsLikeInstance, ctx: CriticalContext, op: OperationRef | None
+) -> int:
     if op is None:
         return 0
     return ctx.starts[(op.stage_idx, op.job_id)]
 
 
-def _tail(instance: HfsLikeInstance, ctx: CriticalContext, op: OperationRef | None) -> int:
+def _tail(
+    instance: HfsLikeInstance, ctx: CriticalContext, op: OperationRef | None
+) -> int:
     if op is None:
         return 0
     return ctx.makespan - ctx.ends[(op.stage_idx, op.job_id)]

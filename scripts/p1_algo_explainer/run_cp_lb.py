@@ -113,7 +113,9 @@ OUT_DIR = REPO_ROOT / "analysis_outputs" / "20260612_p1_algo_explainer" / "cp_lb
 
 SEED = 42
 THREADS = 8
-TL_NC_MULTIPLIER = 0.5  # 0.5 * n(10) * c(4) = 20 s budget -> tiny instance solves to OPTIMAL
+TL_NC_MULTIPLIER = (
+    0.5  # 0.5 * n(10) * c(4) = 20 s budget -> tiny instance solves to OPTIMAL
+)
 # A generous controller-level time budget so the explainer never trips the
 # pre-call time guards (plan §2.4) and the LB is certified.
 STOPPING_TIME_LIMIT = 10**9
@@ -494,9 +496,7 @@ def main() -> None:
     force_end = max(int(input_ub), int(restored_makespan))
 
     # --- step_01: retained-subset highlight, quantile mode ---
-    quant_highlight = {
-        (job, stage) for stage in quant_R for job in all_jobs
-    }
+    quant_highlight = {(job, stage) for stage in quant_R for job in all_jobs}
     recorder.record_schedule(
         "retained_subset_quantile",
         incumbent_before,
@@ -519,9 +519,7 @@ def main() -> None:
         if rules_coincide
         else f" Here R^adap differs from R^quant ({quant_R})."
     )
-    adap_highlight = {
-        (job, stage) for stage in adap_R for job in all_jobs
-    }
+    adap_highlight = {(job, stage) for stage in adap_R for job in all_jobs}
     recorder.record_schedule(
         "retained_subset_adaptive",
         incumbent_before,
@@ -579,8 +577,7 @@ def main() -> None:
         if snap.label == "relaxation_lower_bound":
             stage_list = all_stages
             machine_list_per_stage = {
-                stage: relax_machines.get(stage)
-                or instance.stage_2_machines_map[stage]
+                stage: relax_machines.get(stage) or instance.stage_2_machines_map[stage]
                 for stage in all_stages
             }
         else:
@@ -630,8 +627,7 @@ def main() -> None:
         f"Demo instance: {instance.job_count} jobs x {instance.stage_count} "
         f"stages (`{cli.instance}`).",
         "",
-        f"- Analytic SHD input LB = {int(input_lb)}; incumbent UB = "
-        f"{int(input_ub)}.",
+        f"- Analytic SHD input LB = {int(input_lb)}; incumbent UB = {int(input_ub)}.",
         f"- Quantile mode `{QUANTILE_MODE}`: R^quant = {quant_R}, "
         f"LB = {quant_result.objective_lb:g} ({quant_result.status_name}).",
         f"- Adaptive mode `{ADAPTIVE_MODE}`: R^adap = {adap_R}, "

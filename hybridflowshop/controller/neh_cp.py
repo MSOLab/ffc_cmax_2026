@@ -374,9 +374,7 @@ class NehCpConstructor:
             stage_precedence_min_processing_time_diff is not None
             and stage_precedence_min_processing_time_diff < 0
         ):
-            raise ValueError(
-                "stage_precedence_min_processing_time_diff must be >= 0."
-            )
+            raise ValueError("stage_precedence_min_processing_time_diff must be >= 0.")
         if (
             stage_precedence_min_processing_time_diff_ratio is not None
             and stage_precedence_min_processing_time_diff_ratio < 0
@@ -455,13 +453,11 @@ class NehCpConstructor:
             min_added_batch_count=min_added_batch_count,
             max_added_batch_count=max_added_batch_count,
         )
-        effective_profile_fix_min_batch_idx = (
-            self._resolve_profile_fix_min_batch_idx(
-                profile_fix_min_batch_idx=profile_fix_min_batch_idx,
-                profile_fix_min_batch_portion=profile_fix_min_batch_portion,
-                profile_fix_max_batch_idx=profile_fix_max_batch_idx,
-                total_batch_count=len(sequence_of_job_sublist),
-            )
+        effective_profile_fix_min_batch_idx = self._resolve_profile_fix_min_batch_idx(
+            profile_fix_min_batch_idx=profile_fix_min_batch_idx,
+            profile_fix_min_batch_portion=profile_fix_min_batch_portion,
+            profile_fix_max_batch_idx=profile_fix_max_batch_idx,
+            total_batch_count=len(sequence_of_job_sublist),
         )
         if effective_profile_fix_min_batch_idx != profile_fix_min_batch_idx:
             logging.info(
@@ -702,7 +698,10 @@ class NehCpConstructor:
             return True
 
         remaining_before_final = self.ctx.get_remaining_sec_before_final_reserve()
-        if successor_reserve_sec > 0 and remaining_before_final <= successor_reserve_sec:
+        if (
+            successor_reserve_sec > 0
+            and remaining_before_final <= successor_reserve_sec
+        ):
             logging.info(
                 "NEH-CP time guard: stopping before batch %d/%d because %.2f sec "
                 "remaining before final reserve is <= %.2f sec successor reserve.",
@@ -718,7 +717,9 @@ class NehCpConstructor:
 
         recent_elapsed = completed_batch_elapsed_sec_list[-3:]
         estimated_next_batch_sec = (
-            sum(recent_elapsed) / len(recent_elapsed) * time_guard_estimate_safety_factor
+            sum(recent_elapsed)
+            / len(recent_elapsed)
+            * time_guard_estimate_safety_factor
         )
         available_for_neh = max(0.0, remaining_before_final - successor_reserve_sec)
         if available_for_neh <= estimated_next_batch_sec:
@@ -836,8 +837,7 @@ class NehCpConstructor:
         resolved_idx = int(profile_fix_min_batch_idx)
         if profile_fix_min_batch_portion is not None:
             no_fix_batch_count = math.ceil(
-                max(0, int(total_batch_count))
-                * float(profile_fix_min_batch_portion)
+                max(0, int(total_batch_count)) * float(profile_fix_min_batch_portion)
             )
             resolved_idx = max(resolved_idx, no_fix_batch_count + 1)
         if profile_fix_max_batch_idx is not None:

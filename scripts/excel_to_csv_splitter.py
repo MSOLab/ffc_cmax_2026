@@ -5,7 +5,10 @@ from pathlib import Path
 import pandas as pd
 
 # Setup basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 def split_excel_to_csv(excel_file_path: Path):
     """
@@ -49,13 +52,14 @@ def split_excel_to_csv(excel_file_path: Path):
             output_csv_path = output_dir / output_csv_name
 
             # Save the DataFrame to a CSV file
-            df.to_csv(output_csv_path, index=False, encoding='utf-8-sig')
+            df.to_csv(output_csv_path, index=False, encoding="utf-8-sig")
             logging.info(f"Successfully created '{output_csv_path}'")
 
         except Exception as e:
             logging.error(f"Error processing sheet '{sheet_name}': {e}", exc_info=True)
 
     logging.info("Processing complete.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

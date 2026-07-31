@@ -96,8 +96,7 @@ def _resolve_bottleneck_band_stage_ids(
         raise ValueError(f"Unknown bottleneck_stage_id={anchor_stage_id!r}.")
     if radius < 0:
         raise ValueError(
-            "bottleneck_band_radius must be non-negative. "
-            f"Received {radius}."
+            f"bottleneck_band_radius must be non-negative. Received {radius}."
         )
 
     anchor_index = params.i_list.index(anchor_stage_id)
@@ -111,10 +110,7 @@ def _resolve_middle_band_stage_ids(
     radius: int,
 ) -> list[str]:
     if radius < 0:
-        raise ValueError(
-            "middle_band_radius must be non-negative. "
-            f"Received {radius}."
-        )
+        raise ValueError(f"middle_band_radius must be non-negative. Received {radius}.")
     if not params.i_list:
         raise ValueError("params.i_list cannot be empty")
 

@@ -130,7 +130,10 @@ def schedule_with_np(
 def eval_ladder(md: MixedDispatcher, job_sequence) -> dict[int, int]:
     """Return {n_p -> makespan} across the full ladder n..0 for one sequence."""
     n = len(md.job_id_list)
-    return {n_p: schedule_with_np(md, job_sequence, n_p).makespan for n_p in range(n, -1, -1)}
+    return {
+        n_p: schedule_with_np(md, job_sequence, n_p).makespan
+        for n_p in range(n, -1, -1)
+    }
 
 
 def _sequences(md: MixedDispatcher) -> dict[str, list[str]]:
@@ -213,7 +216,9 @@ def build_and_report(
         for sname, seq in seqs.items():
             ladder = eval_ladder(md, seq)
             best_np = min(ladder, key=lambda k: ladder[k])
-            row = "  ".join(f"n_p={k}:{ladder[k]}" for k in sorted(ladder, reverse=True))
+            row = "  ".join(
+                f"n_p={k}:{ladder[k]}" for k in sorted(ladder, reverse=True)
+            )
             print(f"  {sname:6s} {row}   BEST n_p={best_np}->{ladder[best_np]}")
         return
 

@@ -93,7 +93,9 @@ def test_stage_time_window_sweep_ns_repeats_small_stage_time_solves(monkeypatch)
     captured_selected_ops = []
     contexts = []
 
-    monkeypatch.setattr(ctrl, "temporarily_extended_context", lambda name: nullcontext())
+    monkeypatch.setattr(
+        ctrl, "temporarily_extended_context", lambda name: nullcontext()
+    )
     monkeypatch.setattr(
         ctrl,
         "_resolve_stage_time_window_center_stage_ids",

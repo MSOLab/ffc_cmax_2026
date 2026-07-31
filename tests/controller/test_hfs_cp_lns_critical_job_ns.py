@@ -652,9 +652,7 @@ def test_apply_head_tail_free_middle_precedence_operator_keeps_middle_only(
     captured = {}
 
     def fake_fix(schedule_profile_fixed_only, **kwargs):
-        captured["start_map"] = (
-            schedule_profile_fixed_only.get_jik_2_start_time_map()
-        )
+        captured["start_map"] = schedule_profile_fixed_only.get_jik_2_start_time_map()
         captured["kwargs"] = kwargs
 
     monkeypatch.setattr(ctrl, "_fix_operations_profile", fake_fix)
@@ -689,9 +687,7 @@ def test_apply_head_tail_free_middle_precedence_operator_accepts_middle_ratio(
     captured = {}
 
     def fake_fix(schedule_profile_fixed_only, **_kwargs):
-        captured["start_map"] = (
-            schedule_profile_fixed_only.get_jik_2_start_time_map()
-        )
+        captured["start_map"] = schedule_profile_fixed_only.get_jik_2_start_time_map()
 
     monkeypatch.setattr(ctrl, "_fix_operations_profile", fake_fix)
 

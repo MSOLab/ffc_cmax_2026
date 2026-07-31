@@ -438,21 +438,28 @@ def test_run_records_only_accepted_incumbent_improvements(monkeypatch, tmp_path)
         "s1": [(("j1", "m1"),), (("j2", "m2"),), (("j3", "m1"),), (("j4", "m2"),)],
         "s2": [(("j1", "m3"),), (("j2", "m4"),), (("j3", "m3"),), (("j4", "m4"),)],
     }
-    monkeypatch.setattr(ctor, "build_stage_2_batch_list", lambda *args, **kwargs: dummy_batches)
+    monkeypatch.setattr(
+        ctor, "build_stage_2_batch_list", lambda *args, **kwargs: dummy_batches
+    )
     monkeypatch.setattr(
         ctor,
         "_build_batch_spec",
-        lambda *, incumbent, stage_2_partition, stage_2_job_2_p_dict, batch_idx: SimpleNamespace(
-            non_time_fixed_op_count=1,
-            batch_idx=batch_idx,
-            is_right_time_fixed_empty=False,
+        lambda *, incumbent, stage_2_partition, stage_2_job_2_p_dict, batch_idx: (
+            SimpleNamespace(
+                non_time_fixed_op_count=1,
+                batch_idx=batch_idx,
+                is_right_time_fixed_empty=False,
+            )
         ),
     )
     monkeypatch.setattr(ctor, "_solve_batch_sw_cp_model", lambda **kwargs: object())
     accepted_outcomes = iter(
         [
-            (SimpleNamespace(makespan=9), False),  # First iteration: incumbent semi-active → makespan=9, no improvement
-            (SimpleNamespace(makespan=8), True),   # Second iteration: improvement to 8
+            (
+                SimpleNamespace(makespan=9),
+                False,
+            ),  # First iteration: incumbent semi-active → makespan=9, no improvement
+            (SimpleNamespace(makespan=8), True),  # Second iteration: improvement to 8
             (SimpleNamespace(makespan=8), False),  # Third iteration: no improvement
             (SimpleNamespace(makespan=8), False),  # Fourth iteration: no improvement
         ]

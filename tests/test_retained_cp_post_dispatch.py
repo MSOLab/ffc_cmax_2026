@@ -192,7 +192,9 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
     assert result.dispatched_schedule is not None
     assert result.dispatched_schedule.makespan == 87
     assert "cp_band_preferred_strict_start_release" in result.dispatched_schedules
-    assert "cp_band_preferred_strict_start_no_release" not in result.dispatched_schedules
+    assert (
+        "cp_band_preferred_strict_start_no_release" not in result.dispatched_schedules
+    )
     assert "cp_band_preferred_priority_release" in result.dispatched_schedules
     assert "cp_band_first_strict_start_release" in result.dispatched_schedules
     assert "mixed_cp_aggregate_start_slack" in result.dispatched_schedules
@@ -208,13 +210,17 @@ def test_run_post_retained_cp_dispatch_generates_multiple_candidate_families() -
         "best_of_mixed_dispatches_cp_aggregate_start_slack_rank"
         in result.dispatched_schedules
     )
-    assert "best_of_mixed_dispatches_cp_slack_urgency_rank" in result.dispatched_schedules
+    assert (
+        "best_of_mixed_dispatches_cp_slack_urgency_rank" in result.dispatched_schedules
+    )
     assert "piecewise_cp_nearest_priority" in result.dispatched_schedules
     assert "piecewise_cp_blend_priority" in result.dispatched_schedules
     assert feasibility_calls == [{"makespan": 87}]
 
 
-def test_run_post_retained_cp_dispatch_prunes_unproductive_candidates_by_default() -> None:
+def test_run_post_retained_cp_dispatch_prunes_unproductive_candidates_by_default() -> (
+    None
+):
     instance = SimpleNamespace(
         stage_id_list=["s1", "s2", "s3", "s4", "s5"],
         job_id_list=["j1", "j2", "j3"],
@@ -255,17 +261,19 @@ def test_run_post_retained_cp_dispatch_prunes_unproductive_candidates_by_default
                 "machine_then_job": True,
                 "head_for_all_stages": True,
             },
-            get_best_mixed_schedule_from_job_sequence=lambda *_args, **_kwargs: _FakeSchedule(
-                94
+            get_best_mixed_schedule_from_job_sequence=lambda *_args, **_kwargs: (
+                _FakeSchedule(94)
             ),
             get_schedule_by_best_of_mixed_dispatches=lambda **_kwargs: _FakeSchedule(
                 91
             ),
             get_two_way_schedule_by_stage_band=lambda **_kwargs: _FakeSchedule(97),
-            get_schedule_by_stage_job_sequences_priority=lambda **_kwargs: _FakeSchedule(
-                90
+            get_schedule_by_stage_job_sequences_priority=lambda **_kwargs: (
+                _FakeSchedule(90)
             ),
-            repair_post_retained_cp_dispatch_candidate=lambda schedule, **_kwargs: schedule,
+            repair_post_retained_cp_dispatch_candidate=lambda schedule, **_kwargs: (
+                schedule
+            ),
         ),
     )
 
@@ -376,9 +384,7 @@ def test_write_post_retained_cp_dispatch_artifacts_writes_expected_files(
         dispatched_schedule=schedule,
         selected_dispatch_variant="cp_band_preferred_strict_start_release",
         dispatched_schedules={"cp_band_preferred_strict_start_release": schedule},
-        dispatch_candidate_elapsed_sec={
-            "cp_band_preferred_strict_start_release": 0.1
-        },
+        dispatch_candidate_elapsed_sec={"cp_band_preferred_strict_start_release": 0.1},
         dispatch_phase_elapsed_sec={"total_post_retained_cp_dispatch_sec": 0.2},
         anchor_blocks={"preferred": ["1"]},
         anchor_stage_sequences={"preferred": {"1": ["1", "2"]}},
@@ -406,9 +412,7 @@ def test_write_post_retained_cp_dispatch_artifacts_writes_expected_files(
     assert (
         tmp_path / "dispatch" / "anchor_preferred_stage_job_sequence.yaml"
     ).is_file()
-    assert (
-        tmp_path / "dispatch" / "anchor_preferred_stage_job_release.yaml"
-    ).is_file()
+    assert (tmp_path / "dispatch" / "anchor_preferred_stage_job_release.yaml").is_file()
     assert (
         tmp_path / "dispatch" / "cp_band_preferred_strict_start_release_solution.yaml"
     ).is_file()

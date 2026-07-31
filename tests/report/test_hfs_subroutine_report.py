@@ -114,8 +114,12 @@ def test_to_string_dict_formatting() -> None:
     assert "call_context" in d
     assert d["call_context"] == "5-solve_base_cp_model"
     # Ensure records are wrapped in double quotes for CSV
-    assert d["obj_value_records"].startswith('"') and d["obj_value_records"].endswith('"')
-    assert d["obj_bound_records"].startswith('"') and d["obj_bound_records"].endswith('"')
+    assert d["obj_value_records"].startswith('"') and d["obj_value_records"].endswith(
+        '"'
+    )
+    assert d["obj_bound_records"].startswith('"') and d["obj_bound_records"].endswith(
+        '"'
+    )
     # Check that status enum is converted to string
     assert isinstance(d["status"], str)
     assert d["status"] == CpsatStatus.FEASIBLE.to_solver_status_enum().value

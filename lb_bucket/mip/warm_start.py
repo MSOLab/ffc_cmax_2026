@@ -51,11 +51,17 @@ def load_ub_schedule(
     solution_path: Path,
 ) -> ParsedUbSchedule:
     solution_dict = _load_solution_dict(solution_path)
-    start_time_map = _extract_time_map(solution_dict, "start_time_map", "start_times", solution_path)
-    end_time_map = _extract_time_map(solution_dict, "end_time_map", "end_times", solution_path)
+    start_time_map = _extract_time_map(
+        solution_dict, "start_time_map", "start_times", solution_path
+    )
+    end_time_map = _extract_time_map(
+        solution_dict, "end_time_map", "end_times", solution_path
+    )
 
     try:
-        return from_start_end_time_maps_create_ub_schedule(instance, start_time_map, end_time_map)
+        return from_start_end_time_maps_create_ub_schedule(
+            instance, start_time_map, end_time_map
+        )
     except (KeyError, ValueError) as e:
         raise ValueError(f"Error processing solution file {solution_path}: {e}") from e
 
@@ -146,7 +152,10 @@ def build_bucket_warm_start(
     z_values = {bucket_idx: 0.0 for bucket_idx in range(t_lower + 1, t_upper + 1)}
 
     last_occupied_bucket = 0
-    for (stage_idx, job_idx), (start_time, end_time) in ub_schedule.operation_intervals.items():
+    for (stage_idx, job_idx), (
+        start_time,
+        end_time,
+    ) in ub_schedule.operation_intervals.items():
         start_bucket = start_time // delta + 1
         end_bucket = (end_time - 1) // delta + 1
         if end_bucket > t_upper:
@@ -227,7 +236,7 @@ def _parse_zero_based_suffix(label: Any, prefix: str) -> int:
     if not label_text.startswith(prefix):
         raise ValueError(
             f"Expected label starting with '{prefix}', but received {label_text!r}."
-    )
+        )
     return int(label_text[len(prefix) :])
 
 

@@ -203,7 +203,7 @@ def test_post_run_process_creates_top_level_method_comparison_html(
     assert "repeat" in content
     assert "step_x" in content
     assert "guide_marker_x" in content
-    assert 'legendgroup: trace.scenario' in content
+    assert "legendgroup: trace.scenario" in content
     assert 'groupclick: "togglegroup"' in content
     assert "buildVisibleGuideShapes" in content
     assert 'gd.on("plotly_restyle", syncGuideShapes);' in content
@@ -342,7 +342,7 @@ def test_post_run_process_uses_json_endpoint_metrics_for_top_level_comparison(
     assert "finalize" in content
     assert "step_x" in content
     assert "guide_marker_x" in content
-    assert 'legendgroup: trace.scenario' in content
+    assert "legendgroup: trace.scenario" in content
     assert 'groupclick: "togglegroup"' in content
     assert "buildVisibleGuideShapes" in content
 

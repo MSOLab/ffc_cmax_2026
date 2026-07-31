@@ -328,8 +328,7 @@ def build_two_bucket_model(
             (
                 _var_or_zero(a, (i + 1, j, t))
                 == gp.quicksum(
-                    _var4_or_zero(e, (i, j, t_prime, t))
-                    for t_prime in range(1, t + 1)
+                    _var4_or_zero(e, (i, j, t_prime, t)) for t_prime in range(1, t + 1)
                 )
                 for i in range(1, instance.stage_count)
                 for j in job_index

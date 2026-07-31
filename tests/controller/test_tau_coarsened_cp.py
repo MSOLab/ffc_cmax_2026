@@ -144,6 +144,7 @@ def test_tau_surrogate_dispatch_schedules_keep_top_unique_candidates(
     assert [schedule.makespan for _label, schedule in entries] == sorted(
         [fast.makespan, slow.makespan]
     )
-    assert len(
-        {_schedule_sequence_signature(schedule) for _label, schedule in entries}
-    ) == 2
+    assert (
+        len({_schedule_sequence_signature(schedule) for _label, schedule in entries})
+        == 2
+    )

@@ -200,23 +200,28 @@ def compute_metrics_for_run(
         metadata_cols = [col for col in metadata_cols if col in merged.columns]
     else:
         metadata_cols = [
-            col for col in merged.columns
+            col
+            for col in merged.columns
             if col not in standard_cols_set and col != RESULT_INSTANCE_ID_COLUMN
         ]
         # Sort metadata columns for consistency
         metadata_cols.sort()
 
     # Build final column order: name first, then metadata, then standard columns
-    final_cols = [RESULT_INSTANCE_ID_COLUMN] + metadata_cols + [
-        RESULT_RUN_ID_COLUMN,
-        RESULT_SCENARIO_COLUMN,
-        RESULT_ALGO_UID_COLUMN,
-        RESULT_EXP_OBJ_VALUE_COLUMN,
-        RESULT_REF_OBJ_VALUE_COLUMN,
-        RESULT_RPDF_COLUMN,
-        RESULT_RPDV_COLUMN,
-        RESULT_RANK_COLUMN,
-    ]
+    final_cols = (
+        [RESULT_INSTANCE_ID_COLUMN]
+        + metadata_cols
+        + [
+            RESULT_RUN_ID_COLUMN,
+            RESULT_SCENARIO_COLUMN,
+            RESULT_ALGO_UID_COLUMN,
+            RESULT_EXP_OBJ_VALUE_COLUMN,
+            RESULT_REF_OBJ_VALUE_COLUMN,
+            RESULT_RPDF_COLUMN,
+            RESULT_RPDV_COLUMN,
+            RESULT_RANK_COLUMN,
+        ]
+    )
 
     # Filter to columns that actually exist in the dataframe
     final_cols = [col for col in final_cols if col in merged.columns]

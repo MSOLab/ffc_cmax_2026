@@ -153,8 +153,14 @@ def load_run(run_name: str, run_dir: Path) -> dict[int, RunRecord]:
     return records
 
 
-def choose_best(records: dict[str, RunRecord], names: tuple[str, ...]) -> tuple[str, RunRecord] | None:
-    candidates = [(name, records[name]) for name in names if name in records and records[name].final_obj is not None]
+def choose_best(
+    records: dict[str, RunRecord], names: tuple[str, ...]
+) -> tuple[str, RunRecord] | None:
+    candidates = [
+        (name, records[name])
+        for name in names
+        if name in records and records[name].final_obj is not None
+    ]
     if not candidates:
         return None
     return min(candidates, key=lambda item: (item[1].final_obj, item[0]))
@@ -164,7 +170,11 @@ def first_better_phase(source: RunRecord, target: RunRecord) -> str:
     for phase in PHASE_ORDER:
         source_obj = source.phases.get(phase)
         target_obj = target.phases.get(phase)
-        if source_obj is not None and target_obj is not None and source_obj < target_obj:
+        if (
+            source_obj is not None
+            and target_obj is not None
+            and source_obj < target_obj
+        ):
             return phase
     return "final_only_or_missing"
 
@@ -257,7 +267,12 @@ def summarize(
 
         old = choose_best(records, OLD_RUNS)
         best0504 = records.get("0504")
-        if old is not None and best0504 is not None and old[1].final_obj is not None and best0504.final_obj is not None:
+        if (
+            old is not None
+            and best0504 is not None
+            and old[1].final_obj is not None
+            and best0504.final_obj is not None
+        ):
             delta = old[1].final_obj - best0504.final_obj
             if delta > 0:
                 pre_final_obj = (
@@ -288,7 +303,9 @@ def summarize(
     print(f"instances={len(pair_values)}")
     print(f"pair(0501/0504) mean RPDf={mean(pair_values):.6f}%")
     print(f"four-run oracle mean RPDf={mean(four_values):.6f}%")
-    print(f"extra winners over pair={len(extra_rows)} total_obj_gain={sum(float(r['gain']) for r in extra_rows):.0f}")
+    print(
+        f"extra winners over pair={len(extra_rows)} total_obj_gain={sum(float(r['gain']) for r in extra_rows):.0f}"
+    )
     print()
 
     print("== Extra Winner Sources ==")
@@ -307,7 +324,9 @@ def summarize(
     print()
 
     print("== 0504 Final CP Gain By Type ==")
-    for (n, c), gains in sorted(final_gain_by_type.items(), key=lambda item: (item[0][1], item[0][0])):
+    for (n, c), gains in sorted(
+        final_gain_by_type.items(), key=lambda item: (item[0][1], item[0][0])
+    ):
         positive_count = sum(1 for gain in gains if gain > 0)
         print(
             f"{n}x{c}: count={len(gains)} gain_sum={sum(gains):.0f} "
@@ -364,7 +383,9 @@ def summarize(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Analyze phase-level outcomes across full 2nc runs.")
+    parser = argparse.ArgumentParser(
+        description="Analyze phase-level outcomes across full 2nc runs."
+    )
     parser.add_argument("--ref", type=Path, default=DEFAULT_REF)
     parser.add_argument("--top", type=int, default=40)
     parser.add_argument(

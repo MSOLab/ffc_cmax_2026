@@ -44,7 +44,9 @@ def parse_controller_log(log_path: Path) -> list[dict]:
 
 
 def _find_progression_json_path(instance_dir: Path) -> Path | None:
-    results_json_path = instance_dir / DEFAULT_RESULTS_DIR / "subroutine_progression.json"
+    results_json_path = (
+        instance_dir / DEFAULT_RESULTS_DIR / "subroutine_progression.json"
+    )
     if results_json_path.exists():
         return results_json_path
 

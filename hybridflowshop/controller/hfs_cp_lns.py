@@ -2634,7 +2634,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 [
                     max(
                         1,
-                        int(math.ceil(float(self.job_2_stage_2_p_dict[job_id][stage_id]) / tau_int)),
+                        int(
+                            math.ceil(
+                                float(self.job_2_stage_2_p_dict[job_id][stage_id])
+                                / tau_int
+                            )
+                        ),
                     )
                     for stage_id in stage_ids
                 ]
@@ -2688,16 +2693,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     (True, False) if include_machine_then_job_variants else (False,)
                 )
                 for machine_then_job in machine_then_job_values:
-                    candidate_schedules = self._get_selected_dispatch_candidate_schedules(
-                        left_cap_portion=float(cap),
-                        right_cap_portion=float(cap),
-                        mixed_schedule_for_former_stages=True,
-                        mixed_schedule_for_later_stages=True,
-                        machine_then_job=machine_then_job,
-                        head_for_all_stages=False,
-                        normalize_by_stage_cnt=False,
-                        method_list=list(method_list),
-                        draw_gantt=False,
+                    candidate_schedules = (
+                        self._get_selected_dispatch_candidate_schedules(
+                            left_cap_portion=float(cap),
+                            right_cap_portion=float(cap),
+                            mixed_schedule_for_former_stages=True,
+                            mixed_schedule_for_later_stages=True,
+                            machine_then_job=machine_then_job,
+                            head_for_all_stages=False,
+                            normalize_by_stage_cnt=False,
+                            method_list=list(method_list),
+                            draw_gantt=False,
+                        )
                     )
                     for method_name, schedule in candidate_schedules.items():
                         if schedule is None:
@@ -2802,7 +2809,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
     ) -> HybridFlowshopLiteSchedule:
         mode = restore_mode.replace("-", "_").lower()
         schedule = self.create_empty_schedule_from_ins(self.instance)
-        job_index = {job_id: idx for idx, job_id in enumerate(self.instance.job_id_list)}
+        job_index = {
+            job_id: idx for idx, job_id in enumerate(self.instance.job_id_list)
+        }
 
         if mode in {"machine", "machine_sequence", "machine_profile"}:
             for stage_id in self.instance.stage_id_list:
@@ -2822,7 +2831,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             for stage_id in self.instance.stage_id_list:
                 stage_ops = [
                     (job_id, start_time, end_time_map[job_id, op_stage_id, machine_id])
-                    for (job_id, op_stage_id, machine_id), start_time in start_time_map.items()
+                    for (
+                        job_id,
+                        op_stage_id,
+                        machine_id,
+                    ), start_time in start_time_map.items()
                     if op_stage_id == stage_id
                 ]
                 for job_id, _start, _end in sorted(
@@ -3050,9 +3063,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             size for size in surrogate_neh_batch_sizes if size > 0
         ]
         if surrogate_neh_enabled and not surrogate_neh_batch_sizes:
-            raise ValueError(
-                "surrogate NEH requires at least one positive batch size."
-            )
+            raise ValueError("surrogate NEH requires at least one positive batch size.")
         if surrogate_sw_cp_enabled:
             if surrogate_sw_cp_batch_size is None:
                 if surrogate_sw_cp_batch_size_ratio is None:
@@ -3061,9 +3072,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                         "batch_size_ratio."
                     )
                 if surrogate_sw_cp_batch_size_ratio <= 0:
-                    raise ValueError(
-                        "surrogate_sw_cp_batch_size_ratio must be > 0."
-                    )
+                    raise ValueError("surrogate_sw_cp_batch_size_ratio must be > 0.")
             elif surrogate_sw_cp_batch_size <= 0:
                 raise ValueError("surrogate_sw_cp_batch_size must be positive.")
             if surrogate_sw_cp_unfixed_batch_count_min < 1:
@@ -3247,9 +3256,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     seen_signatures,
                     source=snapshot_source,
                     schedule=snapshot_schedule,
-                    surrogate_obj=sanitize_optional_float(
-                        snapshot.get("objective_ub")
-                    ),
+                    surrogate_obj=sanitize_optional_float(snapshot.get("objective_ub")),
                     surrogate_bound=sanitize_optional_float(
                         snapshot.get("objective_lb")
                     ),
@@ -3489,16 +3496,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 and surrogate_neh_position_norm == "before_cp"
                 and surrogate_dispatch_schedule is not None
                 and surrogate_dispatch_before_cp
-                and (
-                    surrogate_neh_tau_set is None
-                    or int(tau) in surrogate_neh_tau_set
-                )
+                and (surrogate_neh_tau_set is None or int(tau) in surrogate_neh_tau_set)
                 and "dispatch" in surrogate_neh_source_set
             )
             if should_run_pre_neh_dispatch_cp:
-                dispatch_cp_time = self.get_remaining_time_limit(
-                    raw_surrogate_time
-                )
+                dispatch_cp_time = self.get_remaining_time_limit(raw_surrogate_time)
                 if dispatch_cp_time is None or dispatch_cp_time <= 0:
                     logging.warning(
                         "[Tau coarsened CP] No remaining time for plain "
@@ -3548,10 +3550,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 and surrogate_neh_position_norm == "before_cp"
                 and surrogate_dispatch_schedule is not None
                 and surrogate_dispatch_before_cp
-                and (
-                    surrogate_neh_tau_set is None
-                    or int(tau) in surrogate_neh_tau_set
-                )
+                and (surrogate_neh_tau_set is None or int(tau) in surrogate_neh_tau_set)
                 and "dispatch" in surrogate_neh_source_set
             ):
                 neh_time_per_add = (
@@ -3626,8 +3625,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     )
                     if (
                         best_neh_schedule is None
-                        or neh_result.schedule.makespan
-                        < best_neh_schedule.makespan
+                        or neh_result.schedule.makespan < best_neh_schedule.makespan
                     ):
                         best_neh_schedule = neh_result.schedule
                         best_neh_source_label = neh_source_label
@@ -3693,9 +3691,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     cp_sat_params=cp_sat_params,
                     make_semi_active=make_semi_active,
                     reference_schedule=(
-                        cp_reference_schedule
-                        if surrogate_dispatch_before_cp
-                        else None
+                        cp_reference_schedule if surrogate_dispatch_before_cp else None
                     ),
                     add_reference_precedence=False,
                     stage_2_job_2_p_dict=scaled_instance.stage_2_job_2_p_map,
@@ -3723,10 +3719,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 surrogate_neh_enabled
                 and surrogate_neh_position_norm == "after_cp"
                 and tau_schedule_candidates
-                and (
-                    surrogate_neh_tau_set is None
-                    or int(tau) in surrogate_neh_tau_set
-                )
+                and (surrogate_neh_tau_set is None or int(tau) in surrogate_neh_tau_set)
             ):
                 for tau_candidate in list(tau_schedule_candidates):
                     if tau_candidate.source not in surrogate_neh_source_set:
@@ -3753,9 +3746,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                                 instance=scaled_instance,
                                 job_2_stage_2_p_dict=scaled_instance.job_2_stage_2_p_map,
                                 stage_2_job_2_p_dict=scaled_instance.stage_2_job_2_p_map,
-                                added_batch_size=int(
-                                    surrogate_neh_added_batch_size
-                                ),
+                                added_batch_size=int(surrogate_neh_added_batch_size),
                                 max_time_per_add=neh_time_per_add,
                                 profile_fix_by_machine=False,
                                 minimize_sum_ci_lex=bool(
@@ -3773,8 +3764,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                             )
                     except Exception:
                         logging.exception(
-                            "[Tau coarsened CP] Surrogate NEH failed tau=%s "
-                            "source=%s.",
+                            "[Tau coarsened CP] Surrogate NEH failed tau=%s source=%s.",
                             tau,
                             tau_candidate.source,
                         )
@@ -3827,10 +3817,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
 
                 for restore_mode in restore_modes:
-                    restored_schedule = self._restore_original_schedule_from_tau_schedule(
-                        tau_candidate.schedule,
-                        restore_mode=restore_mode,
-                        make_semi_active=make_semi_active,
+                    restored_schedule = (
+                        self._restore_original_schedule_from_tau_schedule(
+                            tau_candidate.schedule,
+                            restore_mode=restore_mode,
+                            make_semi_active=make_semi_active,
+                        )
                     )
                     maybe_record_candidate(
                         tau=tau,
@@ -3860,9 +3852,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                             continue
 
                         restore_mode_norm = restore_mode.replace("-", "_").lower()
-                        polish_mode_norm = polish_profile_mode.replace(
-                            "-", "_"
-                        ).lower()
+                        polish_mode_norm = polish_profile_mode.replace("-", "_").lower()
                         if polish_mode_norm == "restore":
                             add_precedence = True
                             profile_fix_by_machine = restore_mode_norm in {
@@ -9752,8 +9742,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 ]
             else:
                 tier_counts = [
-                    int(count)
-                    for count in workload_tier_extra_bottleneck_counts
+                    int(count) for count in workload_tier_extra_bottleneck_counts
                 ]
 
             if len(tier_counts) != len(thresholds) + 1:
@@ -13708,9 +13697,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             min_instance_stage_count_value: int | None = None,
             max_instance_stage_count_value: int | None = None,
         ) -> bool:
-            if (
-                min_workload_size_value is not None
-                and workload_size < int(min_workload_size_value)
+            if min_workload_size_value is not None and workload_size < int(
+                min_workload_size_value
             ):
                 logging.info(
                     "[%s] Skipping: workload_size=%d is below min_workload_size=%d.",
@@ -13719,9 +13707,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     int(min_workload_size_value),
                 )
                 return False
-            if (
-                max_workload_size_value is not None
-                and workload_size > int(max_workload_size_value)
+            if max_workload_size_value is not None and workload_size > int(
+                max_workload_size_value
             ):
                 logging.info(
                     "[%s] Skipping: workload_size=%d is above max_workload_size=%d.",
@@ -13730,9 +13717,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     int(max_workload_size_value),
                 )
                 return False
-            if (
-                min_instance_job_count_value is not None
-                and instance_job_count < int(min_instance_job_count_value)
+            if min_instance_job_count_value is not None and instance_job_count < int(
+                min_instance_job_count_value
             ):
                 logging.info(
                     "[%s] Skipping: job_count=%d is below min_instance_job_count=%d.",
@@ -13741,9 +13727,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     int(min_instance_job_count_value),
                 )
                 return False
-            if (
-                max_instance_job_count_value is not None
-                and instance_job_count > int(max_instance_job_count_value)
+            if max_instance_job_count_value is not None and instance_job_count > int(
+                max_instance_job_count_value
             ):
                 logging.info(
                     "[%s] Skipping: job_count=%d is above max_instance_job_count=%d.",

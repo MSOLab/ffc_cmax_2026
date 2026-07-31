@@ -207,7 +207,9 @@ def _resolve_experiment_name(preset_name: str, user_name: str | None) -> str:
     return f"{preset_name}_{_timestamp_suffix()}"
 
 
-def _build_mip_argv(args: argparse.Namespace, output_dir: Path, log_dir: Path) -> list[str]:
+def _build_mip_argv(
+    args: argparse.Namespace, output_dir: Path, log_dir: Path
+) -> list[str]:
     preset = get_preset(args.preset)
     mip_args = list(preset.mip_args)
 
@@ -223,9 +225,15 @@ def _build_mip_argv(args: argparse.Namespace, output_dir: Path, log_dir: Path) -
 
     _extend_optional_value(mip_args, "--time-limit-sec", args.time_limit_sec)
     _extend_optional_value(mip_args, "--delta", args.delta)
-    _extend_optional_value(mip_args, "--same-bucket-threshold", args.same_bucket_threshold)
-    _extend_optional_value(mip_args, "--display-interval-sec", args.display_interval_sec)
-    _extend_optional_value(mip_args, "--precedence-formulation", args.precedence_formulation)
+    _extend_optional_value(
+        mip_args, "--same-bucket-threshold", args.same_bucket_threshold
+    )
+    _extend_optional_value(
+        mip_args, "--display-interval-sec", args.display_interval_sec
+    )
+    _extend_optional_value(
+        mip_args, "--precedence-formulation", args.precedence_formulation
+    )
 
     _extend_flag(mip_args, "--delta-pmax-plus-one", args.delta_pmax_plus_one)
     _extend_flag(mip_args, "--resume", args.resume)

@@ -124,7 +124,9 @@ def run_from_config(config: PaperRunConfig, quiet: bool = False) -> Path:
     write_baseline_comparison(output_dir / "baseline_comparison.csv", summary_df)
 
     if config.draw_convergence:
-        plot_ids = set(str(idx) for idx in (config.plot_instance_ids or config.benchmark_indices))
+        plot_ids = set(
+            str(idx) for idx in (config.plot_instance_ids or config.benchmark_indices)
+        )
         for instance_name, rows in convergence_by_instance.items():
             if instance_name in plot_ids:
                 write_convergence_plot(
@@ -199,7 +201,9 @@ def run_single_seed(
             assert best_population_individual.encoding is not None
             best_obj = best_population_individual.obj_value
             best_encoding = best_population_individual.encoding
-            best_origin_tag = origin_tag_from_decoding(best_population_individual.decoding)
+            best_origin_tag = origin_tag_from_decoding(
+                best_population_individual.decoding
+            )
             history_rows.append(
                 _history_row(
                     seed=seed,
@@ -336,7 +340,9 @@ def _setup_file_logging(log_path: Path, quiet: bool) -> None:
     for handler in list(logger.handlers):
         logger.removeHandler(handler)
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
     logger.addHandler(file_handler)
     if not quiet:
         console_handler = logging.StreamHandler()

@@ -3,10 +3,10 @@ from pathlib import Path
 
 # CSV 파일과 인스턴스 파일들이 있는 폴더 경로
 folder_path = Path(__file__).parent
-csv_file = folder_path / 'instance_ids_ff2020big.csv'
+csv_file = folder_path / "instance_ids_ff2020big.csv"
 
 # CSV 파일 읽기
-with open(csv_file, 'r', encoding='utf-8') as f:
+with open(csv_file, "r", encoding="utf-8") as f:
     reader = csv.DictReader(f)
     rows = list(reader)
 
@@ -15,8 +15,8 @@ renamed_count = 0
 error_count = 0
 
 for row in rows:
-    old_name = row['as_is_filename']
-    new_name = row['to_be_filename']
+    old_name = row["as_is_filename"]
+    new_name = row["to_be_filename"]
 
     old_path = folder_path / old_name
     new_path = folder_path / new_name

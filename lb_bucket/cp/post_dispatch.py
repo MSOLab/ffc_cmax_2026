@@ -389,9 +389,7 @@ def run_post_retained_cp_dispatch(
             head_for_all_stages=selected_dispatch_config["head_for_all_stages"],
             job_tiebreak_rank=None,
         )
-        dispatch_candidates["best_of_mixed_dispatches_cp_baseline"] = (
-            baseline_schedule
-        )
+        dispatch_candidates["best_of_mixed_dispatches_cp_baseline"] = baseline_schedule
         dispatch_candidate_elapsed_sec["best_of_mixed_dispatches_cp_baseline"] = (
             baseline_timer.elapsed_sec
         )
@@ -497,13 +495,15 @@ def run_post_retained_cp_dispatch(
                         anchor_stage_releases=anchor_stage_releases,
                         anchor_stage_ids=repair_anchor_stage_ids,
                     )
-                    repaired_schedule = dependencies.repair_post_retained_cp_dispatch_candidate(
-                        seed_schedule,
-                        target_stage_ids=repair_anchor_stage_ids,
-                        insertion_passes=max(1, cp_local_repair_max_passes),
-                        max_shift=4,
-                        swap_passes=max(1, cp_local_repair_max_passes),
-                        stage_2_job_2_release=repair_release,
+                    repaired_schedule = (
+                        dependencies.repair_post_retained_cp_dispatch_candidate(
+                            seed_schedule,
+                            target_stage_ids=repair_anchor_stage_ids,
+                            insertion_passes=max(1, cp_local_repair_max_passes),
+                            max_shift=4,
+                            swap_passes=max(1, cp_local_repair_max_passes),
+                            stage_2_job_2_release=repair_release,
+                        )
                     )
                     dispatch_candidates[repair_variant] = repaired_schedule
                     dispatch_candidate_elapsed_sec[repair_variant] = (
@@ -726,7 +726,10 @@ def write_post_retained_cp_dispatch_artifacts(
         },
         dispatch_dir / "dispatch_anchor_blocks.yaml",
     )
-    for anchor_key, stage_2_job_sequence in dispatch_result.anchor_stage_sequences.items():
+    for (
+        anchor_key,
+        stage_2_job_sequence,
+    ) in dispatch_result.anchor_stage_sequences.items():
         dump_yaml(
             {
                 str(stage_id): [str(job_id) for job_id in job_ids]
@@ -734,7 +737,10 @@ def write_post_retained_cp_dispatch_artifacts(
             },
             dispatch_dir / f"anchor_{anchor_key}_stage_job_sequence.yaml",
         )
-    for anchor_key, stage_2_job_release in dispatch_result.anchor_stage_releases.items():
+    for (
+        anchor_key,
+        stage_2_job_release,
+    ) in dispatch_result.anchor_stage_releases.items():
         dump_yaml(
             {
                 str(stage_id): {
@@ -986,7 +992,9 @@ def _build_full_stage_sequences_from_retained_rows(
     full_stage_sequences: dict[str, list[str]] = {}
     for stage_id in stage_id_list:
         if stage_id in retained_stage_sequences:
-            full_stage_sequences[str(stage_id)] = list(retained_stage_sequences[stage_id])
+            full_stage_sequences[str(stage_id)] = list(
+                retained_stage_sequences[stage_id]
+            )
             continue
         if retained_stage_ids:
             nearest_retained_stage_id = min(
@@ -1939,8 +1947,9 @@ def _build_dispatch_variant_metadata(
         gap_to_best = ranking.get("gap_to_best")
         is_selected = variant == selected_variant
         is_pre_repair_base = variant == pre_local_repair_selected_variant
-        is_local_repair = variant == "selected_post_retained_cp_local_repair" or variant.startswith(
-            "post_retained_cp_local_repair__"
+        is_local_repair = (
+            variant == "selected_post_retained_cp_local_repair"
+            or variant.startswith("post_retained_cp_local_repair__")
         )
         ties_best = float(gap_to_best or 0.0) == 0.0
 

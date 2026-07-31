@@ -81,7 +81,9 @@ def main() -> None:
         )
 
 
-def resolve_progress_paths(progress_root: Path, instances: list[int] | None) -> list[Path]:
+def resolve_progress_paths(
+    progress_root: Path, instances: list[int] | None
+) -> list[Path]:
     if instances:
         paths = []
         for instance_id in instances:
@@ -203,7 +205,9 @@ def plot_series(
         return
     x_values = [point[0] for point in points]
     y_values = [point[1] for point in points]
-    axis.step(x_values, y_values, where="post", label=label, color=color, linestyle=linestyle)
+    axis.step(
+        x_values, y_values, where="post", label=label, color=color, linestyle=linestyle
+    )
     axis.plot(x_values, y_values, "o", color=color, markersize=3)
 
 

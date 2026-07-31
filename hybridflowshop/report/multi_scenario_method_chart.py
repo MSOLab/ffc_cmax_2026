@@ -48,7 +48,8 @@ def _normalize_scenario_input(
 def _prepare_scenario_endpoint_df(endpoint_df: pd.DataFrame) -> pd.DataFrame:
     work_df = endpoint_df.copy()
     order_map = {
-        name: idx for idx, name in enumerate(pd.unique(work_df["subroutine_name"]), start=1)
+        name: idx
+        for idx, name in enumerate(pd.unique(work_df["subroutine_name"]), start=1)
     }
     work_df["subroutine_order"] = work_df["subroutine_name"].map(order_map)
     return work_df
@@ -63,7 +64,9 @@ def _prepare_scenario_progression_df(
     work_df = raw_progression_df.copy()
     order_map = {
         name: idx
-        for idx, name in enumerate(pd.unique(order_map_source_df["subroutine_name"]), start=1)
+        for idx, name in enumerate(
+            pd.unique(order_map_source_df["subroutine_name"]), start=1
+        )
     }
     work_df["subroutine_order"] = work_df["subroutine_name"].map(order_map)
     return work_df.dropna(subset=["subroutine_order"]).copy()
@@ -90,7 +93,11 @@ def _build_scenario_progression_models(
             ["norm_time", "subroutine_order", "subroutine_name"]
         )
         progression_grp = progression_by_instance.get(str(instance_id))
-        source_grp = endpoint_grp if progression_grp is None or progression_grp.empty else progression_grp
+        source_grp = (
+            endpoint_grp
+            if progression_grp is None or progression_grp.empty
+            else progression_grp
+        )
         models.append(
             {
                 "instance_id": str(instance_id),
@@ -136,7 +143,11 @@ def _build_scenario_mean_series(
         values = [
             value
             for model in models
-            if (value := _lookup_rpdf_at_or_before(model["progression_points"], time_val))
+            if (
+                value := _lookup_rpdf_at_or_before(
+                    model["progression_points"], time_val
+                )
+            )
             is not None
         ]
         if len(values) != len(models):
@@ -176,8 +187,7 @@ def _build_guide_marker_customdata(
     scenario_label: str, guide_marker_text: list[str]
 ) -> list[list[Any]]:
     return [
-        [scenario_label, str(subroutine_name)]
-        for subroutine_name in guide_marker_text
+        [scenario_label, str(subroutine_name)] for subroutine_name in guide_marker_text
     ]
 
 

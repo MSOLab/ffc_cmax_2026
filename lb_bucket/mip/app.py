@@ -62,11 +62,11 @@ def load_completed_instance_names(path: Path) -> set[str]:
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     if args.delta is not None and args.delta <= 0:
-        raise ValueError(f"delta must be a positive integer. Received delta={args.delta}.")
-    if args.delta is not None and args.delta_pmax_plus_one:
         raise ValueError(
-            "Use either --delta or --delta-pmax-plus-one, not both."
+            f"delta must be a positive integer. Received delta={args.delta}."
         )
+    if args.delta is not None and args.delta_pmax_plus_one:
+        raise ValueError("Use either --delta or --delta-pmax-plus-one, not both.")
 
     gp, grb = import_gurobi()
     summary_records = load_summary_records(args.summary_csv)
@@ -152,7 +152,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         _t_lower, natural_t_upper = compute_range_bucket_bounds(
             record.input_lb, record.input_ub, instance_delta
         )
-        if args.max_bucket_count is not None and args.max_bucket_count != natural_t_upper:
+        if (
+            args.max_bucket_count is not None
+            and args.max_bucket_count != natural_t_upper
+        ):
             raise ValueError(
                 f"The updated range-based formulation requires T_U=ceil(UB/delta)="
                 f"{natural_t_upper}, so --max-bucket-count={args.max_bucket_count} "
@@ -164,7 +167,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"Summary jobCount={record.job_count} but instance {record.ins_name} "
                 f"has job_count={instance.job_count}."
             )
-        if record.stage_count is not None and record.stage_count != instance.stage_count:
+        if (
+            record.stage_count is not None
+            and record.stage_count != instance.stage_count
+        ):
             raise ValueError(
                 f"Summary stageCount={record.stage_count} but instance {record.ins_name} "
                 f"has stage_count={instance.stage_count}."
@@ -178,7 +184,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"time_limit_sec={instance_time_limit_sec:.2f}, "
             f"{precedence.describe()}"
         )
-        result, trace_rows, progress_rows, solution_payload, status_name, solution_count = run_bucket_search_for_instance(
+        (
+            result,
+            trace_rows,
+            progress_rows,
+            solution_payload,
+            status_name,
+            solution_count,
+        ) = run_bucket_search_for_instance(
             gp,
             grb,
             instance,
@@ -196,7 +209,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             ub_schedule=ub_schedule,
         )
         append_csv_row(result_path, asdict(result))
-        log_progress(f"Appended result row for instance {record.ins_name} to {result_path}")
+        log_progress(
+            f"Appended result row for instance {record.ins_name} to {result_path}"
+        )
 
         if solution_payload is not None:
             write_solution_payload(args.output_dir, solution_payload)
@@ -211,12 +226,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
 
         trace_path = args.output_dir / f"{record.ins_name}_search_trace.csv"
-        trace_csv_rows = trace_rows_to_csv_rows(trace_rows, result, status_name, solution_count)
+        trace_csv_rows = trace_rows_to_csv_rows(
+            trace_rows, result, status_name, solution_count
+        )
         write_csv_rows(trace_path, trace_csv_rows)
         log_progress(f"Wrote trace CSV for instance {record.ins_name} to {trace_path}")
 
         progress_path = args.output_dir / f"{record.ins_name}_progress_trace.csv"
-        write_csv_rows(progress_path, [asdict(progress_row) for progress_row in progress_rows])
+        write_csv_rows(
+            progress_path, [asdict(progress_row) for progress_row in progress_rows]
+        )
         log_progress(
             f"Wrote progress CSV for instance {record.ins_name} to {progress_path}"
         )

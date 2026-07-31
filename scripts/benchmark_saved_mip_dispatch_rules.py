@@ -95,15 +95,19 @@ def _load_instance(input_dir: Path, ins_name: str) -> HybridFlowshopParameters:
 def _get_bottleneck_stage_id(instance: HybridFlowshopParameters) -> str:
     return max(
         instance.stage_id_list,
-        key=lambda stage_id: sum(
-            instance.stage_2_job_2_p_map[stage_id][job_id]
-            for job_id in instance.job_id_list
-        )
-        / len(instance.stage_2_machines_map[stage_id]),
+        key=lambda stage_id: (
+            sum(
+                instance.stage_2_job_2_p_map[stage_id][job_id]
+                for job_id in instance.job_id_list
+            )
+            / len(instance.stage_2_machines_map[stage_id])
+        ),
     )
 
 
-def _build_empty_schedule(instance: HybridFlowshopParameters) -> HybridFlowshopLiteSchedule:
+def _build_empty_schedule(
+    instance: HybridFlowshopParameters,
+) -> HybridFlowshopLiteSchedule:
     return HybridFlowshopLiteSchedule(
         jobs=instance.job_id_list,
         stages=instance.stage_id_list,
@@ -171,7 +175,9 @@ def _get_best_of_mixed_dispatches_with_rank(
 
 
 def _load_saved_dispatch_summary(instance_dir: Path) -> dict[str, Any]:
-    dispatch_summary_path = instance_dir / "mip_lb" / "dispatch" / "dispatch_summary.yaml"
+    dispatch_summary_path = (
+        instance_dir / "mip_lb" / "dispatch" / "dispatch_summary.yaml"
+    )
     if not dispatch_summary_path.is_file():
         return {}
     summary = load_yaml(dispatch_summary_path, encoding="utf-8")
@@ -433,15 +439,15 @@ def _evaluate_instance(
         candidate_schedules["mixed_aggregate_ls_slack_local_repair"] = None
 
     if candidate_schedules["best_mixed_rank_agg_ls_slack"] is not None:
-        candidate_schedules[
-            "best_mixed_rank_agg_ls_slack_local_repair"
-        ] = _repair_schedule(
-            instance,
-            candidate_schedules["best_mixed_rank_agg_ls_slack"],
-            target_stage_ids=[bottleneck_anchor_stage_id, stage_ids[-1]],
-            insertion_passes=3,
-            max_shift=4,
-            swap_passes=3,
+        candidate_schedules["best_mixed_rank_agg_ls_slack_local_repair"] = (
+            _repair_schedule(
+                instance,
+                candidate_schedules["best_mixed_rank_agg_ls_slack"],
+                target_stage_ids=[bottleneck_anchor_stage_id, stage_ids[-1]],
+                insertion_passes=3,
+                max_shift=4,
+                swap_passes=3,
+            )
         )
     else:
         candidate_schedules["best_mixed_rank_agg_ls_slack_local_repair"] = None
@@ -450,8 +456,7 @@ def _evaluate_instance(
         _validate_schedule(schedule, stage_2_job_2_p)
 
     candidate_makespans = {
-        name: _safe_makespan(schedule)
-        for name, schedule in candidate_schedules.items()
+        name: _safe_makespan(schedule) for name, schedule in candidate_schedules.items()
     }
     feasible_new_candidates = {
         name: makespan
@@ -470,7 +475,9 @@ def _evaluate_instance(
                 max_shift=4,
                 swap_passes=3,
             )
-            candidate_schedules["selected_post_mip_local_repair"] = repaired_best_schedule
+            candidate_schedules["selected_post_mip_local_repair"] = (
+                repaired_best_schedule
+            )
             candidate_makespans["selected_post_mip_local_repair"] = _safe_makespan(
                 repaired_best_schedule
             )
@@ -497,7 +504,9 @@ def _evaluate_instance(
         "dispatch_cmax": payload.get("metadata", {}).get("dispatch_cmax"),
         "saved_selected_variant": saved_dispatch_summary.get("selected_variant"),
         "saved_selected_makespan": saved_dispatch_summary.get("selected_makespan"),
-        "saved_best_of_mixed_dispatches": saved_candidates.get("best_of_mixed_dispatches"),
+        "saved_best_of_mixed_dispatches": saved_candidates.get(
+            "best_of_mixed_dispatches"
+        ),
         "saved_es_ls_priority_score": saved_candidates.get("es_ls_priority_score"),
         "saved_strict_call_order": saved_candidates.get("strict_call_order"),
         "best_new_rule": best_new_name,

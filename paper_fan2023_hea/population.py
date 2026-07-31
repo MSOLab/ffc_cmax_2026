@@ -97,7 +97,9 @@ def evolve_population(
         if deadline is not None and time.perf_counter() >= deadline:
             evolved.append(individual)
             continue
-        evolved.append(self_evolve(instance, individual, rng, evo_rep, deadline=deadline))
+        evolved.append(
+            self_evolve(instance, individual, rng, evo_rep, deadline=deadline)
+        )
     return evolved
 
 
@@ -123,7 +125,9 @@ def self_evolve(
             _candidate(instance, current, adjacent_swap(current.permutation, rng)),
             _candidate(instance, current, pairwise_exchange(current.permutation, rng)),
         ]
-        best_candidate = min(candidates, key=lambda item: item.obj_value or float("inf"))
+        best_candidate = min(
+            candidates, key=lambda item: item.obj_value or float("inf")
+        )
         if (best_candidate.obj_value or float("inf")) < (
             current.obj_value or float("inf")
         ):

@@ -171,9 +171,7 @@ def test_write_post_mip_dispatch_artifacts_writes_release_yaml_and_gantt(
         dispatched_schedule=schedule,
         selected_dispatch_variant="best_of_mixed_dispatches_tail_ls_rank",
         dispatched_schedules={"best_of_mixed_dispatches_tail_ls_rank": schedule},
-        dispatch_candidate_elapsed_sec={
-            "best_of_mixed_dispatches_tail_ls_rank": 0.1
-        },
+        dispatch_candidate_elapsed_sec={"best_of_mixed_dispatches_tail_ls_rank": 0.1},
         dispatch_phase_elapsed_sec={"total_post_mip_dispatch_sec": 0.2},
         stage_2_job_sequence={"1": ["1", "2"], "2": ["1", "2"]},
         stage_2_job_release={"1": {"1": 0, "2": 1}, "2": {"1": 1, "2": 2}},

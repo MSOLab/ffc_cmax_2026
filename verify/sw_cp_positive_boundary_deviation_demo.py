@@ -118,7 +118,9 @@ def main() -> None:
     sched.add_ops_times_2_mc("s1", "m2", "C", 2, 4)
     sched.add_ops_times_2_mc("s1", "m2", "D", 8, 10)
 
-    batches = ctor.build_stage_2_batch_list(sched, batch_size=2, sort_by_start_time=False)
+    batches = ctor.build_stage_2_batch_list(
+        sched, batch_size=2, sort_by_start_time=False
+    )
     partition, _ = ctor._build_operation_partition(
         batches,
         ["s1"],

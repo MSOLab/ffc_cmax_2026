@@ -265,7 +265,9 @@ class TestSubroutineProgressionRecorder:
         assert point["local_sec"] == 4.0
         assert len(controller._combined_progress_list) == 2
 
-    def test_record_objective_point_treats_new_call_first_point_as_recordable(self) -> None:
+    def test_record_objective_point_treats_new_call_first_point_as_recordable(
+        self,
+    ) -> None:
         controller = MagicMock(spec=HybridFlowShopCpLnsControllerCore)
         controller._active_call_index = 3
         controller._active_subroutine_name = "repeat"
@@ -433,7 +435,9 @@ class TestSubroutineProgressionRecorder:
         assert data["subroutine_calls"][1]["global_start_sec"] == 3.0
         assert data["subroutine_calls"][1]["elapsed_sec"] == 4.0
 
-    def test_get_progression_data_collects_nested_incremental_sw_cp_reports(self) -> None:
+    def test_get_progression_data_collects_nested_incremental_sw_cp_reports(
+        self,
+    ) -> None:
         controller = _make_progression_controller()
         controller._subroutine_call_meta_list = [
             {
@@ -454,12 +458,8 @@ class TestSubroutineProgressionRecorder:
             }
         ]
         controller._method_context_meta_map = {
-            "1-incremental_sw_cp.1-unfixed_batch_count_002": {
-                "global_start_sec": 10.2
-            },
-            "1-incremental_sw_cp.2-unfixed_batch_count_003": {
-                "global_start_sec": 10.7
-            },
+            "1-incremental_sw_cp.1-unfixed_batch_count_002": {"global_start_sec": 10.2},
+            "1-incremental_sw_cp.2-unfixed_batch_count_003": {"global_start_sec": 10.7},
         }
         controller.solution_manager.history = [
             SimpleNamespace(
@@ -499,7 +499,9 @@ class TestSubroutineProgressionRecorder:
             977.0,
             976.0,
         ]
-        assert [round(p["global_sec"], 2) for p in incremental_call["local_progress_list"]] == [
+        assert [
+            round(p["global_sec"], 2) for p in incremental_call["local_progress_list"]
+        ] == [
             10.21,
             10.42,
             10.75,
@@ -528,12 +530,8 @@ class TestSubroutineProgressionRecorder:
             }
         ]
         controller._method_context_meta_map = {
-            "1-repeat_while_improvement.1-reps_001.1-sw_cp": {
-                "global_start_sec": 5.25
-            },
-            "1-repeat_while_improvement.2-reps_002.1-sw_cp": {
-                "global_start_sec": 6.05
-            },
+            "1-repeat_while_improvement.1-reps_001.1-sw_cp": {"global_start_sec": 5.25},
+            "1-repeat_while_improvement.2-reps_002.1-sw_cp": {"global_start_sec": 6.05},
         }
         controller.solution_manager.history = [
             SimpleNamespace(
@@ -561,7 +559,9 @@ class TestSubroutineProgressionRecorder:
             94.0,
             93.0,
         ]
-        assert [round(p["local_sec"], 2) for p in repeat_call["local_progress_list"]] == [
+        assert [
+            round(p["local_sec"], 2) for p in repeat_call["local_progress_list"]
+        ] == [
             0.35,
             0.55,
             1.25,
@@ -629,9 +629,7 @@ class TestSubroutineProgressionRecorder:
         ]
         assert [p["obj_value"] for p in data["combined_progress_list"]] == [6408.0]
 
-    def test_add_file_handler_lowers_root_level_to_capture_info(
-        self, tmp_path
-    ) -> None:
+    def test_add_file_handler_lowers_root_level_to_capture_info(self, tmp_path) -> None:
         controller = HybridFlowShopCpLnsControllerCore.__new__(
             HybridFlowShopCpLnsControllerCore
         )
@@ -649,9 +647,7 @@ class TestSubroutineProgressionRecorder:
 
             log_path = tmp_path / "subroutine_controller.log"
             assert log_path.exists()
-            assert "progression-log-smoke-test" in log_path.read_text(
-                encoding="utf-8"
-            )
+            assert "progression-log-smoke-test" in log_path.read_text(encoding="utf-8")
         finally:
             controller.log_handlers = []
             root_logger.setLevel(original_level)

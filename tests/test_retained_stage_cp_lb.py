@@ -248,7 +248,9 @@ def test_retained_stage_cp_middle_quantiles_and_topk_modes_resolve_expected_stag
     assert middle_only_band.retained_stage_ratios == [0.5]
 
 
-def test_processing_jump_band_prefers_internal_stage_when_edge_jump_is_largest() -> None:
+def test_processing_jump_band_prefers_internal_stage_when_edge_jump_is_largest() -> (
+    None
+):
     instance = HybridFlowshopParameters(
         name="edge_jump_demo",
         job_id_list=["j1"],

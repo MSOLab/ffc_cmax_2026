@@ -192,7 +192,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def resolve_strengthening_options(args: argparse.Namespace) -> ModelStrengtheningOptions:
+def resolve_strengthening_options(
+    args: argparse.Namespace,
+) -> ModelStrengtheningOptions:
     if args.base_model_only:
         return ModelStrengtheningOptions(
             cumulative_precedence=False,

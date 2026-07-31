@@ -267,9 +267,7 @@ class TestBN2DDispatcher:
         assert schedule is not None
         assert schedule.makespan > 0
 
-    def test_get_schedule_by_bn2d_with_reverse_mid(
-        self, simple_hfs_instance
-    ) -> None:
+    def test_get_schedule_by_bn2d_with_reverse_mid(self, simple_hfs_instance) -> None:
         """Test BN2D schedule with mid-job reversal."""
         dispatcher = BN2DDispatcher(simple_hfs_instance)
         option = BN2DOption(
@@ -306,9 +304,7 @@ class TestBN2DDispatcher:
         assert schedule is not None
         assert schedule.makespan > 0
 
-    def test_get_schedule_by_bn2d_randomize_mid(
-        self, simple_hfs_instance
-    ) -> None:
+    def test_get_schedule_by_bn2d_randomize_mid(self, simple_hfs_instance) -> None:
         """Test BN2D schedule with randomized mid jobs."""
         dispatcher = BN2DDispatcher(simple_hfs_instance)
         option = BN2DOption(

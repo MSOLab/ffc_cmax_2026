@@ -173,7 +173,9 @@ class HfsSingleInstanceRunner(
             self.ctrlr.solution_manager.register(init_report, None)
 
             last_report = HfsSubroutineReport(
-                elapsed_time=float(self.resume_summary_dict.get("totalElapsedTime", 0.0)),
+                elapsed_time=float(
+                    self.resume_summary_dict.get("totalElapsedTime", 0.0)
+                ),
                 obj_value=_resume_number_or_none(
                     self.resume_summary_dict.get("bestObj", None)
                 ),
