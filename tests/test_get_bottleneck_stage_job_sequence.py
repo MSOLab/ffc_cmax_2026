@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 
-
 from hybridflowshop.schedule_lite import (
     HybridFlowshopLiteSchedule,
     get_bottleneck_stage_job_sequence,

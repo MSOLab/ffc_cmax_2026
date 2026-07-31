@@ -18,7 +18,7 @@ dicts_of_i_o_data_path:
     intentionally commented out; since i5 NEH-CP already finished under budget
     without a reserve, Base-CP uses tl_nc_multiplier=2 (= full 2nc budget,
     clamped to all remaining time) instead of the reserve mechanism. ISW-CP /
-    incremental_pw_cp steps (safe_pw005, safe_pw009) remain removed from
+    incremental_sw_cp steps (safe_pw005, safe_pw009) remain removed from
     suffix_probe_portfolio, to answer whether ISW-CP is necessary. Same
     24-thread CP-SAT settings as the published full pipeline; restricted to
     instances 1-24 (one parameter set).'

@@ -5,8 +5,8 @@ import pytest
 from hybridflowshop.dispatcher.utils import (
     build_schedule_from_stage_job_sequences_priority_score,
     build_schedule_from_stage_job_sequences_strict_call_order,
-    dispatch_stage_job_sequences_strict_call_order,
     dispatch_job_sequence_by_stages,
+    dispatch_stage_job_sequences_strict_call_order,
     dispatch_stages_by_job_sequence,
     from_job_sequence_get_schedule_mixed,
     get_bottleneck_anchor_stage_from_solution_payload,
@@ -17,9 +17,9 @@ from hybridflowshop.dispatcher.utils import (
     get_stage_job_latest_start_times_from_dispatch_windows,
     get_stage_job_release_times_from_dispatch_windows,
     get_stage_job_sequences_from_dispatch_windows,
-    improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
     improve_schedule_by_critical_cross_machine_insertions,
+    improve_schedule_by_critical_stage_sequence_insertions,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
 

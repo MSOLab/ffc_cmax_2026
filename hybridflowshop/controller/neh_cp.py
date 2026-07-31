@@ -210,7 +210,7 @@ class NehCpConstructor:
 
     def _require_state(self) -> NehCpRunState:
         if self._st is None:
-            raise RuntimeError("PwCpConstructor.run() is not active; state is missing.")
+            raise RuntimeError("SwCpConstructor.run() is not active; state is missing.")
         return self._st
 
     def run(

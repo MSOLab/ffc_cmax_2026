@@ -2,8 +2,8 @@ from lb_bucket.mip.dispatch_windows import (
     build_dispatch_window_lookup,
     compute_dispatch_window_payload,
 )
-from lb_bucket.mip.solution_io import read_solution_payload, write_solution_payload
 from lb_bucket.mip.shared import TwoBucketInstance
+from lb_bucket.mip.solution_io import read_solution_payload, write_solution_payload
 
 
 def test_compute_dispatch_window_payload_builds_es_ls_rows() -> None:

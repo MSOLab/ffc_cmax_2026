@@ -25,8 +25,8 @@ from hybridflowshop.dispatcher import (
     get_job_sequence_from_dispatch_windows_anchor_stage,
     get_job_tiebreak_rank_from_job_sequence,
     get_stage_job_sequences_from_dispatch_windows,
-    improve_schedule_by_critical_stage_sequence_insertions,
     improve_schedule_by_critical_adjacent_swaps,
+    improve_schedule_by_critical_stage_sequence_insertions,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, validate_schedule
 from lb_bucket.mip.dispatch_windows import build_dispatch_window_lookup

@@ -1,7 +1,8 @@
 """MachineDispatcher class for machine-centric dispatch methods (DM)."""
 
-from typing import Mapping
 import logging
+from typing import Mapping
+
 from schore.parameters_examples import HybridFlowshopParameters
 
 from hybridflowshop.schedule_lite import (

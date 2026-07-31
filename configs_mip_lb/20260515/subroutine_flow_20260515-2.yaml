@@ -49,18 +49,18 @@
   surrogate_neh_use_lns_only: true
   surrogate_neh_minimize_sum_ci_lex: false
   surrogate_neh_cp_tl_nc_multiplier_2nd_obj: null
-  surrogate_pw_cp_enabled: true
-  surrogate_pw_cp_tau_values:
+  surrogate_sw_cp_enabled: true
+  surrogate_sw_cp_tau_values:
   - 5
-  surrogate_pw_cp_batch_size_ratio: 0.05
-  surrogate_pw_cp_unfixed_batch_count_min: 2
-  surrogate_pw_cp_unfixed_batch_count_max: 4
-  surrogate_pw_cp_step_size: 1
-  surrogate_pw_cp_lr_profile_fixed_batch_count: 1
-  surrogate_pw_cp_enable_promotion_profile_fixed: true
-  surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier: 0.0015
-  surrogate_pw_cp_use_lns_only: false
-  surrogate_pw_cp_stop_on_no_improvement: false
+  surrogate_sw_cp_batch_size_ratio: 0.05
+  surrogate_sw_cp_unfixed_batch_count_min: 2
+  surrogate_sw_cp_unfixed_batch_count_max: 4
+  surrogate_sw_cp_step_size: 1
+  surrogate_sw_cp_lr_profile_fixed_batch_count: 1
+  surrogate_sw_cp_enable_promotion_profile_fixed: true
+  surrogate_sw_cp_non_time_fixed_op_time_limit_multiplier: 0.0015
+  surrogate_sw_cp_use_lns_only: false
+  surrogate_sw_cp_stop_on_no_improvement: false
   solver_thread_cnt: 16
   surrogate_use_lns_only: false
   surrogate_cp_snapshot_solution_limit: 20
@@ -160,7 +160,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8
@@ -186,7 +186,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.06
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8
@@ -212,7 +212,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.07
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8
@@ -238,7 +238,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.08
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8
@@ -264,7 +264,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.09
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8

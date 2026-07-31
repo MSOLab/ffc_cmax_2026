@@ -199,7 +199,7 @@
     <li><b>LNS</b> — Large Neighborhood Search</li>
     <li><b>LS</b> — Local Search (국소 탐색)</li>
     <li><b>NEH</b> — Nawaz–Enscore–Ham 순서 휴리스틱</li>
-    <li><b>PW-CP</b> — Prefix-Window CP 구성자</li>
+    <li><b>SW-CP</b> — Sliding-Window CP 구성자</li>
     <li><b>SHDLB</b> — Static Holding Dispatch Lower Bound</li>
     <li><b>LB / UB</b> — 하한 / 상한(incumbent)</li>
     <li><b>τ (tau)</b> — Tau Coarsening 축소 계수</li>
@@ -329,7 +329,7 @@
          │
          ▼
 [12] suffix_probe_portfolio
-    └─ 다중 Lane Portfolio (선택적 NEH/PW-CP 탐색)
+    └─ 다중 Lane Portfolio (선택적 NEH/SW-CP 탐색)
          │
          ▼
 [13] solve_base_cp_model_from_final_time_reserve
@@ -394,11 +394,11 @@
 <!-- Step 5 -->
 <div class="step key-step" id="step5">
   <h3><span class="step-no">5</span><code>initialize_by_tau_coarsened_cp</code> <span class="badge warn">핵심 단계</span></h3>
-  <p class="role"><b>역할</b>: Tau Coarsening 기법으로 문제를 축소한 후, 다양한 경로(Dispatch → NEH → PW-CP → CP-SAT)를 통해 대량의 후보해를 생성하고 원래 문제로 복원(restore)하여 최선의 초기해를 선택한다. 이 workflow에서 <b>가장 복잡하고 핵심적인 초기해 생성 단계</b>이다.</p>
+  <p class="role"><b>역할</b>: Tau Coarsening 기법으로 문제를 축소한 후, 다양한 경로(Dispatch → NEH → SW-CP → CP-SAT)를 통해 대량의 후보해를 생성하고 원래 문제로 복원(restore)하여 최선의 초기해를 선택한다. 이 workflow에서 <b>가장 복잡하고 핵심적인 초기해 생성 단계</b>이다.</p>
 
   <h4>세부 파이프라인 (단일 τ=5 기준)</h4>
   <details open>
-    <summary>τ=5 sub-pipeline (Dispatch → NEH-CP → PW-CP Chain → Surrogate CP → Restore)</summary>
+    <summary>τ=5 sub-pipeline (Dispatch → NEH-CP → SW-CP Chain → Surrogate CP → Restore)</summary>
 <pre><code>τ=5 인스턴스 생성 (가공 시간 축소)
   │
   ├── 1. Dispatch (축소 문제)
@@ -411,13 +411,13 @@
   │     ├── batch_size=15, sequential 실행
   │     └── CP 시간: 0.0015 × J × S sec/batch
   │
-  ├── 3. PW-CP Chain (축소 문제, NEH 결과 기준)
+  ├── 3. SW-CP Chain (축소 문제, NEH 결과 기준)
   │     ├── batch_size_ratio=0.05
   │     ├── unfixed_batch_count=2→3→4→5→6 (step=1)
   │     └── CP 시간: 0.0015 × J × S sec/batch
   │
   ├── 4. Surrogate CP Solve (축소 문제)
-  │     ├── Reference: PW-CP chain 최선 결과
+  │     ├── Reference: SW-CP chain 최선 결과
   │     ├── TL: 0.12 × J × S sec
   │     └── Snapshots: 최대 20개
   │
@@ -432,7 +432,7 @@
   <div class="invariants">
     <h4>특이사항</h4>
     <ul>
-      <li>Surrogate NEH-CP만 LNS-only로 실행 (<code>surrogate_neh_use_lns_only=true</code>). Surrogate CP solve와 PW-CP는 LNS-only가 아님 (<code>surrogate_use_lns_only=false</code>, <code>surrogate_pw_cp_use_lns_only=false</code>)</li>
+      <li>Surrogate NEH-CP만 LNS-only로 실행 (<code>surrogate_neh_use_lns_only=true</code>). Surrogate CP solve와 SW-CP는 LNS-only가 아님 (<code>surrogate_use_lns_only=false</code>, <code>surrogate_sw_cp_use_lns_only=false</code>)</li>
       <li>모든 후보해에 <code>make_semi_active()</code> 적용</li>
       <li>CP-SAT에 <code>diversify_lns_params</code>, <code>solution_pool_size=8</code> 설정</li>
       <li><code>cp_model_probing_level=1</code> — CP-SAT 기본값은 <code>2</code>이므로, 이 설정은 probing 강도를 한 단계 <b>낮춘</b> 비-기본값이다 (0=완전 비활성, 2=기본)</li>
@@ -587,7 +587,7 @@ else:
 <!-- Step 12 -->
 <div class="step key-step" id="step12">
   <h3><span class="step-no">12</span><code>suffix_probe_portfolio</code> <span class="badge warn">가장 정교한 구성요소</span></h3>
-  <p class="role"><b>역할</b>: 이 workflow에서 <b>가장 정교한 구성 요소</b>. 여러 NEH/PW-CP 조합(lane)을 경쟁적으로 프로브(probe)하여 가장 유망한 lane을 선택하고, 해당 lane의 suffix(후속 단계)를 실행한다. 5개의 lane + fallback으로 구성된 포트폴리오이다.</p>
+  <p class="role"><b>역할</b>: 이 workflow에서 <b>가장 정교한 구성 요소</b>. 여러 NEH/SW-CP 조합(lane)을 경쟁적으로 프로브(probe)하여 가장 유망한 lane을 선택하고, 해당 lane의 suffix(후속 단계)를 실행한다. 5개의 lane + fallback으로 구성된 포트폴리오이다.</p>
 
   <h4>전체 구조 — Fallback + 5개 Lane</h4>
   <div class="lanes">
@@ -618,7 +618,7 @@ else:
     <div class="lane">
       <h4><span class="ln">Lane 5</span> — interleaved_pw_neh_basin</h4>
       <div class="ld"><b>Probe:</b> <code>neh10(0.0075, max_batch=8)</code></div>
-      <div class="ld"><b>Suffix:</b> <code>pw005 → neh15 → pw006 → neh20 → pw008 → neh25 → neh30 → pw010</code> (NEH와 PW-CP 교차 실행)</div>
+      <div class="ld"><b>Suffix:</b> <code>pw005 → neh15 → pw006 → neh20 → pw008 → neh25 → neh30 → pw010</code> (NEH와 SW-CP 교차 실행)</div>
     </div>
   </div>
   <details>
@@ -648,7 +648,7 @@ else:
         └── Lane 5: interleaved_pw_neh_basin
               Probe: neh10(0.0075, max_batch=8)
               Suffix: pw005→neh15→pw006→neh20→pw008→neh25→neh30→pw010
-              (NEH와 PW-CP 교차 실행)</code></pre>
+              (NEH와 SW-CP 교차 실행)</code></pre>
   </details>
 
   <h4>핵심 메커니즘</h4>
@@ -676,7 +676,7 @@ else:
       <tr><td>2. cp_seeded_first_neh</td><td>Base CP(0.018) → NEH(0.005, 제한)</td><td>CP 시드로 NEH 품질 향상</td></tr>
       <tr><td>3. delayed_profile_first_neh</td><td>NEH(0.006, profile_fix 지연)</td><td>Profile fix를 늦춰 다양성 확보</td></tr>
       <tr><td>4. retained_cp_sequence_first_neh</td><td>NEH(0.006, retained CP sequence)</td><td>Retained CP의 작업 순서 활용</td></tr>
-      <tr><td>5. interleaved_pw_neh_basin</td><td>NEH(0.0075) → PW ↔ NEH 교차</td><td>PW-CP와 NEH를 번갈아 basin 탐색</td></tr>
+      <tr><td>5. interleaved_pw_neh_basin</td><td>NEH(0.0075) → PW ↔ NEH 교차</td><td>SW-CP와 NEH를 번갈아 basin 탐색</td></tr>
     </tbody>
   </table>
 </div>
@@ -822,7 +822,7 @@ else:
 <div class="decisions">
   <div class="decision">
     <div class="key">1. Tau Coarsened CP의 대량 후보해 생성</div>
-    <div class="val">다양한 경로(Dispatch → NEH → PW-CP → CP)와 다양한 복원 방식(stage_sequence, machine_sequence)을 통해 구조적으로 다양한 후보해를 대량 생산한다. 이것이 단일 CP-SAT 실행보다 더 좋은 초기해로 이어진다.</div>
+    <div class="val">다양한 경로(Dispatch → NEH → SW-CP → CP)와 다양한 복원 방식(stage_sequence, machine_sequence)을 통해 구조적으로 다양한 후보해를 대량 생산한다. 이것이 단일 CP-SAT 실행보다 더 좋은 초기해로 이어진다.</div>
   </div>
   <div class="decision">
     <div class="key">2. 2단계 Retained Stage CP + Dispatch</div>
@@ -830,7 +830,7 @@ else:
   </div>
   <div class="decision">
     <div class="key">3. Suffix Probe Portfolio의 경쟁적 Lane 선택</div>
-    <div class="val">여러 NEH 전략을 경쟁시켜 instance 특성에 가장 적합한 전략을 동적으로 선택한다. CP 시드 유무·profile fix 시점·retained CP sequence 활용·PW-CP interleaving 등 각기 다른 귀납적 편향(inductive bias)을 가진 lane을 준비하고, 짧은 probe로 평가 후 최선 lane의 suffix만 본격 실행한다. incumbent가 이미 LB에 근접해(gap &lt; 0.3%) lane probe가 무의미하면 가벼운 fallback steps로 대체한다.</div>
+    <div class="val">여러 NEH 전략을 경쟁시켜 instance 특성에 가장 적합한 전략을 동적으로 선택한다. CP 시드 유무·profile fix 시점·retained CP sequence 활용·SW-CP interleaving 등 각기 다른 귀납적 편향(inductive bias)을 가진 lane을 준비하고, 짧은 probe로 평가 후 최선 lane의 suffix만 본격 실행한다. incumbent가 이미 LB에 근접해(gap &lt; 0.3%) lane probe가 무의미하면 가벼운 fallback steps로 대체한다.</div>
   </div>
   <div class="decision">
     <div class="key">4. 최종 CP-SAT 전량 소비</div>

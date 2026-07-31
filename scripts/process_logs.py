@@ -12,6 +12,7 @@ from hybridflowshop.report.log_processor import (
     process_instance,
     process_scenario,
 )
+
 __all__ = [
     "DEFAULT_CONTROLLER_LOG_NAME",
     "DEFAULT_RESULTS_DIR",

@@ -7,8 +7,8 @@ import yaml
 from routix.type_defs import RunMode
 
 import hfs_multi_instance_runner as multi_runner_module
-from hfs_multi_instance_runner import HfsMultiInstanceRunner
 import hybridflowshop.resume.validator as validator_module
+from hfs_multi_instance_runner import HfsMultiInstanceRunner
 from hybridflowshop.resume import ResumeValidator
 
 

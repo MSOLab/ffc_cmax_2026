@@ -5,7 +5,7 @@
 # + dispatch, CP-LB workload-adaptive + dispatch). They form the resume prefix
 # and must match the cached i4 flow byte-for-byte (after normalization).
 # The appended suffix_probe_portfolio step runs the NEH-CP 3-lane probe race plus
-# the neh15/20/25/30 suffix ladder (ISW-CP / incremental_pw_cp deliberately
+# the neh15/20/25/30 suffix ladder (ISW-CP / incremental_sw_cp deliberately
 # excluded). There is NO set_stage_workload_adaptive_final_time_reserve and NO
 # Base-CP step, so NEH-CP is given all remaining 2nc budget. Final cell of the
 # initialization ablation study; resumed from ablation_i4_md_bn2d_qsr_cplb.
@@ -61,18 +61,18 @@
   surrogate_neh_use_lns_only: true
   surrogate_neh_minimize_sum_ci_lex: false
   surrogate_neh_cp_tl_nc_multiplier_2nd_obj: null
-  surrogate_pw_cp_enabled: true
-  surrogate_pw_cp_tau_values:
+  surrogate_sw_cp_enabled: true
+  surrogate_sw_cp_tau_values:
     - 5
-  surrogate_pw_cp_batch_size_ratio: 0.05
-  surrogate_pw_cp_unfixed_batch_count_min: 2
-  surrogate_pw_cp_unfixed_batch_count_max: 6
-  surrogate_pw_cp_step_size: 1
-  surrogate_pw_cp_lr_profile_fixed_batch_count: 1
-  surrogate_pw_cp_enable_promotion_profile_fixed: true
-  surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier: 0.0015
-  surrogate_pw_cp_use_lns_only: false
-  surrogate_pw_cp_stop_on_no_improvement: false
+  surrogate_sw_cp_batch_size_ratio: 0.05
+  surrogate_sw_cp_unfixed_batch_count_min: 2
+  surrogate_sw_cp_unfixed_batch_count_max: 6
+  surrogate_sw_cp_step_size: 1
+  surrogate_sw_cp_lr_profile_fixed_batch_count: 1
+  surrogate_sw_cp_enable_promotion_profile_fixed: true
+  surrogate_sw_cp_non_time_fixed_op_time_limit_multiplier: 0.0015
+  surrogate_sw_cp_use_lns_only: false
+  surrogate_sw_cp_stop_on_no_improvement: false
   solver_thread_cnt: 24
   surrogate_use_lns_only: false
   surrogate_cp_snapshot_solution_limit: 20
@@ -161,7 +161,7 @@
   save_cp_dispatch_artifacts: false
   error_if_infeasible: false
   draw_gantt: false
-# --- Appended for i5: NEH-CP only (no final-time-reserve, no Base-CP, no pw_cp).
+# --- Appended for i5: NEH-CP only (no final-time-reserve, no Base-CP, no sw_cp).
 # Copied verbatim from configs_ablation_p1/subroutine_flow_c2_init_neh_cp.yaml.
 - method: suffix_probe_portfolio
   solver_thread_cnt: 24

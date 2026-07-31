@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, KW_ONLY
+from dataclasses import KW_ONLY, dataclass
 from typing import Sequence, TypeVar
 
 from mbls.cpsat import CpsatSolverReport, CpsatStatus
@@ -15,11 +15,11 @@ class HfsSubroutineReport(SubroutineReport):
 
     - is_init: If this report corresponds to initialization, not improvement.
     - subroutine_name: Name of the subroutine that produced this report.
-    - call_context: Unique call-site identifier (e.g. "4-pw_cp") to disambiguate
+    - call_context: Unique call-site identifier (e.g. "4-sw_cp") to disambiguate
       repeated invocations of the same subroutine name within a flow.
     - progress_obj_value_records: Normalized (elapsed_time, obj_value) pairs
       representing intermediate progress. For subroutines with dedicated result
-      objects (PwCpResult, NehCpResult, PrTsResult), these come from
+      objects (SwCpResult, NehCpResult, PrTsResult), these come from
       sub_obj_store.obj_value_series.items(). For CP-SAT subroutines, they
       mirror obj_value_records. For subroutines without a dedicated store but
       that call add_obj_value_log(), a singleton tuple is synthesized.

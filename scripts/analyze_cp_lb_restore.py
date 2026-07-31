@@ -146,7 +146,7 @@ def read_method_phases(path: Path) -> dict[str, float]:
                 phases["post1" if dispatch_count == 1 else "post2"] = obj
             elif method == "neh_cp" or method.endswith("neh_cp"):
                 neh_values.append((end_sec, obj))
-            elif method == "incremental_pw_cp" or method.endswith("pw_cp"):
+            elif method == "incremental_sw_cp" or method.endswith("sw_cp"):
                 pw_values.append((end_sec, obj))
             elif method.startswith("solve_base_cp_model"):
                 phases["final"] = obj

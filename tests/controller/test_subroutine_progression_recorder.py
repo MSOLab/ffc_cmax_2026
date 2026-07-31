@@ -144,7 +144,7 @@ class TestSubroutineProgressionRecorder:
         controller._subroutine_flow = [
             {"method": "set_random_seed"},
             {"method": "neh_cp"},
-            {"method": "incremental_pw_cp"},
+            {"method": "incremental_sw_cp"},
         ]
         controller.stopping_criteria = {"timelimit": 100}
 
@@ -176,7 +176,7 @@ class TestSubroutineProgressionRecorder:
         controller.instance = SimpleNamespace(name="ins1")
         controller.save_step_checkpoints_enabled = True
 
-        controller._try_save_step_checkpoint("14-incremental_pw_cp.1-pw_cp", "pw_cp")
+        controller._try_save_step_checkpoint("14-incremental_sw_cp.1-sw_cp", "sw_cp")
 
         assert not (tmp_path / "scenario" / "checkpoints").exists()
 
@@ -433,13 +433,13 @@ class TestSubroutineProgressionRecorder:
         assert data["subroutine_calls"][1]["global_start_sec"] == 3.0
         assert data["subroutine_calls"][1]["elapsed_sec"] == 4.0
 
-    def test_get_progression_data_collects_nested_incremental_pw_cp_reports(self) -> None:
+    def test_get_progression_data_collects_nested_incremental_sw_cp_reports(self) -> None:
         controller = _make_progression_controller()
         controller._subroutine_call_meta_list = [
             {
                 "call_index": 1,
-                "subroutine_name": "incremental_pw_cp",
-                "prefixed_subroutine_name": "1-incremental_pw_cp",
+                "subroutine_name": "incremental_sw_cp",
+                "prefixed_subroutine_name": "1-incremental_sw_cp",
                 "global_start_sec": 10.0,
                 "global_end_sec": 11.0,
                 "elapsed_sec": 1.0,
@@ -449,29 +449,29 @@ class TestSubroutineProgressionRecorder:
             {
                 "global_end_sec": 11.0,
                 "call_index": 1,
-                "prefixed_subroutine_name": "1-incremental_pw_cp",
-                "subroutine_name": "incremental_pw_cp",
+                "prefixed_subroutine_name": "1-incremental_sw_cp",
+                "subroutine_name": "incremental_sw_cp",
             }
         ]
         controller._method_context_meta_map = {
-            "1-incremental_pw_cp.1-unfixed_batch_count_002": {
+            "1-incremental_sw_cp.1-unfixed_batch_count_002": {
                 "global_start_sec": 10.2
             },
-            "1-incremental_pw_cp.2-unfixed_batch_count_003": {
+            "1-incremental_sw_cp.2-unfixed_batch_count_003": {
                 "global_start_sec": 10.7
             },
         }
         controller.solution_manager.history = [
             SimpleNamespace(
                 report=SimpleNamespace(
-                    call_context="1-incremental_pw_cp.1-unfixed_batch_count_002",
+                    call_context="1-incremental_sw_cp.1-unfixed_batch_count_002",
                     progress_obj_value_records=((0.01, 982.0), (0.22, 980.0)),
                     progress_time_basis="local",
                 )
             ),
             SimpleNamespace(
                 report=SimpleNamespace(
-                    call_context="1-incremental_pw_cp.2-unfixed_batch_count_003",
+                    call_context="1-incremental_sw_cp.2-unfixed_batch_count_003",
                     progress_obj_value_records=(
                         (0.05, 978.0),
                         (0.08, 977.0),
@@ -528,24 +528,24 @@ class TestSubroutineProgressionRecorder:
             }
         ]
         controller._method_context_meta_map = {
-            "1-repeat_while_improvement.1-reps_001.1-pw_cp": {
+            "1-repeat_while_improvement.1-reps_001.1-sw_cp": {
                 "global_start_sec": 5.25
             },
-            "1-repeat_while_improvement.2-reps_002.1-pw_cp": {
+            "1-repeat_while_improvement.2-reps_002.1-sw_cp": {
                 "global_start_sec": 6.05
             },
         }
         controller.solution_manager.history = [
             SimpleNamespace(
                 report=SimpleNamespace(
-                    call_context="1-repeat_while_improvement.1-reps_001.1-pw_cp",
+                    call_context="1-repeat_while_improvement.1-reps_001.1-sw_cp",
                     progress_obj_value_records=((0.1, 98.0), (0.3, 95.0)),
                     progress_time_basis="local",
                 )
             ),
             SimpleNamespace(
                 report=SimpleNamespace(
-                    call_context="1-repeat_while_improvement.2-reps_002.1-pw_cp",
+                    call_context="1-repeat_while_improvement.2-reps_002.1-sw_cp",
                     progress_obj_value_records=((0.2, 94.0), (0.4, 93.0)),
                     progress_time_basis="local",
                 )
@@ -662,7 +662,7 @@ class TestSubroutineProgressionRecorder:
         )
         controller._subroutine_flow = [
             {"method": "initialize"},
-            {"method": "incremental_pw_cp"},
+            {"method": "incremental_sw_cp"},
         ]
         controller.method_names_to_run_before_resume = set()
         controller._run_flow = MagicMock()
@@ -678,11 +678,11 @@ class TestSubroutineProgressionRecorder:
 
         assert controller._start_subroutine_call.call_args_list == [
             (("initialize",),),
-            (("incremental_pw_cp",),),
+            (("incremental_sw_cp",),),
         ]
         assert controller._end_subroutine_call.call_args_list == [
             (("initialize",),),
-            (("incremental_pw_cp",),),
+            (("incremental_sw_cp",),),
         ]
         assert controller._run_flow.call_count == 2
         controller.post_run_process.assert_called_once_with()

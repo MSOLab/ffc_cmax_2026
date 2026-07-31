@@ -504,7 +504,7 @@ cp_tl_nc_multiplier_2nd_obj > cp_tl_c_multiplier_2nd_obj > max_time_per_add(폴�
 - **목적함수 확장**: 1차 makespan + 2차 sum C_i 구조는 다른 다중 목적함수
   조합으로 교체 가능하다. 예: tardiness, weighted completion time 등.
 - **CP 모델 교체**: BaseModelBuilder.build() 대신 다른 CP 모델 빌더를
-  사용할 수 있다. 예를 들어 PwCpModelBuilder 등.
+  사용할 수 있다. 예를 들어 SwCpModelBuilder 등.
 
 ### 주의사항
 

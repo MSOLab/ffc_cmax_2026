@@ -132,7 +132,7 @@
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
   min_remaining_nc_after_neh: 0.05
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8
@@ -142,7 +142,7 @@
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 16
   use_lns_only: false
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.10
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 6

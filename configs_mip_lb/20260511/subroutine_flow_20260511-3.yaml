@@ -186,7 +186,7 @@
       skip_if_estimated_neh_exceeds_remaining: true
       full_neh_estimate_safety_factor: 1.0
       log_cp_subproblem_bounds: true
-    - method: incremental_pw_cp
+    - method: incremental_sw_cp
       name: 0504_pw005
       batch_size_ratio: 0.05
       unfixed_batch_count_min: 2
@@ -197,7 +197,7 @@
       enable_promotion_profile_fixed: true
       solver_thread_cnt: 16
       use_lns_only: false
-    - method: incremental_pw_cp
+    - method: incremental_sw_cp
       name: 0504_pw009
       batch_size_ratio: 0.09
       unfixed_batch_count_min: 2
@@ -327,7 +327,7 @@
       log_search_progress: false
       require_last_neh_incumbent_update: true
       use_improved_budget_if_last_neh_missing: false
-    - method: incremental_pw_cp
+    - method: incremental_sw_cp
       name: 0510_pw005
       batch_size_ratio: 0.05
       unfixed_batch_count_min: 2
@@ -338,7 +338,7 @@
       enable_promotion_profile_fixed: true
       solver_thread_cnt: 16
       use_lns_only: false
-    - method: incremental_pw_cp
+    - method: incremental_sw_cp
       name: 0510_pw009
       batch_size_ratio: 0.09
       unfixed_batch_count_min: 2

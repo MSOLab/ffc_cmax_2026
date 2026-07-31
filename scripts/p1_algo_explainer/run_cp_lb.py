@@ -105,7 +105,6 @@ from schore.parameters_examples.parallel_shop.identical_flow import (  # noqa: E
 from hybridflowshop.controller.hfs_cp_lns import (  # noqa: E402
     HybridFlowShopCpLnsController,
 )
-
 from scripts.p1_algo_explainer.recorder import GanttSnapshotRecorder  # noqa: E402
 from scripts.p1_algo_explainer.render import render_panel  # noqa: E402
 

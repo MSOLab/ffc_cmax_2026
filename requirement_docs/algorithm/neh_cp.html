@@ -641,7 +641,7 @@ if full_sol.makespan < best_full_obj:
   <li><strong>NEH 순서 결정 방식</strong>: 현재는 midpoint / 1st stage / bottleneck 세 가지 순서 결정 방식을 지원한다. 문제에 따라 due date, release time, 우선순위 등 다른 기준으로 교체 가능하다.</li>
   <li><strong>배치 전략</strong>: 배치 분할 방식(<code>added_batch_size</code>, 균등 분할 등)은 <code>_split_tail_jobs_into_batches()</code>에서 결정된다. 배치 크기를 문제 크기나 시간 예산에 맞게 동적 조절하는 확장이 가능하다.</li>
   <li><strong>목적함수 확장</strong>: 1차 makespan + 2차 sum C<sub>i</sub> 구조는 다른 다중 목적함수 조합으로 교체 가능하다. 예: tardiness, weighted completion time 등.</li>
-  <li><strong>CP 모델 교체</strong>: <code>BaseModelBuilder.build()</code> 대신 다른 CP 모델 빌더를 사용할 수 있다. 예를 들어 <code>PwCpModelBuilder</code> 등.</li>
+  <li><strong>CP 모델 교체</strong>: <code>BaseModelBuilder.build()</code> 대신 다른 CP 모델 빌더를 사용할 수 있다. 예를 들어 <code>SwCpModelBuilder</code> 등.</li>
 </ul>
 
 <h3>주의사항</h3>

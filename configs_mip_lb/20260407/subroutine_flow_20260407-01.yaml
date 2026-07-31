@@ -26,42 +26,42 @@
   display_interval_sec: 1
   log_to_console: false
   delta: 1200
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.10
   non_time_fixed_op_time_limit_multiplier: 0.01
   lr_profile_fixed_batch_count: 1
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.15
   non_time_fixed_op_time_limit_multiplier: 0.01
   lr_profile_fixed_batch_count: 1
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.20
   non_time_fixed_op_time_limit_multiplier: 0.01
   lr_profile_fixed_batch_count: 1
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.25
   non_time_fixed_op_time_limit_multiplier: 0.01
   lr_profile_fixed_batch_count: 1
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.30
   non_time_fixed_op_time_limit_multiplier: 0.01
   lr_profile_fixed_batch_count: 1
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.35
   non_time_fixed_op_time_limit_multiplier: 0.01
   lr_profile_fixed_batch_count: 1

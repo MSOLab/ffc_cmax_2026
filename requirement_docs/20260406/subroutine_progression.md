@@ -60,8 +60,8 @@ subroutine 실행
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `call_index` | `int` | Y | 호출 순서 인덱스 $k$. 1부터 시작, 실행마다 1씩 증가 |
-| `subroutine_name` | `string` | Y | 호출된 메서드 이름 (예: `"init"`, `"pw_cp"`, `"repeat_while_improvement"`) |
-| `prefixed_subroutine_name` | `string` | Y | 고유 호출 사이트 식별자. 포맷: `"{call_index}-{subroutine_name}"` (예: `"4-pw_cp"`) |
+| `subroutine_name` | `string` | Y | 호출된 메서드 이름 (예: `"init"`, `"sw_cp"`, `"repeat_while_improvement"`) |
+| `prefixed_subroutine_name` | `string` | Y | 고유 호출 사이트 식별자. 포맷: `"{call_index}-{subroutine_name}"` (예: `"4-sw_cp"`) |
 | `global_start_sec` | `float` | Y | call 시작 시의 전역 경과 시간 $t^{\mathrm{start}}_{i,a,k}$ |
 | `global_end_sec` | `float \| null` | Y | call 종료 시의 전역 경과 시간 $t^{\mathrm{end}}_{i,a,k}$. 아직 종료되지 않았거나 기록 누락 시 `null` |
 | `elapsed_sec` | `float \| null` | Y | call 소요 시간 $\Delta t = t^{\mathrm{end}} - t^{\mathrm{start}}$. 계산 불가 시 `null` |
@@ -93,7 +93,7 @@ subroutine 실행
 `get_progression_data()`는 다음 우선순위로 데이터를 수집한다:
 
 1. **Direct report match**: `solution_manager.history`에서 `call_context`가 `prefixed_subroutine_name`과 일치하는 report를 찾음. `progress_obj_value_records`가 존재하면 이를 `_build_progress_point_list()`로 변환
-2. **Nested report collection**: direct report가 없거나 container-type subroutine(예: `incremental_pw_cp`, `repeat_while_improvement`)인 경우, `_collect_nested_reports()`로 하위 call들의 report를 수집하여 부모 시간축에 재매핑
+2. **Nested report collection**: direct report가 없거나 container-type subroutine(예: `incremental_sw_cp`, `repeat_while_improvement`)인 경우, `_collect_nested_reports()`로 하위 call들의 report를 수집하여 부모 시간축에 재매핑
 3. **Fallback**: 위 두 방법 모두 실패 시 `_subroutine_call_progress_map`의 기존 기록 사용
 
 ---
@@ -157,11 +157,11 @@ downstream 분석이 두 가지 접근 방식 중 선택할 수 있도록 의도
 
 ```
 ROOT                                    # 최상위
-4-pw_cp                                 # top-level call
+4-sw_cp                                 # top-level call
 1-repeat_while_improvement              # container call
 1-repeat_while_improvement.1-reps_001   # repeat 내부 iteration
-1-repeat_while_improvement.1-reps_001.1-pw_cp  # repeat 내부의 중첩 call
-1-incremental_pw_cp.1-unfixed_batch_count_002  # incremental 내부 배치
+1-repeat_while_improvement.1-reps_001.1-sw_cp  # repeat 내부의 중첩 call
+1-incremental_sw_cp.1-unfixed_batch_count_002  # incremental 내부 배치
 ```
 
 ### Call Context Depth
@@ -174,12 +174,12 @@ def _get_call_context_depth(call_context: str) -> int:
 ```
 
 - `ROOT` → depth 0
-- `4-pw_cp` → depth 1
+- `4-sw_cp` → depth 1
 - `1-repeat_while_improvement.1-reps_001` → depth 2
 
 ### 중첩 Report 수집 (`_collect_nested_reports`)
 
-container-type subroutine(예: `incremental_pw_cp`, `repeat_while_improvement`)은 자체 progress가 없고 하위 call들로부터 진행 상황을 집계한다:
+container-type subroutine(예: `incremental_sw_cp`, `repeat_while_improvement`)은 자체 progress가 없고 하위 call들로부터 진행 상황을 집계한다:
 
 1. parent의 `prefixed_subroutine_name`에 `"."`를 붙인 prefix로 시작하는 하위 report 검색
 2. 하위 report의 depth가 parent depth보다 큰 것만 포함
@@ -262,7 +262,7 @@ context manager로, 현재 call context에 이름을 추가하여 중첩 컨텍�
 class HfsSubroutineReport(SubroutineReport):
     is_init: bool
     subroutine_name: str = ""
-    call_context: str = ""                           # "4-pw_cp" 형식
+    call_context: str = ""                           # "4-sw_cp" 형식
     progress_obj_value_records: tuple[tuple[float, float], ...] = ()  # (local_time, obj_value)
     progress_time_basis: str = "local"               # "local" 또는 "global"
 ```
@@ -372,8 +372,8 @@ downstream 분석은 다음 경로에서 `subroutine_progression.json`을 탐색
     },
     {
       "call_index": 3,
-      "subroutine_name": "pw_cp",
-      "prefixed_subroutine_name": "3-pw_cp",
+      "subroutine_name": "sw_cp",
+      "prefixed_subroutine_name": "3-sw_cp",
       "global_start_sec": 5.234,
       "global_end_sec": 25.678,
       "elapsed_sec": 20.444,
@@ -382,21 +382,21 @@ downstream 분석은 다음 경로에서 `subroutine_progression.json`을 탐색
           "global_sec": 8.5,
           "obj_value": 1020.0,
           "call_index": 3,
-          "prefixed_subroutine_name": "3-pw_cp",
+          "prefixed_subroutine_name": "3-sw_cp",
           "local_sec": 3.266
         },
         {
           "global_sec": 15.0,
           "obj_value": 995.0,
           "call_index": 3,
-          "prefixed_subroutine_name": "3-pw_cp",
+          "prefixed_subroutine_name": "3-sw_cp",
           "local_sec": 9.766
         },
         {
           "global_sec": 25.678,
           "obj_value": 980.0,
           "call_index": 3,
-          "prefixed_subroutine_name": "3-pw_cp",
+          "prefixed_subroutine_name": "3-sw_cp",
           "local_sec": 20.444
         }
       ]
@@ -421,21 +421,21 @@ downstream 분석은 다음 경로에서 `subroutine_progression.json`을 탐색
       "global_sec": 8.5,
       "obj_value": 1020.0,
       "call_index": 3,
-      "prefixed_subroutine_name": "3-pw_cp",
+      "prefixed_subroutine_name": "3-sw_cp",
       "local_sec": 3.266
     },
     {
       "global_sec": 15.0,
       "obj_value": 995.0,
       "call_index": 3,
-      "prefixed_subroutine_name": "3-pw_cp",
+      "prefixed_subroutine_name": "3-sw_cp",
       "local_sec": 9.766
     },
     {
       "global_sec": 25.678,
       "obj_value": 980.0,
       "call_index": 3,
-      "prefixed_subroutine_name": "3-pw_cp",
+      "prefixed_subroutine_name": "3-sw_cp",
       "local_sec": 20.444
     }
   ],
@@ -455,8 +455,8 @@ downstream 분석은 다음 경로에서 `subroutine_progression.json`을 탐색
     {
       "global_end_sec": 25.678,
       "call_index": 3,
-      "prefixed_subroutine_name": "3-pw_cp",
-      "subroutine_name": "pw_cp"
+      "prefixed_subroutine_name": "3-sw_cp",
+      "subroutine_name": "sw_cp"
     }
   ]
 }

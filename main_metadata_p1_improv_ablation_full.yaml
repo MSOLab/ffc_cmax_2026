@@ -18,7 +18,7 @@ dicts_of_i_o_data_path:
       "Thesis P1 ablation 1-1 - i5: full initialization INCLUDING NEH-CP.
       Resumes from the i4 (MD+BN2D+QSR+CP-LB) results in run 20260527T201714_595504
       and appends the NEH-CP suffix_probe_portfolio (3-lane probe race + neh15/20/25/30
-      suffix ladder; ISW-CP / incremental_pw_cp excluded). No final-time-reserve and
+      suffix ladder; ISW-CP / incremental_sw_cp excluded). No final-time-reserve and
       no Base-CP, so NEH-CP is given all remaining 2nc budget. Same 24-thread CP-SAT
       settings as the published full pipeline.
       Final cell of the initialization ablation study."
@@ -26,7 +26,7 @@ dicts_of_i_o_data_path:
     subroutine_flow_rel_path: configs_ablation_p1/subroutine_flow_c1_no_isw_cp_full.yaml
     output_dir: ff2020/ablation_c1_no_isw_cp_full
     description: "Thesis P1 ablation c1 - Init -> NEH-CP -> Base-CP, with the
-      Neighborhood Search ISW-CP disabled. ISW-CP / incremental_pw_cp steps
+      Neighborhood Search ISW-CP disabled. ISW-CP / incremental_sw_cp steps
       (safe_pw005, safe_pw009) remain removed from suffix_probe_portfolio,
       to answer whether ISW-CP is necessary. Same 24-thread CP-SAT settings
       as the published full pipeline."

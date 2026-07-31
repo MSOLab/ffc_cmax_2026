@@ -4,12 +4,12 @@ import math
 from typing import Sequence
 
 from mbls.cpsat import CustomCpModel
-
-from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
-from hybridflowshop.cpsat_model_2.params import Params
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
 )
+
+from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
+from hybridflowshop.cpsat_model_2.params import Params
 
 from .shared import RetainedStageCpBuild, RetainedStageCpVars, RetainedStageSelection
 

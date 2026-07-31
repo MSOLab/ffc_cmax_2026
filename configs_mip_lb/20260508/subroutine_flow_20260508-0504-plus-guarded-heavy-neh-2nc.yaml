@@ -214,7 +214,7 @@
   run_if_bound_missing: false
   max_retained_cp_restore_loss_ratio: 0.06
   run_if_retained_cp_restore_missing: false
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8
@@ -224,7 +224,7 @@
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 16
   use_lns_only: false
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.1
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 6

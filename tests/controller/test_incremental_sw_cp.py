@@ -45,20 +45,20 @@ def _make_controller(schedule: FakeIncrementalSchedule):
     return ctrl, seen_contexts
 
 
-def test_incremental_pw_cp_always_runs_each_count_once_and_clamps_max():
+def test_incremental_sw_cp_always_runs_each_count_once_and_clamps_max():
     schedule = FakeIncrementalSchedule()
     ctrl, seen_contexts = _make_controller(schedule)
     seen_kwargs = []
 
-    def fake_pw_cp(**kwargs):
+    def fake_sw_cp(**kwargs):
         seen_kwargs.append(kwargs)
 
-    ctrl.pw_cp = fake_pw_cp
+    ctrl.sw_cp = fake_sw_cp
     ctrl.repeat_while_improvement = lambda *args, **kwargs: pytest.fail(
         "repeat_while_improvement should not be used for the always policy"
     )
 
-    ctrl.incremental_pw_cp(
+    ctrl.incremental_sw_cp(
         solver_thread_cnt=8,
         batch_size=2,
         batch_size_ratio=0.25,
@@ -79,7 +79,7 @@ def test_incremental_pw_cp_always_runs_each_count_once_and_clamps_max():
     assert seen_contexts == ["batch_001", "batch_002"]
 
 
-def test_incremental_pw_cp_if_no_improvement_retries_same_count_until_stop():
+def test_incremental_sw_cp_if_no_improvement_retries_same_count_until_stop():
     schedule = FakeIncrementalSchedule(makespan=100)
     ctrl, seen_contexts = _make_controller(schedule)
     seen_counts = []
@@ -98,11 +98,11 @@ def test_incremental_pw_cp_if_no_improvement_retries_same_count_until_stop():
         count_2_call_count[unfixed_batch_count] += 1
 
     ctrl._run_flow = fake_run_flow
-    ctrl.pw_cp = lambda **kwargs: pytest.fail(
-        "pw_cp should be driven through repeat_while_improvement for this policy"
+    ctrl.sw_cp = lambda **kwargs: pytest.fail(
+        "sw_cp should be driven through repeat_while_improvement for this policy"
     )
 
-    ctrl.incremental_pw_cp(
+    ctrl.incremental_sw_cp(
         solver_thread_cnt=4,
         batch_size=2,
         unfixed_batch_count_min=1,
@@ -122,14 +122,14 @@ def test_incremental_pw_cp_if_no_improvement_retries_same_count_until_stop():
     ]
 
 
-def test_incremental_pw_cp_rejects_invalid_flag():
+def test_incremental_sw_cp_rejects_invalid_flag():
     schedule = FakeIncrementalSchedule()
     ctrl, _seen_contexts = _make_controller(schedule)
 
     with pytest.raises(
         ValueError, match="increment_unfixed_batch_count_flag must be one of"
     ):
-        ctrl.incremental_pw_cp(
+        ctrl.incremental_sw_cp(
             solver_thread_cnt=8,
             batch_size=2,
             unfixed_batch_count_min=1,
@@ -138,14 +138,14 @@ def test_incremental_pw_cp_rejects_invalid_flag():
         )
 
 
-def test_incremental_pw_cp_rejects_invalid_range():
+def test_incremental_sw_cp_rejects_invalid_range():
     schedule = FakeIncrementalSchedule()
     ctrl, _seen_contexts = _make_controller(schedule)
 
     with pytest.raises(
         ValueError, match="unfixed_batch_count_max must be >= unfixed_batch_count_min"
     ):
-        ctrl.incremental_pw_cp(
+        ctrl.incremental_sw_cp(
             solver_thread_cnt=8,
             batch_size=2,
             unfixed_batch_count_min=2,
@@ -153,15 +153,15 @@ def test_incremental_pw_cp_rejects_invalid_range():
         )
 
 
-def test_incremental_pw_cp_rejects_min_above_actual_batch_count():
+def test_incremental_sw_cp_rejects_min_above_actual_batch_count():
     schedule = FakeIncrementalSchedule()
     ctrl, _seen_contexts = _make_controller(schedule)
 
     with pytest.raises(
         ValueError,
-        match="unfixed_batch_count_min exceeds the available PW-CP batch count",
+        match="unfixed_batch_count_min exceeds the available SW-CP batch count",
     ):
-        ctrl.incremental_pw_cp(
+        ctrl.incremental_sw_cp(
             solver_thread_cnt=8,
             batch_size=2,
             unfixed_batch_count_min=3,

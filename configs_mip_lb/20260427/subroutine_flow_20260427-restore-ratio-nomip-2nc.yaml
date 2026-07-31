@@ -96,7 +96,7 @@
   use_lns_only: false
   error_if_infeasible: false
   draw_gantt: false
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 8
@@ -106,7 +106,7 @@
   enable_promotion_profile_fixed: true
   solver_thread_cnt: 16
   use_lns_only: false
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.10
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 6

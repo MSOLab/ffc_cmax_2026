@@ -111,7 +111,6 @@ from hybridflowshop.controller.hfs_cp_lns import (  # noqa: E402
     HybridFlowShopCpLnsController,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule  # noqa: E402
-
 from scripts.p1_algo_explainer.recorder import GanttSnapshotRecorder  # noqa: E402
 from scripts.p1_algo_explainer.render import render_panel  # noqa: E402
 

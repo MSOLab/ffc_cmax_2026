@@ -11,6 +11,5 @@ if str(REPO_ROOT) not in sys.path:
 
 from lb_bucket.mip.app import main
 
-
 if __name__ == "__main__":
     main()

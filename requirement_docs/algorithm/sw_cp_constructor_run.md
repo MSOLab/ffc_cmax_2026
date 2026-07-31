@@ -1,15 +1,15 @@
-# PW-CP Constructor (PwCpConstructor.run)
+# SW-CP Constructor (SwCpConstructor.run)
 
-호출: `def PwCpConstructor.run` (pw_cp.py)
+호출: `def SwCpConstructor.run` (sw_cp.py)
 
 ## 개요
 
-PwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인
-PW-CP의 **핵심 구현체**다. 초기 실행 가능 스케줄을 입력받아, 시간 순서로 정렬된
+SwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인
+SW-CP의 **핵심 구현체**다. 초기 실행 가능 스케줄을 입력받아, 시간 순서로 정렬된
 배치(batch) 위로 윈도우를 슬라이딩시키며 각 윈도우 내 작업을 CP 서브문제로
 풀어 makespan을 단계적으로 개선한다.
 
-전체 알고리즘 개념(`pw_cp.md`)과 동일하나, 이 문서는 PwCpConstructor.run의
+전체 알고리즘 개념(`sw_cp.md`)과 동일하나, 이 문서는 SwCpConstructor.run의
 **구체적인 실행 흐름 — 반복 루프 구성, CP 모델 분기, 상태 관리, 배치별 시간
 제한 결정** — 을 구현 수준에서 서술한다.
 
@@ -41,11 +41,11 @@ PW-CP의 **핵심 구현체**다. 초기 실행 가능 스케줄을 입력받아
 
 알고리즘은 두 계층의 변수를 관리한다:
 
-**PwCpRunState (반복 상태)**:
+**SwCpRunState (반복 상태)**:
 - `timer` (`ElapsedTimer`): 총 경과 시간 추적
 - `incumbent` (`HybridFlowshopLiteSchedule`): 현재 최선 스케줄
 - `subproblem_idx` (`int`): 전체 서브문제 번호 (1부터 시작, 루프 전체에서 단조 증가)
-- `subproblem_logs` (`list[PwCpSubproblemLog]`): 각 서브문제의 결과 로그
+- `subproblem_logs` (`list[SwCpSubproblemLog]`): 각 서브문제의 결과 로그
 - `sub_obj_store` (`ObjValueBoundStore[int]`): 개선 시 obj value 이력 저장
 - `max_time_per_batch` (`float | None`): `max_time_per_batch` 파라미터의 패스스루 값 (multiplier 사용 시 `None`). 결과 메타데이터용이며, 실제 배치별 제한은 `_resolve_batch_time_limit`이 산정
 
@@ -191,25 +191,25 @@ profile-fixed 작업들을 unfixed로 승격시킨다. 같은 잡의 모든 작�
 `spec.is_right_time_fixed_empty`에 따라 solve 함수가 갈린다:
 
 - True (right_time_fixed 없음) → `_solve_makespan_batch`
-- False (right_time_fixed 있음) → `_solve_batch_pw_cp_model`
+- False (right_time_fixed 있음) → `_solve_batch_sw_cp_model`
 
 ---
 
 ## CP 모델 준비의 두 분기
 
-### Common Spacing 최대화 모델 (`_solve_batch_pw_cp_model`)
+### Common Spacing 최대화 모델 (`_solve_batch_sw_cp_model`)
 
 `right_time_fixed`가 존재하는 (비-마지막) 윈도우에 사용된다.
 
-`_prepare_pw_cp_model`이 다음을 구성한다:
+`_prepare_sw_cp_model`이 다음을 구성한다:
 
-1. **Non-time-fixed 변수**: `PwCpModelBuilder.make_non_time_fixed_ops_vars`
-2. **더미 바 변수**: `PwCpModelBuilder.make_dummy_bar_vars`
+1. **Non-time-fixed 변수**: `SwCpModelBuilder.make_non_time_fixed_ops_vars`
+2. **더미 바 변수**: `SwCpModelBuilder.make_dummy_bar_vars`
    - Left dummy bar (고정): 각 기계의 `[0, left_boundary]` 구간 점유
    - Right dummy bar (가변): `[right_boundary - common_spacing, horizon]`
      구간 점유. `common_spacing`이 클수록 왼쪽으로 확장된다.
-3. **잡 선행 제약**: `PwCpModelBuilder.add_non_fixed_job_precedence_constraints`
-4. **용량 제약**: `PwCpModelBuilder.add_capacity_with_dummy_bar_constraints`
+3. **잡 선행 제약**: `SwCpModelBuilder.add_non_fixed_job_precedence_constraints`
+4. **용량 제약**: `SwCpModelBuilder.add_capacity_with_dummy_bar_constraints`
 5. **Hint 적용**: right-justified 스케줄의 start/end 시각으로 hint 설정
 6. **Profile-fixed 선행 제약**: profile_fixed 작업이 있으면 추가
 7. **목적함수**: `maximize common_spacing`
@@ -224,7 +224,7 @@ profile-fixed 작업들을 unfixed로 승격시킨다. 같은 잡의 모든 작�
 - **마지막 스테이지 검증**: 마지막 스테이지에 `non_time_fixed` 작업이
   하나 이상 있어야 함. 없으면 `ValueError`
 - **목적함수**: `minimize makespan = max(op_end[j, last_stage])`
-  → `PwCpModelBuilder.add_makespan_objective`
+  → `SwCpModelBuilder.add_makespan_objective`
 
 ### 공통 해결 과정
 
@@ -233,14 +233,14 @@ profile-fixed 작업들을 unfixed로 승격시킨다. 같은 잡의 모든 작�
 1. `ctx.get_remaining_time_limit(max_time_per_batch)`로 남은 시간 예산 확인
 2. `ctx.solve_cp_model_2(...)`로 CP-SAT 호출
 3. infeasible이면 `None` 반환하고 로그 기록
-4. feasible이면 `create_pw_cp_schedule(...)`로 CP 해에서
+4. feasible이면 `create_sw_cp_schedule(...)`로 CP 해에서
    `HybridFlowshopLiteSchedule` 재구성
 5. `candidate_schedule.make_semi_active(stage_2_job_2_p_dict)`로 semi-active 정규화
 
-### 스케줄 재구성 (create_pw_cp_schedule)
+### 스케줄 재구성 (create_sw_cp_schedule)
 
 CP 해로부터의 스케줄 재구성은 세 단계로 진행된다 (자세한 내용은
-`pw_cp.md`의 「스케줄 재구성」 참조):
+`sw_cp.md`의 「스케줄 재구성」 참조):
 
 1. **Left-time-fixed 작업**: right-justified 스케줄에서 그대로 시각과 기계를 가져와 배정
 2. **Non-time-fixed 작업**: CP가 구한 시작 시각 순으로 정렬 후 `add_operation_2_stage`로
@@ -266,7 +266,7 @@ candidate가 None이 아니고 makespan이 incumbent보다 작음:
 
 ### 상태 관리
 
-- `PwCpRunState` 인스턴스가 `self._st`에 저장되며, `run()` 입장 시 생성되고
+- `SwCpRunState` 인스턴스가 `self._st`에 저장되며, `run()` 입장 시 생성되고
   `finally` 블록에서 `None`으로 초기화된다.
 - `_require_state()`로 현재 상태에 접근하며, `run()`이 활성화되지 않았으면
   `RuntimeError`를 발생시킨다.
@@ -288,7 +288,7 @@ candidate가 None이 아니고 makespan이 incumbent보다 작음:
       stage_2_job_2_p_dict (가공 시간 맵), 각종 파라미터
 
  1. 입력 검증 (step_size >= 1, unfixed_batch_count >= 1, profile_fixed_batch_count >= 0 등)
- 2. PwCpRunState 초기화 (timer, incumbent=ref_schedule, ...)
+ 2. SwCpRunState 초기화 (timer, incumbent=ref_schedule, ...)
  3. [debug] 초기 Gantt 차트 저장 (debug_export=True)
  4. 초기 배치 목록 구성 (build_stage_2_batch_list)
  5. 배치 수 검증 (모든 스테이지 동일) → max_batch_cnt
@@ -300,20 +300,20 @@ candidate가 None이 아니고 makespan이 incumbent보다 작음:
            _build_operation_partition(...) → 5-영역 파티션
       d. [선택] enable_promotion_profile_fixed:
            unfixed 잡의 profile-fixed 작업을 unfixed로 승격
-      e. _build_batch_spec(...) → PwCpSubproblemSpec
+      e. _build_batch_spec(...) → SwCpSubproblemSpec
            - right_time_fixed 존재 → 우측-정렬 → 윈도우 맵
            - right_time_fixed 없음 → 윈도우 맵만
       f. _resolve_batch_time_limit(...) → 배치당 시간 제한
       g. if spec.is_right_time_fixed_empty:
            _solve_makespan_batch(...)  → candidate | None
          else:
-           _solve_batch_pw_cp_model(...) → candidate | None
+           _solve_batch_sw_cp_model(...) → candidate | None
       h. _accept_candidate_or_repair_incumbent(candidate, incumbent, ...)
            → (new_incumbent, accepted)
       i. [debug] solution YAML 저장
       j. [accepted] sub_obj_store에 obj value 기록
  8. [error_if_infeasible] 최종 incumbent feasibility 검증
- 9. PwCpResult 반환 (schedule, sub_obj_store, subproblem_logs, ...)
+ 9. SwCpResult 반환 (schedule, sub_obj_store, subproblem_logs, ...)
 
 최종: self._st = None (finally 블록)
 ```
@@ -369,21 +369,21 @@ candidate가 None이 아니고 makespan이 incumbent보다 작음:
 ## 주의사항 및 응용 고려사항
 
 ### 전제 조건
-- 반드시 실행 가능한 초기 스케줄(`ref_schedule`)이 필요하다. PW-CP는 개선
+- 반드시 실행 가능한 초기 스케줄(`ref_schedule`)이 필요하다. SW-CP는 개선
   알고리즘이므로 초기해 없이 동작할 수 없다.
 - 모든 스테이지의 배치 수가 동일해야 한다. 스테이지별 작업 수 차이가 크면
   빈 배치가 발생하거나 배치 수 불일치로 오류가 발생할 수 있다.
 
 ### 두 가지 시간 제한 방식의 관계
 - `non_time_fixed_op_time_limit_multiplier`가 설정되면 `max_time_per_batch`는
-  `PwCpRunState.max_time_per_batch`로만 전달될 뿐 실제 시간 제한 계산에는
+  `SwCpRunState.max_time_per_batch`로만 전달될 뿐 실제 시간 제한 계산에는
   사용되지 않는다. 즉, **두 방식은 상호 배타적**이다.
 - 시간 제한은 `ctx.get_remaining_time_limit(...)`을 통해 전체 남은 시간 예산
   내로 클리핑된다.
 
 ### 확장 포인트
 - **목적함수 교체**: common_spacing 최대화 대신 다른 국소 목적(예: 지연 최소화)으로
-  교체하려면 `_prepare_pw_cp_model`과 `_prepare_makespan_batch_model`의
+  교체하려면 `_prepare_sw_cp_model`과 `_prepare_makespan_batch_model`의
   objective 부분을 수정한다.
 - **파티션 정책 변경**: `_build_operation_partition`의 인덱스 기반 분할 대신,
   다른 기준(우선순위, 클러스터 등)으로 교체 가능하다.

@@ -6,17 +6,17 @@ from mbls.cpsat import ObjValueBoundStore
 from ortools.sat.python import cp_model
 from routix import ElapsedTimer
 
-from hybridflowshop.controller.pw_cp import (
+from hybridflowshop.controller.sw_cp import (
     OperationPartition,
-    PwCpConstructor,
-    PwCpRunState,
-    PwCpSubproblemSpec,
+    SwCpConstructor,
+    SwCpRunState,
+    SwCpSubproblemSpec,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 from tests.test_dispatch_stage_by_machines import create_hfs_instance
 
 
-class FakePwCpContext:
+class FakeSwCpContext:
     def __init__(self, tmp_path: Path):
         self.tmp_path = tmp_path
         self.solver = cp_model.CpSolver()
@@ -143,8 +143,8 @@ def _make_instance(stage_ids, machines_per_stage, p_by_job):
 
 
 def test_build_stage_batches_is_deterministic(tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
 
     batches = ctor.build_stage_2_batch_list(_make_schedule(), batch_size=2)
 
@@ -157,8 +157,8 @@ def test_build_stage_batches_is_deterministic(tmp_path):
 
 
 def test_build_slack_batch_spec_creates_right_justified_window_map(tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
     incumbent = _make_schedule()
     stage_2_partition = {
         "s1": OperationPartition(
@@ -169,7 +169,7 @@ def test_build_slack_batch_spec_creates_right_justified_window_map(tmp_path):
             right_time_fixed=(("j3", "m1"), ("j4", "m2")),
         )
     }
-    ctor._st = PwCpRunState(
+    ctor._st = SwCpRunState(
         timer=ElapsedTimer(),
         incumbent=incumbent,
         sub_obj_store=ObjValueBoundStore[int](),
@@ -189,8 +189,8 @@ def test_build_slack_batch_spec_creates_right_justified_window_map(tmp_path):
 
 
 def test_prepare_subproblem_model_uses_incumbent_hints_for_makespan_batch(tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
     incumbent = _make_schedule()
     stage_2_partition = {
         "s1": OperationPartition(
@@ -201,7 +201,7 @@ def test_prepare_subproblem_model_uses_incumbent_hints_for_makespan_batch(tmp_pa
             right_time_fixed=(),  # Empty = makespan batch
         )
     }
-    spec = PwCpSubproblemSpec(
+    spec = SwCpSubproblemSpec(
         batch_idx=0,
         subproblem_idx=1,
         stage_2_partition=stage_2_partition,
@@ -214,7 +214,7 @@ def test_prepare_subproblem_model_uses_incumbent_hints_for_makespan_batch(tmp_pa
         {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
     )
 
-    mdl, _params, _variables = ctor._prepare_pw_cp_model(
+    mdl, _params, _variables = ctor._prepare_sw_cp_model(
         spec=spec,
         instance=instance,
         profile_fix_by_machine=False,
@@ -228,8 +228,8 @@ def test_prepare_subproblem_model_uses_incumbent_hints_for_makespan_batch(tmp_pa
 
 
 def test_prepare_subproblem_model_uses_right_justified_hints_for_slack_batch(tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
     incumbent = _make_schedule()
     right_justified = incumbent.deepcopy()
     right_justified.remove_operations({("j1", "s1", "m1")})
@@ -243,7 +243,7 @@ def test_prepare_subproblem_model_uses_right_justified_hints_for_slack_batch(tmp
             right_time_fixed=(("j3", "m1"), ("j4", "m2")),  # Non-empty = slack batch
         )
     }
-    spec = PwCpSubproblemSpec(
+    spec = SwCpSubproblemSpec(
         batch_idx=0,
         subproblem_idx=1,
         stage_2_partition=stage_2_partition,
@@ -256,7 +256,7 @@ def test_prepare_subproblem_model_uses_right_justified_hints_for_slack_batch(tmp
         {"j1": {"s1": 2}, "j2": {"s1": 3}, "j3": {"s1": 2}, "j4": {"s1": 2}},
     )
 
-    mdl, _params, _variables = ctor._prepare_pw_cp_model(
+    mdl, _params, _variables = ctor._prepare_sw_cp_model(
         spec=spec,
         instance=instance,
         profile_fix_by_machine=False,
@@ -270,8 +270,8 @@ def test_prepare_subproblem_model_uses_right_justified_hints_for_slack_batch(tmp
 
 
 def test_accept_candidate_or_repair_incumbent_accepts_improving_solution(tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
     incumbent = _make_schedule()
     candidate = incumbent.deepcopy()
     candidate.remove_operations({("j4", "s1", "m2")})
@@ -289,8 +289,8 @@ def test_accept_candidate_or_repair_incumbent_accepts_improving_solution(tmp_pat
 
 
 def test_run_keeps_batch_union_across_stages(monkeypatch, tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
     incumbent = _make_multi_stage_schedule()
     seen_unfixed = []
 
@@ -310,7 +310,7 @@ def test_run_keeps_batch_union_across_stages(monkeypatch, tmp_path):
         seen_unfixed.append(tuple(sorted(unfixed)))
         return None
 
-    monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", fake_slack)
+    monkeypatch.setattr(ctor, "_solve_batch_sw_cp_model", fake_slack)
     monkeypatch.setattr(ctor, "_solve_makespan_batch", fake_makespan)
 
     instance = _make_instance(
@@ -368,8 +368,8 @@ def test_promote_job_contained_ops_promotes_only_unfixed_jobs():
 
 
 def test_run_applies_promoted_partition_to_subproblem_spec(monkeypatch, tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
     incumbent = _make_early_promotion_target_schedule()
     seen_slack_batch_count = 0
 
@@ -395,7 +395,7 @@ def test_run_applies_promoted_partition_to_subproblem_spec(monkeypatch, tmp_path
     def fake_accept_candidate_or_repair_incumbent(**kwargs):
         return kwargs["incumbent"], False
 
-    monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", fake_slack)
+    monkeypatch.setattr(ctor, "_solve_batch_sw_cp_model", fake_slack)
     monkeypatch.setattr(
         ctor,
         "_accept_candidate_or_repair_incumbent",
@@ -430,8 +430,8 @@ def test_run_applies_promoted_partition_to_subproblem_spec(monkeypatch, tmp_path
 
 
 def test_run_records_only_accepted_incumbent_improvements(monkeypatch, tmp_path):
-    ctx = FakePwCpContext(tmp_path)
-    ctor = PwCpConstructor(ctx)
+    ctx = FakeSwCpContext(tmp_path)
+    ctor = SwCpConstructor(ctx)
     incumbent = _make_multi_stage_schedule()
 
     dummy_batches = {
@@ -448,7 +448,7 @@ def test_run_records_only_accepted_incumbent_improvements(monkeypatch, tmp_path)
             is_right_time_fixed_empty=False,
         ),
     )
-    monkeypatch.setattr(ctor, "_solve_batch_pw_cp_model", lambda **kwargs: object())
+    monkeypatch.setattr(ctor, "_solve_batch_sw_cp_model", lambda **kwargs: object())
     accepted_outcomes = iter(
         [
             (SimpleNamespace(makespan=9), False),  # First iteration: incumbent semi-active → makespan=9, no improvement

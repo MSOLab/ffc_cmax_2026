@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
 
-
 DEFAULT_RUNS = {
     "0427": Path("Outputs_scenarios/20260427T232937_696372/ff2020/20260427-1"),
     "0429": Path("Outputs_scenarios/20260429T155141_962595/ff2020/20260429-1"),
@@ -116,7 +115,7 @@ def read_phase_csv(path: Path) -> tuple[dict[str, float], dict[str, float]]:
                 phase_times[key] = end_sec
             elif method == "neh_cp" or method.endswith("neh_cp"):
                 neh_values.append((end_sec, obj))
-            elif method == "incremental_pw_cp" or method.endswith("pw_cp"):
+            elif method == "incremental_sw_cp" or method.endswith("sw_cp"):
                 pw_values.append((end_sec, obj))
             elif method.startswith("solve_base_cp_model"):
                 phases["final"] = obj

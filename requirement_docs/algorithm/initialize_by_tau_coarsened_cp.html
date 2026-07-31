@@ -171,7 +171,7 @@
   <a href="get_best_mixed_schedule_by_sequence.html">Best Mixed Schedule</a>
   <a href="get_schedule_by_bn2d_all_stages.html">BN2D All Stages</a>
   <a href="neh_cp.html">NEH-CP</a>
-  <a href="pw_cp_constructor_run.html">PW-CP Constructor</a>
+  <a href="sw_cp_constructor_run.html">SW-CP Constructor</a>
 
   <div class="label">Sections</div>
   <a href="#tldr">TL;DR</a>
@@ -206,7 +206,7 @@
   <ul>
     <li><b>문제 축소 &rarr; 대리 최적화 &rarr; 복원 &rarr; 정련</b>의 4단계 파이프라인</li>
     <li>가공 시간을 τ배 축소하여 빠르게 풀고, 대량의 후보해를 생성하여 최선의 해를 선택</li>
-    <li>Dispatch, NEH, PW-CP, CP-SAT 등 다양한 경로를 통해 탐색 다양성 확보</li>
+    <li>Dispatch, NEH, SW-CP, CP-SAT 등 다양한 경로를 통해 탐색 다양성 확보</li>
   </ul>
 </section>
 
@@ -242,9 +242,9 @@
     <p class="muted">NEH-CP 개선 단계 제어 (position 기본값 <code>after_cp</code>)</p>
   </div>
   <div class="card">
-    <h4>PW-CP 계열</h4>
-    <p><code>surrogate_pw_cp_enabled</code>, <code>step_size</code>, <code>batch_size_ratio</code> 등</p>
-    <p class="muted">Prefix-Window CP 체인 제어</p>
+    <h4>SW-CP 계열</h4>
+    <p><code>surrogate_sw_cp_enabled</code>, <code>step_size</code>, <code>batch_size_ratio</code> 등</p>
+    <p class="muted">Sliding-Window CP 체인 제어</p>
   </div>
 </div>
 
@@ -256,7 +256,7 @@
   </div>
   <div class="decision">
     <div class="key">tau_schedule_candidates</div>
-    <div class="val">축소 문제로부터 생성된 후보해 목록 (Dispatch, NEH, PW-CP, CP-SAT 결과 누적)</div>
+    <div class="val">축소 문제로부터 생성된 후보해 목록 (Dispatch, NEH, SW-CP, CP-SAT 결과 누적)</div>
   </div>
   <div class="decision">
     <div class="key">best_schedule</div>
@@ -284,7 +284,7 @@
 <h2 id="core-idea">핵심 아이디어</h2>
 <ol>
   <li><b>문제 축소 (Tau Coarsening):</b> 가공 시간을 <code>max(1, ceil(p[j,i] / τ))</code>로 변환하여 모델 규모를 줄이고 CP 풀이 속도를 비약적으로 향상시킵니다.</li>
-  <li><b>다양한 경로로 후보해 생성:</b> Dispatch, NEH-CP, PW-CP, CP-SAT 등 여러 경로를 통해 다양한 해 공간을 탐색합니다. 단계 실행 순서는 <code>surrogate_neh_position</code>에 따라 달라집니다.</li>
+  <li><b>다양한 경로로 후보해 생성:</b> Dispatch, NEH-CP, SW-CP, CP-SAT 등 여러 경로를 통해 다양한 해 공간을 탐색합니다. 단계 실행 순서는 <code>surrogate_neh_position</code>에 따라 달라집니다.</li>
   <li><b>복원 (Restore):</b> 축소 문제에서 얻은 순서/할당 정보를 원본 가공 시간에 적용하여 실행 가능해로 변환합니다.</li>
   <li><b>최선 선택:</b> 복원 및 정련 과정을 거친 모든 해 중 최적의 Makespan을 가진 해를 최종 선택합니다.</li>
 </ol>
@@ -293,7 +293,7 @@
 
 <div class="invariants" style="background:#fbeed5;border-color:#e7d5b5;">
   <h4 style="color:var(--warn);">NEH 실행 위치에 따른 순서 차이</h4>
-  <p style="font-size:13.5px;margin:4px 0;"><code>surrogate_neh_position</code>의 기본값은 <code>after_cp</code>입니다. <code>before_cp</code>이면 <code>dispatch &rarr; NEH &rarr; PW-CP &rarr; CP</code> 순, <code>after_cp</code>이면 <code>dispatch &rarr; CP &rarr; NEH</code> 순으로 실행되며 이때 <b>PW-CP chain은 실행되지 않습니다</b>. 아래 1~5절은 <code>before_cp</code> 기준 순서로 기술합니다.</p>
+  <p style="font-size:13.5px;margin:4px 0;"><code>surrogate_neh_position</code>의 기본값은 <code>after_cp</code>입니다. <code>before_cp</code>이면 <code>dispatch &rarr; NEH &rarr; SW-CP &rarr; CP</code> 순, <code>after_cp</code>이면 <code>dispatch &rarr; CP &rarr; NEH</code> 순으로 실행되며 이때 <b>SW-CP chain은 실행되지 않습니다</b>. 아래 1~5절은 <code>before_cp</code> 기준 순서로 기술합니다.</p>
 </div>
 
 <h3>1. Tau Coarsening (문제 축소)</h3>
@@ -317,11 +317,11 @@
 <div class="grid-2">
   <div class="card">
     <h4>before_cp — CP에 전달</h4>
-    <p>dispatch 최적해를 NEH로 개선한 뒤 surrogate CP의 reference로 넘깁니다. <b>이 경로에서만 PW-CP chain이 동작</b>합니다. 목록 <code>surrogate_neh_added_batch_sizes</code>를 순회하며, <code>sequential=True</code>면 결과가 체인으로 연결됩니다.</p>
+    <p>dispatch 최적해를 NEH로 개선한 뒤 surrogate CP의 reference로 넘깁니다. <b>이 경로에서만 SW-CP chain이 동작</b>합니다. 목록 <code>surrogate_neh_added_batch_sizes</code>를 순회하며, <code>sequential=True</code>면 결과가 체인으로 연결됩니다.</p>
   </div>
   <div class="card">
     <h4>after_cp — CP 후보 개선 (기본값)</h4>
-    <p>CP 풀이 후 <code>surrogate_neh_sources</code>에 속하는 후보마다 NEH를 적용해 <code>{source}_neh</code> 후보를 추가합니다. 스칼라 <code>surrogate_neh_added_batch_size</code>만 사용하며 목록·<code>sequential</code>·PW-CP는 적용되지 않습니다.</p>
+    <p>CP 풀이 후 <code>surrogate_neh_sources</code>에 속하는 후보마다 NEH를 적용해 <code>{source}_neh</code> 후보를 추가합니다. 스칼라 <code>surrogate_neh_added_batch_size</code>만 사용하며 목록·<code>sequential</code>·SW-CP는 적용되지 않습니다.</p>
   </div>
 </div>
 <div class="decisions">
@@ -331,10 +331,10 @@
   </div>
 </div>
 
-<h3>4. PW-CP Chain (Prefix-Window CP)</h3>
+<h3>4. SW-CP Chain (Sliding-Window CP)</h3>
 <p>NEH 결과를 시작해로 하여 윈도우 크기(unfixed_batch_count)를 점진적으로 증가시키며 체인으로 실행합니다.</p>
 <div class="pipeline">
-  <h4>PW-CP Execution Chain</h4>
+  <h4>SW-CP Execution Chain</h4>
   <div class="flow">
     <span class="step">NEH Result</span><span class="arrow">&rarr;</span>
     <span class="step">PW(unfixed=2)</span><span class="arrow">&rarr;</span>
@@ -349,7 +349,7 @@
   <summary>CP-SAT 모델 구성</summary>
   <pre><code>- 목적함수: minimize makespan
 - 참조 스케줄: surrogate_dispatch_before_cp=True 시 시작점 제공
-    · before_cp NEH 경로: PW-CP / NEH 최선해
+    · before_cp NEH 경로: SW-CP / NEH 최선해
     · 그 외(after_cp / NEH 비활성): best dispatch
 - 제약: add_reference_precedence=False 시 순서 hard 제약 없음
 - 저장: surrogate_cp_snapshot_solution_limit만큼 중간 해 저장</code></pre>
@@ -388,7 +388,7 @@
     <tr><td>Dispatch</td><td>~N개</td><td><code>include_surrogate_dispatch_candidate=True</code>일 때만 후보 등록</td></tr>
     <tr><td>NEH (before_cp)</td><td>batch size 당 1개</td><td>Sequential chain</td></tr>
     <tr><td>NEH (after_cp, 기본값)</td><td>대상 후보 당 1개</td><td>source가 <code>surrogate_neh_sources</code>에 속하는 후보마다</td></tr>
-    <tr><td>PW-CP Chain</td><td>~M개</td><td>before_cp NEH 성공 시에만, unfixed 2~6 (최대 5)</td></tr>
+    <tr><td>SW-CP Chain</td><td>~M개</td><td>before_cp NEH 성공 시에만, unfixed 2~6 (최대 5)</td></tr>
     <tr><td>CP Solve</td><td>1 + K개</td><td>최종해 1개 + 스냅샷(<code>snapshot_solution_limit</code>만큼)</td></tr>
     <tr style="background: var(--accent-soft); font-weight: 600;"><td>Coarsened 후보 합계</td><td>~N+M+K+(NEH 수)+1</td><td>축소 문제 공간에서의 총 후보</td></tr>
     <tr><td>Restore</td><td>coarsened × R</td><td>R = <code>restore_modes</code> 수</td></tr>
@@ -423,15 +423,15 @@
     <text x="305" y="170" text-anchor="middle" font-size="13" font-weight="bold">3. NEH-CP</text>
 
     <rect x="230" y="220" width="150" height="50" fill="white" stroke="#2454b8" rx="5"/>
-    <text x="305" y="250" text-anchor="middle" font-size="13" font-weight="bold">4. PW-CP Chain</text>
+    <text x="305" y="250" text-anchor="middle" font-size="13" font-weight="bold">4. SW-CP Chain</text>
 
     <rect x="230" y="300" width="150" height="50" fill="white" stroke="#2454b8" rx="5"/>
     <text x="305" y="330" text-anchor="middle" font-size="13" font-weight="bold">5. CP-SAT Solve</text>
 
-    <text x="30" y="420" font-size="10" fill="#5e5e58" font-family="system-ui">※ NEH-CP &amp; PW-CP Chain은</text>
+    <text x="30" y="420" font-size="10" fill="#5e5e58" font-family="system-ui">※ NEH-CP &amp; SW-CP Chain은</text>
     <text x="30" y="435" font-size="10" fill="#5e5e58" font-family="system-ui">&#160;&#160;neh_position=before_cp 일 때만 실행.</text>
     <text x="30" y="450" font-size="10" fill="#5e5e58" font-family="system-ui">&#160;&#160;기본값 after_cp 에서는 CP-SAT Solve</text>
-    <text x="30" y="465" font-size="10" fill="#5e5e58" font-family="system-ui">&#160;&#160;이후 NEH-CP 실행, PW-CP 생략.</text>
+    <text x="30" y="465" font-size="10" fill="#5e5e58" font-family="system-ui">&#160;&#160;이후 NEH-CP 실행, SW-CP 생략.</text>
 
     <rect x="450" y="140" width="150" height="50" fill="white" stroke="#1e7a3a" rx="5"/>
     <text x="525" y="170" text-anchor="middle" font-size="13" font-weight="bold">6. Restore</text>
@@ -452,7 +452,7 @@
     <path d="M 525 190 L 525 220" stroke="#7a7a72" marker-end="url(#arrow)"/>
     <path d="M 525 270 L 525 300" stroke="#7a7a72" marker-end="url(#arrow)"/>
   </svg>
-  <figcaption>다이어그램은 <code>surrogate_neh_position=before_cp</code> 기준 흐름입니다. 기본값 <code>after_cp</code>에서는 NEH-CP가 CP-SAT Solve <em>이후</em>에 실행되고 PW-CP Chain은 생략됩니다. 축소 공간(Surrogate)에서 후보를 생성한 뒤 원래 공간으로 복원(Restore)·정련(Polish)하여 최적해를 결정합니다.</figcaption>
+  <figcaption>다이어그램은 <code>surrogate_neh_position=before_cp</code> 기준 흐름입니다. 기본값 <code>after_cp</code>에서는 NEH-CP가 CP-SAT Solve <em>이후</em>에 실행되고 SW-CP Chain은 생략됩니다. 축소 공간(Surrogate)에서 후보를 생성한 뒤 원래 공간으로 복원(Restore)·정련(Polish)하여 최적해를 결정합니다.</figcaption>
 </figure>
 
 <h2 id="params">파라미터 요약</h2>
@@ -468,13 +468,13 @@
 </table>
 <p style="font-size:12.5px;color:var(--muted);"><code>*_tl_nc_multiplier</code>가 지정되면 그 값이 우선하며 <code>*_computational_time</code>은 무시됩니다. <b><code>polish_tl_nc_multiplier</code>와 <code>polish_computational_time</code>이 둘 다 null이면 polish 단계가 생략</b>됩니다.</p>
 
-<h3>Dispatch / NEH / PW-CP</h3>
+<h3>Dispatch / NEH / SW-CP</h3>
 <table>
   <thead><tr><th>구분</th><th>주요 파라미터</th><th>역할</th></tr></thead>
   <tbody>
     <tr><td>Dispatch</td><td><code>surrogate_dispatch_method_list</code>, <code>cap_portions</code></td><td>기본 후보해 다양성 확보</td></tr>
     <tr><td>NEH</td><td><code>surrogate_neh_enabled</code>, <code>surrogate_neh_position</code></td><td>국소 순서 최적화. position 기본값 <code>after_cp</code> (before_cp는 목록 batch size, after_cp는 스칼라)</td></tr>
-    <tr><td>PW-CP</td><td><code>surrogate_pw_cp_enabled</code>, <code>unfixed_batch_count_min/max</code></td><td>슬라이딩 윈도우 기반 순차적 개선</td></tr>
+    <tr><td>SW-CP</td><td><code>surrogate_sw_cp_enabled</code>, <code>unfixed_batch_count_min/max</code></td><td>슬라이딩 윈도우 기반 순차적 개선</td></tr>
   </tbody>
 </table>
 
@@ -482,7 +482,7 @@
 <div class="risks">
   <div class="risk sev-low">
     <div class="hd"><h4>Diversity</h4><span class="badge ok">info</span></div>
-    <div class="body">단일 경로보다 Dispatch &rarr; NEH &rarr; PW-CP &rarr; CP로 이어지는 다양한 구조의 후보해를 확보하는 것이 더 좋은 초기해 탐색의 핵심입니다.</div>
+    <div class="body">단일 경로보다 Dispatch &rarr; NEH &rarr; SW-CP &rarr; CP로 이어지는 다양한 구조의 후보해를 확보하는 것이 더 좋은 초기해 탐색의 핵심입니다.</div>
   </div>
   <div class="risk sev-med">
     <div class="hd"><h4>Coarsening Error</h4><span class="badge warn">warn</span></div>

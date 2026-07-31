@@ -3,7 +3,7 @@
 `requirement_docs/algorithm/` 에 두는 솔버 알고리즘 명세 문서의 형식 규칙이다.
 새 문서는 기존 문서들 옆에 두었을 때 이질감이 없어야 한다.
 
-본보기: `requirement_docs/algorithm/pw_cp_constructor_run.md` (problem-mechanism frame이
+본보기: `requirement_docs/algorithm/sw_cp_constructor_run.md` (problem-mechanism frame이
 가장 정제된 예). 보조 본보기: `neh_cp.md`, `get_best_mixed_schedule_by_sequence.md`,
 `get_schedule_by_bn2d_all_stages.md`, `initialize_by_tau_coarsened_cp.md`.
 
@@ -37,7 +37,7 @@ parameter·variable·objective·constraint 를 이 순서대로 라벨링해 보
 mechanism을 더 깊이 풀어 쓴다.
 
 - **제목**: 한국어 이름 + 괄호 안에 코드에서 쓰는 영문 약어/슬러그.
-  예: `# PW-CP (Prefix-Window CP) 알고리즘`.
+  예: `# SW-CP (Sliding-Window CP) 알고리즘`.
 - **호출 줄**: 제목 바로 아래 한 줄. `호출: \`def 함수명\` (파일명.py)` 형식.
   메서드면 정의된 파일명을 쓴다.
 - 섹션은 `---` 수평선으로 시각적으로 구분해도 좋다(기존 문서가 그렇게 한다).

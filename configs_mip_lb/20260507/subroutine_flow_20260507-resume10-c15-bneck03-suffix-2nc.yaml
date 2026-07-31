@@ -158,7 +158,7 @@
   job_selection_policy: "critical_adjacency"
   use_lns_only: false
   draw_gantt: false
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 7

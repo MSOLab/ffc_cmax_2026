@@ -1,6 +1,6 @@
 """Generate the ISW-CP (incremental sliding-window CP) panel sequence (plan §4.5).
 
-ISW-CP == the prefix-window / PW-CP machinery: operations on each stage are
+ISW-CP == the sliding-window / SW-CP machinery: operations on each stage are
 sorted into time-ordered batches, and a sliding window partitions them into
 five regions around the UNFIXED center. The window subproblem re-optimises the
 UNFIXED ops (CP-SAT) while keeping profile-fixed precedence and time-fixed
@@ -9,7 +9,7 @@ incrementally enlarged.
 
 Storyboard (one SVG per Gantt panel under
 ``analysis_outputs/20260612_p1_algo_explainer/isw_cp/``), in the sister repo
-ffc_dw_wET_2026's pw_cp/visual.py style: 5-region bar coloring, a black-bordered
+ffc_dw_wET_2026's sw_cp/visual.py style: 5-region bar coloring, a black-bordered
 UNFIXED core, and -- instead of one global window -- per-machine LTF/active/RTF
 background bands with dashed time-fixed boundary segments on each lane:
 
@@ -19,15 +19,15 @@ background bands with dashed time-fixed boundary segments on each lane:
   step_04  slide: window advances by Delta (step_size) -> 3 consecutive positions
   step_05  incremental enlargement: U0 = 2 (narrow) vs U_max = 8 (wide)
 
-The REAL ISW/PW-CP API (discovered + verified, file:line)
+The REAL ISW/SW-CP API (discovered + verified, file:line)
 ================================================================================
-- hybridflowshop/cpsat_model_2/pw_cp.py
+- hybridflowshop/cpsat_model_2/sw_cp.py
     OperationPartition (frozen dataclass @ line 24): fields left_time_fixed,
     left_profile_fixed, unfixed, right_profile_fixed, right_time_fixed, each a
     tuple of (job_id, mc_id) on a stage. Region membership is by BATCH INDEX
     along the time-ordered batches per stage.
-- hybridflowshop/controller/pw_cp.py
-    PwCpConstructor(ctx)                                          (@ line 245)
+- hybridflowshop/controller/sw_cp.py
+    SwCpConstructor(ctx)                                          (@ line 245)
       .build_stage_2_batch_list(schedule, batch_size, sort_by_start_time=False)
                                                                   (@ line 478)
         -> dict[stage_id, list[batch]] of time-ordered (job, mc) batches.
@@ -37,17 +37,17 @@ The REAL ISW/PW-CP API (discovered + verified, file:line)
                                                                   (@ line 539)
         -> OperationPartition for one stage at a given window position.
       ._build_batch_spec(incumbent, stage_2_partition, stage_2_job_2_p_dict,
-        batch_idx) -> PwCpSubproblemSpec  (@ line 662)  -- runs the backward
+        batch_idx) -> SwCpSubproblemSpec  (@ line 662)  -- runs the backward
         right-justification (make_right_justified on non-left-time-fixed ops)
         internally and stores the result as spec.init_schedule.
-      ._solve_batch_pw_cp_model / ._solve_makespan_batch         (@ 944 / 1043)
+      ._solve_batch_sw_cp_model / ._solve_makespan_batch         (@ 944 / 1043)
         -- solve one window subproblem; dispatch chosen by
         spec.is_right_time_fixed_empty (same rule as .run @ line 420).
       .run(ref_schedule, instance, stage_2_job_2_p_dict, *, batch_size,
         step_size, unfixed_batch_count, left_profile_fixed_batch_count,
-        right_profile_fixed_batch_count, ...) -> PwCpResult       (@ line 268)
+        right_profile_fixed_batch_count, ...) -> SwCpResult       (@ line 268)
         -- the full sliding loop.
-    PwCpRunState (@ line 180) -- the run-state object the solve helpers need;
+    SwCpRunState (@ line 180) -- the run-state object the solve helpers need;
       we construct one directly (non-invasive) for the single-window panel.
 - HybridFlowshopLiteSchedule.make_right_justified(stage_2_job_2_duration, *,
   operation_set)  (schedule_lite.py @ line 1571) -- the ALAP backward pass.
@@ -58,7 +58,7 @@ membership per op (panels 1, 4, 5). For the right-justify panel (2) we copy the
 incumbent and call make_right_justified on the non-LTF ops, exactly as
 _build_batch_spec does. For the window-solve panel (3) we drive
 _build_batch_spec + the existing solve helper with a manually constructed
-PwCpRunState. No production module is modified and no snapshot hook is added.
+SwCpRunState. No production module is modified and no snapshot hook is added.
 """
 
 from __future__ import annotations
@@ -72,6 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from mbls.cpsat import ObjValueBoundStore  # noqa: E402
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria  # noqa: E402
 from schore.parameters_examples.parallel_shop.identical_flow import (  # noqa: E402
     HybridFlowshopParameters,
@@ -80,17 +81,15 @@ from schore.parameters_examples.parallel_shop.identical_flow import (  # noqa: E
 from hybridflowshop.controller.hfs_cp_lns import (  # noqa: E402
     HybridFlowShopCpLnsController,
 )
-from hybridflowshop.controller.pw_cp import (  # noqa: E402
-    PwCpConstructor,
-    PwCpRunState,
+from hybridflowshop.controller.sw_cp import (  # noqa: E402
+    SwCpConstructor,
+    SwCpRunState,
 )
-from hybridflowshop.cpsat_model_2.pw_cp import (  # noqa: E402
+from hybridflowshop.cpsat_model_2.sw_cp import (  # noqa: E402
     OperationPartition,
-    create_pw_cp_schedule,
+    create_sw_cp_schedule,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule  # noqa: E402
-from mbls.cpsat import ObjValueBoundStore  # noqa: E402
-
 from scripts.p1_algo_explainer.render import render_panel  # noqa: E402
 
 INSTANCE_PATH = REPO_ROOT / "resources" / "demo_p1_10x4" / "1.txt"
@@ -112,7 +111,7 @@ WINDOW_START = 3  # window position w for the partition / right-justify / solve 
 OpKey = tuple[str, str, str]  # (job, stage, machine)
 
 # Five region colors, mirroring the sister repo ffc_dw_wET_2026's
-# pw_cp/visual.py palette: blue-grays for the time-fixed anchors (LTF/RTF),
+# sw_cp/visual.py palette: blue-grays for the time-fixed anchors (LTF/RTF),
 # ambers for the profile-fixed shoulders (LPF/RPF), and a green UNFIXED core.
 # UNFIXED is additionally made salient at draw time via a thick black border
 # (passed as the panel's highlight_op_set), so the active window pops without
@@ -174,7 +173,7 @@ def build_initialized_controller(
 
 
 def build_stage_partitions(
-    constructor: PwCpConstructor,
+    constructor: SwCpConstructor,
     schedule: HybridFlowshopLiteSchedule,
     *,
     unfixed_batch_start_idx: int,
@@ -247,7 +246,7 @@ def compute_lane_boundaries(
 ) -> dict[tuple[str, str], tuple[float, float]]:
     """Per-machine (stage, mc) -> (left_b, right_b) time-fixed boundaries.
 
-    Mirrors ffc_dw_wET_2026's pw_cp/visual.py: on each machine the left boundary
+    Mirrors ffc_dw_wET_2026's sw_cp/visual.py: on each machine the left boundary
     is the rightmost end among that machine's LTF ops (default ``force_start``
     when it has none), and the right boundary is the leftmost start among its RTF
     ops (default ``force_end``). The render layer paints the LTF / active / RTF
@@ -291,7 +290,7 @@ def unfixed_op_set(
 
 
 def solve_one_window(
-    constructor: PwCpConstructor,
+    constructor: SwCpConstructor,
     instance: HybridFlowshopParameters,
     stage_2_job_2_p_dict,
     incumbent: HybridFlowshopLiteSchedule,
@@ -306,8 +305,8 @@ def solve_one_window(
     that _build_batch_spec performs internally.
 
     The "after" is the RAW CP subproblem solution, taken straight from
-    ``create_pw_cp_schedule`` BEFORE production's ``make_semi_active`` left-shift
-    (pw_cp.py:1021). This is deliberate for the figure: in the raw CP solution
+    ``create_sw_cp_schedule`` BEFORE production's ``make_semi_active`` left-shift
+    (sw_cp.py:1021). This is deliberate for the figure: in the raw CP solution
     the time-fixed ops (LTF/RTF) sit at EXACTLY their before/right-justified
     positions -- they are constants of the subproblem, not decision variables --
     so the panel honestly shows only the UNFIXED window being rearranged.
@@ -318,7 +317,7 @@ def solve_one_window(
     """
     # The solve helpers and _build_batch_spec require an active run state.
     sub_obj_store: ObjValueBoundStore[int] = ObjValueBoundStore[int]()
-    constructor._st = PwCpRunState(
+    constructor._st = SwCpRunState(
         timer=ElapsedTimer(),
         incumbent=incumbent,
         sub_obj_store=sub_obj_store,
@@ -354,9 +353,9 @@ def solve_one_window(
             )
             return before, candidate
 
-        # RTF present: replay _solve_batch_pw_cp_model's body, but stop at the
+        # RTF present: replay _solve_batch_sw_cp_model's body, but stop at the
         # raw CP schedule (skip make_semi_active) so LTF/RTF stay pinned.
-        mdl, params, variables = constructor._prepare_pw_cp_model(
+        mdl, params, variables = constructor._prepare_sw_cp_model(
             spec=spec,
             instance=instance,
             profile_fix_by_machine=False,
@@ -381,7 +380,7 @@ def solve_one_window(
         )
         if not getattr(report, "is_feasible", False):
             return before, None
-        candidate = create_pw_cp_schedule(
+        candidate = create_sw_cp_schedule(
             constructor.ctx.solver,
             params,
             spec.stage_2_partition,
@@ -456,7 +455,7 @@ def main() -> None:
     controller = build_initialized_controller(instance)
     stage_2_job_2_p_dict = controller.stage_2_job_2_p_dict
     incumbent = controller.solution_manager.get_incumbent()
-    constructor = PwCpConstructor(controller)
+    constructor = SwCpConstructor(controller)
 
     # Shared axis for the non-enlargement panels (steps 1-4). Bounded by the
     # incumbent makespan (right-justify preserves makespan; the window solve can
@@ -500,7 +499,7 @@ def main() -> None:
 
     # --- step_02: right-justify (backward ALAP on non-LTF ops): before/after ---
     # Before: the incumbent. After: a copy right-justified on the non-LTF ops,
-    # exactly as PwCpConstructor._build_batch_spec does internally.
+    # exactly as SwCpConstructor._build_batch_spec does internally.
     rj_schedule = incumbent.deepcopy()
     non_ltf_op_set: set[tuple[str, str, str]] = set()
     for stage_id, partition in part_w.items():

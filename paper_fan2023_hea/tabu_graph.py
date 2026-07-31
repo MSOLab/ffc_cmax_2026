@@ -15,7 +15,6 @@ from paper_fan2023_hea.encoding_decoding import (
 )
 from paper_fan2023_hea.population import Individual
 
-
 MoveKind = Literal["swap", "insert", "transfer"]
 
 

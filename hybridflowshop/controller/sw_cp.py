@@ -15,13 +15,13 @@ from schore.parameters_examples.parallel_shop.identical_flow import (
 
 from hybridflowshop.cpsat_model_2.cumulative import CumulativeVars, OperationVars
 from hybridflowshop.cpsat_model_2.params import Params
-from hybridflowshop.cpsat_model_2.pw_cp import (
+from hybridflowshop.cpsat_model_2.sw_cp import (
     DummyBarVars,
     JobMcType,
     OperationPartition,
-    PwCpModelBuilder,
-    PwCpVars,
-    create_pw_cp_schedule,
+    SwCpModelBuilder,
+    SwCpVars,
+    create_sw_cp_schedule,
 )
 from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.schedule_lite import (
@@ -37,7 +37,7 @@ StageBoundaryProfile = dict[StageIdType, list[int | None]]
 SolvedSlackIntervals = dict[StageIdType, list[tuple[JobIdType, int, int]]]
 
 
-class PwCpContext(Protocol):
+class SwCpContext(Protocol):
     """
     Minimal dependency interface.
     (HybridFlowShopCpLnsController is effectively designed to satisfy this interface.)
@@ -74,7 +74,7 @@ class PwCpContext(Protocol):
 
 
 @dataclass(frozen=True)
-class PwCpSubproblemSpec:
+class SwCpSubproblemSpec:
     batch_idx: int
     subproblem_idx: int
     stage_2_partition: Mapping[StageIdType, OperationPartition]
@@ -151,7 +151,7 @@ class PwCpSubproblemSpec:
 
 
 @dataclass(frozen=True)
-class PwCpSubproblemLog:
+class SwCpSubproblemLog:
     batch_idx: int
     subproblem_idx: int
     objective_name: str
@@ -178,26 +178,26 @@ class PwCpSubproblemLog:
 
 
 @dataclass
-class PwCpRunState:
+class SwCpRunState:
     timer: ElapsedTimer
     incumbent: HybridFlowshopLiteSchedule
     sub_obj_store: ObjValueBoundStore[int]
     subproblem_idx: int
-    subproblem_logs: list[PwCpSubproblemLog]
+    subproblem_logs: list[SwCpSubproblemLog]
     max_time_per_batch: float | None
 
 
 @dataclass
-class PwCpResult:
+class SwCpResult:
     schedule: HybridFlowshopLiteSchedule
     sub_obj_store: ObjValueBoundStore[int]
     last_obj_value: int
-    subproblem_logs: tuple[PwCpSubproblemLog, ...]
-    total_pw_cp_elapsed_sec: float
+    subproblem_logs: tuple[SwCpSubproblemLog, ...]
+    total_sw_cp_elapsed_sec: float
     max_time_per_batch: float | None
 
     def save_yaml(self, output_path: Path) -> None:
-        """Saves the PW-CP result to a YAML file.
+        """Saves the SW-CP result to a YAML file.
 
         Note: This method should only be called when debug_export=True
         to avoid unnecessary I/O operations.
@@ -215,7 +215,7 @@ class PwCpResult:
                 last_obj_improvement_time_sec = log.obj_value_records[-1][0]
                 break
 
-        solution_dict["pw_cp_metadata"] = {
+        solution_dict["sw_cp_metadata"] = {
             "cp_sat_subproblems": [
                 {
                     **asdict(log),
@@ -232,25 +232,25 @@ class PwCpResult:
                     (log.batch_idx for log in self.subproblem_logs),
                     default=None,
                 ),
-                "total_pw_cp_elapsed_sec": self.total_pw_cp_elapsed_sec,
+                "total_sw_cp_elapsed_sec": self.total_sw_cp_elapsed_sec,
                 "last_obj_improvement_time_sec": last_obj_improvement_time_sec,
                 "final_incumbent_makespan": self.last_obj_value,
                 "max_time_per_batch": self.max_time_per_batch,
             },
         }
 
-        dump_yaml(PwCpConstructor._normalize_for_yaml(solution_dict), output_path)
+        dump_yaml(SwCpConstructor._normalize_for_yaml(solution_dict), output_path)
 
 
-class PwCpConstructor:
-    def __init__(self, ctx: PwCpContext):
+class SwCpConstructor:
+    def __init__(self, ctx: SwCpContext):
         self.ctx = ctx
-        self.builder = PwCpModelBuilder
-        self._st: PwCpRunState | None = None
+        self.builder = SwCpModelBuilder
+        self._st: SwCpRunState | None = None
 
-    def _require_state(self) -> PwCpRunState:
+    def _require_state(self) -> SwCpRunState:
         if self._st is None:
-            raise RuntimeError("PwCpConstructor.run() is not active; state is missing.")
+            raise RuntimeError("SwCpConstructor.run() is not active; state is missing.")
         return self._st
 
     @staticmethod
@@ -287,7 +287,7 @@ class PwCpConstructor:
         debug_export: bool = False,
         tighten_ranges: bool = False,
         error_if_infeasible: bool = False,
-    ) -> PwCpResult:
+    ) -> SwCpResult:
         timer = ElapsedTimer()
         if solver_thread_cnt is None:
             solver_thread_cnt = 1
@@ -318,9 +318,9 @@ class PwCpConstructor:
             )
 
         sub_obj_store = ObjValueBoundStore[int]()
-        sub_obj_store.obj_value_series.name = "ObjVal after PW-CP batch"
+        sub_obj_store.obj_value_series.name = "ObjVal after SW-CP batch"
 
-        self._st = PwCpRunState(
+        self._st = SwCpRunState(
             timer=timer,
             incumbent=ref_schedule,
             sub_obj_store=sub_obj_store,
@@ -357,7 +357,7 @@ class PwCpConstructor:
 
             for unfixed_batch_start_idx in iteration_range:
                 logging.info(
-                    "PW-CP sliding window iteration: unfixed_batches=[%d, %d)",
+                    "SW-CP sliding window iteration: unfixed_batches=[%d, %d)",
                     unfixed_batch_start_idx,
                     unfixed_batch_start_idx + unfixed_batch_count,
                 )
@@ -370,7 +370,7 @@ class PwCpConstructor:
                 )
                 if current_max_batch_cnt != max_batch_cnt:
                     raise AssertionError(
-                        "PW-CP batch count changed during run: "
+                        "SW-CP batch count changed during run: "
                         f"initial={max_batch_cnt}, current={current_max_batch_cnt}."
                     )
 
@@ -420,7 +420,7 @@ class PwCpConstructor:
                 solve_batch = (
                     self._solve_makespan_batch
                     if spec.is_right_time_fixed_empty
-                    else self._solve_batch_pw_cp_model
+                    else self._solve_batch_sw_cp_model
                 )
                 candidate = solve_batch(
                     spec=spec,
@@ -464,12 +464,12 @@ class PwCpConstructor:
                     self._require_state().incumbent.get_jik_2_start_time_map()
                 )
 
-            return PwCpResult(
+            return SwCpResult(
                 schedule=self._require_state().incumbent,
                 sub_obj_store=self._require_state().sub_obj_store,
                 last_obj_value=self._require_state().incumbent.makespan,
                 subproblem_logs=tuple(self._require_state().subproblem_logs),
-                total_pw_cp_elapsed_sec=self._require_state().timer.elapsed_sec,
+                total_sw_cp_elapsed_sec=self._require_state().timer.elapsed_sec,
                 max_time_per_batch=self._require_state().max_time_per_batch,
             )
         finally:
@@ -647,11 +647,11 @@ class PwCpConstructor:
         stage_2_mc_2_window: dict[str, dict[str, tuple[int, int]]],
         init_schedule: HybridFlowshopLiteSchedule,
         batch_idx: int,
-    ) -> PwCpSubproblemSpec:
+    ) -> SwCpSubproblemSpec:
         st = self._require_state()
         st.subproblem_idx += 1
 
-        return PwCpSubproblemSpec(
+        return SwCpSubproblemSpec(
             batch_idx=batch_idx,
             subproblem_idx=st.subproblem_idx,
             stage_2_partition=stage_2_partition,
@@ -665,7 +665,7 @@ class PwCpConstructor:
         stage_2_partition: Mapping[str, OperationPartition],
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         batch_idx: int,
-    ) -> PwCpSubproblemSpec:
+    ) -> SwCpSubproblemSpec:
         has_right_time_fixed = any(
             len(partition.right_time_fixed) > 0
             for partition in stage_2_partition.values()
@@ -699,9 +699,9 @@ class PwCpConstructor:
     @staticmethod
     def _normalize_for_yaml(value):
         if isinstance(value, dict):
-            return {k: PwCpConstructor._normalize_for_yaml(v) for k, v in value.items()}
+            return {k: SwCpConstructor._normalize_for_yaml(v) for k, v in value.items()}
         if isinstance(value, (list, tuple)):
-            return [PwCpConstructor._normalize_for_yaml(v) for v in value]
+            return [SwCpConstructor._normalize_for_yaml(v) for v in value]
         if hasattr(value, "item"):
             try:
                 return value.item()
@@ -723,16 +723,16 @@ class PwCpConstructor:
                     highlight_ops.append(op_ref)
         return highlight_ops
 
-    def _prepare_pw_cp_model(
+    def _prepare_sw_cp_model(
         self,
-        spec: PwCpSubproblemSpec,
+        spec: SwCpSubproblemSpec,
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool,
         machine_precedence_stride: int,
         stage_precedence_min_processing_time_diff: int | None = None,
         stage_precedence_min_processing_time_diff_ratio: float | None = None,
         tighten_ranges: bool = False,
-    ) -> tuple[CustomCpModel, Params, PwCpVars]:
+    ) -> tuple[CustomCpModel, Params, SwCpVars]:
         horizon = spec.init_schedule.makespan
         mdl = CustomCpModel()
 
@@ -806,7 +806,7 @@ class PwCpConstructor:
         # Objective
         self.builder.add_common_spacing_objective(mdl, dummy_bar_vars)
 
-        pw_cp_vars = PwCpVars(
+        sw_cp_vars = SwCpVars(
             op_start=non_time_fixed_vars.op_start,
             op_end=non_time_fixed_vars.op_end,
             op_intvl=non_time_fixed_vars.op_intvl,
@@ -816,18 +816,18 @@ class PwCpConstructor:
             right_bar_init_start=dummy_bar_vars.right_bar_init_start,
             common_spacing=dummy_bar_vars.common_spacing,
         )
-        return mdl, params, pw_cp_vars
+        return mdl, params, sw_cp_vars
 
     def _prepare_makespan_batch_model(
         self,
-        spec: PwCpSubproblemSpec,
+        spec: SwCpSubproblemSpec,
         instance: HybridFlowshopParameters,
         profile_fix_by_machine: bool,
         machine_precedence_stride: int,
         stage_precedence_min_processing_time_diff: int | None = None,
         stage_precedence_min_processing_time_diff_ratio: float | None = None,
         tighten_ranges: bool = False,
-    ) -> tuple[CustomCpModel, Params, PwCpVars]:
+    ) -> tuple[CustomCpModel, Params, SwCpVars]:
         """Prepare CP model for makespan minimization batch.
 
         Unlike slack batches:
@@ -926,8 +926,8 @@ class PwCpConstructor:
             non_time_fixed_vars,
         )
 
-        # Build PwCpVars (exclude right_bar vars as they're not used)
-        pw_cp_vars = PwCpVars(
+        # Build SwCpVars (exclude right_bar vars as they're not used)
+        sw_cp_vars = SwCpVars(
             op_start=non_time_fixed_vars.op_start,
             op_end=non_time_fixed_vars.op_end,
             op_intvl=non_time_fixed_vars.op_intvl,
@@ -939,11 +939,11 @@ class PwCpConstructor:
             makespan=makespan_var,
         )
 
-        return mdl, params, pw_cp_vars
+        return mdl, params, sw_cp_vars
 
-    def _solve_batch_pw_cp_model(
+    def _solve_batch_sw_cp_model(
         self,
-        spec: PwCpSubproblemSpec,
+        spec: SwCpSubproblemSpec,
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool,
@@ -959,7 +959,7 @@ class PwCpConstructor:
         _timer = ElapsedTimer()
         incumbent_obj = int(spec.init_schedule.makespan)
         logging.info(
-            "PW-CP slack subproblem (batch=%d, subproblem=%d) starting. "
+            "SW-CP slack subproblem (batch=%d, subproblem=%d) starting. "
             "Incumbent makespan=%d, unfixed ops=%d, time_fixed ops=%d.",
             spec.batch_idx + 1,
             spec.subproblem_idx,
@@ -967,7 +967,7 @@ class PwCpConstructor:
             len(spec.unfixed_op_set),
             len(spec.time_fixed_op_set),
         )
-        mdl, params, variables = self._prepare_pw_cp_model(
+        mdl, params, variables = self._prepare_sw_cp_model(
             spec=spec,
             instance=instance,
             profile_fix_by_machine=profile_fix_by_machine,
@@ -1011,7 +1011,7 @@ class PwCpConstructor:
             )
             return None
 
-        candidate_schedule = create_pw_cp_schedule(
+        candidate_schedule = create_sw_cp_schedule(
             self.ctx.solver,
             params,
             spec.stage_2_partition,
@@ -1042,7 +1042,7 @@ class PwCpConstructor:
 
     def _solve_makespan_batch(
         self,
-        spec: PwCpSubproblemSpec,
+        spec: SwCpSubproblemSpec,
         instance: HybridFlowshopParameters,
         stage_2_job_2_p_dict: dict[str, dict[str, int]],
         profile_fix_by_machine: bool,
@@ -1065,7 +1065,7 @@ class PwCpConstructor:
         _timer = ElapsedTimer()
         incumbent_obj = int(spec.init_schedule.makespan)
         logging.info(
-            "PW-CP makespan batch (batch=%d, subproblem=%d) starting. "
+            "SW-CP makespan batch (batch=%d, subproblem=%d) starting. "
             "Incumbent makespan=%d, non-time-fixed ops=%d.",
             spec.batch_idx + 1,
             spec.subproblem_idx,
@@ -1120,7 +1120,7 @@ class PwCpConstructor:
             )
             return None
 
-        candidate_schedule = create_pw_cp_schedule(
+        candidate_schedule = create_sw_cp_schedule(
             self.ctx.solver,
             params,
             spec.stage_2_partition,
@@ -1163,7 +1163,7 @@ class PwCpConstructor:
             try:
                 self.ctx.check_feasibility(candidate.get_jik_2_start_time_map())
             except Exception:
-                logging.exception("PW-CP candidate failed feasibility check.")
+                logging.exception("SW-CP candidate failed feasibility check.")
             else:
                 return candidate, True
         incumbent.make_semi_active(stage_2_job_2_p_dict)
@@ -1171,7 +1171,7 @@ class PwCpConstructor:
 
     def _append_subproblem_log(
         self,
-        spec: PwCpSubproblemSpec,
+        spec: SwCpSubproblemSpec,
         report: CpsatSolverReport,
         time_limit_sec: float,
         incumbent_makespan_before: int,
@@ -1180,7 +1180,7 @@ class PwCpConstructor:
         objective_name: str = "common_spacing",
     ) -> None:
         self._require_state().subproblem_logs.append(
-            PwCpSubproblemLog(
+            SwCpSubproblemLog(
                 batch_idx=spec.batch_idx,
                 subproblem_idx=spec.subproblem_idx,
                 objective_name=objective_name,
@@ -1204,7 +1204,7 @@ class PwCpConstructor:
         unique_counts = set(batch_counts.values())
         if len(unique_counts) > 1:
             raise ValueError(
-                f"PW-CP requires identical batch counts across stages, got {batch_counts}."
+                f"SW-CP requires identical batch counts across stages, got {batch_counts}."
             )
         return next(iter(unique_counts), 0)
 
@@ -1234,7 +1234,7 @@ class PwCpConstructor:
 
     def _draw_candidate_retiming_gantts(
         self,
-        spec: PwCpSubproblemSpec,
+        spec: SwCpSubproblemSpec,
         before_retiming: HybridFlowshopLiteSchedule,
         after_successor_reassign: HybridFlowshopLiteSchedule | None,
         after_predecessor_reassign: HybridFlowshopLiteSchedule | None,
@@ -1320,7 +1320,7 @@ class PwCpConstructor:
 
     def _save_solution_dict(
         self,
-        spec: PwCpSubproblemSpec,
+        spec: SwCpSubproblemSpec,
         incumbent: HybridFlowshopLiteSchedule,
         *,
         accepted: bool,

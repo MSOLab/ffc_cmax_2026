@@ -18,7 +18,6 @@ from hybridflowshop.painter.gantt import GanttPlotter
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule, OperationType
 from lb_bucket.cp.search import RetainedStageCpResult
 
-
 _PRUNED_EXTENDED_RANK_VARIANTS = {
     "best_of_mixed_dispatches_cp_weighted_median_rank",
     "best_of_mixed_dispatches_cp_front_tail_blend_rank",

@@ -84,7 +84,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.05
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 7
@@ -109,7 +109,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.06
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 7
@@ -134,7 +134,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.07
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 7
@@ -159,7 +159,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.08
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 7
@@ -184,7 +184,7 @@
   solver_thread_cnt: 16
   skip_if_estimated_neh_exceeds_remaining: true
   full_neh_estimate_safety_factor: 1.0
-- method: incremental_pw_cp
+- method: incremental_sw_cp
   batch_size_ratio: 0.09
   unfixed_batch_count_min: 2
   unfixed_batch_count_max: 7

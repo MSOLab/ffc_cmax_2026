@@ -79,7 +79,6 @@ from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule  # noqa: E40
 from hybridflowshop.select_and_assign import (  # noqa: E402
     solve_selection_problem,
 )
-
 from scripts.p1_algo_explainer.recorder import GanttSnapshotRecorder  # noqa: E402
 from scripts.p1_algo_explainer.render import render_panel  # noqa: E402
 

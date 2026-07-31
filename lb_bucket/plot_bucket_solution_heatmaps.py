@@ -4,8 +4,8 @@ import argparse
 import csv
 import json
 import math
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +15,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from lb_bucket.mip.shared import log_progress
-
 
 DEFAULT_SOLUTION_ROOT = Path(__file__).resolve().parent / "results" / "solutions"
 

@@ -386,7 +386,7 @@ def render_panel(
 
     * ``lane_boundaries``: (stage, machine) -> (left_b, right_b) per-lane
       time-fixed boundaries; the renderer paints faint LTF/active/RTF bands and
-      dashed boundary segments per lane (sister-repo pw_cp/visual.py style).
+      dashed boundary segments per lane (sister-repo sw_cp/visual.py style).
     * ``band_region_colors``: (LTF-zone, active-zone, RTF-zone) band colors.
     * ``region_legend``: [(label, hex_color), ...] color key drawn upper-right.
     """

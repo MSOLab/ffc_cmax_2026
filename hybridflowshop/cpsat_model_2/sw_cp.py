@@ -24,7 +24,7 @@ JobMcType = tuple[JobIdType, McIdType]  # (job_id, mc_id)
 @dataclass(frozen=True)
 class OperationPartition:
     """
-    Encapsulates the operation partition of PW-CP subproblems.
+    Encapsulates the operation partition of SW-CP subproblems.
 
     Operations are grouped into time-fixed, profile-fixed, unfixed, and
     right-time-fixed regions around the current batch.
@@ -184,11 +184,11 @@ class DummyBarVars:
 
 
 @dataclass
-class PwCpVars(OperationVars, DummyBarVars):
+class SwCpVars(OperationVars, DummyBarVars):
     makespan: IntVar | None = None
 
 
-class PwCpModelBuilder(BaseModelBuilder):
+class SwCpModelBuilder(BaseModelBuilder):
     @staticmethod
     def make_non_time_fixed_ops_vars(
         mdl: CustomCpModel,
@@ -474,12 +474,12 @@ def extract_stage_2_job_2_time_map(
     return return_map
 
 
-def create_pw_cp_schedule(
+def create_sw_cp_schedule(
     solver: CpSolver,
     params: Params,
     stage_2_partition: Mapping[StageIdType, OperationPartition],
     right_justified_schedule: HybridFlowshopLiteSchedule,
-    variables: PwCpVars,
+    variables: SwCpVars,
 ) -> HybridFlowshopLiteSchedule:
     """Create a schedule from the CP model solution."""
     stage_2_job_2_time_map = extract_stage_2_job_2_time_map(

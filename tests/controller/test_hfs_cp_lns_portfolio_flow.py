@@ -1,10 +1,9 @@
 from types import SimpleNamespace
 
-from lb_bucket.cp.search import RetainedStageCpResult
-
 import hybridflowshop.controller.hfs_cp_lns as hfs_cp_lns_module
 from hybridflowshop.controller.hfs_cp_lns import HybridFlowShopCpLnsController
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
+from lb_bucket.cp.search import RetainedStageCpResult
 
 
 class _FakeSchedule:
@@ -105,7 +104,7 @@ def _make_retained_cp_result(objective_ub: float) -> RetainedStageCpResult:
     )
 
 
-def test_bound_gap_guarded_incremental_pw_cp_skips_when_gap_is_small(
+def test_bound_gap_guarded_incremental_sw_cp_skips_when_gap_is_small(
     monkeypatch,
 ) -> None:
     ctrl = object.__new__(HybridFlowShopCpLnsController)
@@ -113,9 +112,9 @@ def test_bound_gap_guarded_incremental_pw_cp_skips_when_gap_is_small(
         _FakeSchedule(1050), best_obj_bound=1000.0
     )
     calls = []
-    monkeypatch.setattr(ctrl, "incremental_pw_cp", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(ctrl, "incremental_sw_cp", lambda **kwargs: calls.append(kwargs))
 
-    ctrl.bound_gap_guarded_incremental_pw_cp(
+    ctrl.bound_gap_guarded_incremental_sw_cp(
         solver_thread_cnt=16,
         min_incumbent_bound_gap_ratio=0.07,
         batch_size_ratio=0.05,
@@ -124,7 +123,7 @@ def test_bound_gap_guarded_incremental_pw_cp_skips_when_gap_is_small(
     assert calls == []
 
 
-def test_bound_gap_guarded_incremental_pw_cp_runs_when_gap_is_large(
+def test_bound_gap_guarded_incremental_sw_cp_runs_when_gap_is_large(
     monkeypatch,
 ) -> None:
     ctrl = object.__new__(HybridFlowShopCpLnsController)
@@ -132,9 +131,9 @@ def test_bound_gap_guarded_incremental_pw_cp_runs_when_gap_is_large(
         _FakeSchedule(1080), best_obj_bound=1000.0
     )
     calls = []
-    monkeypatch.setattr(ctrl, "incremental_pw_cp", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(ctrl, "incremental_sw_cp", lambda **kwargs: calls.append(kwargs))
 
-    ctrl.bound_gap_guarded_incremental_pw_cp(
+    ctrl.bound_gap_guarded_incremental_sw_cp(
         solver_thread_cnt=16,
         min_incumbent_bound_gap_ratio=0.07,
         batch_size_ratio=0.05,
@@ -616,12 +615,12 @@ def test_suffix_probe_portfolio_selects_probe_winner_and_runs_only_its_suffix(
         )
         ctrl.solution_manager.register(report, _FakeSchedule(next_obj))
 
-    def fake_incremental_pw_cp(**kwargs):
-        suffix_calls.append(("incremental_pw_cp", kwargs["batch_size_ratio"]))
+    def fake_incremental_sw_cp(**kwargs):
+        suffix_calls.append(("incremental_sw_cp", kwargs["batch_size_ratio"]))
 
     monkeypatch.setattr(hfs_cp_lns_module, "NehCpConstructor", _FakeNehConstructor)
     monkeypatch.setattr(ctrl, "neh_cp", fake_neh_cp)
-    monkeypatch.setattr(ctrl, "incremental_pw_cp", fake_incremental_pw_cp)
+    monkeypatch.setattr(ctrl, "incremental_sw_cp", fake_incremental_sw_cp)
 
     ctrl.suffix_probe_portfolio(
         solver_thread_cnt=16,
@@ -643,7 +642,7 @@ def test_suffix_probe_portfolio_selects_probe_winner_and_runs_only_its_suffix(
                 ],
                 "suffix_steps": [
                     {"method": "neh_cp", "added_batch_size": 30},
-                    {"method": "incremental_pw_cp", "batch_size_ratio": 0.09},
+                    {"method": "incremental_sw_cp", "batch_size_ratio": 0.09},
                 ],
             },
         ],
@@ -654,7 +653,7 @@ def test_suffix_probe_portfolio_selects_probe_winner_and_runs_only_its_suffix(
         "suffix_probe_portfolio"
     )
     assert ctrl.solution_manager.registered[0][1].makespan == 91
-    assert suffix_calls == [("neh_cp", 30), ("incremental_pw_cp", 0.09)]
+    assert suffix_calls == [("neh_cp", 30), ("incremental_sw_cp", 0.09)]
     assert ctrl.solution_manager.get_incumbent().makespan == 61
 
 

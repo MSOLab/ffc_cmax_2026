@@ -6,8 +6,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from routix.io.yaml import load_yaml
-from routix.io.yaml import dump_yaml
+from routix.io.yaml import dump_yaml, load_yaml
 
 from .search import RetainedStageCpResult
 from .shared import RetainedStageCpBuild

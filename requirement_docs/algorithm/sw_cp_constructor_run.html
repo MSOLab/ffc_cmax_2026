@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PW-CP Constructor (PwCpConstructor.run)</title>
+<title>SW-CP Constructor (SwCpConstructor.run)</title>
 <style>
   :root {
     --bg: #fafaf7;
@@ -182,9 +182,9 @@
 <div class="layout">
 
 <nav class="toc">
-  <div class="title">PW-CP Constructor</div>
-  <div class="crumb">requirement_docs/algorithm/pw_cp_constructor_run.md</div>
-  <div class="peer">→ <a href="pw_cp.md">pw_cp.md</a> — 상위 알고리즘 개념</div>
+  <div class="title">SW-CP Constructor</div>
+  <div class="crumb">requirement_docs/algorithm/sw_cp_constructor_run.md</div>
+  <div class="peer">→ <a href="sw_cp.md">sw_cp.md</a> — 상위 알고리즘 개념</div>
 
   <div class="label">Sections</div>
   <a href="#tl-dr">TL;DR</a>
@@ -218,7 +218,7 @@
 
   <div class="label">Glossary</div>
   <ul class="plain">
-    <li><b>PW-CP</b> — Prefix-Window CP; 슬라이딩 윈도우 CP 국소 탐색</li>
+    <li><b>SW-CP</b> — Sliding-Window CP; 슬라이딩 윈도우 CP 국소 탐색</li>
     <li><b>CP-SAT</b> — OR-Tools Constraint Programming SAT solver</li>
     <li><b>LNS</b> — Large Neighborhood Search; CP-SAT의 부분 파괴·재구축 전략</li>
     <li><b>NEH</b> — Nawaz-Enscore-Ham; flowshop 순서 결정 휴리스틱</li>
@@ -230,19 +230,19 @@
 
 <main>
 
-<h1>PW-CP Constructor (PwCpConstructor.run)</h1>
+<h1>SW-CP Constructor (SwCpConstructor.run)</h1>
 <div class="meta">
-  <span>requirement_docs/algorithm/pw_cp_constructor_run.md</span>
-  · <span>호출: <code>def PwCpConstructor.run</code> (pw_cp.py)</span>
-  · <span>Peer: <a href="pw_cp.md">pw_cp.md</a> (상위 알고리즘 개념)</span>
+  <span>requirement_docs/algorithm/sw_cp_constructor_run.md</span>
+  · <span>호출: <code>def SwCpConstructor.run</code> (sw_cp.py)</span>
+  · <span>Peer: <a href="sw_cp.md">sw_cp.md</a> (상위 알고리즘 개념)</span>
 </div>
 
 <section id="tl-dr" class="tldr">
   <h4>At a glance</h4>
   <ul>
-    <li>PwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인 PW-CP의 <strong>핵심 구현체</strong></li>
+    <li>SwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인 SW-CP의 <strong>핵심 구현체</strong></li>
     <li>초기 실행 가능 스케줄에서 출발, 시간 순서 배치 위로 윈도우를 슬라이딩하며 각 윈도우 내 작업만 CP로 재최적화</li>
-    <li>전체 알고리즘 개념은 <a href="pw_cp.md">pw_cp.md</a> 참조; 이 문서는 반복 루프 구성, CP 모델 분기, 상태 관리, 배치별 시간 제한 결정을 구현 수준에서 서술</li>
+    <li>전체 알고리즘 개념은 <a href="sw_cp.md">sw_cp.md</a> 참조; 이 문서는 반복 루프 구성, CP 모델 분기, 상태 관리, 배치별 시간 제한 결정을 구현 수준에서 서술</li>
   </ul>
 </section>
 
@@ -251,13 +251,13 @@
 <!-- ===== 1. 개요 ===== -->
 <h2 id="sec-intro">개요</h2>
 <p>
-PwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인
-PW-CP의 <strong>핵심 구현체</strong>다. 초기 실행 가능 스케줄을 입력받아, 시간 순서로 정렬된
+SwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인
+SW-CP의 <strong>핵심 구현체</strong>다. 초기 실행 가능 스케줄을 입력받아, 시간 순서로 정렬된
 배치(batch) 위로 윈도우를 슬라이딩시키며 각 윈도우 내 작업을 CP 서브문제로
 풀어 makespan을 단계적으로 개선한다.
 </p>
 <p>
-전체 알고리즘 개념(<a href="pw_cp.md"><code>pw_cp.md</code></a>)과 동일하나, 이 문서는 PwCpConstructor.run의
+전체 알고리즘 개념(<a href="sw_cp.md"><code>sw_cp.md</code></a>)과 동일하나, 이 문서는 SwCpConstructor.run의
 <strong>구체적인 실행 흐름 — 반복 루프 구성, CP 모델 분기, 상태 관리, 배치별 시간
 제한 결정</strong> — 을 구현 수준에서 서술한다.
 </p>
@@ -287,12 +287,12 @@ PW-CP의 <strong>핵심 구현체</strong>다. 초기 실행 가능 스케줄을
 
 <h3 id="sec-vars">변수 (Variables)</h3>
 <p>알고리즘은 두 계층의 변수를 관리한다:</p>
-<p><strong>PwCpRunState (반복 상태)</strong>:</p>
+<p><strong>SwCpRunState (반복 상태)</strong>:</p>
 <ul>
   <li><code>timer</code> (<code>ElapsedTimer</code>): 총 경과 시간 추적</li>
   <li><code>incumbent</code> (<code>HybridFlowshopLiteSchedule</code>): 현재 최선 스케줄</li>
   <li><code>subproblem_idx</code> (<code>int</code>): 전체 서브문제 번호 (1부터 시작, 루프 전체에서 단조 증가)</li>
-  <li><code>subproblem_logs</code> (<code>list[PwCpSubproblemLog]</code>): 각 서브문제의 결과 로그</li>
+  <li><code>subproblem_logs</code> (<code>list[SwCpSubproblemLog]</code>): 각 서브문제의 결과 로그</li>
   <li><code>sub_obj_store</code> (<code>ObjValueBoundStore[int]</code>): 개선 시 obj value 이력 저장</li>
   <li><code>max_time_per_batch</code> (<code>float | None</code>): <code>max_time_per_batch</code> 파라미터의 패스스루 값 (multiplier 사용 시 <code>None</code>). 결과 메타데이터용이며, 실제 배치별 제한은 <code>_resolve_batch_time_limit</code>이 산정</li>
 </ul>
@@ -461,7 +461,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
   </div>
   <div class="decision">
     <div class="key"><code>False</code></div>
-    <div class="val">right_time_fixed 있음 → <code>_solve_batch_pw_cp_model</code></div>
+    <div class="val">right_time_fixed 있음 → <code>_solve_batch_sw_cp_model</code></div>
   </div>
 </div>
 
@@ -473,9 +473,9 @@ max_window_start = max_batch_cnt - unfixed_batch_count
 <div class="grid-2">
   <div class="card not-template" id="sec-common">
     <h4>Common Spacing 최대화 모델 <span class="badge warn">right_time_fixed 있음</span></h4>
-    <p><code>_prepare_pw_cp_model</code>이 구성 (비-마지막 윈도우):</p>
+    <p><code>_prepare_sw_cp_model</code>이 구성 (비-마지막 윈도우):</p>
     <ol>
-      <li><strong>Non-time-fixed 변수</strong>: <code>PwCpModelBuilder.make_non_time_fixed_ops_vars</code></li>
+      <li><strong>Non-time-fixed 변수</strong>: <code>SwCpModelBuilder.make_non_time_fixed_ops_vars</code></li>
       <li><strong>더미 바 변수</strong>: Left dummy bar (고정) + Right dummy bar (가변, <code>common_spacing</code> 연동)</li>
       <li><strong>잡 선행 제약</strong>: <code>add_non_fixed_job_precedence_constraints</code></li>
       <li><strong>용량 제약</strong>: <code>add_capacity_with_dummy_bar_constraints</code></li>
@@ -490,7 +490,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
     <ul>
       <li><strong>Right dummy bar 생성하지 않음</strong> (<code>include_right_bars=False</code>)</li>
       <li><strong>마지막 스테이지 검증</strong>: 마지막 스테이지에 <code>non_time_fixed</code> 작업이 하나 이상 있어야 함. 없으면 <code>ValueError</code></li>
-      <li><strong>목적함수</strong>: <code>minimize makespan = max(op_end[j, last_stage])</code> → <code>PwCpModelBuilder.add_makespan_objective</code></li>
+      <li><strong>목적함수</strong>: <code>minimize makespan = max(op_end[j, last_stage])</code> → <code>SwCpModelBuilder.add_makespan_objective</code></li>
     </ul>
   </div>
 </div>
@@ -501,13 +501,13 @@ max_window_start = max_batch_cnt - unfixed_batch_count
   <li><code>ctx.get_remaining_time_limit(max_time_per_batch)</code>로 남은 시간 예산 확인</li>
   <li><code>ctx.solve_cp_model_2(...)</code>로 CP-SAT 호출</li>
   <li>infeasible이면 <code>None</code> 반환하고 로그 기록</li>
-  <li>feasible이면 <code>create_pw_cp_schedule(...)</code>로 CP 해에서 <code>HybridFlowshopLiteSchedule</code> 재구성</li>
+  <li>feasible이면 <code>create_sw_cp_schedule(...)</code>로 CP 해에서 <code>HybridFlowshopLiteSchedule</code> 재구성</li>
   <li><code>candidate_schedule.make_semi_active(stage_2_job_2_p_dict)</code>로 semi-active 정규화</li>
 </ol>
 
-<h3 id="sec-reconstruct">스케줄 재구성 (create_pw_cp_schedule)</h3>
+<h3 id="sec-reconstruct">스케줄 재구성 (create_sw_cp_schedule)</h3>
 <div class="pipeline">
-  <h4>CP 해 → 스케줄 재구성 3단계 (자세한 내용은 <a href="pw_cp.md"><code>pw_cp.md</code></a> 「스케줄 재구성」 참조)</h4>
+  <h4>CP 해 → 스케줄 재구성 3단계 (자세한 내용은 <a href="sw_cp.md"><code>sw_cp.md</code></a> 「스케줄 재구성」 참조)</h4>
   <div class="flow">
     <span class="step"><strong>1.</strong> Left-time-fixed</span>
     <span>→</span>
@@ -552,7 +552,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
 
 <h3 id="sec-state">상태 관리</h3>
 <ul>
-  <li><code>PwCpRunState</code> 인스턴스가 <code>self._st</code>에 저장되며, <code>run()</code> 입장 시 생성되고 <code>finally</code> 블록에서 <code>None</code>으로 초기화된다.</li>
+  <li><code>SwCpRunState</code> 인스턴스가 <code>self._st</code>에 저장되며, <code>run()</code> 입장 시 생성되고 <code>finally</code> 블록에서 <code>None</code>으로 초기화된다.</li>
   <li><code>_require_state()</code>로 현재 상태에 접근하며, <code>run()</code>이 활성화되지 않았으면 <code>RuntimeError</code>를 발생시킨다.</li>
   <li>각 서브문제 해결 후 <code>_append_subproblem_log</code>로 로그를 기록한다.</li>
   <li><code>sub_obj_store</code>에는 수락된 배치의 obj value만 기록된다 (개선이 있었을 때만).</li>
@@ -576,7 +576,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
 
  1. 입력 검증 (step_size >= 1, unfixed_batch_count >= 1,
     profile_fixed_batch_count >= 0 등)
- 2. PwCpRunState 초기화 (timer, incumbent=ref_schedule, ...)
+ 2. SwCpRunState 초기화 (timer, incumbent=ref_schedule, ...)
  3. [debug] 초기 Gantt 차트 저장 (debug_export=True)
  4. 초기 배치 목록 구성 (build_stage_2_batch_list)
  5. 배치 수 검증 (모든 스테이지 동일) → max_batch_cnt
@@ -588,20 +588,20 @@ max_window_start = max_batch_cnt - unfixed_batch_count
            _build_operation_partition(...) → 5-영역 파티션
       d. [선택] enable_promotion_profile_fixed:
            unfixed 잡의 profile-fixed 작업을 unfixed로 승격
-      e. _build_batch_spec(...) → PwCpSubproblemSpec
+      e. _build_batch_spec(...) → SwCpSubproblemSpec
            - right_time_fixed 존재 → 우측-정렬 → 윈도우 맵
            - right_time_fixed 없음 → 윈도우 맵만
       f. _resolve_batch_time_limit(...) → 배치당 시간 제한
       g. if spec.is_right_time_fixed_empty:
            _solve_makespan_batch(...)  → candidate | None
          else:
-           _solve_batch_pw_cp_model(...) → candidate | None
+           _solve_batch_sw_cp_model(...) → candidate | None
       h. _accept_candidate_or_repair_incumbent(candidate, incumbent, ...)
            → (new_incumbent, accepted)
       i. [debug] solution YAML 저장
       j. [accepted] sub_obj_store에 obj value 기록
  8. [error_if_infeasible] 최종 incumbent feasibility 검증
- 9. PwCpResult 반환 (schedule, sub_obj_store, subproblem_logs, ...)
+ 9. SwCpResult 반환 (schedule, sub_obj_store, subproblem_logs, ...)
 
 최종: self._st = None (finally 블록)</code></pre>
 </details>
@@ -670,7 +670,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
 
 <h3>전제 조건</h3>
 <ul>
-  <li>반드시 실행 가능한 초기 스케줄(<code>ref_schedule</code>)이 필요하다. PW-CP는 개선 알고리즘이므로 초기해 없이 동작할 수 없다.</li>
+  <li>반드시 실행 가능한 초기 스케줄(<code>ref_schedule</code>)이 필요하다. SW-CP는 개선 알고리즘이므로 초기해 없이 동작할 수 없다.</li>
   <li>모든 스테이지의 배치 수가 동일해야 한다. 스테이지별 작업 수 차이가 크면 빈 배치가 발생하거나 배치 수 불일치로 오류가 발생할 수 있다.</li>
 </ul>
 
@@ -678,7 +678,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
 <div class="decisions">
   <div class="decision">
     <div class="key">multiplier 사용 시</div>
-    <div class="val"><code>max_time_per_batch</code>는 <code>PwCpRunState.max_time_per_batch</code>로만 전달될 뿐 실제 시간 제한 계산에는 사용되지 않는다. 즉, <strong>두 방식은 상호 배타적</strong>이다.</div>
+    <div class="val"><code>max_time_per_batch</code>는 <code>SwCpRunState.max_time_per_batch</code>로만 전달될 뿐 실제 시간 제한 계산에는 사용되지 않는다. 즉, <strong>두 방식은 상호 배타적</strong>이다.</div>
   </div>
   <div class="decision">
     <div class="key">클리핑</div>
@@ -688,7 +688,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
 
 <h3>확장 포인트</h3>
 <ul>
-  <li><strong>목적함수 교체</strong>: common_spacing 최대화 대신 다른 국소 목적(예: 지연 최소화)으로 교체하려면 <code>_prepare_pw_cp_model</code>과 <code>_prepare_makespan_batch_model</code>의 objective 부분을 수정한다.</li>
+  <li><strong>목적함수 교체</strong>: common_spacing 최대화 대신 다른 국소 목적(예: 지연 최소화)으로 교체하려면 <code>_prepare_sw_cp_model</code>과 <code>_prepare_makespan_batch_model</code>의 objective 부분을 수정한다.</li>
   <li><strong>파티션 정책 변경</strong>: <code>_build_operation_partition</code>의 인덱스 기반 분할 대신, 다른 기준(우선순위, 클러스터 등)으로 교체 가능하다.</li>
   <li><strong>수락 기준</strong>: 현재는 순수 개선 시에만 수락하는 그리디 방식. Simulated Annealing이나 Tabu Search 방식으로 교체 가능하다.</li>
 </ul>
@@ -719,7 +719,7 @@ max_window_start = max_batch_cnt - unfixed_batch_count
 </div>
 
 <hr>
-<p style="font-size: 12px; color: var(--faint);">Source: <code>requirement_docs/algorithm/pw_cp_constructor_run.md</code> (markdown remains authoritative; this HTML is a spatial view).</p>
+<p style="font-size: 12px; color: var(--faint);">Source: <code>requirement_docs/algorithm/sw_cp_constructor_run.md</code> (markdown remains authoritative; this HTML is a spatial view).</p>
 
 </main>
 </div>

@@ -1,5 +1,5 @@
 """
-Demo: Verify positive boundary deviation in PW-CP.
+Demo: Verify positive boundary deviation in SW-CP.
 
 Initial commit intent (06f7ebe3):
 - Demonstrate cumulative frontier-based boundary deviation calculation
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from hybridflowshop.controller.pw_cp import PwCpConstructor
+from hybridflowshop.controller.sw_cp import SwCpConstructor
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 from tests.test_dispatch_stage_by_machines import create_hfs_instance
 
@@ -103,7 +103,7 @@ def _compute_usage_frontier_from_intervals(
 
 
 def main() -> None:
-    ctor = PwCpConstructor(_DummyContext())
+    ctor = SwCpConstructor(_DummyContext())
 
     sched = HybridFlowshopLiteSchedule(
         jobs=["A", "B", "C", "D"],
@@ -157,7 +157,7 @@ def main() -> None:
         )
 
     print("=" * 80)
-    print("PW-CP POSITIVE BOUNDARY DEVIATION DEMONSTRATION")
+    print("SW-CP POSITIVE BOUNDARY DEVIATION DEMONSTRATION")
     print("=" * 80)
     print()
     print("PURPOSE: Show when free operations extend BEYOND guard availability")

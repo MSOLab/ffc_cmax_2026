@@ -9,6 +9,51 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+import pandas as pd
+from mbls.cpsat import CpsatStatus, ObjectiveValueRecorder
+from routix import DynamicDataObject, ElapsedTimer
+from schore.parameters import JobStageProcessingTimeManager
+from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
+    HybridFlowshopParameters,
+    reverse_stages,
+)
+
+from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
+from hybridflowshop.controller.sw_cp import SwCpConstructor, SwCpResult
+from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
+from hybridflowshop.dispatcher import (
+    BN2DDispatcher,
+    BN2DOption,
+    JobDispatcher,
+    MachineDispatcher,
+    MixedDispatcher,
+    StageDispatcher,
+)
+from hybridflowshop.dispatcher.utils import (
+    build_schedule_from_stage_job_sequences_priority_score,
+    from_job_sequence_get_schedule_mixed,
+    improve_schedule_by_critical_adjacent_swaps,
+    improve_schedule_by_critical_cross_machine_insertions,
+    improve_schedule_by_critical_stage_sequence_insertions,
+)
+from hybridflowshop.lower_bounds import (
+    chen_lb4_lower_bound,
+    chen_lb4_stage_lower_bounds,
+    santos_lower_bound,
+    santos_stage_lower_bound,
+    simple_job_lower_bound,
+)
+from hybridflowshop.report import HfsCpsatSolverReport, HfsSubroutineReport
+from hybridflowshop.schedule_lite import (
+    HybridFlowshopLiteSchedule,
+    JobIdType,
+    OperationType,
+    StageIdType,
+    get_bottleneck_stage_job_sequence,
+    get_first_stage_start_sequence,
+    get_midpoint_sequence,
+    validate_schedule,
+)
 from lb_bucket.cp import (
     build_retained_stage_cp_model,
     build_retained_stage_cp_result,
@@ -31,54 +76,6 @@ from lb_bucket.mip.post_dispatch import (
     run_post_mip_dispatch,
     write_post_mip_dispatch_artifacts,
 )
-from lb_bucket.mip.solution_io import read_solution_payload, write_solution_payload
-from lb_bucket.mip.visualization import write_solution_payload_visualizations
-from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
-from mbls.cpsat import CpsatStatus, ObjectiveValueRecorder
-import pandas as pd
-from routix import DynamicDataObject, ElapsedTimer
-from schore.parameters import JobStageProcessingTimeManager
-from schore.parameters_examples.parallel_shop.identical_flow.hybrid_flowshop import (
-    HybridFlowshopParameters,
-    reverse_stages,
-)
-
-from hybridflowshop.controller.neh_cp import NehCpConstructor, NehCpResult
-from hybridflowshop.controller.pw_cp import PwCpConstructor, PwCpResult
-from hybridflowshop.cpsat_model_2.cumulative import BaseModelBuilder
-from hybridflowshop.dispatcher import (
-    BN2DDispatcher,
-    BN2DOption,
-    JobDispatcher,
-    MachineDispatcher,
-    MixedDispatcher,
-    StageDispatcher,
-)
-from hybridflowshop.dispatcher.utils import (
-    build_schedule_from_stage_job_sequences_priority_score,
-    from_job_sequence_get_schedule_mixed,
-    improve_schedule_by_critical_cross_machine_insertions,
-    improve_schedule_by_critical_stage_sequence_insertions,
-    improve_schedule_by_critical_adjacent_swaps,
-)
-from hybridflowshop.lower_bounds import (
-    chen_lb4_lower_bound,
-    chen_lb4_stage_lower_bounds,
-    santos_lower_bound,
-    santos_stage_lower_bound,
-    simple_job_lower_bound,
-)
-from hybridflowshop.report import HfsCpsatSolverReport, HfsSubroutineReport
-from hybridflowshop.schedule_lite import (
-    HybridFlowshopLiteSchedule,
-    JobIdType,
-    OperationType,
-    StageIdType,
-    get_bottleneck_stage_job_sequence,
-    get_first_stage_start_sequence,
-    get_midpoint_sequence,
-    validate_schedule,
-)
 from lb_bucket.mip.search import run_bucket_search_for_instance
 from lb_bucket.mip.shared import (
     ModelStrengtheningOptions,
@@ -87,6 +84,9 @@ from lb_bucket.mip.shared import (
     TwoBucketInstance,
     import_gurobi,
 )
+from lb_bucket.mip.solution_io import read_solution_payload, write_solution_payload
+from lb_bucket.mip.visualization import write_solution_payload_visualizations
+from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
@@ -2975,27 +2975,27 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         surrogate_neh_use_lns_only: bool = True,
         surrogate_neh_minimize_sum_ci_lex: bool = False,
         surrogate_neh_cp_tl_nc_multiplier_2nd_obj: float | None = None,
-        surrogate_pw_cp_enabled: bool = False,
-        surrogate_pw_cp_tau_values: Sequence[int] | None = None,
-        surrogate_pw_cp_batch_size: int | None = None,
-        surrogate_pw_cp_batch_size_ratio: float | None = 0.05,
-        surrogate_pw_cp_unfixed_batch_count_min: int = 2,
-        surrogate_pw_cp_unfixed_batch_count_max: int = 4,
-        surrogate_pw_cp_step_size: int = 1,
-        surrogate_pw_cp_lr_profile_fixed_batch_count: int = 1,
-        surrogate_pw_cp_left_profile_fixed_batch_count: int = 0,
-        surrogate_pw_cp_right_profile_fixed_batch_count: int = 0,
-        surrogate_pw_cp_enable_promotion_profile_fixed: bool = True,
-        surrogate_pw_cp_profile_fix_by_machine: bool = False,
-        surrogate_pw_cp_machine_precedence_stride: int = 1,
-        surrogate_pw_cp_stage_precedence_min_processing_time_diff: int | None = None,
-        surrogate_pw_cp_stage_precedence_min_processing_time_diff_ratio: float
+        surrogate_sw_cp_enabled: bool = False,
+        surrogate_sw_cp_tau_values: Sequence[int] | None = None,
+        surrogate_sw_cp_batch_size: int | None = None,
+        surrogate_sw_cp_batch_size_ratio: float | None = 0.05,
+        surrogate_sw_cp_unfixed_batch_count_min: int = 2,
+        surrogate_sw_cp_unfixed_batch_count_max: int = 4,
+        surrogate_sw_cp_step_size: int = 1,
+        surrogate_sw_cp_lr_profile_fixed_batch_count: int = 1,
+        surrogate_sw_cp_left_profile_fixed_batch_count: int = 0,
+        surrogate_sw_cp_right_profile_fixed_batch_count: int = 0,
+        surrogate_sw_cp_enable_promotion_profile_fixed: bool = True,
+        surrogate_sw_cp_profile_fix_by_machine: bool = False,
+        surrogate_sw_cp_machine_precedence_stride: int = 1,
+        surrogate_sw_cp_stage_precedence_min_processing_time_diff: int | None = None,
+        surrogate_sw_cp_stage_precedence_min_processing_time_diff_ratio: float
         | None = None,
-        surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier: float | None = 0.002,
-        surrogate_pw_cp_max_time_per_batch: float | None = None,
-        surrogate_pw_cp_use_lns_only: bool = False,
-        surrogate_pw_cp_tighten_ranges: bool = False,
-        surrogate_pw_cp_stop_on_no_improvement: bool = False,
+        surrogate_sw_cp_non_time_fixed_op_time_limit_multiplier: float | None = 0.002,
+        surrogate_sw_cp_max_time_per_batch: float | None = None,
+        surrogate_sw_cp_use_lns_only: bool = False,
+        surrogate_sw_cp_tighten_ranges: bool = False,
+        surrogate_sw_cp_stop_on_no_improvement: bool = False,
         solver_thread_cnt: int = 16,
         surrogate_use_lns_only: bool | None = False,
         surrogate_cp_snapshot_solution_limit: int = 0,
@@ -3030,9 +3030,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if surrogate_neh_tau_values is not None
             else None
         )
-        surrogate_pw_cp_tau_set = (
-            {int(tau) for tau in surrogate_pw_cp_tau_values}
-            if surrogate_pw_cp_tau_values is not None
+        surrogate_sw_cp_tau_set = (
+            {int(tau) for tau in surrogate_sw_cp_tau_values}
+            if surrogate_sw_cp_tau_values is not None
             else None
         )
         surrogate_neh_source_set = {str(source) for source in surrogate_neh_sources}
@@ -3053,71 +3053,71 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             raise ValueError(
                 "surrogate NEH requires at least one positive batch size."
             )
-        if surrogate_pw_cp_enabled:
-            if surrogate_pw_cp_batch_size is None:
-                if surrogate_pw_cp_batch_size_ratio is None:
+        if surrogate_sw_cp_enabled:
+            if surrogate_sw_cp_batch_size is None:
+                if surrogate_sw_cp_batch_size_ratio is None:
                     raise ValueError(
-                        "surrogate PW-CP requires either batch_size or "
+                        "surrogate SW-CP requires either batch_size or "
                         "batch_size_ratio."
                     )
-                if surrogate_pw_cp_batch_size_ratio <= 0:
+                if surrogate_sw_cp_batch_size_ratio <= 0:
                     raise ValueError(
-                        "surrogate_pw_cp_batch_size_ratio must be > 0."
+                        "surrogate_sw_cp_batch_size_ratio must be > 0."
                     )
-            elif surrogate_pw_cp_batch_size <= 0:
-                raise ValueError("surrogate_pw_cp_batch_size must be positive.")
-            if surrogate_pw_cp_unfixed_batch_count_min < 1:
+            elif surrogate_sw_cp_batch_size <= 0:
+                raise ValueError("surrogate_sw_cp_batch_size must be positive.")
+            if surrogate_sw_cp_unfixed_batch_count_min < 1:
                 raise ValueError(
-                    "surrogate_pw_cp_unfixed_batch_count_min must be >= 1."
+                    "surrogate_sw_cp_unfixed_batch_count_min must be >= 1."
                 )
             if (
-                surrogate_pw_cp_unfixed_batch_count_max
-                < surrogate_pw_cp_unfixed_batch_count_min
+                surrogate_sw_cp_unfixed_batch_count_max
+                < surrogate_sw_cp_unfixed_batch_count_min
             ):
                 raise ValueError(
-                    "surrogate_pw_cp_unfixed_batch_count_max must be >= min."
+                    "surrogate_sw_cp_unfixed_batch_count_max must be >= min."
                 )
-            if surrogate_pw_cp_step_size < 1:
-                raise ValueError("surrogate_pw_cp_step_size must be >= 1.")
-            if surrogate_pw_cp_lr_profile_fixed_batch_count < 0:
+            if surrogate_sw_cp_step_size < 1:
+                raise ValueError("surrogate_sw_cp_step_size must be >= 1.")
+            if surrogate_sw_cp_lr_profile_fixed_batch_count < 0:
                 raise ValueError(
-                    "surrogate_pw_cp_lr_profile_fixed_batch_count must be >= 0."
+                    "surrogate_sw_cp_lr_profile_fixed_batch_count must be >= 0."
                 )
-            if surrogate_pw_cp_left_profile_fixed_batch_count < 0:
+            if surrogate_sw_cp_left_profile_fixed_batch_count < 0:
                 raise ValueError(
-                    "surrogate_pw_cp_left_profile_fixed_batch_count must be >= 0."
+                    "surrogate_sw_cp_left_profile_fixed_batch_count must be >= 0."
                 )
-            if surrogate_pw_cp_right_profile_fixed_batch_count < 0:
+            if surrogate_sw_cp_right_profile_fixed_batch_count < 0:
                 raise ValueError(
-                    "surrogate_pw_cp_right_profile_fixed_batch_count must be >= 0."
+                    "surrogate_sw_cp_right_profile_fixed_batch_count must be >= 0."
                 )
-            if surrogate_pw_cp_machine_precedence_stride < 1:
+            if surrogate_sw_cp_machine_precedence_stride < 1:
                 raise ValueError(
-                    "surrogate_pw_cp_machine_precedence_stride must be >= 1."
+                    "surrogate_sw_cp_machine_precedence_stride must be >= 1."
                 )
             if (
-                surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier is not None
-                and surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier <= 0
+                surrogate_sw_cp_non_time_fixed_op_time_limit_multiplier is not None
+                and surrogate_sw_cp_non_time_fixed_op_time_limit_multiplier <= 0
             ):
                 raise ValueError(
-                    "surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier "
+                    "surrogate_sw_cp_non_time_fixed_op_time_limit_multiplier "
                     "must be > 0."
                 )
             if (
-                surrogate_pw_cp_stage_precedence_min_processing_time_diff is not None
-                and surrogate_pw_cp_stage_precedence_min_processing_time_diff < 0
+                surrogate_sw_cp_stage_precedence_min_processing_time_diff is not None
+                and surrogate_sw_cp_stage_precedence_min_processing_time_diff < 0
             ):
                 raise ValueError(
-                    "surrogate_pw_cp_stage_precedence_min_processing_time_diff "
+                    "surrogate_sw_cp_stage_precedence_min_processing_time_diff "
                     "must be >= 0."
                 )
             if (
-                surrogate_pw_cp_stage_precedence_min_processing_time_diff_ratio
+                surrogate_sw_cp_stage_precedence_min_processing_time_diff_ratio
                 is not None
-                and surrogate_pw_cp_stage_precedence_min_processing_time_diff_ratio < 0
+                and surrogate_sw_cp_stage_precedence_min_processing_time_diff_ratio < 0
             ):
                 raise ValueError(
-                    "surrogate_pw_cp_stage_precedence_min_processing_time_diff_ratio "
+                    "surrogate_sw_cp_stage_precedence_min_processing_time_diff_ratio "
                     "must be >= 0."
                 )
 
@@ -3255,7 +3255,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     ),
                 )
 
-        def run_surrogate_pw_cp_chain(
+        def run_surrogate_sw_cp_chain(
             *,
             tau: int,
             source_label: str,
@@ -3264,29 +3264,29 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             tau_candidates: list[_TauScheduleCandidate],
             seen_signatures: set[tuple[tuple[Any, ...], ...]],
         ) -> tuple[HybridFlowshopLiteSchedule | None, str | None]:
-            if not surrogate_pw_cp_enabled:
+            if not surrogate_sw_cp_enabled:
                 return None, None
             if (
-                surrogate_pw_cp_tau_set is not None
-                and int(tau) not in surrogate_pw_cp_tau_set
+                surrogate_sw_cp_tau_set is not None
+                and int(tau) not in surrogate_sw_cp_tau_set
             ):
                 return None, None
 
-            if surrogate_pw_cp_batch_size is not None:
-                resolved_batch_size = max(1, int(surrogate_pw_cp_batch_size))
+            if surrogate_sw_cp_batch_size is not None:
+                resolved_batch_size = max(1, int(surrogate_sw_cp_batch_size))
             else:
-                assert surrogate_pw_cp_batch_size_ratio is not None
+                assert surrogate_sw_cp_batch_size_ratio is not None
                 resolved_batch_size = max(
                     1,
                     int(
                         round(
                             float(scaled_instance.job_count)
-                            * float(surrogate_pw_cp_batch_size_ratio)
+                            * float(surrogate_sw_cp_batch_size_ratio)
                         )
                     ),
                 )
 
-            pw_constructor = PwCpConstructor(self)
+            pw_constructor = SwCpConstructor(self)
             stage_2_batch_list = pw_constructor.build_stage_2_batch_list(
                 reference_schedule,
                 batch_size=resolved_batch_size,
@@ -3294,58 +3294,58 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             actual_batch_count = pw_constructor.validate_and_get_batch_count(
                 stage_2_batch_list
             )
-            if surrogate_pw_cp_unfixed_batch_count_min > actual_batch_count:
+            if surrogate_sw_cp_unfixed_batch_count_min > actual_batch_count:
                 logging.info(
-                    "[Tau coarsened CP] Skipping surrogate PW-CP tau=%s "
+                    "[Tau coarsened CP] Skipping surrogate SW-CP tau=%s "
                     "source=%s because min unfixed count %d exceeds available "
                     "batch count %d (batch_size=%d).",
                     tau,
                     source_label,
-                    surrogate_pw_cp_unfixed_batch_count_min,
+                    surrogate_sw_cp_unfixed_batch_count_min,
                     actual_batch_count,
                     resolved_batch_size,
                 )
                 return None, None
 
             max_unfixed_batch_count = min(
-                int(surrogate_pw_cp_unfixed_batch_count_max),
+                int(surrogate_sw_cp_unfixed_batch_count_max),
                 actual_batch_count,
             )
-            if max_unfixed_batch_count < surrogate_pw_cp_unfixed_batch_count_max:
+            if max_unfixed_batch_count < surrogate_sw_cp_unfixed_batch_count_max:
                 logging.info(
-                    "[Tau coarsened CP] Clamping surrogate PW-CP max unfixed "
+                    "[Tau coarsened CP] Clamping surrogate SW-CP max unfixed "
                     "count from %d to %d for tau=%s source=%s.",
-                    surrogate_pw_cp_unfixed_batch_count_max,
+                    surrogate_sw_cp_unfixed_batch_count_max,
                     max_unfixed_batch_count,
                     tau,
                     source_label,
                 )
 
-            if surrogate_pw_cp_lr_profile_fixed_batch_count > 0:
+            if surrogate_sw_cp_lr_profile_fixed_batch_count > 0:
                 left_profile_fixed_batch_count = int(
-                    surrogate_pw_cp_lr_profile_fixed_batch_count
+                    surrogate_sw_cp_lr_profile_fixed_batch_count
                 )
                 right_profile_fixed_batch_count = int(
-                    surrogate_pw_cp_lr_profile_fixed_batch_count
+                    surrogate_sw_cp_lr_profile_fixed_batch_count
                 )
             else:
                 left_profile_fixed_batch_count = int(
-                    surrogate_pw_cp_left_profile_fixed_batch_count
+                    surrogate_sw_cp_left_profile_fixed_batch_count
                 )
                 right_profile_fixed_batch_count = int(
-                    surrogate_pw_cp_right_profile_fixed_batch_count
+                    surrogate_sw_cp_right_profile_fixed_batch_count
                 )
 
             current_ref = reference_schedule
             best_pw_schedule: HybridFlowshopLiteSchedule | None = None
             best_pw_source_label: str | None = None
             for unfixed_batch_count in range(
-                int(surrogate_pw_cp_unfixed_batch_count_min),
+                int(surrogate_sw_cp_unfixed_batch_count_min),
                 max_unfixed_batch_count + 1,
             ):
                 before_obj = int(current_ref.makespan)
                 logging.info(
-                    "[Tau coarsened CP] Running surrogate PW-CP tau=%s "
+                    "[Tau coarsened CP] Running surrogate SW-CP tau=%s "
                     "source=%s batch_size=%d unfixed_count=%d/%d "
                     "before_obj=%d.",
                     tau,
@@ -3357,36 +3357,36 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                 )
                 try:
                     with self._temporary_instance_context(scaled_instance):
-                        pw_result = PwCpConstructor(self).run(
+                        pw_result = SwCpConstructor(self).run(
                             current_ref,
                             scaled_instance,
                             scaled_instance.stage_2_job_2_p_map,
                             batch_size=resolved_batch_size,
-                            step_size=int(surrogate_pw_cp_step_size),
+                            step_size=int(surrogate_sw_cp_step_size),
                             unfixed_batch_count=int(unfixed_batch_count),
                             left_profile_fixed_batch_count=left_profile_fixed_batch_count,
                             right_profile_fixed_batch_count=right_profile_fixed_batch_count,
                             enable_promotion_profile_fixed=bool(
-                                surrogate_pw_cp_enable_promotion_profile_fixed
+                                surrogate_sw_cp_enable_promotion_profile_fixed
                             ),
                             profile_fix_by_machine=bool(
-                                surrogate_pw_cp_profile_fix_by_machine
+                                surrogate_sw_cp_profile_fix_by_machine
                             ),
                             machine_precedence_stride=int(
-                                surrogate_pw_cp_machine_precedence_stride
+                                surrogate_sw_cp_machine_precedence_stride
                             ),
-                            stage_precedence_min_processing_time_diff=surrogate_pw_cp_stage_precedence_min_processing_time_diff,
-                            stage_precedence_min_processing_time_diff_ratio=surrogate_pw_cp_stage_precedence_min_processing_time_diff_ratio,
-                            non_time_fixed_op_time_limit_multiplier=surrogate_pw_cp_non_time_fixed_op_time_limit_multiplier,
-                            max_time_per_batch=surrogate_pw_cp_max_time_per_batch,
+                            stage_precedence_min_processing_time_diff=surrogate_sw_cp_stage_precedence_min_processing_time_diff,
+                            stage_precedence_min_processing_time_diff_ratio=surrogate_sw_cp_stage_precedence_min_processing_time_diff_ratio,
+                            non_time_fixed_op_time_limit_multiplier=surrogate_sw_cp_non_time_fixed_op_time_limit_multiplier,
+                            max_time_per_batch=surrogate_sw_cp_max_time_per_batch,
                             solver_thread_cnt=solver_thread_cnt,
-                            use_lns_only=bool(surrogate_pw_cp_use_lns_only),
-                            tighten_ranges=bool(surrogate_pw_cp_tighten_ranges),
+                            use_lns_only=bool(surrogate_sw_cp_use_lns_only),
+                            tighten_ranges=bool(surrogate_sw_cp_tighten_ranges),
                             error_if_infeasible=False,
                         )
                 except Exception:
                     logging.exception(
-                        "[Tau coarsened CP] Surrogate PW-CP failed tau=%s "
+                        "[Tau coarsened CP] Surrogate SW-CP failed tau=%s "
                         "source=%s unfixed_count=%d.",
                         tau,
                         source_label,
@@ -3406,7 +3406,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     surrogate_bound=None,
                 )
                 logging.info(
-                    "[Tau coarsened CP] Surrogate PW-CP tau=%s source=%s "
+                    "[Tau coarsened CP] Surrogate SW-CP tau=%s source=%s "
                     "unfixed_count=%d makespan=%s improvement=%s.",
                     tau,
                     source_label,
@@ -3422,11 +3422,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     best_pw_source_label = pw_source_label
 
                 if (
-                    surrogate_pw_cp_stop_on_no_improvement
+                    surrogate_sw_cp_stop_on_no_improvement
                     and int(pw_schedule.makespan) >= before_obj
                 ):
                     logging.info(
-                        "[Tau coarsened CP] Stopping surrogate PW-CP chain "
+                        "[Tau coarsened CP] Stopping surrogate SW-CP chain "
                         "for tau=%s source=%s after non-improving unfixed_count=%d.",
                         tau,
                         source_label,
@@ -3648,7 +3648,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                         best_neh_source_label,
                         best_neh_schedule.makespan,
                     )
-                    best_pw_schedule, best_pw_source_label = run_surrogate_pw_cp_chain(
+                    best_pw_schedule, best_pw_source_label = run_surrogate_sw_cp_chain(
                         tau=tau,
                         source_label=best_neh_source_label,
                         reference_schedule=best_neh_schedule,
@@ -3660,7 +3660,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                         cp_reference_schedule = best_pw_schedule
                         cp_source_label = f"{best_pw_source_label}_hint_cp"
                         logging.info(
-                            "[Tau coarsened CP] Selected surrogate PW-CP "
+                            "[Tau coarsened CP] Selected surrogate SW-CP "
                             "tau=%s source=%s makespan=%s for CP hint.",
                             tau,
                             best_pw_source_label,
@@ -5585,7 +5585,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         draw_gantt: bool = False,
     ) -> None:
         """
-        Sweep small stage-time neighborhoods in the style of PW-CP.
+        Sweep small stage-time neighborhoods in the style of SW-CP.
 
         A center stage is chosen from the current incumbent's critical stage and/or
         the last retained-CP bottleneck. For each center, this subroutine frees only
@@ -13562,8 +13562,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             "solve_base_cp_model",
             "solve_base_cp_model_with_last_neh_adaptive_time",
             "solve_base_cp_model_if_last_neh_improved",
-            "incremental_pw_cp",
-            "bound_gap_guarded_incremental_pw_cp",
+            "incremental_sw_cp",
+            "bound_gap_guarded_incremental_sw_cp",
         }
         allowed_methods = solver_thread_methods | {
             "retained_cp_bottleneck_band_stage_ns",
@@ -14980,7 +14980,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             log_cp_subproblem_progress=log_cp_subproblem_progress,
         )
 
-    def _resolve_pw_cp_batch_size(
+    def _resolve_sw_cp_batch_size(
         self,
         batch_size: int | None = None,
         batch_size_ratio: float | None = None,
@@ -15000,18 +15000,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             )
         return resolved_batch_size
 
-    def _get_pw_cp_batch_count(
+    def _get_sw_cp_batch_count(
         self,
         schedule: HybridFlowshopLiteSchedule,
         batch_size: int,
     ) -> int:
-        constructor = PwCpConstructor(self)
+        constructor = SwCpConstructor(self)
         stage_2_batch_list = constructor.build_stage_2_batch_list(
             schedule, batch_size=batch_size
         )
         return constructor.validate_and_get_batch_count(stage_2_batch_list)
 
-    def incremental_pw_cp(
+    def incremental_sw_cp(
         self,
         solver_thread_cnt: int,
         batch_size: int | None = None,
@@ -15051,19 +15051,19 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         ref_schedule = self.solution_manager.get_incumbent()
         if ref_schedule is None:
-            raise ValueError("No incumbent solution available for incremental PW-CP.")
+            raise ValueError("No incumbent solution available for incremental SW-CP.")
 
-        resolved_batch_size = self._resolve_pw_cp_batch_size(
+        resolved_batch_size = self._resolve_sw_cp_batch_size(
             batch_size=batch_size,
             batch_size_ratio=batch_size_ratio,
         )
-        actual_batch_count = self._get_pw_cp_batch_count(
+        actual_batch_count = self._get_sw_cp_batch_count(
             ref_schedule,
             batch_size=resolved_batch_size,
         )
         if unfixed_batch_count_min > actual_batch_count:
             raise ValueError(
-                "unfixed_batch_count_min exceeds the available PW-CP batch count: "
+                "unfixed_batch_count_min exceeds the available SW-CP batch count: "
                 f"min={unfixed_batch_count_min}, available={actual_batch_count}"
             )
 
@@ -15072,12 +15072,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         )
         if effective_unfixed_batch_count_max < unfixed_batch_count_max:
             logging.info(
-                "Clamping unfixed_batch_count_max from %d to %d based on available PW-CP batches.",
+                "Clamping unfixed_batch_count_max from %d to %d based on available SW-CP batches.",
                 unfixed_batch_count_max,
                 effective_unfixed_batch_count_max,
             )
 
-        base_pw_cp_kwargs = {
+        base_sw_cp_kwargs = {
             "solver_thread_cnt": solver_thread_cnt,
             "batch_size": batch_size,
             "batch_size_ratio": batch_size_ratio,
@@ -15101,7 +15101,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         }
 
         logging.info(
-            "Incremental PW-CP starts: policy=%s, unfixed_batch_count=[%d, %d], "
+            "Incremental SW-CP starts: policy=%s, unfixed_batch_count=[%d, %d], "
             "resolved_batch_size=%d, actual_batch_count=%d.",
             increment_unfixed_batch_count_flag,
             unfixed_batch_count_min,
@@ -15116,13 +15116,13 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         ):
             if self.is_stopping_condition():
                 logging.info(
-                    "Stopping condition met before incremental PW-CP count=%d.",
+                    "Stopping condition met before incremental SW-CP count=%d.",
                     unfixed_batch_count,
                 )
                 break
 
-            current_pw_cp_kwargs = {
-                **base_pw_cp_kwargs,
+            current_sw_cp_kwargs = {
+                **base_sw_cp_kwargs,
                 "unfixed_batch_count": unfixed_batch_count,
             }
             context_name = f"batch_{unfixed_batch_count:03d}"
@@ -15130,14 +15130,14 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             with self.temporarily_extended_context(context_name):
                 if increment_unfixed_batch_count_flag == "if_no_improvement":
                     logging.info(
-                        "Incremental PW-CP repeats count=%d until the first non-improving pass.",
+                        "Incremental SW-CP repeats count=%d until the first non-improving pass.",
                         unfixed_batch_count,
                     )
                     self.repeat_while_improvement(
                         routine_data=DynamicDataObject.from_obj(
                             {
-                                "method": "pw_cp",
-                                **current_pw_cp_kwargs,
+                                "method": "sw_cp",
+                                **current_sw_cp_kwargs,
                             }
                         ),
                         n_repeats=None,
@@ -15145,12 +15145,12 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
                     )
                 else:
                     logging.info(
-                        "Incremental PW-CP runs one pass at count=%d.",
+                        "Incremental SW-CP runs one pass at count=%d.",
                         unfixed_batch_count,
                     )
-                    self.pw_cp(**current_pw_cp_kwargs)
+                    self.sw_cp(**current_sw_cp_kwargs)
 
-    def bound_gap_guarded_incremental_pw_cp(
+    def bound_gap_guarded_incremental_sw_cp(
         self,
         solver_thread_cnt: int,
         min_incumbent_bound_gap_ratio: float | None = 0.0,
@@ -15179,16 +15179,16 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
     ) -> None:
-        """Run PW-CP only when incumbent-vs-bound gap is inside a configured band."""
+        """Run SW-CP only when incumbent-vs-bound gap is inside a configured band."""
         if not self._bound_gap_guard_allows(
-            context_label="Bound-gap PW-CP",
+            context_label="Bound-gap SW-CP",
             min_incumbent_bound_gap_ratio=min_incumbent_bound_gap_ratio,
             max_incumbent_bound_gap_ratio=max_incumbent_bound_gap_ratio,
             run_if_bound_missing=run_if_bound_missing,
         ):
             return
 
-        self.incremental_pw_cp(
+        self.incremental_sw_cp(
             solver_thread_cnt=solver_thread_cnt,
             batch_size=batch_size,
             batch_size_ratio=batch_size_ratio,
@@ -15214,7 +15214,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             draw_gantt=draw_gantt,
         )
 
-    def pw_cp(
+    def sw_cp(
         self,
         solver_thread_cnt: int,
         batch_size: int | None = None,
@@ -15242,9 +15242,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
 
         ref_schedule = self.solution_manager.get_incumbent()
         if ref_schedule is None:
-            raise ValueError("No incumbent solution available for PW-CP.")
+            raise ValueError("No incumbent solution available for SW-CP.")
 
-        resolved_batch_size = self._resolve_pw_cp_batch_size(
+        resolved_batch_size = self._resolve_sw_cp_batch_size(
             batch_size=batch_size,
             batch_size_ratio=batch_size_ratio,
         )
@@ -15274,8 +15274,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         else:
             _max_time_per_batch = max_time_per_batch
 
-        constructor = PwCpConstructor(self)
-        result: PwCpResult = constructor.run(
+        constructor = SwCpConstructor(self)
+        result: SwCpResult = constructor.run(
             ref_schedule,
             self.instance,
             self.stage_2_job_2_p_dict,
@@ -15298,7 +15298,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             error_if_infeasible=error_if_infeasible,
         )
         obj_value = float(result.schedule.makespan)
-        logging.info("PW-CP done with makespan %s", obj_value)
+        logging.info("SW-CP done with makespan %s", obj_value)
         if debug_export and result.sub_obj_store:
             result.save_yaml(self.get_file_path_for_subroutine("_obj_log.yaml"))
 
@@ -15307,7 +15307,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             obj_value=obj_value,
             obj_bound=None,
             is_init=False,
-            subroutine_name="pw_cp",
+            subroutine_name="sw_cp",
             progress_obj_value_records=result.sub_obj_store.obj_value_series.items(),
         )
         was_updated: bool = self.solution_manager.register(

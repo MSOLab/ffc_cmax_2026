@@ -418,15 +418,15 @@ def test_repeat_while_improvement_repeats_until_first_non_improvement():
     ctrl._run_flow = fake_run_flow
 
     ctrl.repeat_while_improvement(
-        routine_data=DynamicDataObject.from_obj({"method": "pw_cp", "batch_size": 3}),
+        routine_data=DynamicDataObject.from_obj({"method": "sw_cp", "batch_size": 3}),
         n_repeats=None,
         max_no_improve=0,
     )
 
     assert recorded_contexts == ["reps_001", "reps_002"]
     assert seen_routines == [
-        {"method": "pw_cp", "batch_size": 3},
-        {"method": "pw_cp", "batch_size": 3},
+        {"method": "sw_cp", "batch_size": 3},
+        {"method": "sw_cp", "batch_size": 3},
     ]
 
 
@@ -449,7 +449,7 @@ def test_repeat_while_improvement_stops_at_repeat_limit():
     ctrl._run_flow = fake_run_flow
 
     ctrl.repeat_while_improvement(
-        routine_data=DynamicDataObject.from_obj({"method": "pw_cp", "batch_size": 2}),
+        routine_data=DynamicDataObject.from_obj({"method": "sw_cp", "batch_size": 2}),
         n_repeats=2,
         max_no_improve=0,
     )

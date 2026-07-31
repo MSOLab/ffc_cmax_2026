@@ -1,5 +1,5 @@
-import datetime
 import csv
+import datetime
 import logging
 import math
 import re
@@ -822,7 +822,7 @@ class HybridFlowShopCpLnsControllerCore(
         """Get the subroutine report from solution_manager.history by call context.
 
         Args:
-            prefixed_name: The prefixed subroutine name (e.g., "4-pw_cp")
+            prefixed_name: The prefixed subroutine name (e.g., "4-sw_cp")
 
         Returns:
             The report dict if found, None otherwise
@@ -851,11 +851,11 @@ class HybridFlowShopCpLnsControllerCore(
         """Collect progress records from nested subroutine calls within a parent call.
 
         This handles cases like:
-        - incremental_pw_cp -> multiple unfixed_batch_count_* calls -> pw_cp calls
+        - incremental_sw_cp -> multiple unfixed_batch_count_* calls -> sw_cp calls
         - repeat_while_improvement -> multiple reps_* calls
 
         Args:
-            parent_prefixed_name: Parent's prefixed name (e.g., "2-incremental_pw_cp")
+            parent_prefixed_name: Parent's prefixed name (e.g., "2-incremental_sw_cp")
             parent_call_index: Parent's call index in the meta list
 
         Returns:

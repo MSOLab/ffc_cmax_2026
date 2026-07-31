@@ -65,7 +65,6 @@ from hybridflowshop.schedule_lite import (  # noqa: E402
     HybridFlowshopLiteSchedule,
     get_midpoint_sequence,
 )
-
 from scripts.p1_algo_explainer.render import render_panel  # noqa: E402
 
 INSTANCE_PATH = REPO_ROOT / "resources" / "demo_p1_10x4" / "1.txt"

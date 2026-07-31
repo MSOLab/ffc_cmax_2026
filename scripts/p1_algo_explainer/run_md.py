@@ -62,7 +62,6 @@ from hybridflowshop.dispatcher.utils import (  # noqa: E402
     from_job_sequence_get_schedule_mixed,
 )
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule  # noqa: E402
-
 from scripts.p1_algo_explainer.recorder import GanttSnapshotRecorder  # noqa: E402
 from scripts.p1_algo_explainer.render import render_panel  # noqa: E402
 

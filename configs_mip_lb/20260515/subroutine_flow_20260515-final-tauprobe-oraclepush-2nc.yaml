@@ -51,7 +51,7 @@
   surrogate_neh_use_lns_only: true
   surrogate_neh_minimize_sum_ci_lex: false
   surrogate_neh_cp_tl_nc_multiplier_2nd_obj: null
-  surrogate_pw_cp_enabled: false
+  surrogate_sw_cp_enabled: false
   solver_thread_cnt: 16
   surrogate_use_lns_only: false
   surrogate_cp_snapshot_solution_limit: 20
@@ -253,7 +253,7 @@
     log_cp_subproblem_bounds: true
     log_cp_subproblem_progress: false
   - &safe_pw005
-    method: incremental_pw_cp
+    method: incremental_sw_cp
     name: safe_pw005
     batch_size_ratio: 0.05
     unfixed_batch_count_min: 2
@@ -265,7 +265,7 @@
     solver_thread_cnt: 16
     use_lns_only: false
   - &safe_pw010
-    method: incremental_pw_cp
+    method: incremental_sw_cp
     name: safe_pw010
     batch_size_ratio: 0.10
     unfixed_batch_count_min: 2
@@ -408,7 +408,7 @@
       log_cp_subproblem_bounds: true
       log_cp_subproblem_progress: false
     suffix_steps:
-    - method: incremental_pw_cp
+    - method: incremental_sw_cp
       name: interleave_pw005_after_neh10
       batch_size_ratio: 0.05
       unfixed_batch_count_min: 2
@@ -420,7 +420,7 @@
       solver_thread_cnt: 16
       use_lns_only: false
     - *safe_neh15
-    - method: incremental_pw_cp
+    - method: incremental_sw_cp
       name: interleave_pw006_after_neh15
       batch_size_ratio: 0.06
       unfixed_batch_count_min: 2
@@ -432,7 +432,7 @@
       solver_thread_cnt: 16
       use_lns_only: false
     - *safe_neh20
-    - method: incremental_pw_cp
+    - method: incremental_sw_cp
       name: interleave_pw008_after_neh20
       batch_size_ratio: 0.08
       unfixed_batch_count_min: 2

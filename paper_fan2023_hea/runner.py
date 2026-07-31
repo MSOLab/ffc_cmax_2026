@@ -13,7 +13,11 @@ from paper_fan2023_hea.encoding_decoding import (
     HfsLikeInstance,
     origin_tag_from_decoding,
 )
-from paper_fan2023_hea.instance_io import BaselineRecord, load_baseline_records, load_instances
+from paper_fan2023_hea.instance_io import (
+    BaselineRecord,
+    load_baseline_records,
+    load_instances,
+)
 from paper_fan2023_hea.population import (
     ELITE_RATIO,
     EVO_REP,

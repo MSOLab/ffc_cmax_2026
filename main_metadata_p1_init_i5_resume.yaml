@@ -14,7 +14,7 @@ dicts_of_i_o_data_path:
   description: 'Thesis P1 ablation 1-1 - i5: full initialization INCLUDING NEH-CP.
     Resumes from the i4 (MD+BN2D+QSR+CP-LB) results in run 20260527T201714_595504
     and appends the NEH-CP suffix_probe_portfolio (3-lane probe race + neh15/20/25/30
-    suffix ladder; ISW-CP / incremental_pw_cp excluded). No final-time-reserve and
+    suffix ladder; ISW-CP / incremental_sw_cp excluded). No final-time-reserve and
     no Base-CP, so NEH-CP consumes all remaining 2nc budget. Same 24-thread CP-SAT
     settings as the published full pipeline; instances 1-24 (one parameter set,
     run in chunks). Final cell of the initialization ablation study.'

@@ -1,5 +1,5 @@
-from dataclasses import asdict, dataclass
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from ortools.sat.python.cp_model import CpSolver

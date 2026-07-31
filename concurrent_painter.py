@@ -167,14 +167,14 @@ def _process_progress_log_file(
         legend_loc="lower right",
         show_markers=False,
     )
-    _draw_pw_cp_subproblem_progress_plots(
+    _draw_sw_cp_subproblem_progress_plots(
         file_path=file_path,
         base_output_path=output_path,
         encoding=encoding,
     )
 
 
-def _draw_pw_cp_subproblem_progress_plots(
+def _draw_sw_cp_subproblem_progress_plots(
     file_path: Path,
     base_output_path: Path,
     encoding: str,
@@ -183,7 +183,9 @@ def _draw_pw_cp_subproblem_progress_plots(
     if not isinstance(content, dict):
         return
 
-    metadata = content.get("pw_cp_metadata")
+    # "pw_cp_metadata" is the pre-rename key; solutions saved before the
+    # pw_cp -> sw_cp rename still carry it.
+    metadata = content.get("sw_cp_metadata", content.get("pw_cp_metadata"))
     if not isinstance(metadata, dict):
         return
 
@@ -216,7 +218,7 @@ def _draw_pw_cp_subproblem_progress_plots(
         subproblem_idx = _safe_int(subproblem.get("subproblem_idx"), default=0)
         objective_name = str(subproblem.get("objective_name", "objective"))
         status = str(subproblem.get("status", "UNKNOWN"))
-        output_path = _build_pw_cp_progress_output_path(
+        output_path = _build_sw_cp_progress_output_path(
             base_output_path=base_output_path,
             batch_idx=batch_idx,
             subproblem_idx=subproblem_idx,
@@ -230,7 +232,7 @@ def _draw_pw_cp_subproblem_progress_plots(
             legend_loc="lower right",
             show_markers=False,
             title=(
-                f"PW-CP Batch {batch_idx + 1} Subproblem {subproblem_idx} "
+                f"SW-CP Batch {batch_idx + 1} Subproblem {subproblem_idx} "
                 f"({objective_name}, {status})"
             ),
             obj_value_label=f"{objective_name} value",
@@ -260,7 +262,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def _build_pw_cp_progress_output_path(
+def _build_sw_cp_progress_output_path(
     base_output_path: Path,
     batch_idx: int,
     subproblem_idx: int,

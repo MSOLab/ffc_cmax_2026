@@ -9,7 +9,7 @@ hybridflowshop/
 ├── controller/
 │   ├── controller_core.py        # Base class (CpSubroutineController) with CP model setup, solve helpers
 │   ├── hfs_cp_lns.py             # Main controller (HybridFlowShopCpLnsController) – subroutines as methods
-│   ├── pw_cp.py                  # Prefix-window CP constructor (PwCpConstructor)
+│   ├── sw_cp.py                  # Sliding-window CP constructor (SwCpConstructor)
 │   ├── neh_cp.py                 # NEH-CP constructor
 │   └── reactive/                 # Adaptive components
 │       ├── local_stopping_criteria.py
@@ -18,7 +18,7 @@ hybridflowshop/
 │       └── reactive_param_tuner.py
 ├── cpsat_model_2/                # CP-SAT model building blocks
 │   ├── cumulative.py             # BaseModelBuilder, CumulativeVars, OperationVars
-│   ├── pw_cp.py                  # PwCpModelBuilder
+│   ├── sw_cp.py                  # SwCpModelBuilder
 │   └── params.py
 ├── dispatcher/                   # Constructive heuristics (job, machine, stage, BN2D, mixed)
 ├── schedule_lite.py              # HybridFlowshopLiteSchedule – (start,end,job) per machine/stage
@@ -48,7 +48,7 @@ Solver algorithm docs live in `requirement_docs/algorithm/`. Each doc follows th
 - **Part 2 — 메커니즘**: `## 핵심 아이디어` → `## <알고리즘별 상세>` → `## 전체 실행 흐름`
 - Supplementary: `## 개요`, `## 파라미터 요약`, `## 주의사항 및 응용 고려사항`
 
-The authoritative format rules live in `requirement_docs/algorithm-doc-convention.md`; the canonical example is `requirement_docs/algorithm/pw_cp_constructor_run.md`. Language is Korean; frame structure is shared across sister repos (`flowshop-tardiness`, `ffc_ddw_sum_et`).
+The authoritative format rules live in `requirement_docs/algorithm-doc-convention.md`; the canonical example is `requirement_docs/algorithm/sw_cp_constructor_run.md`. Language is Korean; frame structure is shared across sister repos (`flowshop-tardiness`, `ffc_ddw_sum_et`).
 
 ## Build, Test, and Development Commands
 
@@ -58,7 +58,7 @@ Always invoke Python tooling through `uv`: use `uv run python ...` and `uv run p
 - `uv run python main.py` runs the main multi-scenario workflow from `main_metadata.yaml`.
 - `uv run python main.py --quiet` suppresses console output (log still written to file).
 - `uv run pytest` runs the full test suite.
-- `uv run pytest tests/controller/test_pw_cp.py -q` runs a focused regression loop.
+- `uv run pytest tests/controller/test_sw_cp.py -q` runs a focused regression loop.
 - `uv run ruff check .` performs linting.
 - `uv run ruff format .` formats code.
 - `uv run mypy hybridflowshop tests` checks type consistency.

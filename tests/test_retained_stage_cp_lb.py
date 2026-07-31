@@ -6,6 +6,11 @@ from ortools.sat.python import cp_model
 from schore.parameters import JobStageProcessingTimeManager
 from schore.parameters_examples import HybridFlowshopParameters
 
+from hybridflowshop.controller.hfs_cp_lns import (
+    HybridFlowShopCpLnsController,
+    _extract_retained_cp_trace_records,
+)
+from hybridflowshop.schedule_lite import validate_schedule
 from lb_bucket.cp import (
     build_retained_stage_cp_model,
     build_retained_stage_cp_result,
@@ -15,9 +20,6 @@ from lb_bucket.cp import (
     select_bottleneck_stage_ids_by_average_load,
     write_retained_stage_cp_artifacts,
 )
-from hybridflowshop.controller.hfs_cp_lns import _extract_retained_cp_trace_records
-from hybridflowshop.controller.hfs_cp_lns import HybridFlowShopCpLnsController
-from hybridflowshop.schedule_lite import validate_schedule
 
 
 def _make_instance() -> HybridFlowshopParameters:

@@ -1,4 +1,5 @@
 from mbls.cpsat import CpsatSolverReport, CpsatStatus
+
 from hybridflowshop.report.hfs_subroutine_report import HfsCpsatSolverReport
 
 

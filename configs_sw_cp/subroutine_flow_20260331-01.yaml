@@ -2,8 +2,13 @@
   seed: 42
 - method: apply_shdlb
 - method: initialize_by_dj_palmer
-- method: pw_cp
+- method: sw_cp
   batch_size: 3
+  unfixed_batch_count: 2
+  lr_profile_fixed_batch_count: 1
+  enable_promotion_profile_fixed: true
+  profile_fix_by_machine: true
+  machine_precedence_stride: 1
   max_time_per_batch: 50
   debug_export: true
   error_if_infeasible: true
