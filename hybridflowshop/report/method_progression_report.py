@@ -426,7 +426,7 @@ def aggregate_scenario_progression(
         if data is None:
             continue
 
-        instance_id = data.get("instance_id", "")
+        instance_id = str(data.get("instance_id") or instance_dir.name)
         ref_obj = ref_obj_map.get(instance_id)
 
         df = build_progression_points(data, ref_obj_value=ref_obj)

@@ -310,7 +310,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     preset = get_preset(args.preset)
     mip_argv = _build_mip_argv(args, output_dir, log_dir)
     created_at = time.strftime("%Y-%m-%d %H:%M:%S")
-    runner_args = ["uv", "run", "python", "lb_bucket\\run_mip_experiment.py"]
+    runner_args = ["uv", "run", "python", "lb_bucket/run_mip_experiment.py"]
     runner_args.extend(argv if argv is not None else sys.argv[1:])
 
     runner_config = RunnerConfig(

@@ -21,9 +21,6 @@ from hybridflowshop.report import (
     aggregate_scenario_progression,
     export_multi_scenario_method_rpdf_comparison_html,
 )
-from hybridflowshop.report.method_progression_report import (
-    aggregate_scenario_endpoint_metrics_from_json,
-)
 from output_filenames import OutputFilenames
 
 RPDF_PREFIX = "gap_"
