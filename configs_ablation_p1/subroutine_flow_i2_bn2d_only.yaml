@@ -1,0 +1,28 @@
+# Ablation P1 (init comparison) - BN2D-only.
+# Calls bn2d_all_stage directly with the two distinct (machine_then_job)
+# variants effectively run by the baseline dispatch portfolio for BN2D
+# (BN2D ignores head_for_all_stages, so the third portfolio config is
+# redundant with one of the first two). cap_portions match the baseline
+# (0.25 left and right). No MD, no QSR, no CP-LB, no improvement chain,
+# no Base-CP.
+- method: set_step_checkpointing
+  enabled: false
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: bn2d_all_stage
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  machine_then_job: true
+  mixed_schedule_for_former_stages: true
+  mixed_schedule_for_later_stages: true
+  error_if_infeasible: false
+  draw_gantt: false
+- method: bn2d_all_stage
+  left_cap_portion: 0.25
+  right_cap_portion: 0.25
+  machine_then_job: false
+  mixed_schedule_for_former_stages: true
+  mixed_schedule_for_later_stages: true
+  error_if_infeasible: false
+  draw_gantt: false

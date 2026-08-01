@@ -19,47 +19,47 @@
   method_list:
     - bn2d_all_stages
     - best_of_mixed_dispatches
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.10
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.15
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.20
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.25
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.30
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.35
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.40
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.45
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8
   use_lns_only: false
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.50
   non_time_fixed_op_time_limit_multiplier: 0.002
   solver_thread_cnt: 8

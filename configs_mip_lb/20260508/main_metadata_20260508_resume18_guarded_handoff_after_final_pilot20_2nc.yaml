@@ -1,0 +1,42 @@
+pra_common_params_rel_path: resources/ff2020_common_params.yaml
+baseline_csv_path: resources/ff2020big_ref/fan2023.csv
+input_dir: resources/ff2020big
+benchmark_idx_list:
+- 3
+- 4
+- 6
+- 8
+- 10
+- 11
+- 12
+- 14
+- 15
+- 16
+- 18
+- 19
+- 20
+- 21
+- 26
+- 27
+- 28
+- 30
+- 32
+- 34
+benchmark_filename_format: '{}.txt'
+resume_dir_path: Outputs_scenarios/20260508T123926_817217/ff2020/20260508-aggressive-state-split-exact-2nc/checkpoints/18-incremental_pw_cp
+dicts_of_i_o_data_path:
+- stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
+  subroutine_flow_rel_path: configs_mip_lb/20260508/subroutine_flow_20260508-resume18-finalcp005-guarded-handoff0005-finalcp005-2nc.yaml
+  output_dir: ff2020/20260508-resume18-pilot20-finalcp005-guarded-handoff0005-finalcp005-2nc
+  description: 'PW09 checkpoint resume pilot20: 0.05nc final CP, workload-guarded
+    handoff rectangle 0.005nc only for n*c<=1800, then another 0.05nc final CP.'
+output_dir_scenarios: Outputs_scenarios
+scenario_log_filename: hfs_multi_scenario_runner.log
+result_dir_name: results
+instance_worker_cnt: 6
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: '{}_result_gantt.png'
+draw_progress_plot: false
+progress_plot_filename_format: '{}_progress_plot.png'
+drop_first_values_percent: 0.0

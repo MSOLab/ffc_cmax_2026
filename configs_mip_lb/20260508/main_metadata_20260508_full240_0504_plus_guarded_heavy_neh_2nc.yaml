@@ -1,0 +1,24 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+first: 1
+last: 240
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_2nc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260508/subroutine_flow_20260508-0504-plus-guarded-heavy-neh-2nc.yaml"
+    output_dir: "ff2020/20260508-0504-plus-guarded-heavy-neh-2nc"
+    description: "0504 exact backbone plus two guarded 0429/0501-style heavy NEH rescue passes, enabled only for high incumbent-bound gap and low retained-CP restore loss."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+instance_worker_cnt: 6
+
+draw_gantt: false
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: true
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0

@@ -1,8 +1,11 @@
+import csv
 import datetime
 import logging
 import math
+import re
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from mbls.cpsat import (
     CpsatSolverReport,
@@ -12,8 +15,8 @@ from mbls.cpsat import (
     ObjectiveBoundRecorder,
     ObjectiveValueRecorder,
 )
-from mbls.cpsat.callbacks import ValueBoundPair
 from routix import DynamicDataObject, ElapsedTimer, StoppingCriteria
+from routix.io.yaml import dump_yaml
 from routix.util.comparison import float_a_leq_b, float_a_stl_b, float_equals
 from schore.parameters_examples.parallel_shop.identical_flow import (
     HybridFlowshopParameters,
@@ -26,7 +29,8 @@ from hybridflowshop.cpsat_model_2.cumulative import (
     OperationVars,
 )
 from hybridflowshop.cpsat_model_2.params import Params
-from hybridflowshop.report import HfsCpsatSolverReport
+from hybridflowshop.io_solution import END_TIME_MAP_KEY, START_TIME_MAP_KEY
+from hybridflowshop.report import HfsCpsatSolverReport, HfsSubroutineReport
 from hybridflowshop.schedule_lite import HybridFlowshopLiteSchedule
 
 from ..painter.gantt import GanttPlotter
@@ -76,6 +80,7 @@ class HybridFlowShopCpLnsControllerCore(
         self.method_names_to_run_before_resume = {
             "set_random_seed",
             "set_cp_model_as_base_cp_model",
+            "set_final_time_reserve",
         }
         assert "" not in self.method_names_to_run_before_resume
 
@@ -84,6 +89,21 @@ class HybridFlowShopCpLnsControllerCore(
         """Job name -> stage name -> processing time map"""
         self.stage_2_job_2_p_dict = self.instance.stage_2_job_2_p_map
         """Stage name -> job name -> processing time map"""
+
+        self._subroutine_call_progress_map: dict[str, list[dict]] = {}
+        self._subroutine_call_meta_list: list[dict] = []
+        self._combined_progress_list: list[dict] = []
+        self._subroutine_end_marker_list: list[dict] = []
+        self._method_context_meta_map: dict[str, dict[str, Any]] = {}
+        self._active_call_index: int | None = None
+        self._active_subroutine_name: str | None = None
+        self._active_call_global_start: float | None = None
+        self._call_counter: int = 0
+        self._final_time_reserve_active: bool = False
+        self._final_time_reserve_sec: float = 0.0
+        self._final_time_reserve_label: str | None = None
+        self._base_cp_model_options: dict[str, bool] | None = None
+        self.save_step_checkpoints_enabled: bool = True
 
         logging.info(
             f"Start solving {self.instance.name} using CP model class:"
@@ -146,6 +166,8 @@ class HybridFlowShopCpLnsControllerCore(
         fmt="%(asctime)s - %(levelname)s - %(message)s",
     ):
         logger = logging.getLogger()
+        if logger.level > level:
+            logger.setLevel(level)
         _log_filename = log_filename or "subroutine_controller.log"
         if self._working_dir_path is not None:
             log_path = self._working_dir_path / _log_filename
@@ -225,6 +247,75 @@ class HybridFlowShopCpLnsControllerCore(
     def get_remaining_sec(self) -> float:
         return self.timer.get_remaining_sec(self.stopping_criteria.timelimit)
 
+    def set_reserved_final_time_sec(
+        self,
+        reserve_sec: float,
+        *,
+        label: str | None = None,
+    ) -> None:
+        if reserve_sec < 0:
+            raise ValueError("reserve_sec must be non-negative.")
+        self._final_time_reserve_active = True
+        self._final_time_reserve_sec = float(reserve_sec)
+        self._final_time_reserve_label = label
+
+    def clear_reserved_final_time_sec(self) -> None:
+        self._final_time_reserve_active = False
+        self._final_time_reserve_sec = 0.0
+        self._final_time_reserve_label = None
+
+    def final_time_reserve_is_active(self) -> bool:
+        return bool(
+            getattr(self, "_final_time_reserve_active", False)
+            and getattr(self, "_final_time_reserve_sec", 0.0) > 0
+        )
+
+    def get_reserved_final_time_sec(self) -> float:
+        if not self.final_time_reserve_is_active():
+            return 0.0
+        return max(0.0, float(getattr(self, "_final_time_reserve_sec", 0.0)))
+
+    def get_remaining_sec_before_final_reserve(self) -> float:
+        return max(0.0, self.get_remaining_sec() - self.get_reserved_final_time_sec())
+
+    def final_time_reserve_is_reached(self) -> bool:
+        return self.final_time_reserve_is_active() and float_a_leq_b(
+            self.get_remaining_sec(),
+            self.get_reserved_final_time_sec(),
+        )
+
+    def consume_reserved_final_time_sec(
+        self,
+        fallback_sec: float | None = None,
+        *,
+        consume_all_remaining: bool = False,
+    ) -> float | None:
+        reserve_sec = self.get_reserved_final_time_sec()
+        if self.final_time_reserve_is_active():
+            label = getattr(self, "_final_time_reserve_label", None)
+            remaining_sec = self.get_remaining_sec()
+            self.clear_reserved_final_time_sec()
+            if consume_all_remaining:
+                if fallback_sec is None:
+                    resolved_sec = remaining_sec
+                else:
+                    resolved_sec = min(float(fallback_sec), remaining_sec)
+                logging.info(
+                    "[Final Reserve] Consuming %.3f sec%s (reserved_minimum=%.3f sec).",
+                    resolved_sec,
+                    f" for {label}" if label else "",
+                    reserve_sec,
+                )
+            else:
+                resolved_sec = min(reserve_sec, remaining_sec)
+                logging.info(
+                    "[Final Reserve] Consuming %.3f sec%s.",
+                    resolved_sec,
+                    f" for {label}" if label else "",
+                )
+            return resolved_sec
+        return fallback_sec
+
     def get_remaining_time_limit(self, subroutine_time_limit: float | None) -> float:
         """Get the remaining time limit for the subroutine.
 
@@ -235,11 +326,38 @@ class HybridFlowShopCpLnsControllerCore(
         Returns:
             float: The minimum of the subroutine time limit and the remaining time limit.
         """
+        remaining_sec = self.get_remaining_sec_before_final_reserve()
         if subroutine_time_limit is None:
-            return self.get_remaining_sec()
-        return min(subroutine_time_limit, self.get_remaining_sec())
+            return remaining_sec
+        return min(subroutine_time_limit, remaining_sec)
 
     # End stopping condition
+
+    # Start report creation
+
+    def _make_subroutine_report(
+        self,
+        elapsed_time: float,
+        obj_value: float | None,
+        obj_bound: float | None,
+        is_init: bool,
+        subroutine_name: str = "",
+        progress_obj_value_records: Sequence[tuple[float, float]] = (),
+        progress_time_basis: str = "local",
+    ) -> HfsSubroutineReport:
+        call_context = self._get_call_context_of_current_method()
+        return HfsSubroutineReport(
+            elapsed_time=elapsed_time,
+            obj_value=obj_value,
+            obj_bound=obj_bound,
+            is_init=is_init,
+            subroutine_name=subroutine_name,
+            call_context=call_context,
+            progress_obj_value_records=tuple(progress_obj_value_records),
+            progress_time_basis=progress_time_basis,
+        )
+
+    # End report creation
 
     # Start visualization
 
@@ -295,36 +413,644 @@ class HybridFlowShopCpLnsControllerCore(
 
     # End visualization
 
+    # Start subroutine progression recorder
+
+    def _record_method_context_start(self, call_context: str) -> None:
+        self._method_context_meta_map.setdefault(
+            call_context,
+            {
+                "call_context": call_context,
+                "global_start_sec": self.timer.elapsed_sec,
+            },
+        )
+
+    def _record_method_context_end(self, call_context: str) -> None:
+        meta = self._method_context_meta_map.setdefault(
+            call_context,
+            {"call_context": call_context},
+        )
+        global_end = self.timer.elapsed_sec
+        meta["global_end_sec"] = global_end
+        global_start = meta.get("global_start_sec")
+        if global_start is not None:
+            meta["elapsed_sec"] = global_end - global_start
+
+    def _get_context_start_sec(self, call_context: str) -> float | None:
+        meta = self._method_context_meta_map.get(call_context)
+        if meta is not None:
+            global_start = meta.get("global_start_sec")
+            if isinstance(global_start, (float, int)):
+                return float(global_start)
+
+        for subroutine_meta in self._subroutine_call_meta_list:
+            if subroutine_meta["prefixed_subroutine_name"] == call_context:
+                return float(subroutine_meta["global_start_sec"])
+        return None
+
+    @staticmethod
+    def _get_call_context_depth(call_context: str) -> int:
+        if not call_context or call_context == "ROOT":
+            return 0
+        return len(call_context.split("."))
+
+    def _build_progress_point_list(
+        self,
+        progress_records: Sequence[tuple[float, float]],
+        *,
+        call_index: int,
+        prefixed_name: str,
+        global_start_sec: float,
+        progress_time_basis: str = "local",
+    ) -> list[dict]:
+        progress_list: list[dict] = []
+        for timestamp, obj_value in progress_records:
+            if progress_time_basis == "global":
+                global_sec = timestamp
+                local_sec = timestamp - global_start_sec
+            else:
+                global_sec = global_start_sec + timestamp
+                local_sec = timestamp
+
+            progress_list.append(
+                {
+                    "global_sec": global_sec,
+                    "obj_value": obj_value,
+                    "call_index": call_index,
+                    "prefixed_subroutine_name": prefixed_name,
+                    "local_sec": local_sec,
+                }
+            )
+        return progress_list
+
+    @staticmethod
+    def _build_combined_progress_list(subroutine_calls: Sequence[dict]) -> list[dict]:
+        combined_progress_list: list[dict] = []
+        for call in subroutine_calls:
+            for point in call.get("local_progress_list", []):
+                combined_progress_list.append(dict(point))
+
+        combined_progress_list.sort(
+            key=lambda point: (
+                point.get("global_sec", math.inf),
+                point.get("call_index", math.inf),
+                point.get("local_sec", math.inf),
+            )
+        )
+        return combined_progress_list
+
+    def _start_subroutine_call(self, subroutine_name: str) -> None:
+        self._call_counter += 1
+        call_index = self._call_counter
+        prefixed_name = f"{call_index}-{subroutine_name}"
+        global_start = self.timer.elapsed_sec
+
+        self._active_call_index = call_index
+        self._active_subroutine_name = subroutine_name
+        self._active_call_global_start = global_start
+
+        self._subroutine_call_progress_map[prefixed_name] = []
+        self._subroutine_call_meta_list.append(
+            {
+                "call_index": call_index,
+                "subroutine_name": subroutine_name,
+                "prefixed_subroutine_name": prefixed_name,
+                "global_start_sec": global_start,
+            }
+        )
+
+    def _end_subroutine_call(self, subroutine_name: str) -> None:
+        if self._active_call_index is None:
+            return
+        call_index = self._active_call_index
+        prefixed_name = f"{call_index}-{subroutine_name}"
+        global_end = self.timer.elapsed_sec
+
+        self._subroutine_end_marker_list.append(
+            {
+                "global_end_sec": global_end,
+                "call_index": call_index,
+                "prefixed_subroutine_name": prefixed_name,
+                "subroutine_name": subroutine_name,
+            }
+        )
+
+        for meta in self._subroutine_call_meta_list:
+            if meta["call_index"] == call_index:
+                meta["global_end_sec"] = global_end
+                meta["elapsed_sec"] = global_end - meta["global_start_sec"]
+                break
+
+        self._active_call_index = None
+        self._active_subroutine_name = None
+        self._active_call_global_start = None
+
+    @staticmethod
+    def _method_can_run_in_final_reserve(
+        method_name: str,
+        kwargs: dict[str, Any],
+    ) -> bool:
+        if method_name in {
+            "set_final_time_reserve",
+            "clear_final_time_reserve",
+            "solve_base_cp_model_from_final_time_reserve",
+        }:
+            return True
+        return method_name in {
+            "solve_base_cp_model",
+            "solve_base_cp_model_if_last_neh_improved",
+            "solve_base_cp_model_with_last_neh_adaptive_time",
+            "solve_full_schedule_stage_precedence_cp",
+        } and bool(kwargs.get("use_final_time_reserve", False))
+
+    def _call_method(self, method_name: str, **kwargs: dict[str, Any]):
+        if not hasattr(self, method_name):
+            raise AttributeError(
+                f"{self.__class__.__name__} has no attribute {method_name}"
+            )
+        if (
+            self.final_time_reserve_is_reached()
+            and not self._method_can_run_in_final_reserve(method_name, kwargs)
+        ):
+            logging.info(
+                "[Final Reserve] Skipping %s because %.3f sec remains and %.3f sec "
+                "is reserved for the final method.",
+                method_name,
+                self.get_remaining_sec(),
+                self.get_reserved_final_time_sec(),
+            )
+            return
+
+        self._method_context_mgr.push(method_name)
+        call_context = self._get_call_context_of_current_method()
+        self._record_method_context_start(call_context)
+
+        start_sec = self.timer.elapsed_sec
+        self.method_call_counts[method_name] += 1
+
+        log_entry: dict[str, Any] = {
+            "method": method_name,
+            "call_context": call_context,
+            "start_sec": start_sec,
+            "kwargs": kwargs,
+        }
+        try:
+            getattr(self, method_name)(**kwargs)
+        except Exception as e:
+            end_sec = self.timer.elapsed_sec
+            elapsed_sec = end_sec - start_sec
+            log_entry["elapsed_sec"] = elapsed_sec
+            log_entry["error"] = str(e)
+            logging.error(str(log_entry))
+            self._record_method_context_end(call_context)
+            self._method_context_mgr.pop()
+            raise e
+
+        end_sec = self.timer.elapsed_sec
+        elapsed_sec = end_sec - start_sec
+        log_entry["elapsed_sec"] = elapsed_sec
+        logging.info(str(log_entry))
+
+        self._try_save_step_checkpoint(call_context, method_name)
+
+        self._record_method_context_end(call_context)
+        self._method_context_mgr.pop()
+
+    @staticmethod
+    def _sanitize_checkpoint_name(value: str) -> str:
+        sanitized = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+        return sanitized or "checkpoint"
+
+    def set_step_checkpointing(self, enabled: bool = True) -> None:
+        self.save_step_checkpoints_enabled = bool(enabled)
+        logging.info(
+            "[Checkpoint] Step checkpointing %s.",
+            "enabled" if self.save_step_checkpoints_enabled else "disabled",
+        )
+
+    def _try_save_step_checkpoint(self, call_context: str, method_name: str) -> None:
+        if not self.save_step_checkpoints_enabled:
+            return
+        if self._working_dir_path is None:
+            return
+        if "." in call_context:
+            return
+
+        incumbent_solution = self.solution_manager.get_incumbent()
+        if not isinstance(incumbent_solution, HybridFlowshopLiteSchedule):
+            return
+
+        try:
+            checkpoint_name = self._sanitize_checkpoint_name(call_context)
+            instance_name = str(self.instance.name)
+            checkpoint_root = (
+                self._working_dir_path.parent / "checkpoints" / checkpoint_name
+            )
+            checkpoint_dir = checkpoint_root / instance_name / "results"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+            self._write_step_checkpoint_flow_prefix(checkpoint_root, call_context)
+
+            solution_path = checkpoint_dir / f"{instance_name}_solution.yaml"
+            obj_log_path = checkpoint_dir / f"{instance_name}_obj_log.yaml"
+            summary_path = checkpoint_dir / f"{instance_name}_summary.csv"
+            metadata_path = checkpoint_dir / "checkpoint_metadata.yaml"
+
+            dump_yaml(
+                {
+                    START_TIME_MAP_KEY: incumbent_solution.get_jik_2_start_time_map(),
+                    END_TIME_MAP_KEY: incumbent_solution.get_jik_2_end_time_map(),
+                },
+                solution_path,
+                encoding="utf-8",
+            )
+            self.obj_store.save_yaml(obj_log_path, encoding="utf-8")
+
+            best_obj = self.solution_manager.best_obj_value
+            best_bound = self.solution_manager.best_obj_bound
+            summary_row = {
+                "insName": instance_name,
+                "foundFeasibleSol": True,
+                "totalElapsedTime": self.timer.elapsed_sec,
+                "initObj": None,
+                "initBound": None,
+                "bestObj": best_obj,
+                "bestBound": best_bound,
+                "retainedCpDispatchObj": getattr(
+                    self, "last_retained_cp_dispatch_obj", None
+                ),
+                "retainedCpPostDispatchObj": getattr(
+                    self, "last_retained_cp_post_dispatch_obj", None
+                ),
+                "retainedCpDispatchCpUb": getattr(
+                    self, "last_retained_cp_dispatch_cp_ub", None
+                ),
+                "retainedCpDispatchCpLb": getattr(
+                    self, "last_retained_cp_dispatch_cp_lb", None
+                ),
+                "retainedCpDispatchElapsedSec": getattr(
+                    self, "last_retained_cp_dispatch_elapsed_sec", None
+                ),
+                "retainedCpDispatchUpdatedIncumbent": getattr(
+                    self, "last_retained_cp_dispatch_was_incumbent_update", None
+                ),
+                "retainedCpDispatchKeptIncumbent": getattr(
+                    self, "last_retained_cp_dispatch_kept_incumbent", None
+                ),
+                "retainedCpSelectedDispatchVariant": getattr(
+                    self, "last_retained_cp_selected_dispatch_variant", None
+                ),
+                "retainedCpPostSelectedDispatchVariant": getattr(
+                    self, "last_retained_cp_post_selected_dispatch_variant", None
+                ),
+                "checkpointCallContext": call_context,
+                "checkpointMethod": method_name,
+            }
+            with summary_path.open("w", newline="", encoding="utf-8") as fp:
+                writer = csv.DictWriter(fp, fieldnames=list(summary_row))
+                writer.writeheader()
+                writer.writerow(summary_row)
+
+            dump_yaml(
+                {
+                    "call_context": call_context,
+                    "method": method_name,
+                    "elapsed_sec": self.timer.elapsed_sec,
+                    "best_obj": best_obj,
+                    "best_bound": best_bound,
+                },
+                metadata_path,
+                encoding="utf-8",
+            )
+            logging.info(
+                "[Checkpoint] Saved step checkpoint for %s at %s",
+                call_context,
+                checkpoint_dir,
+            )
+        except Exception as err:
+            logging.warning(
+                "[Checkpoint] Failed to save step checkpoint for %s: %s",
+                call_context,
+                err,
+            )
+
+    def _write_step_checkpoint_flow_prefix(
+        self,
+        checkpoint_root: Path,
+        call_context: str,
+    ) -> None:
+        subroutine_flow = getattr(self, "_subroutine_flow", None)
+        if not isinstance(subroutine_flow, Sequence) or isinstance(
+            subroutine_flow,
+            (str, bytes),
+        ):
+            return
+
+        try:
+            call_index_text = call_context.split("-", 1)[0]
+            call_index = int(call_index_text)
+        except (ValueError, IndexError):
+            return
+
+        flow_prefix = list(subroutine_flow)[:call_index]
+        DynamicDataObject.safe_save_yaml(
+            DynamicDataObject.from_obj(flow_prefix),
+            checkpoint_root / "subroutine_flow.yaml",
+        )
+        DynamicDataObject.safe_save_yaml(
+            self.stopping_criteria,
+            checkpoint_root / "stopping_criteria.yaml",
+        )
+
+    @contextmanager
+    def temporarily_extended_context(self, appended_name: str):
+        self._method_context_mgr.push(appended_name)
+        call_context = self._get_call_context_of_current_method()
+        self._record_method_context_start(call_context)
+        try:
+            yield
+        finally:
+            self._record_method_context_end(call_context)
+            self._method_context_mgr.pop()
+
+    def _record_objective_point(
+        self,
+        global_sec: float,
+        obj_value: float,
+        is_maximize: bool | None = None,
+    ) -> None:
+        if self._active_call_index is None:
+            return
+        call_index = self._active_call_index
+        subroutine_name = self._active_subroutine_name or "unknown"
+        prefixed_name = f"{call_index}-{subroutine_name}"
+        global_start = self._active_call_global_start or global_sec
+        local_sec = global_sec - global_start
+        recorded_points = self._subroutine_call_progress_map.setdefault(
+            prefixed_name, []
+        )
+
+        if recorded_points:
+            last_obj_value = recorded_points[-1]["obj_value"]
+            if is_maximize is None:
+                cp_model = getattr(self, "cp_model", None)
+                if cp_model is not None and hasattr(cp_model, "is_maximize"):
+                    is_maximize = cp_model.is_maximize()
+                else:
+                    is_maximize = False
+
+            is_improved = (
+                float_a_stl_b(last_obj_value, obj_value)
+                if is_maximize
+                else float_a_stl_b(obj_value, last_obj_value)
+            )
+            if not is_improved:
+                return
+
+        point = {
+            "global_sec": global_sec,
+            "obj_value": obj_value,
+            "call_index": call_index,
+            "prefixed_subroutine_name": prefixed_name,
+            "local_sec": local_sec,
+        }
+
+        recorded_points.append(point)
+        self._combined_progress_list.append(point)
+
+    def _get_report_for_call(self, prefixed_name: str) -> dict | None:
+        """Get the subroutine report from solution_manager.history by call context.
+
+        Args:
+            prefixed_name: The prefixed subroutine name (e.g., "4-sw_cp")
+
+        Returns:
+            The report dict if found, None otherwise
+        """
+        for record in self.solution_manager.history:
+            report = getattr(record, "report", None)
+            if report is None:
+                continue
+            # Check if report has call_context attribute and it matches
+            call_context = getattr(report, "call_context", None)
+            if call_context == prefixed_name:
+                # Convert report to dict format for consistent access
+                return {
+                    "progress_obj_value_records": getattr(
+                        report, "progress_obj_value_records", ()
+                    ),
+                    "progress_time_basis": getattr(
+                        report, "progress_time_basis", "local"
+                    ),
+                }
+        return None
+
+    def _collect_nested_reports(
+        self, parent_prefixed_name: str, parent_call_index: int
+    ) -> list[tuple[float, float]]:
+        """Collect progress records from nested subroutine calls within a parent call.
+
+        This handles cases like:
+        - incremental_sw_cp -> multiple unfixed_batch_count_* calls -> sw_cp calls
+        - repeat_while_improvement -> multiple reps_* calls
+
+        Args:
+            parent_prefixed_name: Parent's prefixed name (e.g., "2-incremental_sw_cp")
+            parent_call_index: Parent's call index in the meta list
+
+        Returns:
+            Combined list of (local_sec, obj_value) tuples from nested calls,
+            sorted by local time
+        """
+        # Find parent meta
+        parent_meta = None
+
+        for i, meta in enumerate(self._subroutine_call_meta_list):
+            if meta["call_index"] == parent_call_index:
+                parent_meta = meta
+                break
+
+        if not parent_meta:
+            return []
+
+        parent_start = float(parent_meta["global_start_sec"])
+        nested_prefix = f"{parent_prefixed_name}."
+
+        # Collect reports whose global_start falls within this parent's range
+        progress_records = []
+        for record in self.solution_manager.history:
+            report = getattr(record, "report", None)
+            if report is None:
+                continue
+
+            call_context = getattr(report, "call_context", None)
+            if call_context is None:
+                continue
+
+            if not isinstance(call_context, str):
+                continue
+
+            if not call_context.startswith(nested_prefix):
+                continue
+
+            parent_depth = self._get_call_context_depth(parent_prefixed_name)
+            call_context_depth = self._get_call_context_depth(call_context)
+            if call_context_depth <= parent_depth:
+                continue
+
+            nested_records = getattr(report, "progress_obj_value_records", ())
+            if nested_records:
+                nested_global_start = self._get_context_start_sec(call_context)
+                if nested_global_start is not None:
+                    progress_time_basis = getattr(
+                        report, "progress_time_basis", "local"
+                    )
+                    for local_time, obj_value in nested_records:
+                        if progress_time_basis == "global":
+                            global_time = local_time
+                        else:
+                            global_time = nested_global_start + local_time
+                        parent_relative_time = global_time - parent_start
+                        progress_records.append((parent_relative_time, obj_value))
+
+        return sorted(progress_records, key=lambda x: x[0])
+
+    def get_progression_data(self) -> dict:
+        subroutine_calls = []
+        for meta in self._subroutine_call_meta_list:
+            prefixed_name = meta["prefixed_subroutine_name"]
+            call_index = meta["call_index"]
+
+            # First, try direct report match
+            report_data = self._get_report_for_call(prefixed_name)
+
+            # If no direct report or it's a container-like subroutine, collect nested
+            local_list = []
+            if report_data and report_data["progress_obj_value_records"]:
+                # Has its own progress records
+                local_list = self._build_progress_point_list(
+                    report_data["progress_obj_value_records"],
+                    call_index=call_index,
+                    prefixed_name=prefixed_name,
+                    global_start_sec=float(meta["global_start_sec"]),
+                    progress_time_basis=report_data["progress_time_basis"],
+                )
+            else:
+                # Try to collect from nested calls
+                nested_records = self._collect_nested_reports(prefixed_name, call_index)
+                if nested_records:
+                    local_list = self._build_progress_point_list(
+                        nested_records,
+                        call_index=call_index,
+                        prefixed_name=prefixed_name,
+                        global_start_sec=float(meta["global_start_sec"]),
+                    )
+                else:
+                    # Fallback to existing map
+                    local_list = self._subroutine_call_progress_map.get(
+                        prefixed_name, []
+                    )
+
+            subroutine_calls.append(
+                {
+                    "call_index": call_index,
+                    "subroutine_name": meta["subroutine_name"],
+                    "prefixed_subroutine_name": prefixed_name,
+                    "global_start_sec": meta["global_start_sec"],
+                    "global_end_sec": meta.get("global_end_sec"),
+                    "elapsed_sec": meta.get("elapsed_sec"),
+                    "local_progress_list": local_list,
+                }
+            )
+
+        subroutine_calls.sort(key=lambda x: x["call_index"])
+
+        return {
+            "artifact_version": 1,
+            "instance_id": self.instance.name,
+            "timelimit_sec": getattr(self.stopping_criteria, "timelimit", None),
+            "subroutine_calls": subroutine_calls,
+            "combined_progress_list": self._build_combined_progress_list(
+                subroutine_calls
+            ),
+            "subroutine_end_marker_list": self._subroutine_end_marker_list,
+        }
+
+    # End subroutine progression recorder
+
+    def add_obj_value_log(
+        self, elapsed: float, value: float, is_maximize: bool | None = None
+    ) -> None:
+        super().add_obj_value_log(elapsed, value, is_maximize)
+        self._record_objective_point(elapsed, value, is_maximize)
+
+    def extend_obj_value_log(
+        self,
+        value_log: Sequence[tuple[float, float]],
+        is_maximize: bool | None = None,
+    ) -> None:
+        super().extend_obj_value_log(value_log, is_maximize)
+        for elapsed_time, obj_value in value_log:
+            self._record_objective_point(elapsed_time, obj_value, is_maximize)
+
     def run(self, flow_resume_idx: int = -1) -> None:
         """Overrides the run method to execute the subroutine flow.
 
         Args:
             flow_resume_idx (int, optional): The index to resume the flow from. Defaults to -1.
         """
+        # Detect if this is a resume run (flow_resume_idx != -1 means resuming from a specific point)
+        is_resume_run = flow_resume_idx != -1
+
         if isinstance(self._subroutine_flow, Sequence) and not isinstance(
             self._subroutine_flow, (str, bytes)
         ):
+            # Accumulate elapsed time from all pre-resume methods
+            total_pre_resume_elapsed = 0.0
+
+            # First pass: run all methods before flow_resume_idx
             for idx, subroutine_data in enumerate(self._subroutine_flow):
+                method_name = subroutine_data.get("method", "")
                 if idx < flow_resume_idx:
+                    e_timer = ElapsedTimer()
                     if (
                         subroutine_data.get("method", "")
                         in self.method_names_to_run_before_resume
                     ):
-                        e_timer = ElapsedTimer()
+                        self._start_subroutine_call(method_name)
                         self._run_flow(subroutine_data)
-                        virtual_dt = datetime.datetime.now() - datetime.timedelta(
-                            seconds=e_timer.elapsed_sec
-                        )
-                        self.timer.set_start_time(virtual_dt)
+                        self._end_subroutine_call(method_name)
                     else:
                         self._run_flow(subroutine_data, skip_method_call=True)
-                else:
+                    total_pre_resume_elapsed += e_timer.elapsed_sec
+
+            # Adjust timer once after all pre-resume methods complete
+            if is_resume_run:
+                # Resume run: _try_apply_resume already set the baseline,
+                # so we add pre-resume time to the existing baseline
+                current_start_dt = self.timer.start_dt
+                new_start_dt = current_start_dt - datetime.timedelta(
+                    seconds=total_pre_resume_elapsed
+                )
+                self.timer.set_start_time(new_start_dt)
+
+            # Second pass: run methods from flow_resume_idx onwards
+            for idx, subroutine_data in enumerate(self._subroutine_flow):
+                if idx >= flow_resume_idx:
+                    method_name = subroutine_data.get("method", "")
+                    self._start_subroutine_call(method_name)
                     self._run_flow(subroutine_data)
+                    self._end_subroutine_call(method_name)
         else:
             logging.warning(
                 "Subroutine flow is not a sequence; running as a single step."
             )
+            if isinstance(self._subroutine_flow, dict):
+                method_name = self._subroutine_flow.get("method", "unknown")
+            else:
+                method_name = "unknown"
+            self._start_subroutine_call(method_name)
             self._run_flow(self._subroutine_flow)
+            self._end_subroutine_call(method_name)
         self.post_run_process()
 
     # Start post-run process
@@ -406,16 +1132,20 @@ class HybridFlowShopCpLnsControllerCore(
         interleave_search: bool | None = None,
         use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
+        cp_sat_params: Mapping[str, Any] | None = None,
         e_timer: ElapsedTimer | None = None,
         log_search_progress: bool = False,
         print_on_obj_value_update: bool = False,
         print_on_obj_bound_update: bool = False,
-        log_level_obj_value: int = logging.INFO,
-        log_level_obj_bound: int = logging.INFO,
+        log_level_obj_value: int | None = logging.INFO,
+        log_level_obj_bound: int | None = logging.INFO,
         last_timestamp_note: Any | None = None,
+        solution_callback: ObjectiveValueRecorder | None = None,
     ) -> CpsatSolverReport:
+        start_time = self.timer.elapsed_sec
         if e_timer is None:
-            e_timer = self.timer
+            # If no external timer is provided, create a new ElapsedTimer for this solve call.
+            e_timer = ElapsedTimer()
 
         solve_cfg = SolveConfig(
             log_search_progress=log_search_progress,
@@ -431,13 +1161,16 @@ class HybridFlowShopCpLnsControllerCore(
             interleave_search=interleave_search,
             use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
+            cp_sat_params=cp_sat_params,
         )
         self.solver = configure_solver(solve_cfg)
-        obj_value_recorder = ObjectiveValueRecorder(
-            e_timer,
-            print_on_record=print_on_obj_value_update,
-            log_level_on_record=log_level_obj_value,
-        )
+        obj_value_recorder = solution_callback
+        if obj_value_recorder is None:
+            obj_value_recorder = ObjectiveValueRecorder(
+                e_timer,
+                print_on_record=print_on_obj_value_update,
+                log_level_on_record=log_level_obj_value,
+            )
 
         obj_bound_recorder = ObjectiveBoundRecorder(
             e_timer,
@@ -482,34 +1215,29 @@ class HybridFlowShopCpLnsControllerCore(
 
         # Store the objective value and bound logs
 
-        def get_obj_value_records() -> list[tuple[float, float]]:
-            """Returns the recorded objective values and elapsed times.
-
-            Returns:
-                list[tuple[float, float]]: A list of tuples containing (elapsed time, objective value).
-            """
-            return_list: list[tuple[float, float]] = []
-            list_by_value_recorder: list[tuple[float, ValueBoundPair]] = (
-                obj_value_recorder.entries
-            )
-            for entry in list_by_value_recorder:
-                return_list.append((entry[0], entry[1].value))
-            return return_list
-
-        obj_value_records = get_obj_value_records()
+        obj_value_records: list[tuple[float, float]] = []
+        for entry in obj_value_recorder.entries:
+            obj_value_records.append((entry[0], entry[1].value))
         if cpsat_status.is_feasible:
             obj_value_records.append((last_timestamp, obj_value))
+
         if obj_value_is_valid:
+            old_obj_value_records = [
+                (start_time + timestamp, value)
+                for timestamp, value in obj_value_records
+            ]
             self.extend_obj_value_log(
-                obj_value_records, is_maximize=self.cp_model.is_maximize()
+                old_obj_value_records, is_maximize=self.cp_model.is_maximize()
             )
             # Record value for the last timestamp if it is the same as the last value
             # and is not recorded for the last timestamp
             if (
                 obj_value == self.obj_store.get_last_obj_value()
-                and (last_timestamp, obj_value) not in obj_value_records
+                and (start_time + last_timestamp, obj_value) not in obj_value_records
             ):
-                self.add_obj_value_log(last_timestamp, obj_value, is_maximize=None)
+                self.add_obj_value_log(
+                    start_time + last_timestamp, obj_value, is_maximize=None
+                )
 
         def get_obj_bound_records() -> list[tuple[float, float]]:
             """Returns the recorded objective bounds and elapsed times.
@@ -517,48 +1245,44 @@ class HybridFlowShopCpLnsControllerCore(
             Returns:
                 list[tuple[float, float]]: A list of tuples containing (elapsed time, objective bound).
             """
-            timestamp_list = []
             timestamp_2_bound_map: dict[float, float] = {}
 
-            list_by_bound_recorder: list[tuple[float, float]] = (
-                obj_bound_recorder.elapsed_time_and_bound
-            )
-            for b_entry in list_by_bound_recorder:
+            for b_entry in obj_bound_recorder.elapsed_time_and_bound:
                 timestamp = b_entry[0]
                 bound = b_entry[1]
-                if timestamp not in timestamp_list:
-                    timestamp_list.append(timestamp)
-                timestamp_2_bound_map[timestamp] = bound
-
-            list_by_value_recorder: list[tuple[float, ValueBoundPair]] = (
-                obj_value_recorder.entries
-            )
-            for v_entry in list_by_value_recorder:
-                timestamp = v_entry[0]
-                bound = v_entry[1].bound
-                if timestamp not in timestamp_list:
-                    timestamp_list.append(timestamp)
                 if timestamp not in timestamp_2_bound_map:
                     timestamp_2_bound_map[timestamp] = bound
 
-            timestamp_list.sort()
+            for v_entry in obj_value_recorder.entries:
+                timestamp = v_entry[0]
+                bound = v_entry[1].bound
+                if timestamp not in timestamp_2_bound_map:
+                    timestamp_2_bound_map[timestamp] = bound
+
             return [
                 (timestamp, timestamp_2_bound_map[timestamp])
-                for timestamp in timestamp_list
+                for timestamp in sorted(timestamp_2_bound_map.keys())
             ]
 
         obj_bound_records = get_obj_bound_records()
         if cpsat_status.is_feasible:
             obj_bound_records.append((last_timestamp, obj_bound))
+
         if obj_bound_is_valid:
-            self.extend_obj_bound_log(obj_bound_records, is_maximize=False)
+            old_obj_bound_records = [
+                (start_time + timestamp, bound)
+                for timestamp, bound in obj_bound_records
+            ]
+            self.extend_obj_bound_log(old_obj_bound_records, is_maximize=None)
             # Record bound for the last timestamp if it is the same as the last bound
             # and is not recorded for the last timestamp
             if (
                 obj_bound == self.obj_store.get_last_obj_bound()
-                and (last_timestamp, obj_bound) not in obj_bound_records
+                and (start_time + last_timestamp, obj_bound) not in obj_bound_records
             ):
-                self.add_obj_bound_log(last_timestamp, obj_bound, is_maximize=None)
+                self.add_obj_bound_log(
+                    start_time + last_timestamp, obj_bound, is_maximize=None
+                )
 
         _last_timestamp_note = (
             last_timestamp_note or self._get_call_context_of_current_method()
@@ -705,6 +1429,7 @@ class HybridFlowShopCpLnsControllerCore(
         interleave_search: bool | None = None,
         use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
+        cp_sat_params: Mapping[str, Any] | None = None,
         log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -773,12 +1498,21 @@ class HybridFlowShopCpLnsControllerCore(
             interleave_search=interleave_search,
             use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
-            log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
+            cp_sat_params=cp_sat_params,
+            e_timer=sub_timer,
             log_search_progress=log_search_progress,
+            log_level_obj_bound=logging.INFO if obj_bound_is_valid else logging.DEBUG,
         )
 
         hfs_solver_report = HfsCpsatSolverReport.from_other(
             solver_report, is_init=is_initial_solution
+        )
+
+        subroutine_name = self._method_context_mgr.peek()
+        call_context = self._get_call_context_of_current_method()
+        hfs_solver_report = hfs_solver_report.copy(
+            subroutine_name=subroutine_name,
+            call_context=call_context,
         )
 
         # If the objective value or bound is not valid, use the best known values.
@@ -844,6 +1578,7 @@ class HybridFlowShopCpLnsControllerCore(
         interleave_search: bool | None = None,
         use_lns_only: bool | None = None,
         cp_model_probing_level: int | None = None,
+        cp_sat_params: Mapping[str, Any] | None = None,
         log_search_progress: bool = False,
         error_if_infeasible: bool = False,
         draw_gantt: bool = False,
@@ -921,6 +1656,7 @@ class HybridFlowShopCpLnsControllerCore(
             interleave_search=interleave_search,
             use_lns_only=use_lns_only,
             cp_model_probing_level=cp_model_probing_level,
+            cp_sat_params=cp_sat_params,
             log_search_progress=log_search_progress,
             error_if_infeasible=error_if_infeasible,
             draw_gantt=draw_gantt,

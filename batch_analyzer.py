@@ -84,7 +84,7 @@ def build_lns_operator_efficiency_table(root_dir: Path) -> pd.DataFrame:
                     avg_timelimit = g["timelimit"].mean()
                     avg_rho = g["rho"].mean()
 
-                    improved_mask = (g["isImproved"] == True)
+                    improved_mask = g["isImproved"] == True
                     improve_count = int(improved_mask.sum())
 
                     if improve_count > 0:

@@ -1,0 +1,272 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+
+# Original 50-instance diagnostic subset used for final candidate screening.
+# benchmark_idx_list:
+#   - 3
+#   - 4
+#   - 11
+#   - 16
+#   - 28
+#   - 35
+#   - 36
+#   - 39
+#   - 51
+#   - 54
+#   - 56
+#   - 68
+#   - 73
+#   - 76
+#   - 78
+#   - 84
+#   - 87
+#   - 96
+#   - 98
+#   - 99
+#   - 100
+#   - 103
+#   - 107
+#   - 108
+#   - 111
+#   - 120
+#   - 123
+#   - 131
+#   - 135
+#   - 140
+#   - 152
+#   - 156
+#   - 159
+#   - 160
+#   - 164
+#   - 172
+#   - 176
+#   - 192
+#   - 198
+#   - 200
+#   - 203
+#   - 207
+#   - 218
+#   - 220
+#   - 222
+#   - 223
+#   - 227
+#   - 231
+#   - 232
+#   - 235
+
+# Remaining 190 instances for candidate D coverage check.
+benchmark_idx_list:
+  - 1
+  - 2
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 12
+  - 13
+  - 14
+  - 15
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
+  - 27
+  - 29
+  - 30
+  - 31
+  - 32
+  - 33
+  - 34
+  - 37
+  - 38
+  - 40
+  - 41
+  - 42
+  - 43
+  - 44
+  - 45
+  - 46
+  - 47
+  - 48
+  - 49
+  - 50
+  - 52
+  - 53
+  - 55
+  - 57
+  - 58
+  - 59
+  - 60
+  - 61
+  - 62
+  - 63
+  - 64
+  - 65
+  - 66
+  - 67
+  - 69
+  - 70
+  - 71
+  - 72
+  - 74
+  - 75
+  - 77
+  - 79
+  - 80
+  - 81
+  - 82
+  - 83
+  - 85
+  - 86
+  - 88
+  - 89
+  - 90
+  - 91
+  - 92
+  - 93
+  - 94
+  - 95
+  - 97
+  - 101
+  - 102
+  - 104
+  - 105
+  - 106
+  - 109
+  - 110
+  - 112
+  - 113
+  - 114
+  - 115
+  - 116
+  - 117
+  - 118
+  - 119
+  - 121
+  - 122
+  - 124
+  - 125
+  - 126
+  - 127
+  - 128
+  - 129
+  - 130
+  - 132
+  - 133
+  - 134
+  - 136
+  - 137
+  - 138
+  - 139
+  - 141
+  - 142
+  - 143
+  - 144
+  - 145
+  - 146
+  - 147
+  - 148
+  - 149
+  - 150
+  - 151
+  - 153
+  - 154
+  - 155
+  - 157
+  - 158
+  - 161
+  - 162
+  - 163
+  - 165
+  - 166
+  - 167
+  - 168
+  - 169
+  - 170
+  - 171
+  - 173
+  - 174
+  - 175
+  - 177
+  - 178
+  - 179
+  - 180
+  - 181
+  - 182
+  - 183
+  - 184
+  - 185
+  - 186
+  - 187
+  - 188
+  - 189
+  - 190
+  - 191
+  - 193
+  - 194
+  - 195
+  - 196
+  - 197
+  - 199
+  - 201
+  - 202
+  - 204
+  - 205
+  - 206
+  - 208
+  - 209
+  - 210
+  - 211
+  - 212
+  - 213
+  - 214
+  - 215
+  - 216
+  - 217
+  - 219
+  - 221
+  - 224
+  - 225
+  - 226
+  - 228
+  - 229
+  - 230
+  - 233
+  - 234
+  - 236
+  - 237
+  - 238
+  - 239
+  - 240
+
+# first: 1
+# last: 240
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/stopping_criteria_2nc.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260515/subroutine_flow_20260516-candidateD-leaninit-taufirst-oraclepush-50pilot-2nc.yaml"
+    output_dir: "ff2020/20260516-candidateD-leaninit-taufirst-oraclepush-rest190-2nc"
+    description: "Remaining 190-instance candidate D coverage check: same D-variant subroutine flow as the 50-pilot run, excluding the diagnostic 50 instances."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+
+instance_worker_cnt: 6
+
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: false
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0

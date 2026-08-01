@@ -21,7 +21,7 @@
     - best_of_mixed_dispatches
 - method: repeat_while_improvement
   routine_data:
-    method: pw_cp
+    method: sw_cp
     batch_size_ratio: 0.15
     non_time_fixed_op_time_limit_multiplier: 0.01
     lr_profile_fixed_batch_count: 1

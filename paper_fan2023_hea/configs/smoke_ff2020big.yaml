@@ -1,0 +1,10 @@
+input_dir: resources/ff2020big
+baseline_csv_path: resources/ff2020big_ref/fan2023.csv
+benchmark_idx_list: [1]
+seed_count: 10
+output_dir: Outputs_paper_fan2023
+draw_convergence: false
+random_seed_base: 1
+scenario: fan2023_hea_smoke
+time_limit_scale: 0.001
+max_iterations: 2

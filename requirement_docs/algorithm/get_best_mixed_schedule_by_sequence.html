@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mixed Dispatch 최적 np 탐색 (get_best_mixed_schedule_by_sequence)</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --border: #e4e2da;
+    --border-soft: #efede5;
+    --text: #1a1a1a;
+    --muted: #5e5e58;
+    --faint: #8a8a82;
+    --accent: #2454b8;
+    --accent-soft: #e6edfa;
+    --code-bg: #f3f2ec;
+    --code-text: #2c2c28;
+    --ok: #1e7a3a;
+    --ok-bg: #e3f2e9;
+    --warn: #a55a07;
+    --warn-bg: #fbeed5;
+    --danger: #b3261e;
+    --danger-bg: #fbe2e0;
+    --info: #1f5a8a;
+    --info-bg: #e3eff8;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.03);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, sans-serif;
+    font-size: 15px; line-height: 1.62; -webkit-font-smoothing: antialiased;
+  }
+  code, pre, .mono { font-family: ui-monospace, monospace; }
+  code { font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: var(--code-text); }
+  pre { background: #1f2024; color: #e6e6e0; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; margin: 12px 0; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: static !important; height: auto !important; border-right: 0; border-bottom: 1px solid var(--border); }
+  }
+
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 18px 28px 28px; border-right: 1px solid var(--border-soft);
+    background: var(--bg); font-size: 13px;
+  }
+  .toc .title { font-weight: 600; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+  .toc .crumb { color: var(--faint); font-size: 11px; margin-bottom: 14px; }
+  .toc .label { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: .08em; text-transform: uppercase; margin: 16px 0 6px; }
+  .toc a { display: block; padding: 3px 0; color: var(--muted); border-left: 2px solid transparent; padding-left: 10px; margin-left: -10px; }
+  .toc a:hover { color: var(--text); text-decoration: none; border-left-color: var(--border); }
+  .toc .sub { padding-left: 22px; font-size: 12px; }
+
+  main { padding: 36px 48px 80px; max-width: 920px; }
+  @media (max-width: 900px) { main { padding: 24px 20px 60px; } }
+
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); letter-spacing: -.005em; }
+  h3 { font-size: 15.5px; margin: 26px 0 10px; }
+  h4 { font-size: 13.5px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+  .meta { color: var(--faint); font-size: 12.5px; margin-bottom: 24px; }
+
+  .tldr {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 18px 0 28px;
+  }
+  .tldr h4 { margin: 0 0 6px; color: var(--info); text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .tldr ul { margin: 4px 0 0; padding-left: 20px; }
+  .tldr li { margin: 3px 0; font-size: 14px; }
+
+  .invariants {
+    background: #f4faee; border: 1px solid #c2d5b5; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .invariants h4 { color: var(--ok); margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+
+  .badge {
+    display: inline-block; font-size: 10.5px; font-weight: 600;
+    padding: 2px 7px; border-radius: 10px; vertical-align: middle;
+    text-transform: uppercase; letter-spacing: .04em; line-height: 1.5;
+  }
+  .badge.ok     { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn   { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger { background: var(--danger-bg); color: var(--danger); }
+  .badge.info   { background: var(--info-bg);   color: var(--info); }
+  .badge.muted  { background: #e8e7e0;          color: #5a5a55; }
+
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  th { background: #f3f2ec; font-weight: 600; font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: #fbfaf3; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .card h4 { margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--text); }
+  .card p { margin: 4px 0; font-size: 13.5px; }
+
+  .decisions { display: grid; gap: 10px; margin: 14px 0; }
+  .decision {
+    display: grid; grid-template-columns: 170px 1fr; gap: 14px;
+    padding: 10px 14px; border-left: 3px solid var(--accent); background: #f6f8fc; border-radius: 0 6px 6px 0;
+  }
+  .decision .key { font-weight: 600; color: var(--accent); font-size: 13px; }
+  .decision .val { font-size: 13.5px; }
+  .decision.deferred { border-left-color: var(--faint); background: #f4f3ed; }
+  .decision.deferred .key { color: var(--faint); }
+
+  .pipeline {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0; font-size: 13.5px;
+  }
+  .pipeline h4 { color: var(--info); margin: 0 0 8px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .pipeline .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; font-family: ui-monospace, monospace; font-size: 12px; }
+  .pipeline .step { background: #fff; padding: 4px 9px; border-radius: 4px; border: 1px solid #c9def0; }
+  .pipeline .arrow { color: var(--info); font-weight: 600; }
+
+  .partition-fig, .modmap {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; margin: 14px 0; box-shadow: var(--shadow);
+  }
+  .partition-fig figcaption, .modmap figcaption {
+    font-size: 12px; color: var(--muted); margin-top: 10px; text-align: center;
+  }
+
+  .info-box {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .info-box h4 { color: var(--info); margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .info-box p, .info-box li { font-size: 13.5px; }
+
+  .warn-box {
+    background: var(--warn-bg); border: 1px solid #e8c585; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .warn-box h4 { color: var(--warn); margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .warn-box p, .warn-box li { font-size: 13.5px; }
+
+  details { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 6px; padding: 8px 14px; margin: 10px 0; }
+  details[open] { background: #fbfaf3; }
+  summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--muted); user-select: none; }
+  summary:hover { color: var(--text); }
+  details pre, details p { margin-top: 10px; }
+
+  ul.plain { list-style: none; padding-left: 0; }
+  ul.plain li { padding: 4px 0; border-bottom: 1px dashed var(--border-soft); font-size: 12px; }
+  ul.plain li:last-child { border-bottom: 0; }
+
+  .call-loc { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="title">get_best_mixed_schedule_by_sequence</div>
+  <div class="crumb">requirement_docs/algorithm/</div>
+
+  <a href="sw_cp.md" style="color: var(--accent); font-size: 12.5px;">→ sw_cp.md</a>
+  <a href="initialize_by_tau_coarsened_cp.md" style="color: var(--accent); font-size: 12.5px;">→ initialize_by_tau_coarsened_cp.md</a>
+
+  <div class="label">Sections</div>
+  <a href="#intro">개요</a>
+  <a href="#problem">문제 설명</a>
+  <a class="sub" href="#params">파라미터</a>
+  <a class="sub" href="#vars">변수</a>
+  <a class="sub" href="#obj">목적</a>
+  <a class="sub" href="#constraints">제약</a>
+  <a href="#core-idea">핵심 아이디어</a>
+  <a href="#np-candidates">NP 후보 생성</a>
+  <a href="#head-map">Head 맵 구성</a>
+  <a href="#mixed-loop">Mixed Dispatch 반복</a>
+  <a href="#best-select">최선 해 선택</a>
+  <a href="#flow">전체 실행 흐름</a>
+  <a href="#params-summary">파라미터 요약</a>
+  <a href="#deps">의존성 및 호출 관계</a>
+  <a href="#notes">주의사항</a>
+
+  <div class="label">Glossary</div>
+  <ul class="plain">
+    <li><b>np</b> — number of priority jobs (우선순위 작업 수)</li>
+    <li><b>makespan</b> — total completion time (최대 완료 시각)</li>
+    <li><b>head</b> — dispatch_job_by_stages로 모든 잔여 stage를 통과하는 priority jobs</li>
+    <li><b>tail</b> — dispatch_stage_by_jobs로 stage별 priority 배정되는 non-priority jobs</li>
+    <li><b>CDS</b> — Campbell-Dudek-Smith 휴리스틱</li>
+    <li><b>BN2D</b> — Bottleneck-based Two-Way Dispatching 휴리스틱</li>
+  </ul>
+</nav>
+
+<main>
+
+<h1>Mixed Dispatch 최적 np 탐색<br>(get_best_mixed_schedule_by_sequence)</h1>
+<div class="meta">
+  <span>hybridflowshop/dispatcher/mixed.py, MixedDispatcher 클래스</span>
+</div>
+
+<section id="intro" class="tldr">
+  <h4>TL;DR</h4>
+  <ul>
+    <li>Mixed Dispatch는 <strong>head</strong> 개념으로 priority job을 모든 stage에 우선 통과시키는 혼합 전략이다.</li>
+    <li>이 메서드는 <strong>다양한 np 값</strong>(얼마나 많은 job을 head로 처리할지)을 감소 수열로 시도하여 최소 makespan을 찾는다.</li>
+    <li>np 후보는 <code>job_count → ceil(÷2) → ... → 1 → 0</code> 순으로 생성된다.</li>
+    <li>Mixed dispatch 자체는 <code>from_job_sequence_get_schedule_mixed()</code>가 수행하며, 이 메서드는 <strong>np에 대한 외부 루프</strong> 역할을 한다.</li>
+  </ul>
+</section>
+
+<!-- ===== 개요 ===== -->
+<h2 id="intro-full">개요</h2>
+<p>Mixed Dispatch는 head/tail 개념을 이용한 혼합 디스패치 전략에서 <strong>최적의 우선순위 작업 수(np, number of priority jobs)</strong>를 결정하는 메서드이다. 주어진 작업 순서(<code>job_sequence</code>)에 대해 다양한 np 후보를 시도하고, 각 np에 대해 mixed dispatch를 실행한 뒤 가장 작은 makespan을 가진 스케줄을 반환한다.</p>
+<p>Mixed dispatch 자체는 <code>from_job_sequence_get_schedule_mixed()</code>가 수행한다. 이 메서드는 그 <strong>외부 루프</strong>로서 "np를 얼마로 설정할 것인가"를 exhaustive하게 탐색한다.</p>
+
+<hr>
+
+<!-- ===== 문제 설명 ===== -->
+<h2 id="problem">문제 설명</h2>
+
+<h3 id="params">파라미터</h3>
+<p>알고리즘의 동작을 제어하는 입력 설정값은 다음 부류로 나뉜다.</p>
+
+<h4>디스패치 대상 명세</h4>
+<table>
+  <thead><tr><th>부류</th><th>항목</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td>작업 순서</td><td><code>job_sequence</code></td><td>전체 작업의 우선순위 기준 순서. tie-breaker로 사용</td></tr>
+    <tr><td>확장 대상</td><td><code>schedule</code></td><td>기존 스케줄 위에 증분 디스패치. None이면 빈 스케줄 생성</td></tr>
+    <tr><td>시작 위치</td><td><code>from_stage</code></td><td>디스패치를 시작할 stage. None이면 첫 번째 stage</td></tr>
+    <tr><td>Release time</td><td><code>job_2_release_t</code></td><td>각 job의 release time. 첫 stage의 priority queue 하한으로 사용</td></tr>
+  </tbody>
+</table>
+
+<h4>디스패치 모드</h4>
+<table>
+  <thead><tr><th>항목</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>machine_then_job</code></td><td><code>False</code></td><td>True면 stage를 machine-centric으로 dispatch (첫 stage는 예외적으로 job-first)</td></tr>
+    <tr><td><code>head_for_all_stages</code></td><td><code>False</code></td><td>True면 head를 모든 stage에 동일 np로 적용. False면 첫 stage(or from_stage)에만 적용</td></tr>
+    <tr><td><code>use_palmer_index</code></td><td><code>False</code></td><td>machine_centric_dispatch_4에서 Palmer index 사용 여부</td></tr>
+  </tbody>
+</table>
+
+<h4>시각화 / 디버깅</h4>
+<table>
+  <thead><tr><th>항목</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>draw_gantt_per_step</code></td><td><code>False</code></td><td>디스패치 단계별 Gantt 차트 출력</td></tr>
+    <tr><td><code>get_file_path_for_subroutine</code></td><td><code>None</code></td><td>Gantt 차트 저장 경로 생성 콜백</td></tr>
+  </tbody>
+</table>
+
+<h4>인스턴스 데이터 (MixedDispatcher 멤버)</h4>
+<table>
+  <thead><tr><th>항목</th><th>출처</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>job_count</code></td><td><code>instance.job_count</code></td><td>전체 job 수. np 후보 생성의 상한</td></tr>
+    <tr><td><code>stage_id_list</code></td><td><code>instance.stage_id_list</code></td><td>모든 stage ID 목록</td></tr>
+    <tr><td><code>stage_2_job_2_p</code></td><td><code>instance.stage_2_job_2_p_map</code></td><td>stage → job → 가공 시간 매핑</td></tr>
+  </tbody>
+</table>
+<p>모든 파라미터의 기본값과 타입에 대한 완전한 목록은 뒤쪽 <a href="#params-summary">「파라미터 요약」</a> 표를 참조.</p>
+
+<h3 id="vars">변수</h3>
+<p>알고리즘이 풀이 과정에서 추적하는 상태 변수는 다음과 같다.</p>
+<table>
+  <thead><tr><th>변수</th><th>타입</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>np</code></td><td><code>int</code></td><td>현재 시도 중인 priority job 수</td></tr>
+    <tr><td><code>np_list</code></td><td><code>list[int]</code></td><td>감소 수열로 정렬된 np 후보 목록 (<code>_get_np_candidates()</code> 생성)</td></tr>
+    <tr><td><code>np_2_stage_2_head</code></td><td><code>dict[int, dict[str, int]]</code></td><td>np → (stage_id → head 수) 매핑. 각 np별로 head 구성을 캐싱</td></tr>
+    <tr><td><code>best_obj</code></td><td><code>int | None</code></td><td>현재까지 발견된 최소 makespan</td></tr>
+    <tr><td><code>best_sch</code></td><td><code>HybridFlowshopLiteSchedule | None</code></td><td>best_obj에 대응하는 스케줄 객체</td></tr>
+    <tr><td><code>_schedule</code></td><td><code>HybridFlowshopLiteSchedule</code></td><td>현재 np로 mixed dispatch를 실행 중인 스케줄 (deepcopy)</td></tr>
+  </tbody>
+</table>
+
+<h3 id="obj">목적</h3>
+<p>makespan을 최소화한다:</p>
+<pre><code>best_obj = min_{np in np_list} makespan(from_job_sequence_get_schedule_mixed(np))</code></pre>
+<p>np를 변화시키면서 같은 <code>job_sequence</code>로 mixed dispatch를 반복하고, 산출된 모든 스케줄 중 가장 작은 makespan을 가진 것을 최종 해로 선택한다.</p>
+
+<h3 id="constraints">제약</h3>
+<div class="invariants">
+  <h4>Mixed dispatch가 내부적으로 보장하는 제약</h4>
+  <ol>
+    <li><strong>선행 제약</strong>: 각 job은 stage 순서대로 처리되어야 한다. Head job은 <code>dispatch_job_by_stages</code>로 모든 남은 stage를 순차 통과하며, tail job은 <code>dispatch_stage_by_jobs</code>로 stage별 이전 stage 종료 시각을 하한으로 배정된다.</li>
+    <li><strong>용량 제약</strong>: 각 stage의 병렬 기계 수를 초과할 수 없다. <code>add_operation_2_stage</code>가 가능한 가장 이른 기계에 배정한다.</li>
+    <li><strong>Head 예산 제약</strong>: <code>stage_2_head</code> 값은 stage 간 cumulative하게 적용된다. 앞 stage에서 k개의 job을 head로 소비하면 다음 stage의 유효 head 수는 <code>min(head_value, 남은_job_수)</code>로 감소한다.</li>
+  </ol>
+</div>
+
+<hr>
+
+<!-- ===== 핵심 아이디어 ===== -->
+<h2 id="core-idea">핵심 아이디어</h2>
+<p>단일 <code>job_sequence</code>에 대해 디스패치를 한 번만 수행하는 대신, <strong>얼마나 많은 작업을 "head 방식"으로 처리할지(np)</strong>를 변화시키면서 여러 대안을 평가하고 최선을 선택한다.</p>
+
+<figure class="partition-fig">
+  <svg viewBox="0 0 760 140" width="100%" style="max-width:740px;display:block;margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="np-grad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#1e7a3a"/>
+        <stop offset="30%" stop-color="#5fb37a"/>
+        <stop offset="70%" stop-color="#d4a017"/>
+        <stop offset="100%" stop-color="#b3261e"/>
+      </linearGradient>
+    </defs>
+    <!-- Axis -->
+    <line x1="30" y1="90" x2="730" y2="90" stroke="#999" stroke-width="1.2"/>
+    <!-- np=job_count band -->
+    <rect x="30" y="30" width="200" height="50" fill="#1e7a3a" opacity=".85" rx="4"/>
+    <!-- middle band -->
+    <rect x="230" y="30" width="300" height="50" fill="url(#np-grad)" opacity=".65" rx="4"/>
+    <!-- np=0 band -->
+    <rect x="530" y="30" width="200" height="50" fill="#b3261e" opacity=".85" rx="4"/>
+    <!-- Labels -->
+    <text x="130" y="22" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#1e7a3a">np = job_count</text>
+    <text x="380" y="22" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#a55a07">np = 중간 값</text>
+    <text x="630" y="22" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#b3261e">np = 0</text>
+    <text x="130" y="60" font-size="11" text-anchor="middle" fill="#fff" font-family="system-ui">모든 job head</text>
+    <text x="380" y="60" font-size="11" text-anchor="middle" fill="#fff" font-family="system-ui">head / tail 혼합</text>
+    <text x="630" y="60" font-size="11" text-anchor="middle" fill="#fff" font-family="system-ui">모든 job tail</text>
+    <text x="130" y="106" font-size="11" text-anchor="middle" fill="#1e7a3a" font-family="system-ui">순서 기반 (sequence-driven)</text>
+    <text x="630" y="106" font-size="11" text-anchor="middle" fill="#b3261e" font-family="system-ui">priority 기반 (readiness-driven)</text>
+  </svg>
+  <figcaption>np 값에 따른 head/tail 혼합 비율 스펙트럼. 왼쪽으로 갈수록 sequence-driven, 오른쪽으로 갈수록 readiness-driven.</figcaption>
+</figure>
+
+<ul>
+  <li>np = <code>job_count</code>: 모든 작업을 head 방식으로 dispatch → 순서 기반 스케줄 (sequence-driven)</li>
+  <li>np = 0: 모든 작업을 tail 방식으로 dispatch → priority 기반 스케줄 (readiness-driven)</li>
+  <li>그 사이 값: head 방식이 우선 적용되는 작업 수를 조절 → 두 극단 사이의 중간 형태</li>
+</ul>
+<p>이렇게 함으로써 "순서 엄수"와 "준비 완료 우선" 사이의 스펙트럼을 커버한다.</p>
+
+<hr>
+
+<!-- ===== NP 후보 생성 ===== -->
+<h2 id="np-candidates">우선순위 작업 수(np) 후보 생성</h2>
+<p><code>_get_np_candidates()</code> (같은 파일, <code>MixedDispatcher._get_np_candidates()</code>)는 np 후보 목록을 생성한다.</p>
+
+<details open>
+  <summary>np 후보 생성 pseudocode</summary>
+  <pre><code>np = job_count
+while np &gt; 1:
+    np = ceil(np / 2)
+    np_list = [job_count, ceil(job_count/2), ..., 1, 0]</code></pre>
+</details>
+
+<p>예: <code>job_count=10</code> → <code>[10, 5, 3, 2, 1, 0]</code></p>
+<p>감소 수열로 정렬되며, 항상 0을 마지막에 포함한다.</p>
+
+<hr>
+
+<!-- ===== Head 맵 구성 ===== -->
+<h2 id="head-map">Head 맵 구성</h2>
+<p>각 np에 대해 <code>np_2_stage_2_head[np]</code>를 다음 규칙으로 구성한다.</p>
+
+<div class="decisions">
+  <div class="decision">
+    <div class="key">head_for_all_stages = True</div>
+    <div class="val">모든 stage_id에 np를 할당 → <code>{stage_1: np, stage_2: np, ..., stage_m: np}</code></div>
+  </div>
+  <div class="decision" style="border-left-color: var(--warn);">
+    <div class="key" style="color: var(--warn);">head_for_all_stages = False</div>
+    <div class="val">
+      <ul style="margin:2px 0;padding-left:18px;">
+        <li><code>from_stage != None</code>: from_stage만 np 할당 (유효성 검증 후) → <code>{from_stage: np}</code></li>
+        <li><code>from_stage == None</code>: 첫 번째 stage만 np 할당 → <code>{stage_id_list[0]: np}</code></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<p>이 매핑은 np 루프 진입 전에 한 번에 모두 생성된다 (line 97-108).</p>
+
+<hr>
+
+<!-- ===== Mixed Dispatch 반복 ===== -->
+<h2 id="mixed-loop">Mixed Dispatch 반복</h2>
+
+<details open>
+  <summary>np 순회 pseudocode</summary>
+  <pre><code>for np in np_list:
+    ─── 시작 스케줄 준비 ───
+    if schedule != None:
+        _schedule = schedule.deepcopy()
+    else:
+        _schedule = _create_empty_schedule()
+    
+    ─── Mixed dispatch 실행 ───
+    from_job_sequence_get_schedule_mixed(
+        _schedule, job_sequence, stage_2_job_2_p,
+        np_2_stage_2_head[np],
+        from_stage=from_stage,
+        job_2_release=job_2_release_t,
+        machine_then_job=machine_then_job,
+        use_palmer_index=use_palmer_index,
+        draw_gantt_per_step=draw_gantt_per_step,
+        get_file_path_for_subroutine=get_file_path_for_subroutine,
+    )
+    
+    ─── 최선 갱신 ───
+    if best_obj is None or _schedule.makespan &lt; best_obj:
+        best_obj = _schedule.makespan
+        best_sch = _schedule</code></pre>
+</details>
+
+<p><code>from_job_sequence_get_schedule_mixed()</code> 호출에 대한 상세는 <code>requirement_docs/algorithm/from_job_sequence_get_schedule_mixed.md</code> (미작성 시 <code>hybridflowshop/dispatcher/utils.py:913</code> 참조) 또는 같은 파일의 독스트링을 참조. 간략히: 각 stage에서 priority queue를 구성하고, 상위 np개 job은 <code>dispatch_job_by_stages</code>로 모든 잔여 stage를 순차 처리(head), 나머지는 <code>dispatch_stage_by_jobs</code>로 stage별 priority 기반 배정(tail)한다.</p>
+
+<hr>
+
+<!-- ===== 최선 해 선택 ===== -->
+<h2 id="best-select">최선 해 선택</h2>
+<p>모든 np를 순회한 후 <code>best_sch</code>를 반환한다. 만약 어떤 np에서도 유효한 스케줄이 생성되지 않으면(<code>_schedule is None</code>), <code>best_obj</code>가 갱신되지 않으며 최종 반환값도 <code>None</code>이 된다. (<code>_schedule is None</code>이 되는 경우는 없으나, <code>from_job_sequence_get_schedule_mixed</code>의 계약상 안전하게 처리)</p>
+
+<hr>
+
+<!-- ===== 전체 실행 흐름 ===== -->
+<h2 id="flow">전체 실행 흐름</h2>
+
+<div class="pipeline">
+  <h4>Mixed Dispatch 최적 np 탐색 파이프라인</h4>
+  <div class="flow">
+    <span class="step">1. np 후보 생성</span><span class="arrow">→</span>
+    <span class="step">2. Head 맵 구성</span><span class="arrow">→</span>
+    <span class="step">3. np 순회</span><span class="arrow">→</span>
+    <span class="step">4. best_sch 반환</span>
+  </div>
+  <p style="margin:8px 0 0;font-size:12.5px;">
+    <strong>1.</strong> <code>_get_np_candidates()</code>: [job_count, ceil(job_count/2), ..., 1, 0]<br>
+    <strong>2.</strong> <code>np_2_stage_2_head</code> 구성: head_for_all_stages 분기에 따라 각 np별 stage→head 매핑 생성<br>
+    <strong>3.</strong> 각 np (내림차순): (a) 스케줄 준비 (deepcopy or empty), (b) <code>from_job_sequence_get_schedule_mixed</code> 호출, (c) makespan 개선 시 best 갱신<br>
+    <strong>4.</strong> <code>best_sch</code> 반환
+  </p>
+</div>
+
+<hr>
+
+<!-- ===== 파라미터 요약 ===== -->
+<h2 id="params-summary">파라미터 요약</h2>
+
+<h3>메서드 시그니처 파라미터</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>타입</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>job_sequence</code></td><td><code>Sequence[JobIdType]</code></td><td>(필수)</td><td>디스패치 우선순위 기준이 되는 작업 순서</td></tr>
+    <tr><td><code>schedule</code></td><td><code>HybridFlowshopLiteSchedule | None</code></td><td><code>None</code></td><td>증분 디스패치 대상 스케줄. None이면 빈 스케줄 생성</td></tr>
+    <tr><td><code>from_stage</code></td><td><code>StageIdType | None</code></td><td><code>None</code></td><td>디스패치 시작 stage. None이면 첫 번째 stage</td></tr>
+    <tr><td><code>job_2_release_t</code></td><td><code>dict[JobIdType, int] | None</code></td><td><code>None</code></td><td>job별 release time</td></tr>
+    <tr><td><code>machine_then_job</code></td><td><code>bool</code></td><td><code>False</code></td><td>True면 machine-centric dispatch 우선 사용</td></tr>
+    <tr><td><code>head_for_all_stages</code></td><td><code>bool</code></td><td><code>False</code></td><td>True면 모든 stage에 head 적용</td></tr>
+    <tr><td><code>use_palmer_index</code></td><td><code>bool</code></td><td><code>False</code></td><td>machine_centric_dispatch_4에서 Palmer index 사용</td></tr>
+    <tr><td><code>draw_gantt_per_step</code></td><td><code>bool</code></td><td><code>False</code></td><td>단계별 Gantt 차트 PNG 출력</td></tr>
+    <tr><td><code>get_file_path_for_subroutine</code></td><td><code>Callable | None</code></td><td><code>None</code></td><td>Gantt 저장 경로 생성 콜백. None이면 draw_gantt_per_step 무시</td></tr>
+  </tbody>
+</table>
+
+<h3>내부 파라미터 (MixedDispatcher 인스턴스 멤버)</h3>
+<table>
+  <thead><tr><th>멤버</th><th>타입</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>job_count</code></td><td><code>int</code></td><td>전체 job 수. np 후보 생성의 상한</td></tr>
+    <tr><td><code>stage_id_list</code></td><td><code>list[StageIdType]</code></td><td>모든 stage ID 목록. head 맵 구성에 사용</td></tr>
+    <tr><td><code>stage_2_job_2_p</code></td><td><code>dict[StageIdType, dict[JobIdType, int]]</code></td><td>stage → job → processing time. mixed dispatch의 헬퍼에 전달</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ===== 의존성 및 호출 관계 ===== -->
+<h2 id="deps">의존성 및 호출 관계</h2>
+
+<figure class="modmap">
+  <svg viewBox="0 0 780 320" width="100%" style="max-width:760px;display:block;margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#2454b8"/>
+      </marker>
+      <marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#7a7a72"/>
+      </marker>
+    </defs>
+
+    <!-- Zone: Callers -->
+    <rect x="20" y="20" width="220" height="240" fill="#fbeed5" stroke="#e8c585" rx="6"/>
+    <text x="130" y="40" font-size="12" font-weight="700" text-anchor="middle" fill="#a55a07" font-family="system-ui">호출자 (Callers)</text>
+
+    <rect x="30" y="56" width="200" height="28" fill="#fff" stroke="#a55a07" rx="3"/>
+    <text x="130" y="74" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">get_schedule_by_cds</text>
+    <text x="130" y="90" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">mixed.py:181</text>
+
+    <rect x="30" y="100" width="200" height="28" fill="#fff" stroke="#a55a07" rx="3"/>
+    <text x="130" y="118" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">get_schedule_by_gupta</text>
+    <text x="130" y="134" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">mixed.py:242</text>
+
+    <rect x="30" y="144" width="200" height="28" fill="#fff" stroke="#a55a07" rx="3"/>
+    <text x="130" y="162" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">get_schedule_by_palmer</text>
+    <text x="130" y="178" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">mixed.py:291</text>
+
+    <rect x="30" y="192" width="200" height="28" fill="#fff" stroke="#a55a07" rx="3"/>
+    <text x="130" y="210" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">NEH-CP constructor</text>
+    <text x="130" y="226" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">controller/neh_cp.py</text>
+
+    <rect x="30" y="240" width="200" height="28" fill="#f4f3ed" stroke="#7a7a72" rx="3"/>
+    <text x="130" y="258" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">CP-LNS / BN2D / scripts</text>
+    <text x="130" y="274" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">8곳 추가 호출</text>
+
+    <!-- Zone: This method -->
+    <rect x="280" y="80" width="200" height="120" fill="#f4faee" stroke="#c2d5b5" rx="6"/>
+    <text x="380" y="100" font-size="12" font-weight="700" text-anchor="middle" fill="#1e7a3a" font-family="system-ui">이 메서드</text>
+
+    <rect x="290" y="110" width="180" height="40" fill="#fff" stroke="#1e7a3a" rx="4" stroke-width="2"/>
+    <text x="380" y="127" font-size="11" font-weight="600" text-anchor="middle" font-family="ui-monospace,monospace">get_best_mixed_</text>
+    <text x="380" y="141" font-size="11" font-weight="600" text-anchor="middle" font-family="ui-monospace,monospace">schedule_by_sequence</text>
+
+    <rect x="290" y="160" width="180" height="28" fill="#fff" stroke="#5fb37a" rx="3"/>
+    <text x="380" y="178" font-size="10.5" text-anchor="middle" font-family="ui-monospace,monospace">_get_np_candidates()</text>
+
+    <!-- Zone: Called helpers -->
+    <rect x="530" y="80" width="230" height="180" fill="#e6edfa" stroke="#2454b8" rx="6"/>
+    <text x="645" y="100" font-size="12" font-weight="700" text-anchor="middle" fill="#1f5a8a" font-family="system-ui">호출 대상 (Helpers)</text>
+
+    <rect x="540" y="110" width="210" height="28" fill="#fff" stroke="#2454b8" rx="3"/>
+    <text x="645" y="128" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">from_job_sequence_get_</text>
+    <text x="645" y="142" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">schedule_mixed()</text>
+    <text x="645" y="156" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">utils.py:913</text>
+
+    <rect x="540" y="168" width="210" height="28" fill="#fff" stroke="#2454b8" rx="3"/>
+    <text x="645" y="186" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">_create_empty_schedule()</text>
+    <text x="645" y="200" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">base.py:84</text>
+
+    <rect x="540" y="204" width="210" height="28" fill="#fff" stroke="#2454b8" rx="3"/>
+    <text x="645" y="222" font-size="11" text-anchor="middle" font-family="ui-monospace,monospace">schedule.deepcopy()</text>
+    <text x="645" y="236" font-size="9" text-anchor="middle" fill="gray" font-family="system-ui">schedule_lite.py</text>
+
+    <!-- Arrows: callers → this method -->
+    <line x1="230" y1="70" x2="290" y2="130" stroke="#7a7a72" stroke-width="1.2" marker-end="url(#arrow-gray)"/>
+    <line x1="230" y1="114" x2="290" y2="130" stroke="#7a7a72" stroke-width="1.2" marker-end="url(#arrow-gray)"/>
+    <line x1="230" y1="158" x2="290" y2="130" stroke="#7a7a72" stroke-width="1.2" marker-end="url(#arrow-gray)"/>
+    <line x1="230" y1="206" x2="290" y2="130" stroke="#7a7a72" stroke-width="1.2" marker-end="url(#arrow-gray)"/>
+    <line x1="230" y1="254" x2="290" y2="140" stroke="#7a7a72" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arrow-gray)"/>
+
+    <!-- Arrows: this method → helpers -->
+    <line x1="480" y1="180" x2="540" y2="130" stroke="#2454b8" stroke-width="1.2" marker-end="url(#arrow-blue)"/>
+    <line x1="480" y1="175" x2="540" y2="185" stroke="#2454b8" stroke-width="1.2" marker-end="url(#arrow-blue)"/>
+    <line x1="480" y1="178" x2="540" y2="218" stroke="#2454b8" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arrow-blue)"/>
+  </svg>
+  <figcaption>실선: 직접 호출. 점선: 간접/조건부 호출.</figcaption>
+</figure>
+
+<h3>호출 대상</h3>
+<table>
+  <thead><tr><th>호출 대상</th><th>파일 (라인)</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td><code>_get_np_candidates()</code></td><td><code>mixed.py:28</code></td><td>감소 수열 np 후보 생성</td></tr>
+    <tr><td><code>from_job_sequence_get_schedule_mixed()</code></td><td><code>utils.py:913</code></td><td>주어진 stage_2_head로 mixed dispatch 실행</td></tr>
+    <tr><td><code>_create_empty_schedule()</code></td><td><code>base.py:84</code> (상속)</td><td>빈 스케줄 생성</td></tr>
+    <tr><td><code>schedule.deepcopy()</code></td><td><code>schedule_lite.py</code></td><td>스케줄 복제 (in-place 변경 방지)</td></tr>
+  </tbody>
+</table>
+
+<h3>이 메서드를 호출하는 상위 메서드</h3>
+<table>
+  <thead><tr><th>호출자</th><th>파일 (라인)</th><th>전달하는 job_sequence</th></tr></thead>
+  <tbody>
+    <tr><td><code>get_schedule_by_cds</code></td><td><code>mixed.py:181</code></td><td><code>get_cds_sequence(k)</code></td></tr>
+    <tr><td><code>get_schedule_by_gupta</code></td><td><code>mixed.py:242</code></td><td><code>get_gupta_sequence()</code></td></tr>
+    <tr><td><code>get_schedule_by_palmer</code></td><td><code>mixed.py:291</code></td><td><code>get_palmer_sequence()</code></td></tr>
+  </tbody>
+</table>
+
+<p>위 표는 같은 <code>MixedDispatcher</code> 클래스 내 시퀀스 헬퍼만 나열한 것이다. 이 메서드는 그 외에도 다음 위치에서 호출된다:</p>
+
+<table>
+  <thead><tr><th>호출자</th><th>파일 (라인)</th></tr></thead>
+  <tbody>
+    <tr><td>NEH-CP constructor</td><td><code>controller/neh_cp.py:531</code>, <code>:587</code></td></tr>
+    <tr><td>CP-LNS controller</td><td><code>controller/hfs_cp_lns.py:15998</code>, <code>:16005</code>, <code>:17067</code>, <code>:17087</code></td></tr>
+    <tr><td>BN2D dispatcher</td><td><code>dispatcher/bn2d.py:264</code>, <code>:371</code>, <code>:525</code></td></tr>
+    <tr><td>벤치마크 스크립트</td><td><code>scripts/benchmark_saved_mip_dispatch_rules.py:132</code></td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ===== 주의사항 ===== -->
+<h2 id="notes">주의사항 및 응용 고려사항</h2>
+
+<div class="info-box">
+  <h4>확장 포인트 <span class="badge info">extension</span></h4>
+  <ul>
+    <li><strong>np 후보 생성 전략</strong>: 현재는 <code>ceil(÷2)</code> 감소 수열을 사용한다. job 수나 문제 규모에 따라 다른 생성 전략(등간격, log-scale 등)으로 교체 가능하다.</li>
+    <li><strong>head 분포 전략</strong>: 현재는 모든 stage에 동일 np를 적용하거나 첫 stage에만 적용한다. Stage별 특성(bottleneck 정도)에 따라 차등 np를 적용하는 전략으로 확장 가능하다.</li>
+  </ul>
+</div>
+
+<div class="warn-box">
+  <h4>제한사항 <span class="badge warn">limitation</span></h4>
+  <ul>
+    <li>같은 <code>job_sequence</code>에 대해 다양한 np만 시도한다. <code>job_sequence</code> 자체는 외부에서 결정되어 전달되므로, sequence의 품질이 결과의 상한을 결정한다.</li>
+    <li>Mixed dispatch의 품질은 <code>from_job_sequence_get_schedule_mixed</code>의 priority queue 정책(이전 stage 종료 시각 + tie-breaker)에 의존한다. 다른 우선순위 정책으로 교체하면 결과가 달라진다.</li>
+    <li><code>head_for_all_stages=True</code> 시 모든 stage에 동일 np를 적용한다. 앞 stage에서 head job이 많으면 뒤 stage의 유효 head 수가 자동 감소하지만, stage별로 독립적인 head 값을 설정하고 싶다면 별도 구현이 필요하다.</li>
+  </ul>
+</div>
+
+<hr>
+<p style="font-size: 12px; color: var(--faint);">Source: <code>requirement_docs/algorithm/get_best_mixed_schedule_by_sequence.md</code> (markdown remains authoritative; this HTML is a spatial view).</p>
+
+</main>
+</div>
+</body>
+</html>

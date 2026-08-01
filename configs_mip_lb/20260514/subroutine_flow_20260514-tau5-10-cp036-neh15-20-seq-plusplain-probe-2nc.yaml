@@ -1,0 +1,50 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_tau_coarsened_cp
+  tau_values:
+  - 5
+  - 10
+  surrogate_tl_nc_multiplier: 0.036
+  polish_tl_nc_multiplier: 0.004
+  restore_modes:
+  - machine_sequence
+  - stage_sequence
+  polish_profile_modes:
+  - stage_sequence
+  surrogate_dispatch_before_cp: true
+  include_surrogate_dispatch_candidate: true
+  surrogate_dispatch_cap_portions:
+  - 0.20
+  - 0.25
+  - 0.30
+  surrogate_dispatch_method_list:
+  - bn2d_all_stages
+  - best_of_mixed_dispatches
+  surrogate_dispatch_include_machine_then_job_variants: true
+  surrogate_neh_enabled: true
+  surrogate_neh_position: before_cp
+  surrogate_neh_tau_values:
+  - 5
+  surrogate_neh_sources:
+  - dispatch
+  surrogate_neh_added_batch_sizes:
+  - 15
+  - 20
+  surrogate_neh_sequential: true
+  surrogate_neh_also_solve_dispatch_cp: true
+  surrogate_neh_cp_tl_nc_multiplier: 0.001
+  surrogate_neh_use_lns_only: true
+  surrogate_neh_minimize_sum_ci_lex: false
+  surrogate_neh_cp_tl_nc_multiplier_2nd_obj: null
+  solver_thread_cnt: 16
+  surrogate_use_lns_only: false
+  polish_use_lns_only: false
+  cp_model_probing_level: 1
+  cp_sat_params:
+    diversify_lns_params: true
+    solution_pool_size: 8
+  make_semi_active: true
+  save_candidate_artifacts: true
+  error_if_infeasible: false
+  draw_gantt: false

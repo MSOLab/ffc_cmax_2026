@@ -1,0 +1,24 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_tau_coarsened_cp
+  tau_values:
+  - 5
+  - 8
+  - 12
+  surrogate_tl_nc_multiplier: 0.008
+  polish_tl_nc_multiplier: 0.004
+  restore_modes:
+  - machine_sequence
+  - stage_sequence
+  solver_thread_cnt: 16
+  surrogate_use_lns_only: false
+  polish_use_lns_only: true
+  cp_model_probing_level: 1
+  cp_sat_params:
+    diversify_lns_params: true
+    solution_pool_size: 8
+  make_semi_active: true
+  save_candidate_artifacts: true
+  error_if_infeasible: false
+  draw_gantt: false

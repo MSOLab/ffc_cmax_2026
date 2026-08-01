@@ -1,0 +1,632 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="1742.4pt" height="1094.4pt" viewBox="0 0 1742.4 1094.4" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-05-19T22:46:53.070591</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.8, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 1094.4 
+L 1742.4 1094.4 
+L 1742.4 0 
+L 0 0 
+z
+" style="fill: #f8f7f3"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 67.68 234 
+L 672.48 234 
+Q 689.76 234 689.76 223.2 
+L 689.76 150.84 
+Q 689.76 140.04 672.48 140.04 
+L 67.68 140.04 
+Q 50.4 140.04 50.4 150.84 
+L 50.4 223.2 
+Q 50.4 234 67.68 234 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #e9f2f7; stroke: #b9d1df; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 715.68 234 
+L 1164.96 234 
+Q 1182.24 234 1182.24 223.2 
+L 1182.24 150.84 
+Q 1182.24 140.04 1164.96 140.04 
+L 715.68 140.04 
+Q 698.4 140.04 698.4 150.84 
+L 698.4 223.2 
+Q 698.4 234 715.68 234 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #fff4dd; stroke: #e4bd61; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 1208.16 234 
+L 1674.72 234 
+Q 1692 234 1692 223.2 
+L 1692 150.84 
+Q 1692 140.04 1674.72 140.04 
+L 1208.16 140.04 
+Q 1190.88 140.04 1190.88 150.84 
+L 1190.88 223.2 
+Q 1190.88 234 1208.16 234 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #eef1f4; stroke: #c9ced3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 67.68 393.84 
+L 306.72 393.84 
+Q 324 393.84 324 383.04 
+L 324 250.2 
+Q 324 239.4 306.72 239.4 
+L 67.68 239.4 
+Q 50.4 239.4 50.4 250.2 
+L 50.4 383.04 
+Q 50.4 393.84 67.68 393.84 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 341.28 393.84 
+L 580.32 393.84 
+Q 597.6 393.84 597.6 383.04 
+L 597.6 250.2 
+Q 597.6 239.4 580.32 239.4 
+L 341.28 239.4 
+Q 324 239.4 324 250.2 
+L 324 383.04 
+Q 324 393.84 341.28 393.84 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 614.88 393.84 
+L 853.92 393.84 
+Q 871.2 393.84 871.2 383.04 
+L 871.2 250.2 
+Q 871.2 239.4 853.92 239.4 
+L 614.88 239.4 
+Q 597.6 239.4 597.6 250.2 
+L 597.6 383.04 
+Q 597.6 393.84 614.88 393.84 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 888.48 393.84 
+L 1127.52 393.84 
+Q 1144.8 393.84 1144.8 383.04 
+L 1144.8 250.2 
+Q 1144.8 239.4 1127.52 239.4 
+L 888.48 239.4 
+Q 871.2 239.4 871.2 250.2 
+L 871.2 383.04 
+Q 871.2 393.84 888.48 393.84 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 1162.08 393.84 
+L 1401.12 393.84 
+Q 1418.4 393.84 1418.4 383.04 
+L 1418.4 250.2 
+Q 1418.4 239.4 1401.12 239.4 
+L 1162.08 239.4 
+Q 1144.8 239.4 1144.8 250.2 
+L 1144.8 383.04 
+Q 1144.8 393.84 1162.08 393.84 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 1435.68 393.84 
+L 1674.72 393.84 
+Q 1692 393.84 1692 383.04 
+L 1692 250.2 
+Q 1692 239.4 1674.72 239.4 
+L 1435.68 239.4 
+Q 1418.4 239.4 1418.4 250.2 
+L 1418.4 383.04 
+Q 1418.4 393.84 1435.68 393.84 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 67.68 561.24 
+L 603.36 561.24 
+Q 620.64 561.24 620.64 550.44 
+L 620.64 474.84 
+Q 620.64 464.04 603.36 464.04 
+L 67.68 464.04 
+Q 50.4 464.04 50.4 474.84 
+L 50.4 550.44 
+Q 50.4 561.24 67.68 561.24 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #f0edf7; stroke: #cbc2df; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 646.56 561.24 
+L 992.16 561.24 
+Q 1009.44 561.24 1009.44 550.44 
+L 1009.44 474.84 
+Q 1009.44 464.04 992.16 464.04 
+L 646.56 464.04 
+Q 629.28 464.04 629.28 474.84 
+L 629.28 550.44 
+Q 629.28 561.24 646.56 561.24 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #fff4dd; stroke: #e4bd61; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 1035.36 561.24 
+L 1674.72 561.24 
+Q 1692 561.24 1692 550.44 
+L 1692 474.84 
+Q 1692 464.04 1674.72 464.04 
+L 1035.36 464.04 
+Q 1018.08 464.04 1018.08 474.84 
+L 1018.08 550.44 
+Q 1018.08 561.24 1035.36 561.24 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 67.68 695.16 
+L 560.16 695.16 
+Q 577.44 695.16 577.44 684.36 
+L 577.44 582.84 
+Q 577.44 572.04 560.16 572.04 
+L 67.68 572.04 
+Q 50.4 572.04 50.4 582.84 
+L 50.4 684.36 
+Q 50.4 695.16 67.68 695.16 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_15">
+    <path d="M 612 695.16 
+L 1104.48 695.16 
+Q 1121.76 695.16 1121.76 684.36 
+L 1121.76 582.84 
+Q 1121.76 572.04 1104.48 572.04 
+L 612 572.04 
+Q 594.72 572.04 594.72 582.84 
+L 594.72 684.36 
+Q 594.72 695.16 612 695.16 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 1156.32 695.16 
+L 1648.8 695.16 
+Q 1666.08 695.16 1666.08 684.36 
+L 1666.08 582.84 
+Q 1666.08 572.04 1648.8 572.04 
+L 1156.32 572.04 
+Q 1139.04 572.04 1139.04 582.84 
+L 1139.04 684.36 
+Q 1139.04 695.16 1156.32 695.16 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_17">
+    <path d="M 67.68 766.44 
+L 1674.72 766.44 
+Q 1692 766.44 1692 755.64 
+L 1692 710.28 
+Q 1692 699.48 1674.72 699.48 
+L 67.68 699.48 
+Q 50.4 699.48 50.4 710.28 
+L 50.4 755.64 
+Q 50.4 766.44 67.68 766.44 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #eef1f4; stroke: #c9ced3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_18">
+    <path d="M 67.68 945.72 
+L 586.08 945.72 
+Q 603.36 945.72 603.36 934.92 
+L 603.36 820.44 
+Q 603.36 809.64 586.08 809.64 
+L 67.68 809.64 
+Q 50.4 809.64 50.4 820.44 
+L 50.4 934.92 
+Q 50.4 945.72 67.68 945.72 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #eaf5ef; stroke: #b9d8c9; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 629.28 945.72 
+L 1303.2 945.72 
+Q 1320.48 945.72 1320.48 934.92 
+L 1320.48 820.44 
+Q 1320.48 809.64 1303.2 809.64 
+L 629.28 809.64 
+Q 612 809.64 612 820.44 
+L 612 934.92 
+Q 612 945.72 629.28 945.72 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #ffffff; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_20">
+    <path d="M 1346.4 878.76 
+L 1674.72 878.76 
+Q 1692 878.76 1692 867.96 
+L 1692 820.44 
+Q 1692 809.64 1674.72 809.64 
+L 1346.4 809.64 
+Q 1329.12 809.64 1329.12 820.44 
+L 1329.12 867.96 
+Q 1329.12 878.76 1346.4 878.76 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #eef1f4; stroke: #c9ced3; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_21">
+    <path d="M 1346.4 945.72 
+L 1674.72 945.72 
+Q 1692 945.72 1692 934.92 
+L 1692 889.56 
+Q 1692 878.76 1674.72 878.76 
+L 1346.4 878.76 
+Q 1329.12 878.76 1329.12 889.56 
+L 1329.12 934.92 
+Q 1329.12 945.72 1346.4 945.72 
+z
+" clip-path="url(#pe6e16fd1c7)" style="fill: #fbfaf7; stroke: #d7d1c7; stroke-linejoin: miter"/>
+   </g>
+   <g id="line2d_1">
+    <path d="M 59.04 134.64 
+L 1683.36 134.64 
+" clip-path="url(#pe6e16fd1c7)" style="fill: none; stroke: #245a7d; stroke-opacity: 0.55; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_2">
+    <path d="M 59.04 458.64 
+L 1683.36 458.64 
+" clip-path="url(#pe6e16fd1c7)" style="fill: none; stroke: #6b5b95; stroke-opacity: 0.55; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 59.04 804.24 
+L 1683.36 804.24 
+" clip-path="url(#pe6e16fd1c7)" style="fill: none; stroke: #2f7d5f; stroke-opacity: 0.55; stroke-width: 1.5; stroke-linecap: square"/>
+   </g>
+   <g id="text_1">
+    <text style="font-weight: 700; font-size: 16px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #245a7d" x="59.04" y="119.615" transform="rotate(-0 59.04 119.615)">Candidate D: 5-lane portfolio from best 240-run</text>
+   </g>
+   <g id="text_2">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="166.338625" transform="rotate(-0 76.32 166.338625)">Shared prefix</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="187.858828" transform="rotate(-0 76.32 187.858828)">compact dispatch cap=.25 -&gt; tau=5 CP .12; tau has surrogate</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="196.568506" transform="rotate(-0 76.32 196.568506)">NEH15 .0015 + PW.05 .0015/op; retained CP-LB q4 .08 -&gt;</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="205.278183" transform="rotate(-0 76.32 205.278183)">dispatch -&gt; bottleneck top-k .08 -&gt; dispatch; reserve</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="213.98786" transform="rotate(-0 76.32 213.98786)">.20/.25/.30.</text>
+   </g>
+   <g id="text_7">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="724.32" y="166.302687" transform="rotate(-0 724.32 166.302687)">Selection / guard</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="724.32" y="187.858828" transform="rotate(-0 724.32 187.858828)">Run selected suffix only if bound missing or</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="724.32" y="196.568506" transform="rotate(-0 724.32 196.568506)">gap &gt;= .003. Equal later lane not accepted;</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="724.32" y="205.278183" transform="rotate(-0 724.32 205.278183)">fallback=safe_0504.</text>
+   </g>
+   <g id="text_11">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1216.8" y="166.302687" transform="rotate(-0 1216.8 166.302687)">CP settings after prefix</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1216.8" y="187.858828" transform="rotate(-0 1216.8 187.858828)">Tau CP used pool8/diverse. Final CP consumes</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1216.8" y="196.568506" transform="rotate(-0 1216.8 196.568506)">remaining reserve with LNS=true; Candidate D</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1216.8" y="205.278183" transform="rotate(-0 1216.8 205.278183)">keeps the pool8 override.</text>
+   </g>
+   <g id="text_15">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="265.151437" transform="rotate(-0 76.32 265.151437)">safe_0504_first_neh</text>
+   </g>
+   <g id="text_16">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #151515" x="298.08" y="265.257125" transform="rotate(-0 298.08 265.257125)">28</text>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="286.686937" transform="rotate(-0 76.32 286.686937)">Probe NEH10 .005. Suffix</text>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="294.583712" transform="rotate(-0 76.32 294.583712)">NEH15/20 .005 -&gt; NEH25/30 .010</text>
+   </g>
+   <g id="text_19">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="302.480486" transform="rotate(-0 76.32 302.480486)">-&gt; PW.05 .008 max8 -&gt; PW.10</text>
+   </g>
+   <g id="text_20">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="310.37726" transform="rotate(-0 76.32 310.37726)">.006 max6. Stable 0504-style</text>
+   </g>
+   <g id="text_21">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="318.274034" transform="rotate(-0 76.32 318.274034)">baseline.</text>
+   </g>
+   <g id="text_22">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="349.92" y="265.151437" transform="rotate(-0 349.92 265.151437)">cp_seeded_first_neh</text>
+   </g>
+   <g id="text_23">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #151515" x="571.68" y="265.257125" transform="rotate(-0 571.68 265.257125)">31</text>
+   </g>
+   <g id="text_24">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="349.92" y="286.686937" transform="rotate(-0 349.92 286.686937)">Base CP seed .018 (small</text>
+   </g>
+   <g id="text_25">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="349.92" y="294.583712" transform="rotate(-0 349.92 294.583712)">.008), then NEH10 .005 max8.</text>
+   </g>
+   <g id="text_26">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="349.92" y="302.480486" transform="rotate(-0 349.92 302.480486)">Same safe suffix. Tests</text>
+   </g>
+   <g id="text_27">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="349.92" y="310.37726" transform="rotate(-0 349.92 310.37726)">whether CP incumbent improves</text>
+   </g>
+   <g id="text_28">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="349.92" y="318.274034" transform="rotate(-0 349.92 318.274034)">the NEH entry.</text>
+   </g>
+   <g id="text_29">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="623.52" y="265.151437" transform="rotate(-0 623.52 265.151437)">delayed_profile_first_neh</text>
+   </g>
+   <g id="text_30">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #151515" x="845.28" y="265.257125" transform="rotate(-0 845.28 265.257125)">34</text>
+   </g>
+   <g id="text_31">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="623.52" y="286.686937" transform="rotate(-0 623.52 286.686937)">NEH10 .006 max8; profile</text>
+   </g>
+   <g id="text_32">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="623.52" y="294.583712" transform="rotate(-0 623.52 294.583712)">fixing delayed to batches</text>
+   </g>
+   <g id="text_33">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="623.52" y="302.480486" transform="rotate(-0 623.52 302.480486)">3..6, min portion .25. Same</text>
+   </g>
+   <g id="text_34">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="623.52" y="310.37726" transform="rotate(-0 623.52 310.37726)">suffix. Avoids early</text>
+   </g>
+   <g id="text_35">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="623.52" y="318.274034" transform="rotate(-0 623.52 318.274034)">over-fixing.</text>
+   </g>
+   <g id="text_36">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="897.12" y="265.151437" transform="rotate(-0 897.12 265.151437)">retained_cp_sequence_first_neh</text>
+   </g>
+   <g id="text_37">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #151515" x="1118.88" y="265.257125" transform="rotate(-0 1118.88 265.257125)">28</text>
+   </g>
+   <g id="text_38">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="897.12" y="286.686937" transform="rotate(-0 897.12 286.686937)">NEH10 .006 max8; job order</text>
+   </g>
+   <g id="text_39">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="897.12" y="294.583712" transform="rotate(-0 897.12 294.583712)">from last retained CP,</text>
+   </g>
+   <g id="text_40">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="897.12" y="302.480486" transform="rotate(-0 897.12 302.480486)">fallback=bottleneck. Same</text>
+   </g>
+   <g id="text_41">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="897.12" y="310.37726" transform="rotate(-0 897.12 310.37726)">suffix. Carries CP ordering</text>
+   </g>
+   <g id="text_42">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="897.12" y="318.274034" transform="rotate(-0 897.12 318.274034)">into NEH.</text>
+   </g>
+   <g id="text_43">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1170.72" y="265.151437" transform="rotate(-0 1170.72 265.151437)">interleaved_pw_neh_basin</text>
+   </g>
+   <g id="text_44">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #151515" x="1392.48" y="265.257125" transform="rotate(-0 1392.48 265.257125)">16</text>
+   </g>
+   <g id="text_45">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1170.72" y="286.686937" transform="rotate(-0 1170.72 286.686937)">NEH10 .0075 max8. Suffix PW.05</text>
+   </g>
+   <g id="text_46">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1170.72" y="294.583712" transform="rotate(-0 1170.72 294.583712)">-&gt; NEH15 -&gt; PW.06 -&gt; NEH20 -&gt;</text>
+   </g>
+   <g id="text_47">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1170.72" y="302.480486" transform="rotate(-0 1170.72 302.480486)">PW.08 -&gt; NEH25 -&gt; NEH30 -&gt;</text>
+   </g>
+   <g id="text_48">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1170.72" y="310.37726" transform="rotate(-0 1170.72 310.37726)">PW.10. Earlier PW perturbs</text>
+   </g>
+   <g id="text_49">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1170.72" y="318.274034" transform="rotate(-0 1170.72 318.274034)">basin.</text>
+   </g>
+   <g id="text_50">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1444.32" y="265.151437" transform="rotate(-0 1444.32 265.151437)">no_suffix_guard_or_skip</text>
+   </g>
+   <g id="text_51">
+    <text style="font-weight: 700; font-size: 7.6px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #151515" x="1666.08" y="265.257125" transform="rotate(-0 1666.08 265.257125)">103</text>
+   </g>
+   <g id="text_52">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1444.32" y="286.686937" transform="rotate(-0 1444.32 286.686937)">Suffix not selected/run;</text>
+   </g>
+   <g id="text_53">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1444.32" y="294.583712" transform="rotate(-0 1444.32 294.583712)">prefix or fallback path was</text>
+   </g>
+   <g id="text_54">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1444.32" y="302.480486" transform="rotate(-0 1444.32 302.480486)">kept. This is part of why</text>
+   </g>
+   <g id="text_55">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1444.32" y="310.37726" transform="rotate(-0 1444.32 310.37726)">Candidate D is hard to explain</text>
+   </g>
+   <g id="text_56">
+    <text style="font-size: 6.8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1444.32" y="318.274034" transform="rotate(-0 1444.32 318.274034)">cleanly.</text>
+   </g>
+   <g id="text_57">
+    <text style="font-weight: 700; font-size: 16px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #6b5b95" x="59.04" y="443.615" transform="rotate(-0 59.04 443.615)">Final-1: deep-3 portfolio on the other computer</text>
+   </g>
+   <g id="text_58">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="490.338625" transform="rotate(-0 76.32 490.338625)">Shared prefix</text>
+   </g>
+   <g id="text_59">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="511.858828" transform="rotate(-0 76.32 511.858828)">D-core prefix: compact dispatch cap=.25 -&gt; tau=5 CP</text>
+   </g>
+   <g id="text_60">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="520.568506" transform="rotate(-0 76.32 520.568506)">.12 with surrogate NEH15/PW.05; retained CP-LB q4 .08</text>
+   </g>
+   <g id="text_61">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="529.278183" transform="rotate(-0 76.32 529.278183)">-&gt; dispatch -&gt; bottleneck top-k .08 -&gt; dispatch;</text>
+   </g>
+   <g id="text_62">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="537.98786" transform="rotate(-0 76.32 537.98786)">reserve .20/.25/.30.</text>
+   </g>
+   <g id="text_63">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="655.2" y="490.302687" transform="rotate(-0 655.2 490.302687)">Selection / guard</text>
+   </g>
+   <g id="text_64">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="655.2" y="511.858828" transform="rotate(-0 655.2 511.858828)">Still has portfolio guard: bound</text>
+   </g>
+   <g id="text_65">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="655.2" y="520.568506" transform="rotate(-0 655.2 520.568506)">missing or gap &gt;= .003. One lane</text>
+   </g>
+   <g id="text_66">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="655.2" y="529.278183" transform="rotate(-0 655.2 529.278183)">suffix runs; fallback=safe_0504.</text>
+   </g>
+   <g id="text_67">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1044" y="490.338625" transform="rotate(-0 1044 490.338625)">Common selected suffix</text>
+   </g>
+   <g id="text_68">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1044" y="511.858828" transform="rotate(-0 1044 511.858828)">NEH15 .005 -&gt; NEH20 .005 -&gt; NEH25 .010 -&gt; NEH30 .010 -&gt; PW.05</text>
+   </g>
+   <g id="text_69">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1044" y="520.568506" transform="rotate(-0 1044 520.568506)">r=.05 tl=.008 max8 -&gt; PW.08 r=.08 tl=.007 max6 -&gt; PW.10 r=.10</text>
+   </g>
+   <g id="text_70">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1044" y="529.278183" transform="rotate(-0 1044 529.278183)">tl=.006 max6.</text>
+   </g>
+   <g id="text_71">
+    <text style="font-weight: 700; font-size: 8.4px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="598.001062" transform="rotate(-0 76.32 598.001062)">standard_neh10_probe</text>
+   </g>
+   <g id="text_72">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="619.630875" transform="rotate(-0 76.32 619.630875)">Probe NEH10 .005 + 2nd .0025, LNS only. Baseline</text>
+   </g>
+   <g id="text_73">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="627.992165" transform="rotate(-0 76.32 627.992165)">NEH entry with minimal assumptions.</text>
+   </g>
+   <g id="text_74">
+    <text style="font-weight: 700; font-size: 8.4px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="620.64" y="598.001062" transform="rotate(-0 620.64 598.001062)">delayed_profile_neh10_probe</text>
+   </g>
+   <g id="text_75">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="620.64" y="619.630875" transform="rotate(-0 620.64 619.630875)">Probe NEH10 .006; delayed profile fixing from</text>
+   </g>
+   <g id="text_76">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="620.64" y="627.992165" transform="rotate(-0 620.64 627.992165)">batch 3, min portion .25, max batch 6. Keeps</text>
+   </g>
+   <g id="text_77">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="620.64" y="636.353456" transform="rotate(-0 620.64 636.353456)">early sequence flexible.</text>
+   </g>
+   <g id="text_78">
+    <text style="font-weight: 700; font-size: 8.4px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1164.96" y="598.001062" transform="rotate(-0 1164.96 598.001062)">retained_sequence_neh10_probe</text>
+   </g>
+   <g id="text_79">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1164.96" y="619.630875" transform="rotate(-0 1164.96 619.630875)">Probe NEH10 .006;</text>
+   </g>
+   <g id="text_80">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1164.96" y="627.992165" transform="rotate(-0 1164.96 627.992165)">job_seq_by_last_retained_cp=true,</text>
+   </g>
+   <g id="text_81">
+    <text style="font-size: 7.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1164.96" y="636.353456" transform="rotate(-0 1164.96 636.353456)">fallback=bottleneck. Tests retained CP ordering.</text>
+   </g>
+   <g id="text_82">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="725.778625" transform="rotate(-0 76.32 725.778625)">Final CP</text>
+   </g>
+   <g id="text_83">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="747.298828" transform="rotate(-0 76.32 747.298828)">Consume all remaining reserve; LNS=true. Final head/tail tightening is on in the discussed deep-3 final configs. Selection counts are not local here.</text>
+   </g>
+   <g id="text_84">
+    <text style="font-weight: 700; font-size: 16px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #2f7d5f" x="59.04" y="789.1525" transform="rotate(-0 59.04 789.1525)">Final-2: direct single lane on this computer</text>
+   </g>
+   <g id="text_85">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="835.938625" transform="rotate(-0 76.32 835.938625)">Shared prefix</text>
+   </g>
+   <g id="text_86">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="857.458828" transform="rotate(-0 76.32 857.458828)">D-core prefix, simplified: compact dispatch cap=.25</text>
+   </g>
+   <g id="text_87">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="866.168506" transform="rotate(-0 76.32 866.168506)">-&gt; tau=5 CP .12. No pool8 override.</text>
+   </g>
+   <g id="text_88">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="874.878183" transform="rotate(-0 76.32 874.878183)">surrogate_pw_cp_tighten_ranges=true. Retained CP-LB</text>
+   </g>
+   <g id="text_89">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="883.58786" transform="rotate(-0 76.32 883.58786)">q4 .08 -&gt; dispatch -&gt; bottleneck top-k .08 -&gt;</text>
+   </g>
+   <g id="text_90">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="76.32" y="892.297538" transform="rotate(-0 76.32 892.297538)">dispatch. Reserve .20/.25/.30.</text>
+   </g>
+   <g id="text_91">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="637.92" y="835.810687" transform="rotate(-0 637.92 835.810687)">direct_neh10_to_30_then_pw</text>
+   </g>
+   <g id="text_92">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #151515" x="1294.56" y="835.938625" transform="rotate(-0 1294.56 835.938625)">240/240</text>
+   </g>
+   <g id="text_93">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="637.92" y="857.458828" transform="rotate(-0 637.92 857.458828)">NEH: 10 .005 -&gt; 15 .005 -&gt; 20 .005 -&gt; 25 .010 -&gt; 30 .010; all</text>
+   </g>
+   <g id="text_94">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="637.92" y="866.168506" transform="rotate(-0 637.92 866.168506)">LNS=true, 2nd=.0025, head/tail tighten=true. PW: .05 tl=.008 max8 -&gt;</text>
+   </g>
+   <g id="text_95">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="637.92" y="874.878183" transform="rotate(-0 637.92 874.878183)">.08 tl=.007 max6 -&gt; .13 tl=.006 max6; tighten=true.</text>
+   </g>
+   <g id="text_96">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="835.938625" transform="rotate(-0 1355.04 835.938625)">Final CP</text>
+   </g>
+   <g id="text_97">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="857.458828" transform="rotate(-0 1355.04 857.458828)">Consume all remaining reserve;</text>
+   </g>
+   <g id="text_98">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="866.168506" transform="rotate(-0 1355.04 866.168506)">LNS=true; head/tail</text>
+   </g>
+   <g id="text_99">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="874.878183" transform="rotate(-0 1355.04 874.878183)">tighten=true.</text>
+   </g>
+   <g id="text_100">
+    <text style="font-weight: 700; font-size: 9.2px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="905.058625" transform="rotate(-0 1355.04 905.058625)">Main tradeoff</text>
+   </g>
+   <g id="text_101">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="926.578828" transform="rotate(-0 1355.04 926.578828)">Paper-friendly and deterministic;</text>
+   </g>
+   <g id="text_102">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="935.288506" transform="rotate(-0 1355.04 935.288506)">gives up portfolio diversity from</text>
+   </g>
+   <g id="text_103">
+    <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="1355.04" y="943.998183" transform="rotate(-0 1355.04 943.998183)">Candidate D.</text>
+   </g>
+  </g>
+  <g id="text_104">
+   <text style="font-weight: 700; font-size: 24px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #151515" x="59.04" y="54.59625" transform="rotate(-0 59.04 54.59625)">Lane Parameters: Candidate D vs Final-1 vs Final-2</text>
+  </g>
+  <g id="text_105">
+   <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #5a5752" x="59.04" y="73.498359" transform="rotate(-0 59.04 73.498359)">nc = instance time-limit multiplier. PW time is per operation. NEH second objective is 0.0025nc unless noted.</text>
+  </g>
+  <g id="text_106">
+   <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #5a5752" x="59.04" y="1038.6" transform="rotate(-0 59.04 1038.6)">Data note: Candidate D selected counts are from analysis_outputs/20260516_candidateD_full240. Final-1 is the 3-lane deep-suffix flow discussed on 2026-05-19. Final-2 is configs_mip_lb/20260519/...direct-neh10to30-pw013-headtail-nopool8-2nc.yaml.</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pe6e16fd1c7">
+   <rect x="7.2" y="7.2" width="1728" height="1080"/>
+  </clipPath>
+ </defs>
+</svg>

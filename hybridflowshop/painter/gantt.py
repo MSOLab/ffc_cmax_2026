@@ -377,8 +377,7 @@ class GanttPlotter:
             y = machine_to_y[(stage, machine)]
             color = job_to_color[job]
             is_highlight = (
-                highlight_op_set is not None
-                and (job, stage) in highlight_op_set
+                highlight_op_set is not None and (job, stage) in highlight_op_set
             )
 
             self.draw_operation_bar(

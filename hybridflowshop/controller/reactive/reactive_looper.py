@@ -22,6 +22,8 @@ class ReactiveLooper:
     """Parameter tuner for the reactive looper."""
     size_param_name_by_subroutine: dict[str, str | None]
     """Primary neighborhood-size parameter name for each subroutine."""
+    time_param_name_by_subroutine: dict[str, str]
+    """Primary time-budget parameter name for each subroutine."""
     stopping_criteria: LocalStoppingCriteria
     """(Local) Stopping criteria for the reactive looper."""
 
@@ -48,6 +50,7 @@ class ReactiveLooper:
 
         self.subroutine_names = []
         self.size_param_name_by_subroutine = {}
+        self.time_param_name_by_subroutine = {}
         opening_kwargs_list = []
         for subroutine_data in routine_data:
             if "method" not in subroutine_data:
@@ -68,11 +71,28 @@ class ReactiveLooper:
         ):
             tuner_param_dict = {}
             size_param_name = None
-            for candidate_key in ("job_count", "rho"):
+            for candidate_key in (
+                "job_count",
+                "rho",
+                "radius",
+                "bottleneck_band_radius",
+                "max_machine_candidates_per_op",
+                "unfixed_batch_count",
+            ):
                 if candidate_key in subroutine_opening_kwargs:
                     size_param_name = candidate_key
                     break
-            tuner_param_dict_keys = ["computational_time"]
+            time_param_name = None
+            for candidate_key in ("computational_time", "tl_nc_multiplier"):
+                if candidate_key in subroutine_opening_kwargs:
+                    time_param_name = candidate_key
+                    break
+            if time_param_name is None:
+                raise ValueError(
+                    f"Subroutine '{subroutine_name}' must expose either "
+                    "'computational_time' or 'tl_nc_multiplier' for run_reactive_loop."
+                )
+            tuner_param_dict_keys = [time_param_name]
             if size_param_name is not None:
                 tuner_param_dict_keys.append(size_param_name)
             for key in tuner_param_dict_keys:
@@ -82,6 +102,7 @@ class ReactiveLooper:
                     )
                 tuner_param_dict[key] = TunerParams(**reactive_param_tuner_dict[key])
             self.size_param_name_by_subroutine[subroutine_name] = size_param_name
+            self.time_param_name_by_subroutine[subroutine_name] = time_param_name
             self.reactive_param_tuner_dict[subroutine_name] = ReactiveParamTuner(
                 method=getattr(ctrlr, subroutine_name),
                 opening_kwargs=subroutine_opening_kwargs,
@@ -96,6 +117,64 @@ class ReactiveLooper:
 
     def _get_size_param_name(self, subroutine_name: str) -> str | None:
         return self.size_param_name_by_subroutine.get(subroutine_name)
+
+    def _get_time_param_name(self, subroutine_name: str) -> str:
+        if subroutine_name not in self.time_param_name_by_subroutine:
+            raise ValueError(f"Subroutine {subroutine_name} is not recognized.")
+        return self.time_param_name_by_subroutine[subroutine_name]
+
+    def _get_elapsed_sec(self) -> float:
+        timer = self.ctrlr.timer
+        if hasattr(timer, "elapsed_sec"):
+            return float(timer.elapsed_sec)
+        if hasattr(timer, "get_elapsed_sec"):
+            return float(timer.get_elapsed_sec())
+        raise AttributeError("Controller timer must expose 'elapsed_sec'.")
+
+    def _get_remaining_sec(self) -> float:
+        if hasattr(self.ctrlr, "get_remaining_sec"):
+            return float(self.ctrlr.get_remaining_sec())
+
+        timer = self.ctrlr.timer
+        global_timelimit = self.ctrlr.stopping_criteria.timelimit
+        if hasattr(timer, "get_remaining_sec"):
+            return float(timer.get_remaining_sec(global_timelimit))
+        raise AttributeError(
+            "Controller must expose 'get_remaining_sec()' or timer.get_remaining_sec(...)."
+        )
+
+    def _get_nc_scale(self) -> float:
+        instance = getattr(self.ctrlr, "instance", None)
+        if instance is None:
+            raise ValueError("Controller instance is required for tl_nc_multiplier.")
+        return float(instance.job_count) * float(instance.stage_count)
+
+    def _get_capped_time_param_value(
+        self,
+        *,
+        time_param_name: str,
+        global_timelimit_value_sec: float,
+    ) -> float:
+        if time_param_name == "computational_time":
+            return global_timelimit_value_sec
+        if time_param_name == "tl_nc_multiplier":
+            nc_scale = self._get_nc_scale()
+            if nc_scale <= 0:
+                raise ValueError("job_count * stage_count must be positive.")
+            return global_timelimit_value_sec / nc_scale
+        raise ValueError(f"Unsupported time parameter: {time_param_name}")
+
+    def _get_time_param_value_in_seconds(
+        self,
+        *,
+        time_param_name: str,
+        value: float,
+    ) -> float:
+        if time_param_name == "computational_time":
+            return value
+        if time_param_name == "tl_nc_multiplier":
+            return value * self._get_nc_scale()
+        raise ValueError(f"Unsupported time parameter: {time_param_name}")
 
     # @classmethod
     # def from_param_dict(
@@ -132,7 +211,7 @@ class ReactiveLooper:
         return self.stopping_criteria.is_loop_stopping_condition(
             self.loop_count,
             self.no_improvement_step_series_lth,
-            self.ctrlr.timer.get_remaining_sec(global_timelimit),
+            self._get_remaining_sec(),
             self.ctrlr.obj_store.get_last_gap(),
             global_timelimit,
             log_reason_if_true=log_reason_if_true,
@@ -142,27 +221,34 @@ class ReactiveLooper:
         if subroutine_name not in self.reactive_param_tuner_dict:
             raise ValueError(f"Subroutine {subroutine_name} is not recognized.")
         tuner = self.reactive_param_tuner_dict[subroutine_name]
+        time_param_name = self._get_time_param_name(subroutine_name)
 
         # capture snapshot of parameters and objective before call
         kwargs_snapshot = tuner.current_kwargs.copy()
         prev_obj = self.obj_value_before_step
-        time_start = self.ctrlr.timer.get_elapsed_sec()
+        time_start = self._get_elapsed_sec()
 
         # timelimit by global - offset
-        global_remaining = self.ctrlr.timer.get_remaining_sec(
-            self.ctrlr.stopping_criteria.timelimit
-        )
+        global_remaining = self._get_remaining_sec()
         timelimit_by_global = self.stopping_criteria.get_subroutine_timelimit(
             global_remaining, global_timelimit=self.ctrlr.stopping_criteria.timelimit
         )
-        if timelimit_by_global <= kwargs_snapshot.get(
-            "computational_time", float("inf")
+        capped_time_param_value = self._get_capped_time_param_value(
+            time_param_name=time_param_name,
+            global_timelimit_value_sec=timelimit_by_global,
+        )
+        if capped_time_param_value <= kwargs_snapshot.get(
+            time_param_name,
+            float("inf"),
         ):
-            kwargs_snapshot["computational_time"] = timelimit_by_global
+            kwargs_snapshot[time_param_name] = capped_time_param_value
         logging.info(
             f"Calling subroutine {subroutine_name} with kwargs {kwargs_snapshot}."
         )
-        tuner.call_method(timelimit_by_global)
+        tuner.call_method(
+            capped_time_param_name=time_param_name,
+            capped_time_param_value=capped_time_param_value,
+        )
 
         report = self.ctrlr.solution_manager.get_last_report()
         if isinstance(report, HfsCpsatSolverReport):
@@ -172,7 +258,11 @@ class ReactiveLooper:
                 if report.obj_value is not None
                 else self.ctrlr.solution_manager.best_obj_value
             )
-            if tuner.current_kwargs["computational_time"] - report.elapsed_time <= 1e-6:
+            time_param_value_sec = self._get_time_param_value_in_seconds(
+                time_param_name=time_param_name,
+                value=float(tuner.current_kwargs[time_param_name]),
+            )
+            if time_param_value_sec - report.elapsed_time <= 1e-6:
                 timelimit_reached = True
             else:
                 timelimit_reached = False
@@ -189,7 +279,7 @@ class ReactiveLooper:
             elapsed = (
                 report.elapsed_time
                 if hasattr(report, "elapsed_time") and report.elapsed_time is not None
-                else (self.ctrlr.timer.get_elapsed_sec() - time_start)
+                else (self._get_elapsed_sec() - time_start)
             )
 
             # create and store report entry
@@ -242,6 +332,7 @@ class ReactiveLooper:
     ) -> None:
         tuner = self.reactive_param_tuner_dict[subroutine_name]
         size_param_name = self._get_size_param_name(subroutine_name)
+        time_param_name = self._get_time_param_name(subroutine_name)
 
         if report_by_last_subroutine.status == CpsatStatus.OPTIMAL:
             if report_by_last_subroutine.obj_value is None:
@@ -274,10 +365,10 @@ class ReactiveLooper:
                 else:
                     logging.info("Last solution was timeout & not improved.")
                     self.no_improvement_step_series_lth += 1
-                    if not tuner.current_value_hits_ub("computational_time"):
+                    if not tuner.current_value_hits_ub(time_param_name):
                         # If not improved but not enough time, increase time limit
                         # If tl_hits_ub in stopping condition, run method will exclude the subroutine
-                        tuner.increment("computational_time")
+                        tuner.increment(time_param_name)
                     elif size_param_name is not None:
                         # If not improved despite maximum time, increase neighborhood size
                         tuner.increment(size_param_name)
@@ -285,10 +376,10 @@ class ReactiveLooper:
             else:
                 logging.info("Last solution was timeout & not improved.")
                 self.no_improvement_step_series_lth += 1
-                if not tuner.current_value_hits_ub("computational_time"):
+                if not tuner.current_value_hits_ub(time_param_name):
                     # If no solution but not enough time, increase time limit
                     # If tl_hits_ub in stopping condition, run method will exclude the subroutine
-                    tuner.increment("computational_time")
+                    tuner.increment(time_param_name)
                 elif size_param_name is not None:
                     # If not improved despite maximum time, increase neighborhood size
                     tuner.increment(size_param_name)
@@ -311,6 +402,7 @@ class ReactiveLooper:
 
             tuner = self.reactive_param_tuner_dict[subroutine_name]
             size_param_name = self._get_size_param_name(subroutine_name)
+            time_param_name = self._get_time_param_name(subroutine_name)
             if (
                 size_param_name is not None
                 and self.stopping_criteria.rho_hits_ub
@@ -325,13 +417,13 @@ class ReactiveLooper:
                 )
                 excluded_subroutines.add(subroutine_name)
             if self.stopping_criteria.tl_hits_ub and tuner.current_value_hits_ub(
-                "computational_time"
+                time_param_name
             ):
-                tl = tuner.get_current_value("computational_time")
-                tl_ub = tuner._tuner_param_dict["computational_time"].max
+                tl = tuner.get_current_value(time_param_name)
+                tl_ub = tuner._tuner_param_dict[time_param_name].max
                 logging.info(
                     f"Subroutine '{subroutine_name}' is excluded in the next loop: "
-                    f"tl_hits_ub (value={tl} >= {tl_ub}=criteria)"
+                    f"{time_param_name}_hits_ub (value={tl} >= {tl_ub}=criteria)"
                 )
                 excluded_subroutines.add(subroutine_name)
 

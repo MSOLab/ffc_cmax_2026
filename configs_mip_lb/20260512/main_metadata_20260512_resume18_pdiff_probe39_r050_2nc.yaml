@@ -1,0 +1,30 @@
+pra_common_params_rel_path: "resources/ff2020_common_params.yaml"
+baseline_csv_path: "resources/ff2020big_ref/fan2023.csv"
+input_dir: "resources/ff2020big"
+benchmark_idx_list:
+  - 39
+benchmark_filename_format: "{}.txt"
+
+dicts_of_i_o_data_path:
+  - stopping_criteria_rel_path: "configs_mip_lb/20260512/stopping_criteria_resume_pdiff_probe.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260512/subroutine_flow_20260512-resume18-full-stage-pdiff-r050-tl010-2nc.yaml"
+    output_dir: "ff2020/20260512-resume18-full-stage-pdiff-r050-tl010-probe39-2nc"
+    description: "Resume from PW-CP checkpoint 18; full-schedule stage precedence CP p-diff ratio 0.50 with 0.10nc."
+  - stopping_criteria_rel_path: "configs_mip_lb/20260512/stopping_criteria_resume_pdiff_probe.yaml"
+    subroutine_flow_rel_path: "configs_mip_lb/20260512/subroutine_flow_20260512-resume18-relaxed-pwcp-r050-2nc.yaml"
+    output_dir: "ff2020/20260512-resume18-relaxed-pwcp-r050-probe39-2nc"
+    description: "Resume from PW-CP checkpoint 18; repeat PW-CP with relaxed stage precedence p-diff ratio 0.50."
+
+output_dir_scenarios: "Outputs_scenarios"
+scenario_log_filename: "hfs_multi_scenario_runner.log"
+result_dir_name: "results"
+instance_worker_cnt: 1
+
+draw_gantt: false
+painter_thread_cnt: 8
+result_gantt_filename_format: "{}_result_gantt.png"
+draw_progress_plot: false
+progress_plot_filename_format: "{}_progress_plot.png"
+drop_first_values_percent: 0.0
+
+resume_dir_path: "Outputs_scenarios/20260512T163823_268797/ff2020/20260512-delayonly/checkpoints/18-incremental_pw_cp"

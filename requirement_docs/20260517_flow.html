@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hybrid Flow Shop CP-LNS 최적화 Workflow (2026-05-17)</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --border: #e4e2da;
+    --border-soft: #efede5;
+    --text: #1a1a1a;
+    --muted: #5e5e58;
+    --faint: #8a8a82;
+    --accent: #2454b8;
+    --accent-soft: #e6edfa;
+    --code-bg: #f3f2ec;
+    --code-text: #2c2c28;
+    --ok: #1e7a3a;
+    --ok-bg: #e3f2e9;
+    --warn: #a55a07;
+    --warn-bg: #fbeed5;
+    --danger: #b3261e;
+    --danger-bg: #fbe2e0;
+    --info: #1f5a8a;
+    --info-bg: #e3eff8;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.03);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, sans-serif;
+    font-size: 15px; line-height: 1.62; -webkit-font-smoothing: antialiased;
+  }
+  code, pre, .mono { font-family: ui-monospace, monospace; }
+  code { font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: var(--code-text); }
+  pre { background: #1f2024; color: #e6e6e0; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; margin: 12px 0; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: static !important; height: auto !important; border-right: 0; border-bottom: 1px solid var(--border); }
+  }
+
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 18px 28px 28px; border-right: 1px solid var(--border-soft);
+    background: var(--bg); font-size: 13px;
+  }
+  .toc .title { font-weight: 600; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+  .toc .crumb { color: var(--faint); font-size: 11px; margin-bottom: 14px; }
+  .toc .label { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: .08em; text-transform: uppercase; margin: 16px 0 6px; }
+  .toc a { display: block; padding: 3px 0; color: var(--muted); border-left: 2px solid transparent; padding-left: 10px; margin-left: -10px; }
+  .toc a:hover { color: var(--text); text-decoration: none; border-left-color: var(--border); }
+  .toc a.sub { padding-left: 22px; font-size: 12px; }
+
+  main { padding: 36px 48px 80px; max-width: 920px; }
+  @media (max-width: 900px) { main { padding: 24px 20px 60px; } }
+
+  h1 { font-size: 27px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 19px; margin: 44px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); letter-spacing: -.005em; }
+  h3 { font-size: 15.5px; margin: 30px 0 10px; }
+  h4 { font-size: 13.5px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+  .meta { color: var(--faint); font-size: 12.5px; margin-bottom: 24px; }
+
+  .tldr {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 18px 0 28px;
+  }
+  .tldr h4 { margin: 0 0 6px; color: var(--info); text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .tldr ul { margin: 4px 0 0; padding-left: 20px; }
+  .tldr li { margin: 3px 0; font-size: 14px; }
+
+  .invariants {
+    background: #f4faee; border: 1px solid #c2d5b5; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .invariants h4 { color: var(--ok); margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+
+  .badge {
+    display: inline-block; font-size: 10.5px; font-weight: 600;
+    padding: 2px 7px; border-radius: 10px; vertical-align: middle;
+    text-transform: uppercase; letter-spacing: .04em; line-height: 1.5;
+  }
+  .badge.ok     { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn   { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger { background: var(--danger-bg); color: var(--danger); }
+  .badge.info   { background: var(--info-bg);   color: var(--info); }
+  .badge.muted  { background: #e8e7e0;          color: #5a5a55; }
+
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  th { background: #f3f2ec; font-weight: 600; font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: #fbfaf3; }
+  td code { white-space: nowrap; }
+
+  .step {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px 20px 16px; margin: 16px 0; box-shadow: var(--shadow);
+  }
+  .step.key-step { border-left: 4px solid var(--accent); }
+  .step .step-no {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff;
+    font-size: 13px; font-weight: 700; font-family: system-ui; margin-right: 8px;
+  }
+  .step h3 { display: flex; align-items: center; }
+  .step h3 code { font-size: 14px; }
+  .role { font-size: 13.5px; margin: 8px 0; }
+  .role b { color: var(--accent); }
+
+  .decisions { display: grid; gap: 10px; margin: 14px 0; }
+  .decision {
+    display: grid; grid-template-columns: 210px 1fr; gap: 14px;
+    padding: 10px 14px; border-left: 3px solid var(--accent); background: #f6f8fc; border-radius: 0 6px 6px 0;
+  }
+  .decision .key { font-weight: 600; color: var(--accent); font-size: 13px; }
+  .decision .val { font-size: 13.5px; }
+  @media (max-width: 720px) { .decision { grid-template-columns: 1fr; gap: 4px; } }
+
+  .pipeline {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0; font-size: 13.5px;
+  }
+  .pipeline h4 { color: var(--info); margin: 0 0 8px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .pipeline .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; font-family: ui-monospace, monospace; font-size: 12px; }
+  .pipeline .step-chip { background: #fff; padding: 4px 9px; border-radius: 4px; border: 1px solid #c9def0; }
+  .pipeline .arrow { color: var(--info); font-weight: 600; }
+
+  .partition-fig, .modmap {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; margin: 14px 0; box-shadow: var(--shadow);
+  }
+  .partition-fig figcaption, .modmap figcaption {
+    font-size: 12px; color: var(--muted); margin-top: 10px; text-align: center;
+  }
+
+  .lanes { display: grid; gap: 10px; margin: 14px 0; }
+  .lane {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    padding: 10px 14px; box-shadow: var(--shadow); border-left: 4px solid var(--accent);
+  }
+  .lane.fallback { border-left-color: var(--faint); background: #f4f3ed; }
+  .lane h4 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); }
+  .lane h4 .ln { color: var(--accent); }
+  .lane.fallback h4 .ln { color: var(--faint); }
+  .lane .ld { font-size: 12.5px; color: var(--muted); margin: 2px 0; }
+  .lane .ld b { color: var(--text); }
+  .lane code { font-size: 11.5px; }
+
+  details { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 6px; padding: 8px 14px; margin: 10px 0; }
+  details[open] { background: #fbfaf3; }
+  summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); user-select: none; }
+  summary:hover { color: var(--text); }
+  details pre, details p { margin-top: 10px; }
+
+  ul.plain { list-style: none; padding-left: 0; }
+  ul.plain li { padding: 4px 0; border-bottom: 1px dashed var(--border-soft); font-size: 12px; }
+  ul.plain li:last-child { border-bottom: 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="title">CP-LNS Workflow</div>
+  <div class="crumb">requirement_docs/20260517_flow.md</div>
+
+  <div class="label">Sections</div>
+  <a href="#tldr">TL;DR</a>
+  <a href="#overview">Workflow 개요</a>
+  <a href="#steps">단계별 상세 설명</a>
+  <a href="#steps" class="sub">1–3 · 셋업</a>
+  <a href="#step4" class="sub">4 · Dispatch portfolio</a>
+  <a href="#step5" class="sub">5 · Tau Coarsened CP</a>
+  <a href="#step6" class="sub">6 · Critical Repair LS</a>
+  <a href="#step7" class="sub">7–8 · Retained CP #1</a>
+  <a href="#step9" class="sub">9–10 · Retained CP #2</a>
+  <a href="#step11" class="sub">11 · Final Time Reserve</a>
+  <a href="#step12" class="sub">12 · Suffix Probe Portfolio</a>
+  <a href="#step13" class="sub">13 · Final CP-SAT</a>
+  <a href="#timeline">시간 배분 구조</a>
+  <a href="#dataflow">데이터 흐름</a>
+  <a href="#rationale">주요 설계 결정</a>
+
+  <div class="label">Glossary</div>
+  <ul class="plain">
+    <li><b>CP-SAT</b> — OR-Tools 제약 프로그래밍 SAT 솔버</li>
+    <li><b>LNS</b> — Large Neighborhood Search</li>
+    <li><b>LS</b> — Local Search (국소 탐색)</li>
+    <li><b>NEH</b> — Nawaz–Enscore–Ham 순서 휴리스틱</li>
+    <li><b>SW-CP</b> — Sliding-Window CP 구성자</li>
+    <li><b>SHDLB</b> — Static Holding Dispatch Lower Bound</li>
+    <li><b>LB / UB</b> — 하한 / 상한(incumbent)</li>
+    <li><b>τ (tau)</b> — Tau Coarsening 축소 계수</li>
+    <li><b>makespan</b> — 전체 작업 완료 시간</li>
+    <li><b>J × S</b> — 작업 수 × 스테이지 수 (시간 제한 스케일)</li>
+    <li><b>HFS</b> — Hybrid Flow Shop</li>
+  </ul>
+</nav>
+
+<main>
+
+<h1>Hybrid Flow Shop CP-LNS 최적화 Workflow</h1>
+<div class="meta">
+  <span>requirement_docs/20260517_flow.md</span> · <span>2026-05-17</span>
+</div>
+
+<p>이 문서는 <code>configs_mip_lb/20260515/main_metadata_20260516_candidateD_leaninit_taufirst_oraclepush_50pilot_2nc.yaml</code>에 정의된 13단계 최적화 파이프라인의 전체 구조, 각 단계의 역할, 데이터 흐름, 시간 배분 전략을 설명한다.</p>
+
+<section id="tldr" class="tldr">
+  <h4>At a glance</h4>
+  <ul>
+    <li><b>13단계 파이프라인</b>: 셋업(1–3) → 초기해 생성(4–6) → 2단계 Retained Stage CP+Dispatch(7–10) → 시간 예산 설정(11) → Suffix Probe(12) → 최종 CP-SAT(13).</li>
+    <li><b>가장 핵심·복잡한 단계</b>는 두 곳: <a href="#step5">[5] Tau Coarsened CP</a>(대량 후보해 생성, 가장 많은 시간 소비)와 <a href="#step12">[12] Suffix Probe Portfolio</a>(5개 lane 경쟁적 프로브).</li>
+    <li>대부분의 시간 제한은 <code>multiplier × J × S</code> 형태로 문제 규모에 비례한다.</li>
+    <li>Workload(large / high-stage / default)에 따라 CP 모델링 범위와 시간 배율을 <b>적응형</b>으로 차등 적용한다.</li>
+    <li>최종 단계는 <code>consume_all_remaining=true</code>로 잔여 시간을 전량 소비하며 LNS-only로 전역 최적화한다.</li>
+  </ul>
+</section>
+
+<h2 id="overview">Workflow 개요</h2>
+
+<figure class="modmap">
+  <svg viewBox="0 0 760 540" width="100%" style="max-width: 740px; display:block; margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#7a7a72"/>
+      </marker>
+    </defs>
+
+    <!-- Phase: Setup 1-3 -->
+    <rect x="200" y="14" width="360" height="48" fill="#f4f3ed" stroke="#cfcdc4" rx="6"/>
+    <text x="380" y="34" font-size="12" font-weight="700" text-anchor="middle" fill="#5e5e58" font-family="system-ui">셋업 [1–3]</text>
+    <text x="380" y="51" font-size="11" text-anchor="middle" fill="#5e5e58" font-family="ui-monospace,monospace">checkpointing · random seed · apply_shdlb</text>
+
+    <!-- 4 -->
+    <rect x="200" y="86" width="360" height="46" fill="#e6edfa" stroke="#2454b8" rx="6"/>
+    <text x="380" y="105" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1f5a8a" font-family="ui-monospace,monospace">[4] initialize_by_dispatch_portfolio</text>
+    <text x="380" y="122" font-size="10.5" text-anchor="middle" fill="#1f5a8a" font-family="system-ui">Dispatch 휴리스틱 포트폴리오 → 초기 실행 가능해</text>
+
+    <!-- 5 -->
+    <rect x="200" y="156" width="360" height="46" fill="#fbeed5" stroke="#a55a07" rx="6"/>
+    <text x="380" y="175" font-size="11.5" font-weight="700" text-anchor="middle" fill="#a55a07" font-family="ui-monospace,monospace">[5] initialize_by_tau_coarsened_cp</text>
+    <text x="380" y="192" font-size="10.5" text-anchor="middle" fill="#a55a07" font-family="system-ui">Tau Coarsening 기반 대량 후보해 생성 파이프라인</text>
+
+    <!-- 6 -->
+    <rect x="200" y="226" width="360" height="46" fill="#e6edfa" stroke="#2454b8" rx="6"/>
+    <text x="380" y="245" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1f5a8a" font-family="ui-monospace,monospace">[6] critical_schedule_repair_ls</text>
+    <text x="380" y="262" font-size="10.5" text-anchor="middle" fill="#1f5a8a" font-family="system-ui">국소 탐색(Local Search)으로 스케줄 정련</text>
+
+    <!-- 7-8 -->
+    <rect x="200" y="296" width="360" height="46" fill="#e3f2e9" stroke="#1e7a3a" rx="6"/>
+    <text x="380" y="315" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1e7a3a" font-family="ui-monospace,monospace">[7] apply_retained_stage_cp_lb → [8] dispatch_from_retained_cp</text>
+    <text x="380" y="332" font-size="10.5" text-anchor="middle" fill="#1e7a3a" font-family="system-ui">Retained Stage CP + Dispatch (1차)</text>
+
+    <!-- 9-10 -->
+    <rect x="200" y="366" width="360" height="46" fill="#e3f2e9" stroke="#1e7a3a" rx="6"/>
+    <text x="380" y="383" font-size="10.5" font-weight="700" text-anchor="middle" fill="#1e7a3a" font-family="ui-monospace,monospace">[9] apply_workload_adaptive_retained_stage_cp_lb → [10] dispatch_from_retained_cp</text>
+    <text x="380" y="401" font-size="10.5" text-anchor="middle" fill="#1e7a3a" font-family="system-ui">Retained Stage CP + Dispatch (2차, workload 적응형)</text>
+
+    <!-- 11 -->
+    <rect x="200" y="436" width="360" height="40" fill="#f4f3ed" stroke="#cfcdc4" rx="6"/>
+    <text x="380" y="455" font-size="11" font-weight="700" text-anchor="middle" fill="#5e5e58" font-family="ui-monospace,monospace">[11] set_stage_workload_adaptive_final_time_reserve</text>
+    <text x="380" y="470" font-size="10" text-anchor="middle" fill="#5e5e58" font-family="system-ui">잔여 시간 배분 설정</text>
+
+    <!-- 12 -->
+    <rect x="200" y="490" width="173" height="40" fill="#fbeed5" stroke="#a55a07" rx="6"/>
+    <text x="286" y="508" font-size="11" font-weight="700" text-anchor="middle" fill="#a55a07" font-family="ui-monospace,monospace">[12] suffix_probe</text>
+    <text x="286" y="523" font-size="10" text-anchor="middle" fill="#a55a07" font-family="system-ui">다중 Lane Portfolio</text>
+
+    <!-- 13 -->
+    <rect x="387" y="490" width="173" height="40" fill="#e6edfa" stroke="#2454b8" rx="6"/>
+    <text x="473" y="508" font-size="11" font-weight="700" text-anchor="middle" fill="#1f5a8a" font-family="ui-monospace,monospace">[13] solve_base_cp</text>
+    <text x="473" y="523" font-size="10" text-anchor="middle" fill="#1f5a8a" font-family="system-ui">최종 CP-SAT 전역 최적화</text>
+
+    <!-- arrows -->
+    <line x1="380" y1="62"  x2="380" y2="84"  stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="380" y1="132" x2="380" y2="154" stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="380" y1="202" x2="380" y2="224" stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="380" y1="272" x2="380" y2="294" stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="380" y1="342" x2="380" y2="364" stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="380" y1="412" x2="380" y2="434" stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="380" y1="476" x2="380" y2="488" stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="373" y1="510" x2="385" y2="510" stroke="#7a7a72" stroke-width="1.4" marker-end="url(#arrow)"/>
+  </svg>
+  <figcaption>13단계 파이프라인의 실행 순서. 회색=셋업/설정, 파랑=Dispatch·LS·CP, 주황=대량 탐색 단계, 초록=Retained Stage CP+Dispatch 쌍.</figcaption>
+</figure>
+
+<details>
+  <summary>원본 ASCII 다이어그램 (source .md)</summary>
+<pre><code>[1] set_step_checkpointing
+[2] set_random_seed
+[3] apply_shdlb
+         │
+         ▼
+[4] initialize_by_dispatch_portfolio
+    └─ Dispatch 휴리스틱 포트폴리오 → 초기 실행 가능해
+         │
+         ▼
+[5] initialize_by_tau_coarsened_cp
+    └─ Tau Coarsening 기반 대량 후보해 생성 파이프라인
+         │
+         ▼
+[6] critical_schedule_repair_ls
+    └─ 국소 탐색(Local Search)으로 스케줄 정련
+         │
+         ▼
+[7] apply_retained_stage_cp_lb → [8] dispatch_from_retained_cp
+    └─ Retained Stage CP + Dispatch (1차)
+         │
+         ▼
+[9] apply_workload_adaptive_retained_stage_cp_lb → [10] dispatch_from_retained_cp
+    └─ Retained Stage CP + Dispatch (2차, workload 적응형)
+         │
+         ▼
+[11] set_stage_workload_adaptive_final_time_reserve
+    └─ 잔여 시간 배분 설정
+         │
+         ▼
+[12] suffix_probe_portfolio
+    └─ 다중 Lane Portfolio (선택적 NEH/SW-CP 탐색)
+         │
+         ▼
+[13] solve_base_cp_model_from_final_time_reserve
+    └─ 최종 CP-SAT 전역 최적화 (잔여 시간 전량 소비)</code></pre>
+</details>
+
+<h2 id="steps">단계별 상세 설명</h2>
+
+<!-- Step 1 -->
+<div class="step">
+  <h3><span class="step-no">1</span><code>set_step_checkpointing</code></h3>
+  <p class="role"><b>역할</b>: Step checkpointing 활성화. 각 subroutine 종료 시 현재 상태(해, 타이머, 컨텍스트)를 자동 저장하여, 비정상 종료 시 해당 checkpoint부터 재개(resume)할 수 있도록 한다.</p>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>enabled</code></td><td><code>true</code></td><td>Checkpoint 저장 활성화</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 2 -->
+<div class="step">
+  <h3><span class="step-no">2</span><code>set_random_seed</code></h3>
+  <p class="role"><b>역할</b>: 난수 시드 42 고정. CP-SAT 솔버, dispatch 휴리스틱의 난수성(랜덤 타이브레이크, LNS 다양화 등)을 결정론적으로 만들어 재현 가능한 실행을 보장한다.</p>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th></tr></thead>
+    <tbody>
+      <tr><td><code>seed</code></td><td><code>42</code></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 3 -->
+<div class="step">
+  <h3><span class="step-no">3</span><code>apply_shdlb</code></h3>
+  <p class="role"><b>역할</b>: SHDL Bound(Static Holding Dispatch Lower Bound) 적용. 각 스테이지의 기계 수와 가공 시간을 기반으로 makespan의 하한(lower bound)을 계산하여 solution_manager에 등록한다. 이후 CP 모델의 primal bound 판단, LNS acceptance 기준 등에 활용된다.</p>
+</div>
+
+<!-- Step 4 -->
+<div class="step key-step" id="step4">
+  <h3><span class="step-no">4</span><code>initialize_by_dispatch_portfolio</code></h3>
+  <p class="role"><b>역할</b>: 다양한 dispatch 휴리스틱을 포트폴리오로 실행하여 초기 실행 가능해(initial feasible solution)를 생성한다.</p>
+  <h4>동작 방식</h4>
+  <ul>
+    <li><code>compact</code> 포트폴리오에 정의된 dispatch 방법들을 실행</li>
+    <li>각 결과 후보 중 <code>best</code> 전략으로 최선 makespan 선택</li>
+    <li><code>include_stage_agg=true</code>면 stage-aggregated dispatch variant도 포함</li>
+  </ul>
+  <h4>핵심 파라미터</h4>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>portfolio</code></td><td><code>compact</code></td><td>사용할 dispatch 포트폴리오</td></tr>
+      <tr><td><code>include_stage_agg</code></td><td><code>true</code></td><td>Stage-aggregated dispatch 포함</td></tr>
+      <tr><td><code>cap_portions</code></td><td><code>[0.25]</code></td><td>용량 제한 비율</td></tr>
+      <tr><td><code>selection_strategy</code></td><td><code>best</code></td><td>최선 makespan 선택</td></tr>
+      <tr><td><code>error_if_infeasible</code></td><td><code>false</code></td><td>실행 불가능해 허용 (Skip)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 5 -->
+<div class="step key-step" id="step5">
+  <h3><span class="step-no">5</span><code>initialize_by_tau_coarsened_cp</code> <span class="badge warn">핵심 단계</span></h3>
+  <p class="role"><b>역할</b>: Tau Coarsening 기법으로 문제를 축소한 후, 다양한 경로(Dispatch → NEH → SW-CP → CP-SAT)를 통해 대량의 후보해를 생성하고 원래 문제로 복원(restore)하여 최선의 초기해를 선택한다. 이 workflow에서 <b>가장 복잡하고 핵심적인 초기해 생성 단계</b>이다.</p>
+
+  <h4>세부 파이프라인 (단일 τ=5 기준)</h4>
+  <details open>
+    <summary>τ=5 sub-pipeline (Dispatch → NEH-CP → SW-CP Chain → Surrogate CP → Restore)</summary>
+<pre><code>τ=5 인스턴스 생성 (가공 시간 축소)
+  │
+  ├── 1. Dispatch (축소 문제)
+  │     ├── bn2d_all_stages × cap_portions[0.2,0.25,0.3]
+  │     ├── best_of_mixed_dispatches × cap_portions[0.2,0.25,0.3]
+  │     └── machine_then_job variants (mtj/jtm 모두)
+  │     → 최대 12개 후보 (top_k=20, 중복 제거)
+  │
+  ├── 2. NEH-CP (축소 문제, best dispatch 기준)
+  │     ├── batch_size=15, sequential 실행
+  │     └── CP 시간: 0.0015 × J × S sec/batch
+  │
+  ├── 3. SW-CP Chain (축소 문제, NEH 결과 기준)
+  │     ├── batch_size_ratio=0.05
+  │     ├── unfixed_batch_count=2→3→4→5→6 (step=1)
+  │     └── CP 시간: 0.0015 × J × S sec/batch
+  │
+  ├── 4. Surrogate CP Solve (축소 문제)
+  │     ├── Reference: SW-CP chain 최선 결과
+  │     ├── TL: 0.12 × J × S sec
+  │     └── Snapshots: 최대 20개
+  │
+  └── 5. Restore (원래 문제)
+        ├── 각 후보 × stage_sequence 복원
+        └── 각 후보 × machine_sequence 복원
+        → ~78개 후보 중 최선 makespan 선택</code></pre>
+  </details>
+
+  <p class="role">폴리시(Polish)는 비활성 (<code>polish_tl_nc_multiplier=null</code>).</p>
+
+  <div class="invariants">
+    <h4>특이사항</h4>
+    <ul>
+      <li>Surrogate NEH-CP만 LNS-only로 실행 (<code>surrogate_neh_use_lns_only=true</code>). Surrogate CP solve와 SW-CP는 LNS-only가 아님 (<code>surrogate_use_lns_only=false</code>, <code>surrogate_sw_cp_use_lns_only=false</code>)</li>
+      <li>모든 후보해에 <code>make_semi_active()</code> 적용</li>
+      <li>CP-SAT에 <code>diversify_lns_params</code>, <code>solution_pool_size=8</code> 설정</li>
+      <li><code>cp_model_probing_level=1</code> — CP-SAT 기본값은 <code>2</code>이므로, 이 설정은 probing 강도를 한 단계 <b>낮춘</b> 비-기본값이다 (0=완전 비활성, 2=기본)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Step 6 -->
+<div class="step" id="step6">
+  <h3><span class="step-no">6</span><code>critical_schedule_repair_ls</code></h3>
+  <p class="role"><b>역할</b>: <b>Critical Schedule Repair Local Search</b>. 현재 최선해의 critical path를 분석하여 작업 이동, 기계 변경, 인접 교환 등을 통해 makespan을 개선하는 국소 탐색이다.</p>
+  <h4>동작 방식</h4>
+  <details open>
+    <summary>LS round 구조 (Stage Insertion → Machine Insertion → Adjacent Swap)</summary>
+<pre><code>for round = 1 to max_rounds(=2):
+  │
+  ├── Stage Insertion (2 passes, max shift=4)
+  │   └─ 스테이지 내 작업 순서상 위치를 재배치 (최대 ±4칸 이동)
+  │
+  ├── Machine Insertion (2 passes, max 3 candidates/op)
+  │   └─ 작업(operation)을 같은 스테이지의 다른 기계로 재할당
+  │
+  └── Adjacent Swap (2 passes, max 100 pairs)
+      └─ 인접 작업 쌍 교환</code></pre>
+  </details>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>max_rounds</code></td><td><code>2</code></td><td>전체 LS 라운드 수</td></tr>
+      <tr><td><code>tl_nc_multiplier</code></td><td><code>0.006</code></td><td>LS 시간 제한 = multiplier × J × S</td></tr>
+      <tr><td><code>target_stage_mode</code></td><td><code>all</code></td><td>모든 스테이지 대상</td></tr>
+      <tr><td><code>stage_insertion_passes</code></td><td><code>2</code></td><td>Stage insertion 반복 횟수</td></tr>
+      <tr><td><code>machine_insertion_passes</code></td><td><code>2</code></td><td>Machine insertion 반복 횟수</td></tr>
+      <tr><td><code>adjacent_swap_passes</code></td><td><code>2</code></td><td>Adjacent swap 반복 횟수</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 7 -->
+<div class="step key-step" id="step7">
+  <h3><span class="step-no">7</span><code>apply_retained_stage_cp_lb</code></h3>
+  <p class="role"><b>역할</b>: <b>Retained Stage CP Lower Bound</b>. 전체 스테이지 중 일부(retained stage)만 CP-SAT로 정확히 모델링하고 나머지 스테이지는 head/tail·compressed lag로 완화(relaxation)하여, makespan의 유효한 하한(lower bound)을 계산한다. <code>first_n_quantiles_last</code> 모드는 <b>스테이지 인덱스 순서</b>를 분위로 잘라 retained stage를 선택한다(작업 부하 기준이 아님).</p>
+  <h4>동작 방식</h4>
+  <details open>
+    <summary>Retained Stage CP LB 절차</summary>
+<pre><code>1. retained stage 선택 (first_n_quantiles_last, quantile_count=4)
+   → 첫 스테이지 + 인덱스 25/50/75% 절단점 스테이지 + 마지막 스테이지
+2. retained stage만 CP-SAT로 정확히 모델링
+   (interval 변수, 스테이지별 cumulative 용량, 인접 retained stage 간 precedence)
+   비-retained 스테이지는 head/tail·compressed lag로 완화
+   변수 도메인 상한은 incumbent makespan(input_ub) 사용
+3. makespan 최소화 → 유효한 하한(lower bound) 산출
+4. 탐색 중 발견한 retained-stage 부분해를 snapshot으로 저장 (최대 96개)</code></pre>
+  </details>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>retained_stage_mode</code></td><td><code>first_n_quantiles_last</code></td><td>인덱스 분위 절단점 스테이지를 retained로 선택</td></tr>
+      <tr><td><code>quantile_count</code></td><td><code>4</code></td><td>분위 수 (절단 비율 25/50/75%)</td></tr>
+      <tr><td><code>threads</code></td><td><code>16</code></td><td>CP-SAT 스레드</td></tr>
+      <tr><td><code>tl_nc_multiplier</code></td><td><code>0.08</code></td><td>CP 시간 = 0.08 × J × S</td></tr>
+      <tr><td><code>snapshot_solution_limit</code></td><td><code>96</code></td><td>중간 해 스냅샷 제한</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 8 -->
+<div class="step" id="step8">
+  <h3><span class="step-no">8</span><code>dispatch_from_retained_cp</code></h3>
+  <p class="role"><b>역할</b>: Retained Stage CP에서 생성된 스냅샷 포트폴리오를 dispatch 휴리스틱과 결합하여 완전한 실행 가능해를 재구성한다. CP의 부분해를 dispatch로 완성(mixed scheduling)하고, 다양한 순위 기반 변형(consensus, bottleneck, extended rank, dynamic priority)을 시도한다.</p>
+  <h4>동작 방식</h4>
+  <details open>
+    <summary>dispatch_from_retained_cp 절차</summary>
+<pre><code>1. Retained CP 스냅샷에서 상위 4개(top_k=4) 선택
+2. 각 스냅샷에 대해:
+   ├── Mixed schedule (이전 스테이지 + 이후 스테이지)
+   ├── Consensus rank dispatch
+   ├── Tail bottleneck rank dispatch
+   ├── Extended rank variants
+   └── Dynamic priority dispatch
+3. cp_local_repair (max_passes=3, top_k=2)로 정련
+4. 최선 makespan 선택 (slack=0, best_makespan 전략)</code></pre>
+  </details>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>respect_anchor_stage_release_lb</code></td><td><code>true</code></td><td>고정 스테이지의 release LB 존중</td></tr>
+      <tr><td><code>cp_local_repair_max_passes</code></td><td><code>3</code></td><td>CP repair 반복 횟수</td></tr>
+      <tr><td><code>include_consensus_rank</code></td><td><code>true</code></td><td>Consensus rank dispatch 포함</td></tr>
+      <tr><td><code>include_tail_bottleneck_rank</code></td><td><code>true</code></td><td>Tail bottleneck rank 포함</td></tr>
+      <tr><td><code>use_retained_cp_snapshot_portfolio</code></td><td><code>true</code></td><td>retained CP 스냅샷 사용</td></tr>
+      <tr><td><code>retained_cp_snapshot_top_k</code></td><td><code>4</code></td><td>상위 4개 스냅샷 선택</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 9 -->
+<div class="step key-step" id="step9">
+  <h3><span class="step-no">9</span><code>apply_workload_adaptive_retained_stage_cp_lb</code></h3>
+  <p class="role"><b>역할</b>: 7번 단계의 workload 적응형 버전. 문제 규모(workload)에 따라 CP로 정확히 모델링할 bottleneck 스테이지 수를 동적으로 결정한다.</p>
+  <h4>차별점</h4>
+  <ul>
+    <li><code>first_topk_bottlenecks_last</code> 모드: retained stage = <code>[첫 스테이지 + 평균 부하 상위 bottleneck k개 + 마지막 스테이지]</code></li>
+    <li><code>large_workload_threshold=1800</code>: workload ≥ 1800인 large 인스턴스는 4개, small은 3개의 추가 bottleneck 스테이지 포함</li>
+    <li><code>bottleneck_band_radius=1</code>은 config에 지정되어 있으나 <code>first_topk_bottlenecks_last</code> 모드에서는 사용되지 않음 (band 확장은 <code>first_bottleneck_band_last</code> 등 band 계열 모드 전용)</li>
+  </ul>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>retained_stage_mode</code></td><td><code>first_topk_bottlenecks_last</code></td><td>Bottleneck 중심 CP 대상 선정</td></tr>
+      <tr><td><code>small_extra_bottleneck_count</code></td><td><code>3</code></td><td>Small 인스턴스 추가 bottleneck 수</td></tr>
+      <tr><td><code>large_extra_bottleneck_count</code></td><td><code>4</code></td><td>Large 인스턴스 추가 bottleneck 수</td></tr>
+      <tr><td><code>large_workload_threshold</code></td><td><code>1800</code></td><td>Large 판단 기준 workload</td></tr>
+      <tr><td><code>bottleneck_band_radius</code></td><td><code>1</code></td><td>(이 모드에서는 미사용)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 10 -->
+<div class="step" id="step10">
+  <h3><span class="step-no">10</span><code>dispatch_from_retained_cp</code></h3>
+  <p class="role"><b>역할</b>: 8번 단계와 동일한 dispatch-from-retained-cp 로직을 9번 단계 결과에 대해 반복. 구조, 파라미터 모두 8번과 동일.</p>
+</div>
+
+<!-- Step 11 -->
+<div class="step" id="step11">
+  <h3><span class="step-no">11</span><code>set_stage_workload_adaptive_final_time_reserve</code></h3>
+  <p class="role"><b>역할</b>: 최종 CP 최적화 단계(13번)를 위한 시간 예산(time reserve)을 workload와 stage 수에 따라 적응형으로 설정한다.</p>
+  <h4>동작 방식</h4>
+  <details open>
+    <summary>적응형 time reserve 결정 로직</summary>
+<pre><code>if workload &gt; 1800 (large):
+    tl = 0.25 × J × S
+elif stage_count &gt;= 15 AND workload &gt;= 1200 (high-stage medium):
+    tl = 0.30 × J × S
+else:
+    tl = 0.20 × J × S</code></pre>
+  </details>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>large_workload_threshold</code></td><td><code>1800</code></td><td>Large 워크로드 기준</td></tr>
+      <tr><td><code>large_workload_tl_nc_multiplier</code></td><td><code>0.25</code></td><td>Large 인스턴스 시간 배율</td></tr>
+      <tr><td><code>high_stage_min_stage_count</code></td><td><code>15</code></td><td>High-stage 최소 스테이지 수</td></tr>
+      <tr><td><code>high_stage_min_workload_size</code></td><td><code>1200</code></td><td>High-stage 최소 워크로드</td></tr>
+      <tr><td><code>high_stage_tl_nc_multiplier</code></td><td><code>0.3</code></td><td>High-stage 시간 배율</td></tr>
+      <tr><td><code>default_tl_nc_multiplier</code></td><td><code>0.2</code></td><td>기본 시간 배율</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 12 -->
+<div class="step key-step" id="step12">
+  <h3><span class="step-no">12</span><code>suffix_probe_portfolio</code> <span class="badge warn">가장 정교한 구성요소</span></h3>
+  <p class="role"><b>역할</b>: 이 workflow에서 <b>가장 정교한 구성 요소</b>. 여러 NEH/SW-CP 조합(lane)을 경쟁적으로 프로브(probe)하여 가장 유망한 lane을 선택하고, 해당 lane의 suffix(후속 단계)를 실행한다. 5개의 lane + fallback으로 구성된 포트폴리오이다.</p>
+
+  <h4>전체 구조 — Fallback + 5개 Lane</h4>
+  <div class="lanes">
+    <div class="lane fallback">
+      <h4><span class="ln">Fallback</span> — 사전 bound-gap 가드가 portfolio를 건너뛸 때</h4>
+      <div class="ld"><code>safe_neh10 → safe_neh15 → safe_neh20 → safe_neh25 → safe_neh30 → safe_pw005 → safe_pw010</code></div>
+    </div>
+    <div class="lane">
+      <h4><span class="ln">Lane 1</span> — safe_0504_first_neh</h4>
+      <div class="ld"><b>Probe:</b> <code>safe_neh10</code></div>
+      <div class="ld"><b>Suffix:</b> <code>neh15 → neh20 → neh25 → neh30 → pw005 → pw010</code></div>
+    </div>
+    <div class="lane">
+      <h4><span class="ln">Lane 2</span> — cp_seeded_first_neh</h4>
+      <div class="ld"><b>Probe:</b> <code>solve_base_cp_model(0.018) → neh10(0.005, max_batch=8)</code></div>
+      <div class="ld"><b>Suffix:</b> <code>neh15 → neh20 → neh25 → neh30 → pw005 → pw010</code></div>
+    </div>
+    <div class="lane">
+      <h4><span class="ln">Lane 3</span> — delayed_profile_first_neh</h4>
+      <div class="ld"><b>Probe:</b> <code>neh10(0.006, profile_fix 지연, max_batch=8)</code></div>
+      <div class="ld"><b>Suffix:</b> <code>neh15 → neh20 → neh25 → neh30 → pw005 → pw010</code></div>
+    </div>
+    <div class="lane">
+      <h4><span class="ln">Lane 4</span> — retained_cp_sequence_first_neh</h4>
+      <div class="ld"><b>Probe:</b> <code>neh10(retained_cp_sequence, max_batch=8)</code></div>
+      <div class="ld"><b>Suffix:</b> <code>neh15 → neh20 → neh25 → neh30 → pw005 → pw010</code></div>
+    </div>
+    <div class="lane">
+      <h4><span class="ln">Lane 5</span> — interleaved_pw_neh_basin</h4>
+      <div class="ld"><b>Probe:</b> <code>neh10(0.0075, max_batch=8)</code></div>
+      <div class="ld"><b>Suffix:</b> <code>pw005 → neh15 → pw006 → neh20 → pw008 → neh25 → neh30 → pw010</code> (NEH와 SW-CP 교차 실행)</div>
+    </div>
+  </div>
+  <details>
+    <summary>원본 ASCII 구조 (source .md)</summary>
+<pre><code>suffix_probe_portfolio
+  │
+  ├── Fallback (사전 bound-gap 가드가 portfolio를 건너뛸 때)
+  │     └── safe_neh10 → safe_neh15 → safe_neh20 → safe_neh25 → safe_neh30 → safe_pw005 → safe_pw010
+  │
+  └── 5개 Lane (경쟁적 프로브 → 최선 선택 → suffix 실행)
+        ├── Lane 1: safe_0504_first_neh
+        │     Probe: safe_neh10
+        │     Suffix: neh15→neh20→neh25→neh30→pw005→pw010
+        │
+        ├── Lane 2: cp_seeded_first_neh
+        │     Probe: solve_base_cp_model(0.018) → neh10(0.005, max_batch=8)
+        │     Suffix: neh15→neh20→neh25→neh30→pw005→pw010
+        │
+        ├── Lane 3: delayed_profile_first_neh
+        │     Probe: neh10(0.006, profile_fix 지연, max_batch=8)
+        │     Suffix: neh15→neh20→neh25→neh30→pw005→pw010
+        │
+        ├── Lane 4: retained_cp_sequence_first_neh
+        │     Probe: neh10(retained_cp_sequence, max_batch=8)
+        │     Suffix: neh15→neh20→neh25→neh30→pw005→pw010
+        │
+        └── Lane 5: interleaved_pw_neh_basin
+              Probe: neh10(0.0075, max_batch=8)
+              Suffix: pw005→neh15→pw006→neh20→pw008→neh25→neh30→pw010
+              (NEH와 SW-CP 교차 실행)</code></pre>
+  </details>
+
+  <h4>핵심 메커니즘</h4>
+  <details open>
+    <summary>Probe → Lane 선정 → Suffix 실행 메커니즘</summary>
+<pre><code>0. (사전 가드) incumbent와 LB 사이의 gap 비율 확인
+   gap_ratio = (incumbent_obj − LB) / |LB|
+   - gap_ratio &lt; min_incumbent_bound_gap_ratio(0.003 = 0.3%)이면
+     5개 lane portfolio 전체를 건너뛰고 fallback_steps만 실행
+     (incumbent가 이미 LB에 충분히 근접 → lane probe 생략)
+   - run_if_bound_missing: true → LB를 구할 수 없으면 portfolio를 그대로 실행
+1. 각 lane의 probe_steps를 순차 실행 (lane-local 스케줄 복사본에서 평가)
+2. probe 완료 후 makespan 평가
+3. 최선 probe makespan의 lane 선정
+   - accept_equal_obj_from_later_lane: false (동점 시 먼저 평가된 lane 우선)
+   - commit_equal_obj: true (선정된 해를 동점이어도 SolutionManager에 commit)
+4. 선정된 lane의 suffix_steps 실행</code></pre>
+  </details>
+
+  <h4>Lane별 Probe 전략 차이</h4>
+  <table>
+    <thead><tr><th>Lane</th><th>Probe 전략</th><th>특징</th></tr></thead>
+    <tbody>
+      <tr><td>1. safe_0504_first_neh</td><td>NEH batch=10 (0.005)</td><td>기본 NEH, 안정적</td></tr>
+      <tr><td>2. cp_seeded_first_neh</td><td>Base CP(0.018) → NEH(0.005, 제한)</td><td>CP 시드로 NEH 품질 향상</td></tr>
+      <tr><td>3. delayed_profile_first_neh</td><td>NEH(0.006, profile_fix 지연)</td><td>Profile fix를 늦춰 다양성 확보</td></tr>
+      <tr><td>4. retained_cp_sequence_first_neh</td><td>NEH(0.006, retained CP sequence)</td><td>Retained CP의 작업 순서 활용</td></tr>
+      <tr><td>5. interleaved_pw_neh_basin</td><td>NEH(0.0075) → PW ↔ NEH 교차</td><td>SW-CP와 NEH를 번갈아 basin 탐색</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Step 13 -->
+<div class="step key-step" id="step13">
+  <h3><span class="step-no">13</span><code>solve_base_cp_model_from_final_time_reserve</code></h3>
+  <p class="role"><b>역할</b>: 전체 workflow의 <b>마지막 단계</b>. 11번 단계에서 설정된 잔여 시간 예산을 소비하여 CP-SAT 전역 최적화를 수행한다. 모든 이전 단계의 최선해를 reference로 사용하여 LNS 기반 탐색을 진행한다.</p>
+  <table>
+    <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>consume_all_remaining</code></td><td><code>true</code></td><td>잔여 시간 전량 소비</td></tr>
+      <tr><td><code>use_lns_only</code></td><td><code>true</code></td><td>LNS neighborhood search만 사용</td></tr>
+      <tr><td><code>solver_thread_cnt</code></td><td><code>16</code></td><td>16 스레드</td></tr>
+      <tr><td><code>cp_model_probing_level</code></td><td><code>1</code></td><td>Probing 레벨 (CP-SAT 기본값은 <code>2</code> — 의도적으로 한 단계 축소)</td></tr>
+      <tr><td><code>cp_sat_params</code></td><td><code>{diversify_lns_params, solution_pool_size=8}</code></td><td>LNS 다양화 + 풀 크기</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2 id="timeline">시간 배분 구조 (Timeline)</h2>
+
+<figure class="partition-fig">
+  <svg viewBox="0 0 760 230" width="100%" style="max-width: 740px; display:block; margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+    <line x1="20" y1="170" x2="740" y2="170" stroke="#999" stroke-width="1"/>
+    <text x="20" y="200" font-size="10.5" fill="#8a8a82" font-family="system-ui">시작</text>
+    <text x="740" y="200" font-size="10.5" text-anchor="end" fill="#8a8a82" font-family="system-ui">timelimit</text>
+
+    <!-- bands: x positions sum to ~720 starting at 20 -->
+    <!-- Dispatch (4) -->
+    <rect x="20"  y="58" width="50"  height="112" fill="#7aa3d0" opacity=".8" rx="3"/>
+    <text x="45"  y="116" font-size="10.5" text-anchor="middle" fill="#fff" font-family="system-ui">(4)</text>
+    <text x="45"  y="44" font-size="10" text-anchor="middle" font-family="system-ui">Dispatch</text>
+
+    <!-- Tau Coarsened CP (5) -->
+    <rect x="70"  y="58" width="150" height="112" fill="#a55a07" opacity=".82" rx="3"/>
+    <text x="145" y="110" font-size="11" font-weight="700" text-anchor="middle" fill="#fff" font-family="system-ui">Tau Coarsened CP</text>
+    <text x="145" y="126" font-size="10" text-anchor="middle" fill="#fff" font-family="ui-monospace,monospace">0.12 × J × S</text>
+    <text x="145" y="44" font-size="10.5" font-weight="700" text-anchor="middle" font-family="system-ui">(5)</text>
+
+    <!-- LS (6) -->
+    <rect x="220" y="58" width="26"  height="112" fill="#5fb37a" opacity=".85" rx="3"/>
+    <text x="233" y="44" font-size="10" text-anchor="middle" font-family="system-ui">(6)</text>
+    <text x="233" y="218" font-size="9.5" text-anchor="middle" fill="#8a8a82" font-family="ui-monospace,monospace">LS 0.006</text>
+
+    <!-- Retained CP #1 (7→8) -->
+    <rect x="246" y="58" width="100" height="112" fill="#7aa3d0" opacity=".8" rx="3"/>
+    <text x="296" y="110" font-size="10.5" text-anchor="middle" fill="#fff" font-family="system-ui">Retained CP #1</text>
+    <text x="296" y="126" font-size="9.5" text-anchor="middle" fill="#fff" font-family="ui-monospace,monospace">0.08 × J × S</text>
+    <text x="296" y="44" font-size="10" text-anchor="middle" font-family="system-ui">(7)→(8)</text>
+
+    <!-- Retained CP #2 (9→10) -->
+    <rect x="346" y="58" width="100" height="112" fill="#7aa3d0" opacity=".8" rx="3"/>
+    <text x="396" y="110" font-size="10.5" text-anchor="middle" fill="#fff" font-family="system-ui">Retained CP #2</text>
+    <text x="396" y="126" font-size="9.5" text-anchor="middle" fill="#fff" font-family="ui-monospace,monospace">0.08 × J × S</text>
+    <text x="396" y="44" font-size="10" text-anchor="middle" font-family="system-ui">(9)→(10)</text>
+
+    <!-- Reserve setup (11) -->
+    <rect x="446" y="58" width="30"  height="112" fill="#cfcdc4" opacity=".9" rx="3"/>
+    <text x="461" y="44" font-size="10" text-anchor="middle" font-family="system-ui">(11)</text>
+    <text x="461" y="218" font-size="9.5" text-anchor="middle" fill="#8a8a82" font-family="system-ui">Reserve</text>
+
+    <!-- Probe (12) -->
+    <rect x="476" y="58" width="70"  height="112" fill="#a55a07" opacity=".82" rx="3"/>
+    <text x="511" y="110" font-size="10" text-anchor="middle" fill="#fff" font-family="system-ui">Probe</text>
+    <text x="511" y="44" font-size="10" text-anchor="middle" font-family="system-ui">(12)</text>
+
+    <!-- Final CP (13) -->
+    <rect x="546" y="58" width="194" height="112" fill="#444" opacity=".85" rx="3"/>
+    <text x="643" y="106" font-size="11" font-weight="700" text-anchor="middle" fill="#fff" font-family="system-ui">Final CP</text>
+    <text x="643" y="122" font-size="9.5" text-anchor="middle" fill="#fff" font-family="ui-monospace,monospace">잔여 전량 (0.20–0.30)</text>
+    <text x="643" y="44" font-size="10.5" font-weight="700" text-anchor="middle" font-family="system-ui">(13)</text>
+  </svg>
+  <figcaption>밴드 너비는 시간 배분 비중을 개략적으로 나타낸다. Tau Coarsened CP(5)와 Final CP(13)가 가장 많은 시간을 차지한다.</figcaption>
+</figure>
+
+<details>
+  <summary>원본 timeline 다이어그램 (source .md)</summary>
+<pre><code>|← Dispatch →|← Tau Coarsened CP →|← LS →|← Retained CP #1 →|← Retained CP #2 →|← Reserve →|← Probe →|← Final CP →|
+|   (4)      |        (5)          |  (6) |   (7) → (8)      |   (9) → (10)     |    (11)   |   (12)   |    (13)    |</code></pre>
+</details>
+
+<div class="invariants">
+  <h4>시간 배분 특징</h4>
+  <ul>
+    <li><b>5</b>: Tau Coarsened CP가 가장 많은 시간 소비 (<code>0.12 × J × S</code>)</li>
+    <li><b>6</b>: LS는 제한된 시간 (<code>0.006 × J × S</code>)</li>
+    <li><b>7, 9</b>: Retained CP 각각 <code>0.08 × J × S</code></li>
+    <li><b>12</b>: Probe는 각 lane이 짧은 시간 제한으로 경쟁</li>
+    <li><b>13</b>: 잔여 시간 전량 소비 (adaptive reserve 기반)</li>
+  </ul>
+</div>
+
+<h2 id="dataflow">데이터 흐름 (Solution 전파)</h2>
+
+<div class="pipeline">
+  <h4>각 단계의 출력 → 다음 단계의 reference</h4>
+  <div class="flow">
+    <span class="step-chip">초기해</span><span class="arrow">→</span>
+    <span class="step-chip">[4] Dispatch · Candidate portfolio</span><span class="arrow">→</span>
+    <span class="step-chip">[5] Tau Coarsened CP · Best restored schedule</span><span class="arrow">→</span>
+    <span class="step-chip">[6] Critical Repair LS · Repaired schedule</span><span class="arrow">→</span>
+    <span class="step-chip">[7] Retained CP #1 · Snapshots (≤96)</span><span class="arrow">→</span>
+    <span class="step-chip">[8] Dispatch from retained · Dispatched schedule</span><span class="arrow">→</span>
+    <span class="step-chip">[9] Adaptive Retained CP #2 · Snapshots (≤96)</span><span class="arrow">→</span>
+    <span class="step-chip">[10] Dispatch from retained · Dispatched schedule</span><span class="arrow">→</span>
+    <span class="step-chip">[12] Suffix Probe · Best lane result</span><span class="arrow">→</span>
+    <span class="step-chip">[13] Final CP · Optimal/Incumbent solution</span><span class="arrow">→</span>
+    <span class="step-chip">Final makespan</span>
+  </div>
+</div>
+
+<details>
+  <summary>원본 데이터 흐름 다이어그램 (source .md)</summary>
+<pre><code>      초기해
+       │
+[4] Dispatch ──────────────────────► Candidate portfolio
+       │
+[5] Tau Coarsened CP ─────────────► Best restored schedule
+       │
+[6] Critical Repair LS ───────────► Repaired schedule
+       │
+[7] Retained CP #1 ───────────────► Snapshots (≤96)
+       │
+[8] Dispatch from retained ───────► Dispatched schedule
+       │
+[9] Adaptive Retained CP #2 ──────► Snapshots (≤96)
+       │
+[10] Dispatch from retained ──────► Dispatched schedule
+       │
+[12] Suffix Probe ────────────────► Best lane result
+       │
+[13] Final CP ────────────────────► Optimal/Incumbent solution
+       │
+       ▼
+  Final makespan</code></pre>
+</details>
+
+<p>각 단계의 결과는 <code>SolutionManager</code>에 등록되며, 등록 시 <code>HfsSubroutineReport</code>와 함께 <code>SolutionRecord</code>로 저장된다. 다음 단계는 SolutionManager의 최신 최선해를 reference로 사용한다.</p>
+
+<h2 id="rationale">주요 설계 결정 (Design Rationale)</h2>
+
+<div class="decisions">
+  <div class="decision">
+    <div class="key">1. Tau Coarsened CP의 대량 후보해 생성</div>
+    <div class="val">다양한 경로(Dispatch → NEH → SW-CP → CP)와 다양한 복원 방식(stage_sequence, machine_sequence)을 통해 구조적으로 다양한 후보해를 대량 생산한다. 이것이 단일 CP-SAT 실행보다 더 좋은 초기해로 이어진다.</div>
+  </div>
+  <div class="decision">
+    <div class="key">2. 2단계 Retained Stage CP + Dispatch</div>
+    <div class="val">Retained Stage CP를 두 번(일반형 + workload 적응형) 수행하는 이유: <b>1차</b>는 quantile 기반으로 전체 구조 파악, <b>2차</b>는 bottleneck 집중 탐색으로 부족한 부분 보완. 각 결과를 dispatch로 완성하여 실행 가능해를 보장한다.</div>
+  </div>
+  <div class="decision">
+    <div class="key">3. Suffix Probe Portfolio의 경쟁적 Lane 선택</div>
+    <div class="val">여러 NEH 전략을 경쟁시켜 instance 특성에 가장 적합한 전략을 동적으로 선택한다. CP 시드 유무·profile fix 시점·retained CP sequence 활용·SW-CP interleaving 등 각기 다른 귀납적 편향(inductive bias)을 가진 lane을 준비하고, 짧은 probe로 평가 후 최선 lane의 suffix만 본격 실행한다. incumbent가 이미 LB에 근접해(gap &lt; 0.3%) lane probe가 무의미하면 가벼운 fallback steps로 대체한다.</div>
+  </div>
+  <div class="decision">
+    <div class="key">4. 최종 CP-SAT 전량 소비</div>
+    <div class="val">모든 이전 단계를 통해 확보한 좋은 reference 해를 바탕으로, LNS만으로 잔여 시간을 전량 소비하여 추가 개선을 도모한다. <code>consume_all_remaining=true</code>로 설정되어 stopping criteria의 timelimit까지 점유한다.</div>
+  </div>
+  <div class="decision">
+    <div class="key">5. Workload 적응형 시간 배분</div>
+    <div class="val">large / high-stage / default 인스턴스를 구분하여 시간 배율을 차등 적용. small 인스턴스에는 덜, large/high-stage에는 더 많은 시간을 할당하여 문제 규모에 따른 공정한 최적화 기회를 제공한다.</div>
+  </div>
+</div>
+
+<hr>
+<p style="font-size: 12px; color: var(--faint);">Source: <code>requirement_docs/20260517_flow.md</code> (markdown remains authoritative; this HTML is a spatial view).</p>
+
+</main>
+</div>
+</body>
+</html>

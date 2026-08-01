@@ -1,0 +1,35 @@
+{
+  "skill_name": "algorithm-doc-kr",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "hybridflowshop/controller/hfs_cp_lns.py 에 있는 neh_cp 메서드의 알고리즘 문서를 만들어줘. requirement_docs/algorithm 아래에 저장해.",
+      "expected_output": "requirement_docs/algorithm/neh_cp.md 가 생성되고, 기존 문서 형식을 따른다. 5요소가 정확히 다뤄지고 파라미터명·기본값이 실제 코드와 일치한다.",
+      "files": [],
+      "assertions": [
+        "neh_cp.md 파일이 생성되었다",
+        "제목과 `호출: def neh_cp (hfs_cp_lns.py)` 형식의 호출 줄이 있다",
+        "고정 섹션(개요, 핵심 아이디어, 전체 실행 흐름, 파라미터 요약, 주의사항/응용 고려사항)이 모두 존재한다",
+        "파라미터 요약 표의 파라미터명·기본값이 실제 neh_cp 시그니처와 일치한다",
+        "5요소(parameter, variable, objective, constraint, mechanism)가 모두 명확히 설명된다",
+        "한국어 명세서 톤, 마크다운 표와 ```text``` 다이어그램 활용",
+        "하위 알고리즘(pw_cp 등)을 중복 서술하지 않고 참조로 처리한다"
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "dispatcher/mixed.py 의 MixedDispatcher.get_best_mixed_schedule_by_sequence 가 어떤 알고리즘인지 정리한 명세 문서를 작성해줘.",
+      "expected_output": "requirement_docs/algorithm/get_best_mixed_schedule_by_sequence.md 가 생성되고, 기존 문서 형식을 따른다. 디스패칭 휴리스틱의 5요소가 절차 속 형태로 설명된다.",
+      "files": [],
+      "assertions": [
+        "get_best_mixed_schedule_by_sequence.md 파일이 생성되었다",
+        "제목과 `호출: def get_best_mixed_schedule_by_sequence (mixed.py)` 형식의 호출 줄이 있다",
+        "고정 섹션(개요, 핵심 아이디어, 전체 실행 흐름, 파라미터 요약, 주의사항/응용 고려사항)이 모두 존재한다",
+        "파라미터 요약 표의 파라미터명·기본값이 실제 메서드 시그니처와 일치한다",
+        "5요소(parameter, variable, objective, constraint, mechanism)가 모두 명확히 설명된다",
+        "한국어 명세서 톤, 마크다운 표와 ```text``` 다이어그램 활용",
+        "다른 문제 응용 고려사항이 일반화되어 서술된다"
+      ]
+    }
+  ]
+}

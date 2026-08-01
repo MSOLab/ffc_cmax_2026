@@ -78,6 +78,22 @@ def multi_machine_hfs_instance():
     return HybridFlowshopParameters.from_pra_data("test_multi_mc", stream)
 
 
+@pytest.fixture
+def five_stage_hfs_instance():
+    """Create a 4-job, 5-stage single-machine instance for anchor-band tests."""
+    data = """\
+4
+5
+1 1 1 1 1
+2 3 4 3 2
+3 2 1 2 3
+1 4 2 4 1
+4 1 3 1 4
+"""
+    stream = io.StringIO(data)
+    return HybridFlowshopParameters.from_pra_data("test_5stage", stream)
+
+
 class TestReverseEvenPositions:
     """Tests for reverse_even_positions utility function."""
 
@@ -251,9 +267,7 @@ class TestBN2DDispatcher:
         assert schedule is not None
         assert schedule.makespan > 0
 
-    def test_get_schedule_by_bn2d_with_reverse_mid(
-        self, simple_hfs_instance
-    ) -> None:
+    def test_get_schedule_by_bn2d_with_reverse_mid(self, simple_hfs_instance) -> None:
         """Test BN2D schedule with mid-job reversal."""
         dispatcher = BN2DDispatcher(simple_hfs_instance)
         option = BN2DOption(
@@ -290,9 +304,7 @@ class TestBN2DDispatcher:
         assert schedule is not None
         assert schedule.makespan > 0
 
-    def test_get_schedule_by_bn2d_randomize_mid(
-        self, simple_hfs_instance
-    ) -> None:
+    def test_get_schedule_by_bn2d_randomize_mid(self, simple_hfs_instance) -> None:
         """Test BN2D schedule with randomized mid jobs."""
         dispatcher = BN2DDispatcher(simple_hfs_instance)
         option = BN2DOption(
@@ -310,11 +322,111 @@ class TestBN2DDispatcher:
         dispatcher = BN2DDispatcher(simple_hfs_instance)
         option = BN2DOption()
 
-        # Get the bottleneck stage
-        bottleneck_stage = dispatcher._get_bottleneck_stage()
-
         # Schedule using single stage method
         schedule = dispatcher.get_schedule_by_bn2d_single_stage(option)
 
         assert schedule is not None
         assert schedule.makespan > 0
+
+    def test_get_schedule_by_two_way_stage_band_respects_anchor_sequences(
+        self,
+        five_stage_hfs_instance,
+    ) -> None:
+        """Anchor-band two-way dispatch should preserve the given middle-stage order."""
+        dispatcher = BN2DDispatcher(five_stage_hfs_instance)
+        option = BN2DOption(
+            mixed_schedule_for_former_stages=False,
+            mixed_schedule_for_later_stages=False,
+        )
+        jobs = list(five_stage_hfs_instance.job_id_list)
+        anchor_stage_ids = five_stage_hfs_instance.stage_id_list[1:4]
+        stage_2_job_sequence = {
+            anchor_stage_ids[0]: [jobs[0], jobs[1], jobs[2], jobs[3]],
+            anchor_stage_ids[1]: [jobs[3], jobs[2], jobs[1], jobs[0]],
+            anchor_stage_ids[2]: [jobs[1], jobs[3], jobs[0], jobs[2]],
+        }
+        stage_2_job_2_release = {
+            anchor_stage_ids[0]: {
+                jobs[0]: 5,
+                jobs[1]: 0,
+                jobs[2]: 3,
+                jobs[3]: 1,
+            },
+            anchor_stage_ids[1]: {
+                jobs[0]: 9,
+                jobs[1]: 7,
+                jobs[2]: 6,
+                jobs[3]: 4,
+            },
+            anchor_stage_ids[2]: {
+                jobs[0]: 13,
+                jobs[1]: 11,
+                jobs[2]: 12,
+                jobs[3]: 10,
+            },
+        }
+
+        schedule = dispatcher.get_schedule_by_two_way_stage_band(
+            anchor_stage_ids,
+            stage_2_job_sequence,
+            option,
+            stage_2_job_2_release=stage_2_job_2_release,
+        )
+
+        assert schedule is not None
+        assert schedule.makespan > 0
+
+        for job_id in five_stage_hfs_instance.job_id_list:
+            for stage_id in five_stage_hfs_instance.stage_id_list:
+                assert schedule.get_job_end_time(stage_id, job_id) is not None
+
+        for stage_id in anchor_stage_ids:
+            observed_jobs = [
+                job_id
+                for _mc_id, _start, _end, job_id in sorted(
+                    schedule.iter_operations_on_stage(stage_id),
+                    key=lambda row: (row[1], row[2], row[3]),
+                )
+            ]
+            assert observed_jobs == stage_2_job_sequence[stage_id]
+
+            for job_id, release_t in stage_2_job_2_release[stage_id].items():
+                assert schedule.get_job_start_time(stage_id, job_id) >= release_t
+
+    def test_get_schedule_by_two_way_stage_band_supports_strict_call_mode(
+        self,
+        five_stage_hfs_instance,
+    ) -> None:
+        dispatcher = BN2DDispatcher(five_stage_hfs_instance)
+        option = BN2DOption(
+            mixed_schedule_for_former_stages=False,
+            mixed_schedule_for_later_stages=False,
+        )
+        jobs = list(five_stage_hfs_instance.job_id_list)
+        anchor_stage_ids = five_stage_hfs_instance.stage_id_list[1:4]
+        stage_2_job_sequence = {
+            anchor_stage_ids[0]: [jobs[2], jobs[0], jobs[3], jobs[1]],
+            anchor_stage_ids[1]: [jobs[1], jobs[3], jobs[0], jobs[2]],
+            anchor_stage_ids[2]: [jobs[3], jobs[1], jobs[2], jobs[0]],
+        }
+
+        schedule = dispatcher.get_schedule_by_two_way_stage_band(
+            anchor_stage_ids,
+            stage_2_job_sequence,
+            option,
+            anchor_dispatch_mode="strict_call",
+        )
+
+        assert schedule is not None
+        for job_id in five_stage_hfs_instance.job_id_list:
+            for stage_id in five_stage_hfs_instance.stage_id_list:
+                assert schedule.get_job_end_time(stage_id, job_id) is not None
+
+        first_anchor_observed = [
+            job_id
+            for _mc_id, _start, _end, job_id in sorted(
+                schedule.iter_operations_on_stage(anchor_stage_ids[0]),
+                key=lambda row: (row[1], row[2], row[3]),
+            )
+        ]
+        assert first_anchor_observed == stage_2_job_sequence[anchor_stage_ids[0]]

@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SW-CP Constructor (SwCpConstructor.run)</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --border: #e4e2da;
+    --border-soft: #efede5;
+    --text: #1a1a1a;
+    --muted: #5e5e58;
+    --faint: #8a8a82;
+    --accent: #2454b8;
+    --accent-soft: #e6edfa;
+    --code-bg: #f3f2ec;
+    --code-text: #2c2c28;
+    --ok: #1e7a3a;
+    --ok-bg: #e3f2e9;
+    --warn: #a55a07;
+    --warn-bg: #fbeed5;
+    --danger: #b3261e;
+    --danger-bg: #fbe2e0;
+    --info: #1f5a8a;
+    --info-bg: #e3eff8;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.03);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Noto Sans KR", system-ui, "Malgun Gothic", sans-serif;
+    font-size: 15px; line-height: 1.62; -webkit-font-smoothing: antialiased;
+  }
+  code, pre, .mono { font-family: "D2Coding", "JetBrains Mono", ui-monospace, monospace; }
+  code { font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: var(--code-text); }
+  pre { background: #1f2024; color: #e6e6e0; padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; margin: 12px 0; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1240px; margin: 0 auto; }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: static !important; height: auto !important; border-right: 0; border-bottom: 1px solid var(--border); }
+  }
+
+  .toc {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 18px 28px 28px; border-right: 1px solid var(--border-soft);
+    background: var(--bg); font-size: 13px;
+  }
+  .toc .title { font-weight: 600; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+  .toc .crumb { color: var(--faint); font-size: 11px; margin-bottom: 8px; word-break: break-all; }
+  .toc .peer { font-size: 12px; margin-bottom: 14px; }
+  .toc .label { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: .08em; text-transform: uppercase; margin: 16px 0 6px; }
+  .toc a { display: block; padding: 3px 0; color: var(--muted); border-left: 2px solid transparent; padding-left: 10px; margin-left: -10px; }
+  .toc a:hover { color: var(--text); text-decoration: none; border-left-color: var(--border); }
+  .toc .sub { padding-left: 22px; font-size: 12px; }
+
+  main { padding: 36px 48px 80px; max-width: 920px; }
+  @media (max-width: 900px) { main { padding: 24px 20px 60px; } }
+
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); letter-spacing: -.005em; }
+  h3 { font-size: 15.5px; margin: 26px 0 10px; }
+  h4 { font-size: 13.5px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+  .meta { color: var(--faint); font-size: 12.5px; margin-bottom: 24px; }
+
+  .tldr {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 18px 0 28px;
+  }
+  .tldr h4 { margin: 0 0 6px; color: var(--info); text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .tldr ul { margin: 4px 0 0; padding-left: 20px; }
+  .tldr li { margin: 3px 0; font-size: 14px; }
+
+  .invariants {
+    background: #f4faee; border: 1px solid #c2d5b5; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .invariants h4 { color: var(--ok); margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+
+  .badge {
+    display: inline-block; font-size: 10.5px; font-weight: 600;
+    padding: 2px 7px; border-radius: 10px; vertical-align: middle;
+    text-transform: uppercase; letter-spacing: .04em; line-height: 1.5;
+  }
+  .badge.ok     { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn   { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger { background: var(--danger-bg); color: var(--danger); }
+  .badge.info   { background: var(--info-bg);   color: var(--info); }
+  .badge.muted  { background: #e8e7e0;          color: #5a5a55; }
+
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  th { background: #f3f2ec; font-weight: 600; font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: #fbfaf3; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .card h4 { margin: 0 0 6px; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--text); }
+  .card p { margin: 4px 0; font-size: 13.5px; }
+  .card ul { font-size: 13px; margin: 6px 0; padding-left: 18px; }
+  .card li { margin: 3px 0; }
+  .card.template     { border-color: #c2d5b5; background: #f4faee; }
+  .card.template h4  { color: var(--ok); }
+  .card.not-template { border-color: #e7d5c5; background: #fbf3eb; }
+  .card.not-template h4 { color: var(--warn); }
+
+  .decisions { display: grid; gap: 10px; margin: 14px 0; }
+  .decision {
+    display: grid; grid-template-columns: 170px 1fr; gap: 14px;
+    padding: 10px 14px; border-left: 3px solid var(--accent); background: #f6f8fc; border-radius: 0 6px 6px 0;
+  }
+  .decision .key { font-weight: 600; color: var(--accent); font-size: 13px; }
+  .decision .val { font-size: 13.5px; }
+  .decision.deferred { border-left-color: var(--faint); background: #f4f3ed; }
+  .decision.deferred .key { color: var(--faint); }
+
+  .pipeline {
+    background: var(--info-bg); border: 1px solid #c9def0; border-radius: 8px;
+    padding: 14px 18px; margin: 14px 0; font-size: 13.5px;
+  }
+  .pipeline h4 { color: var(--info); margin: 0 0 8px; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+  .pipeline .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; font-family: ui-monospace, monospace; font-size: 12px; }
+  .pipeline .step { background: #fff; padding: 4px 9px; border-radius: 4px; border: 1px solid #c9def0; }
+
+  .partition-fig, .modmap {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; margin: 14px 0; box-shadow: var(--shadow);
+  }
+  .partition-fig figcaption, .modmap figcaption {
+    font-size: 12px; color: var(--muted); margin-top: 10px; text-align: center;
+  }
+
+  .risks { display: grid; gap: 10px; margin: 12px 0; }
+  .risk {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+    padding: 12px 16px;
+  }
+  .risk .hd { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .risk .hd h4 { margin: 0; font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text); }
+  .risk .body { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+  .risk.sev-high { border-left: 4px solid var(--danger); }
+  .risk.sev-med  { border-left: 4px solid var(--warn); }
+  .risk.sev-low  { border-left: 4px solid var(--ok); }
+
+  details { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 6px; padding: 8px 14px; margin: 10px 0; }
+  details[open] { background: #fbfaf3; }
+  summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--muted); user-select: none; }
+  summary:hover { color: var(--text); }
+  details pre, details p { margin-top: 10px; }
+
+  ul.plain { list-style: none; padding-left: 0; }
+  ul.plain li { padding: 4px 0; border-bottom: 1px dashed var(--border-soft); font-size: 12px; }
+  ul.plain li:last-child { border-bottom: 0; }
+
+  .idea-grid { display: grid; gap: 10px; margin: 12px 0; }
+  .idea-item {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; box-shadow: var(--shadow);
+    border-left: 3px solid var(--accent);
+  }
+  .idea-item h4 { margin: 0 0 4px; font-size: 14px; color: var(--accent); text-transform: none; letter-spacing: 0; }
+  .idea-item p { margin: 2px 0; font-size: 13.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="title">SW-CP Constructor</div>
+  <div class="crumb">requirement_docs/algorithm/sw_cp_constructor_run.md</div>
+  <div class="peer">→ <a href="sw_cp.md">sw_cp.md</a> — 상위 알고리즘 개념</div>
+
+  <div class="label">Sections</div>
+  <a href="#tl-dr">TL;DR</a>
+  <a href="#sec-intro">개요</a>
+  <a href="#sec-problem">문제 설명</a>
+  <a class="sub" href="#sec-params">파라미터</a>
+  <a class="sub" href="#sec-vars">변수</a>
+  <a class="sub" href="#sec-obj">목적</a>
+  <a class="sub" href="#sec-constr">제약</a>
+  <a href="#sec-idea">핵심 아이디어</a>
+  <a href="#sec-loop">슬라이딩 윈도우 반복 루프</a>
+  <a class="sub" href="#sec-batch-build">배치 목록 구성</a>
+  <a class="sub" href="#sec-window-params">윈도우 파라미터 결정</a>
+  <a class="sub" href="#sec-partition">5-영역 파티셔닝</a>
+  <a class="sub" href="#sec-promotion">Promotion</a>
+  <a class="sub" href="#sec-batch-spec">배치 명세 구성</a>
+  <a class="sub" href="#sec-time-limit">배치별 시간 제한 결정</a>
+  <a class="sub" href="#sec-branch">CP 모델 분기</a>
+  <a href="#sec-models">CP 모델 준비의 두 분기</a>
+  <a class="sub" href="#sec-common">Common Spacing 최대화</a>
+  <a class="sub" href="#sec-makespan">Makespan 최소화</a>
+  <a class="sub" href="#sec-solve-common">공통 해결 과정</a>
+  <a class="sub" href="#sec-reconstruct">스케줄 재구성</a>
+  <a href="#sec-accept">후보해 수락 및 상태 관리</a>
+  <a class="sub" href="#sec-accept-criteria">수락 기준</a>
+  <a class="sub" href="#sec-state">상태 관리</a>
+  <a class="sub" href="#sec-debug">Debug Export</a>
+  <a href="#sec-flow">전체 실행 흐름</a>
+  <a href="#sec-params-summary">파라미터 요약</a>
+  <a href="#sec-caveats">주의사항 및 응용 고려사항</a>
+
+  <div class="label">Glossary</div>
+  <ul class="plain">
+    <li><b>SW-CP</b> — Sliding-Window CP; 슬라이딩 윈도우 CP 국소 탐색</li>
+    <li><b>CP-SAT</b> — OR-Tools Constraint Programming SAT solver</li>
+    <li><b>LNS</b> — Large Neighborhood Search; CP-SAT의 부분 파괴·재구축 전략</li>
+    <li><b>NEH</b> — Nawaz-Enscore-Ham; flowshop 순서 결정 휴리스틱</li>
+    <li><b>LTF</b> — Left-Time-Fixed; 왼쪽 시간-고정 영역</li>
+    <li><b>RTF</b> — Right-Time-Fixed; 오른쪽 시간-고정 영역</li>
+    <li><b>LPF / RPF</b> — Left/Right Profile-Fixed; 순서만 보존하는 영역</li>
+  </ul>
+</nav>
+
+<main>
+
+<h1>SW-CP Constructor (SwCpConstructor.run)</h1>
+<div class="meta">
+  <span>requirement_docs/algorithm/sw_cp_constructor_run.md</span>
+  · <span>호출: <code>def SwCpConstructor.run</code> (sw_cp.py)</span>
+  · <span>Peer: <a href="sw_cp.md">sw_cp.md</a> (상위 알고리즘 개념)</span>
+</div>
+
+<section id="tl-dr" class="tldr">
+  <h4>At a glance</h4>
+  <ul>
+    <li>SwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인 SW-CP의 <strong>핵심 구현체</strong></li>
+    <li>초기 실행 가능 스케줄에서 출발, 시간 순서 배치 위로 윈도우를 슬라이딩하며 각 윈도우 내 작업만 CP로 재최적화</li>
+    <li>전체 알고리즘 개념은 <a href="sw_cp.md">sw_cp.md</a> 참조; 이 문서는 반복 루프 구성, CP 모델 분기, 상태 관리, 배치별 시간 제한 결정을 구현 수준에서 서술</li>
+  </ul>
+</section>
+
+<hr>
+
+<!-- ===== 1. 개요 ===== -->
+<h2 id="sec-intro">개요</h2>
+<p>
+SwCpConstructor.run은 슬라이딩 윈도우 기반 CP 국소 탐색(Local Search) 알고리즘인
+SW-CP의 <strong>핵심 구현체</strong>다. 초기 실행 가능 스케줄을 입력받아, 시간 순서로 정렬된
+배치(batch) 위로 윈도우를 슬라이딩시키며 각 윈도우 내 작업을 CP 서브문제로
+풀어 makespan을 단계적으로 개선한다.
+</p>
+<p>
+전체 알고리즘 개념(<a href="sw_cp.md"><code>sw_cp.md</code></a>)과 동일하나, 이 문서는 SwCpConstructor.run의
+<strong>구체적인 실행 흐름 — 반복 루프 구성, CP 모델 분기, 상태 관리, 배치별 시간
+제한 결정</strong> — 을 구현 수준에서 서술한다.
+</p>
+
+<hr>
+
+<!-- ===== 2. 문제 설명 ===== -->
+<h2 id="sec-problem">문제 설명</h2>
+
+<h3 id="sec-params">파라미터 (Parameters)</h3>
+<p>다섯 부류로 나뉜다:</p>
+<ul>
+  <li><strong>윈도우 구조 계열</strong>: <code>batch_size</code>, <code>step_size</code>, <code>unfixed_batch_count</code>,
+  <code>left_profile_fixed_batch_count</code>, <code>right_profile_fixed_batch_count</code>,
+  <code>enable_promotion_profile_fixed</code> — 슬라이딩 윈도우의 형태와 이동 방식을 결정한다.</li>
+  <li><strong>제약 강도 계열</strong>: <code>profile_fix_by_machine</code>, <code>machine_precedence_stride</code>,
+  <code>stage_precedence_min_processing_time_diff</code>,
+  <code>stage_precedence_min_processing_time_diff_ratio</code> — profile-fixed 작업의 선행 제약 강도를 조절한다.</li>
+  <li><strong>시간 예산 계열</strong>: <code>non_time_fixed_op_time_limit_multiplier</code>,
+  <code>max_time_per_batch</code> — 배치당 CP 풀이 시간을 결정한다 (둘 중 하나만 사용).</li>
+  <li><strong>CP-SAT 제어 계열</strong>: <code>solver_thread_cnt</code>, <code>use_lns_only</code>,
+  <code>tighten_ranges</code> — CP-SAT 솔버의 동작을 제어한다.</li>
+  <li><strong>디버깅/검증 계열</strong>: <code>debug_export</code>, <code>error_if_infeasible</code> — 디버깅 출력과
+  최종 해 검사를 제어한다.</li>
+</ul>
+<p>전체 목록과 기본값은 <a href="#sec-params-summary">「파라미터 요약」</a> 표를 참조.</p>
+
+<h3 id="sec-vars">변수 (Variables)</h3>
+<p>알고리즘은 두 계층의 변수를 관리한다:</p>
+<p><strong>SwCpRunState (반복 상태)</strong>:</p>
+<ul>
+  <li><code>timer</code> (<code>ElapsedTimer</code>): 총 경과 시간 추적</li>
+  <li><code>incumbent</code> (<code>HybridFlowshopLiteSchedule</code>): 현재 최선 스케줄</li>
+  <li><code>subproblem_idx</code> (<code>int</code>): 전체 서브문제 번호 (1부터 시작, 루프 전체에서 단조 증가)</li>
+  <li><code>subproblem_logs</code> (<code>list[SwCpSubproblemLog]</code>): 각 서브문제의 결과 로그</li>
+  <li><code>sub_obj_store</code> (<code>ObjValueBoundStore[int]</code>): 개선 시 obj value 이력 저장</li>
+  <li><code>max_time_per_batch</code> (<code>float | None</code>): <code>max_time_per_batch</code> 파라미터의 패스스루 값 (multiplier 사용 시 <code>None</code>). 결과 메타데이터용이며, 실제 배치별 제한은 <code>_resolve_batch_time_limit</code>이 산정</li>
+</ul>
+
+<p><strong>CP 모델 변수 (서브문제별)</strong>:</p>
+<ul>
+  <li><code>op_start[j, i]</code>, <code>op_end[j, i]</code>, <code>op_intvl[j, i]</code>: 각 <code>non_time_fixed</code> 작업의 시작·종료·인터벌 결정변수. 도메인은 <code>[head(j,i), horizon - tail(j,i) - p]</code> (<code>tighten_ranges=True</code>인 경우 head/tail 적용).</li>
+  <li><code>left_bar_interval[i][mc]</code> / <code>left_bar_end[i][mc]</code>: left-time-fixed 영역의 기계 점유를 표현하는 고정 인터벌 (시작=0, 길이=left_boundary).</li>
+  <li><code>right_bar_interval[i][mc]</code>: right-time-fixed 영역 직전의 여유 공간 변수 (시작=right_boundary - common_spacing, 끝=horizon). <strong>makespan 최소화 모델에서는 생성하지 않음</strong>.</li>
+  <li><code>common_spacing</code> (<code>IntVar | None</code>): 모든 기계에 공통으로 적용되는 여유 변수. <strong>makespan 최소화 모델에서는 <code>None</code></strong>.</li>
+  <li><code>makespan</code> (<code>IntVar | None</code>): makespan 최소화 모델에서만 생성.</li>
+</ul>
+
+<h3 id="sec-obj">목적 (Objective)</h3>
+<p>윈도우에 <code>right_time_fixed</code> 작업(오른쪽 경계) 존재 여부에 따라 목적함수가 분기한다:</p>
+<ul>
+  <li><strong>right_time_fixed 있음 (common_spacing 최대화)</strong>: <code>maximize common_spacing</code>. 오른쪽 경계가 존재하므로, 그 앞에 여유 공간을 최대화하면 비고정 작업들이 자연히 왼쪽으로 밀려 makespan이 간접 감소한다.</li>
+  <li><strong>right_time_fixed 없음 (makespan 최소화)</strong>: <code>minimize makespan</code>. 윈도우가 타임라인 끝까지 닿아 common_spacing 최대화가 의미 없으므로, 마지막 스테이지의 비고정 작업 종료 시각 중 최대값을 직접 최소화한다.</li>
+</ul>
+
+<h3 id="sec-constr">제약 (Constraints)</h3>
+<p>세 가지 제약군이 CP 서브문제의 해 공간을 정의한다:</p>
+<ol>
+  <li><strong>잡 선행 제약 (inter-stage job precedence)</strong>: 연속한 두 스테이지 <code>i → i+1</code>에 대해:
+    <ul>
+      <li>두 스테이지 모두 non_time_fixed: <code>end[j,i] ≤ start[j,i+1]</code></li>
+      <li>i가 time_fixed, i+1이 non_time_fixed: <code>start[j,i+1] ≥</code> i의 종료 시각 (right-justified 스케줄 기준, 단 <code>i_end &gt; next_i_est</code>인 경우만)</li>
+      <li>i가 non_time_fixed, i+1이 time_fixed: <code>end[j,i] ≤</code> i+1의 시작 시각 (right-justified 스케줄 기준, 단 <code>next_i_start &lt; i_lct</code>인 경우만)</li>
+    </ul>
+  </li>
+  <li><strong>용량 제약 (stage capacity via cumulative)</strong>:
+    <pre><code>add_cumulative(intervals=[op_intvl] + [left_dummy_bars] + [right_dummy_bars],
+               demands=[1, 1, ..., 1],
+               capacity=len(M_of[i]))</code></pre>
+    각 스테이지를 병렬 기계 수만큼의 용량을 가진 단일 자원으로 모델링한다. 더미 바(dummy bar)가 시간-고정 영역의 기계 점유를 자연스럽게 표현한다.
+  </li>
+  <li><strong>Profile-fixed 선행 제약 (선택사항)</strong>: <code>profile_fixed_op_set</code>이 존재할 때만 활성화. profile-fixed 작업들이 right-justified 스케줄에서 가진 상대 순서(기계 시퀀스 또는 스테이지 시간 순서)를 CP 결정변수에 선행 제약으로 반영한다.</li>
+</ol>
+
+<hr>
+
+<!-- ===== 3. 핵심 아이디어 ===== -->
+<h2 id="sec-idea">핵심 아이디어</h2>
+<div class="idea-grid">
+  <div class="idea-item">
+    <h4>1. 분할-정복을 CP에 적용</h4>
+    <p>전체 문제를 한 번에 CP로 푸는 대신, 시간 축의 작은 윈도우만 재최적화한다. 각 서브문제는 작업 수가 적어 CP가 제한된 시간 내에 해결 가능하다.</p>
+  </div>
+  <div class="idea-item">
+    <h4>2. 슬라이딩 윈도우로 전체 커버</h4>
+    <p>윈도우가 시작부터 끝까지 이동하며 모든 작업 구간을 차례로 최적화한다. 구간을 조금씩 겹쳐(<code>step_size &lt; unfixed_batch_count</code>) 연속성을 확보한다.</p>
+  </div>
+  <div class="idea-item">
+    <h4>3. 5-영역 파티션으로 경계 처리</h4>
+    <p>한 윈도우만 풀면 경계 조건이 깨지므로, 시간-고정(left/right_time_fixed)과 순서-보존(left/right_profile_fixed) 영역으로 완충하여 윈도우가 전체 맥락에서 동작하게 한다.</p>
+  </div>
+  <div class="idea-item">
+    <h4>4. 두 가지 목적함수로 상황 대응</h4>
+    <p>오른쪽에 고정 경계가 있으면 common_spacing 최대화로 간접 최적화하고, 경계가 없으면 makespan을 직접 최소화한다.</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ===== 4. 슬라이딩 윈도우 반복 루프 ===== -->
+<h2 id="sec-loop">슬라이딩 윈도우 반복 루프</h2>
+
+<h3 id="sec-batch-build">배치 목록 구성</h3>
+<p><code>build_stage_2_batch_list</code>가 현재 <code>incumbent</code> 스케줄의 각 스테이지에서 작업을 시간 순서로 정렬하여 <code>batch_size</code>만큼 묶는다.</p>
+<p>정렬 기준 (모두 오름차순):</p>
+<ul>
+  <li>기본: <code>(midpoint, start_time, machine_id, job_id)</code> — midpoint = <code>(start+end)/2</code></li>
+  <li><code>sort_by_start_time=True</code>: <code>(start_time, end_time, machine_id, job_id)</code></li>
+</ul>
+<p>모든 스테이지의 배치 수는 <code>validate_and_get_batch_count</code>에서 동일해야 한다는 불변식을 검증한다. 다르면 <code>ValueError</code>로 중단된다.</p>
+
+<h3 id="sec-window-params">윈도우 파라미터 결정</h3>
+<pre><code>max_batch_cnt = 스테이지별 배치 수 (모두 동일)
+max_window_start = max_batch_cnt - unfixed_batch_count
+반복: unfixed_batch_start_idx in range(0, max_window_start + 1, step_size)</code></pre>
+<p><code>max_window_start</code>는 unfixed 영역이 전체 배치를 초과하지 않도록 보장한다. <code>step_size</code>가 <code>unfixed_batch_count</code>보다 작으면 윈도우가 겹친다.</p>
+
+<h3 id="sec-partition">5-영역 파티셔닝</h3>
+<p><code>_build_operation_partition</code>이 각 스테이지의 <code>batch_list_on_stage</code>를 배치 인덱스 기준으로 5영역으로 분할한다:</p>
+
+<figure class="partition-fig">
+  <svg viewBox="0 0 760 220" width="100%" style="max-width: 720px; display:block; margin:0 auto;" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arr-down" viewBox="0 0 10 10" refX="5" refY="8" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 5 8 L 10 0 z" fill="#7a7a72"/>
+      </marker>
+    </defs>
+    <!-- Timeline axis -->
+    <line x1="20" y1="190" x2="740" y2="190" stroke="#999" stroke-width="1"/>
+    <!-- 5 bands -->
+    <rect x="20"  y="40" width="80"  height="130" fill="#444"   opacity=".85" rx="3"/>
+    <text x="60"   y="30" font-size="11" font-weight="700" text-anchor="middle" fill="#444" font-family="system-ui">left_time_fixed</text>
+    <rect x="100" y="40" width="100" height="130" fill="#7aa3d0" opacity=".65" rx="3"/>
+    <text x="150"  y="30" font-size="11" font-weight="600" text-anchor="middle" fill="#3a6a9a" font-family="system-ui">left_pf</text>
+    <rect x="200" y="40" width="200" height="130" fill="#5fb37a" opacity=".75" rx="3"/>
+    <text x="300"  y="30" font-size="12" font-weight="700" text-anchor="middle" fill="#1e7a3a" font-family="system-ui">UNFIXED</text>
+    <rect x="400" y="40" width="100" height="130" fill="#7aa3d0" opacity=".65" rx="3"/>
+    <text x="450"  y="30" font-size="11" font-weight="600" text-anchor="middle" fill="#3a6a9a" font-family="system-ui">right_pf</text>
+    <rect x="500" y="40" width="240" height="130" fill="#444"   opacity=".85" rx="3"/>
+    <text x="620"  y="30" font-size="11" font-weight="700" text-anchor="middle" fill="#444" font-family="system-ui">right_time_fixed</text>
+
+    <!-- idx label beneath -->
+    <text x="25"  y="212" font-size="10" fill="#666" font-family="ui-monospace,monospace">0</text>
+    <text x="175" y="212" font-size="10" fill="#666" font-family="ui-monospace,monospace">left_pf_start</text>
+    <line x1="180" y1="215" x2="180" y2="205" stroke="#666" stroke-width="1" marker-end="url(#arr-down)"/>
+    <text x="195" y="212" font-size="10" fill="#666" font-family="ui-monospace,monospace">unfixed_start</text>
+    <text x="390" y="212" font-size="10" fill="#666" font-family="ui-monospace,monospace">unfixed_end</text>
+    <text x="490" y="212" font-size="10" fill="#666" font-family="ui-monospace,monospace">right_pf_end</text>
+    <text x="730" y="212" font-size="10" fill="#666" font-family="ui-monospace,monospace">max_batch_cnt</text>
+
+    <!-- Transition markers -->
+    <text x="90"  y="196" font-size="14" fill="#999" text-anchor="middle" font-family="system-ui">|</text>
+    <text x="195" y="196" font-size="14" fill="#999" text-anchor="middle" font-family="system-ui">|</text>
+    <text x="395" y="196" font-size="14" fill="#999" text-anchor="middle" font-family="system-ui">|</text>
+    <text x="495" y="196" font-size="14" fill="#999" text-anchor="middle" font-family="system-ui">|</text>
+
+    <!-- Zone labels inside bands -->
+    <text x="60"   y="108" font-size="10" fill="#ccc" text-anchor="middle" font-family="system-ui">시간-고정</text>
+    <text x="150"  y="108" font-size="10" fill="#fff" text-anchor="middle" font-family="system-ui">순서-보존</text>
+    <text x="300"  y="100" font-size="13" fill="#fff" text-anchor="middle" font-weight="700" font-family="system-ui">CP 재최적화</text>
+    <text x="300"  y="118" font-size="10" fill="#d4f0d4" text-anchor="middle" font-family="system-ui">(자유 변수)</text>
+    <text x="450"  y="108" font-size="10" fill="#fff" text-anchor="middle" font-family="system-ui">순서-보존</text>
+    <text x="620"  y="108" font-size="10" fill="#ccc" text-anchor="middle" font-family="system-ui">시간-고정</text>
+  </svg>
+  <figcaption>배치 인덱스 기준 5-영역 분할: 가운데 UNFIXED가 CP 서브문제의 재최적화 대상, 좌우 profile-fixed 영역이 완충 역할, 양 끝 time-fixed 영역은 완전 고정</figcaption>
+</figure>
+
+<p><code>left_pf_start = unfixed_batch_start_idx - left_profile_fixed_batch_count</code> <br>
+<code>right_pf_end = unfixed_batch_start_idx + unfixed_batch_count + right_profile_fixed_batch_count</code></p>
+<p>각 영역의 작업은 <code>sorted</code>로 정규화된다.</p>
+
+<h3 id="sec-promotion">Promotion (선택)</h3>
+<p><code>enable_promotion_profile_fixed=True</code>면, unfixed 영역에 속한 잡의 profile-fixed 작업들을 unfixed로 승격시킨다. 같은 잡의 모든 작업이 unfixed 영역에서 처리되도록 하여, 잡 단위의 일관성을 높인다.</p>
+
+<h3 id="sec-batch-spec">배치 명세 구성</h3>
+<p><code>_build_batch_spec</code>이 5-영역 파티션을 바탕으로 CP 서브문제의 초기 스케줄과 기계별 시간 윈도우를 준비한다:</p>
+<ul>
+  <li><strong><code>right_time_fixed</code>가 존재하면</strong>: <code>incumbent</code>를 deepcopy한 후, <code>non_left_time_fixed</code> 작업들을 우측-정렬(right-justify)하여 오른쪽 경계를 명확히 한다. 그 다음 <code>_build_window_map</code>으로 기계별 <code>(left_boundary, right_boundary)</code> 계산.</li>
+  <li><strong><code>right_time_fixed</code>가 없으면</strong>: 우측-정렬 없이 곧바로 윈도우 맵 계산 (right_boundary는 <code>horizon</code>으로 설정).</li>
+</ul>
+
+<h3 id="sec-time-limit">배치별 시간 제한 결정</h3>
+<p><code>_resolve_batch_time_limit</code>은 두 가지 방식 중 하나로 시간 제한을 산정한다:</p>
+<div class="decisions">
+  <div class="decision">
+    <div class="key">multiplier 우선</div>
+    <div class="val"><code>non_time_fixed_op_time_limit_multiplier</code>가 설정됨 → <code>non_time_fixed_op_count × multiplier</code></div>
+  </div>
+  <div class="decision">
+    <div class="key">fallback</div>
+    <div class="val">그 외: <code>max_time_per_batch</code> 값을 그대로 사용</div>
+  </div>
+</div>
+
+<h3 id="sec-branch">CP 모델 분기</h3>
+<p><code>spec.is_right_time_fixed_empty</code>에 따라 solve 함수가 갈린다:</p>
+<div class="decisions">
+  <div class="decision">
+    <div class="key"><code>True</code></div>
+    <div class="val">right_time_fixed 없음 → <code>_solve_makespan_batch</code></div>
+  </div>
+  <div class="decision">
+    <div class="key"><code>False</code></div>
+    <div class="val">right_time_fixed 있음 → <code>_solve_batch_sw_cp_model</code></div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ===== 5. CP 모델 준비의 두 분기 ===== -->
+<h2 id="sec-models">CP 모델 준비의 두 분기</h2>
+
+<div class="grid-2">
+  <div class="card not-template" id="sec-common">
+    <h4>Common Spacing 최대화 모델 <span class="badge warn">right_time_fixed 있음</span></h4>
+    <p><code>_prepare_sw_cp_model</code>이 구성 (비-마지막 윈도우):</p>
+    <ol>
+      <li><strong>Non-time-fixed 변수</strong>: <code>SwCpModelBuilder.make_non_time_fixed_ops_vars</code></li>
+      <li><strong>더미 바 변수</strong>: Left dummy bar (고정) + Right dummy bar (가변, <code>common_spacing</code> 연동)</li>
+      <li><strong>잡 선행 제약</strong>: <code>add_non_fixed_job_precedence_constraints</code></li>
+      <li><strong>용량 제약</strong>: <code>add_capacity_with_dummy_bar_constraints</code></li>
+      <li><strong>Hint 적용</strong>: right-justified 스케줄의 start/end 시각</li>
+      <li><strong>Profile-fixed 선행 제약</strong>: profile_fixed 작업이 있으면 추가</li>
+      <li><strong>목적함수</strong>: <code>maximize common_spacing</code></li>
+    </ol>
+  </div>
+  <div class="card template" id="sec-makespan">
+    <h4>Makespan 최소화 모델 <span class="badge ok">right_time_fixed 없음</span></h4>
+    <p><code>_prepare_makespan_batch_model</code>이 구성 (마지막 윈도우):</p>
+    <ul>
+      <li><strong>Right dummy bar 생성하지 않음</strong> (<code>include_right_bars=False</code>)</li>
+      <li><strong>마지막 스테이지 검증</strong>: 마지막 스테이지에 <code>non_time_fixed</code> 작업이 하나 이상 있어야 함. 없으면 <code>ValueError</code></li>
+      <li><strong>목적함수</strong>: <code>minimize makespan = max(op_end[j, last_stage])</code> → <code>SwCpModelBuilder.add_makespan_objective</code></li>
+    </ul>
+  </div>
+</div>
+
+<h3 id="sec-solve-common">공통 해결 과정</h3>
+<p>두 분기 모두 동일한 패턴으로 풀이한다:</p>
+<ol>
+  <li><code>ctx.get_remaining_time_limit(max_time_per_batch)</code>로 남은 시간 예산 확인</li>
+  <li><code>ctx.solve_cp_model_2(...)</code>로 CP-SAT 호출</li>
+  <li>infeasible이면 <code>None</code> 반환하고 로그 기록</li>
+  <li>feasible이면 <code>create_sw_cp_schedule(...)</code>로 CP 해에서 <code>HybridFlowshopLiteSchedule</code> 재구성</li>
+  <li><code>candidate_schedule.make_semi_active(stage_2_job_2_p_dict)</code>로 semi-active 정규화</li>
+</ol>
+
+<h3 id="sec-reconstruct">스케줄 재구성 (create_sw_cp_schedule)</h3>
+<div class="pipeline">
+  <h4>CP 해 → 스케줄 재구성 3단계 (자세한 내용은 <a href="sw_cp.md"><code>sw_cp.md</code></a> 「스케줄 재구성」 참조)</h4>
+  <div class="flow">
+    <span class="step"><strong>1.</strong> Left-time-fixed</span>
+    <span>→</span>
+    <span class="step"><strong>2.</strong> Non-time-fixed</span>
+    <span>→</span>
+    <span class="step"><strong>3.</strong> Right-time-fixed</span>
+  </div>
+  <ul>
+    <li><strong>1. Left-time-fixed 작업</strong>: right-justified 스케줄에서 그대로 시각과 기계를 가져와 배정</li>
+    <li><strong>2. Non-time-fixed 작업</strong>: CP가 구한 시작 시각 순으로 정렬 후 <code>add_operation_2_stage</code>로 기계에 자동 배정 (release time = CP 시작 시각)</li>
+    <li><strong>3. Right-time-fixed 작업</strong>: right-justified 스케줄에서 시각을 가져오고, 가장 이른 기계(latest-end 최소)를 선택해 배정 (earliest-free-machine 방식)</li>
+  </ul>
+</div>
+
+<hr>
+
+<!-- ===== 6. 후보해 수락 및 상태 관리 ===== -->
+<h2 id="sec-accept">후보해 수락 및 상태 관리</h2>
+
+<h3 id="sec-accept-criteria">수락 기준</h3>
+<pre><code>candidate가 None이 아니고 makespan이 incumbent보다 작음:
+  → feasibility 검사 통과 시 수락 (incumbent 갱신, True 반환)
+  → feasibility 검사 실패 시 로그만 남기고 기각
+그 외:
+  → 기각, incumbent에 semi-active 변환 적용 (False 반환)</code></pre>
+<p><code>feasibility</code> 검사 예외는 로깅만 수행할 뿐 알고리즘을 중단시키지 않는다.</p>
+
+<div class="decisions">
+  <div class="decision">
+    <div class="key">수락 조건</div>
+    <div class="val"><code>candidate is not None and candidate.makespan &lt; incumbent.makespan</code> + feasibility 검사 통과</div>
+  </div>
+  <div class="decision">
+    <div class="key">feasibility 실패 시</div>
+    <div class="val">예외 로깅만 수행, 알고리즘 중단 없음</div>
+  </div>
+  <div class="decision">
+    <div class="key">기각 시</div>
+    <div class="val">incumbent에 <code>make_semi_active()</code> 변환 적용하여 다음 반복 준비</div>
+  </div>
+</div>
+
+<h3 id="sec-state">상태 관리</h3>
+<ul>
+  <li><code>SwCpRunState</code> 인스턴스가 <code>self._st</code>에 저장되며, <code>run()</code> 입장 시 생성되고 <code>finally</code> 블록에서 <code>None</code>으로 초기화된다.</li>
+  <li><code>_require_state()</code>로 현재 상태에 접근하며, <code>run()</code>이 활성화되지 않았으면 <code>RuntimeError</code>를 발생시킨다.</li>
+  <li>각 서브문제 해결 후 <code>_append_subproblem_log</code>로 로그를 기록한다.</li>
+  <li><code>sub_obj_store</code>에는 수락된 배치의 obj value만 기록된다 (개선이 있었을 때만).</li>
+</ul>
+
+<h3 id="sec-debug">Debug Export (선택)</h3>
+<p><code>debug_export=True</code>면:</p>
+<ul>
+  <li>초기 스케줄 Gantt 차트 PNG 저장 (<code>_batch_000_initial_gantt.png</code>)</li>
+  <li>각 반복 후 solution YAML 저장 (<code>_batch_NNN_solution.yaml</code>)</li>
+</ul>
+
+<hr>
+
+<!-- ===== 7. 전체 실행 흐름 ===== -->
+<h2 id="sec-flow">전체 실행 흐름</h2>
+<details open>
+  <summary>의사코드 보기/접기</summary>
+  <pre><code>입력: ref_schedule (초기해), instance (문제 인스턴스),
+      stage_2_job_2_p_dict (가공 시간 맵), 각종 파라미터
+
+ 1. 입력 검증 (step_size >= 1, unfixed_batch_count >= 1,
+    profile_fixed_batch_count >= 0 등)
+ 2. SwCpRunState 초기화 (timer, incumbent=ref_schedule, ...)
+ 3. [debug] 초기 Gantt 차트 저장 (debug_export=True)
+ 4. 초기 배치 목록 구성 (build_stage_2_batch_list)
+ 5. 배치 수 검증 (모든 스테이지 동일) → max_batch_cnt
+ 6. max_window_start = max_batch_cnt - unfixed_batch_count
+ 7. for unfixed_batch_start_idx in range(0, max_window_start + 1, step_size):
+      a. 현재 incumbent로 배치 목록 재구성
+      b. 배치 수 불변식 검증 (초기와 동일한지)
+      c. for each stage_id:
+           _build_operation_partition(...) → 5-영역 파티션
+      d. [선택] enable_promotion_profile_fixed:
+           unfixed 잡의 profile-fixed 작업을 unfixed로 승격
+      e. _build_batch_spec(...) → SwCpSubproblemSpec
+           - right_time_fixed 존재 → 우측-정렬 → 윈도우 맵
+           - right_time_fixed 없음 → 윈도우 맵만
+      f. _resolve_batch_time_limit(...) → 배치당 시간 제한
+      g. if spec.is_right_time_fixed_empty:
+           _solve_makespan_batch(...)  → candidate | None
+         else:
+           _solve_batch_sw_cp_model(...) → candidate | None
+      h. _accept_candidate_or_repair_incumbent(candidate, incumbent, ...)
+           → (new_incumbent, accepted)
+      i. [debug] solution YAML 저장
+      j. [accepted] sub_obj_store에 obj value 기록
+ 8. [error_if_infeasible] 최종 incumbent feasibility 검증
+ 9. SwCpResult 반환 (schedule, sub_obj_store, subproblem_logs, ...)
+
+최종: self._st = None (finally 블록)</code></pre>
+</details>
+
+<hr>
+
+<!-- ===== 8. 파라미터 요약 ===== -->
+<h2 id="sec-params-summary">파라미터 요약</h2>
+
+<h3>윈도우 구조</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>batch_size</code></td><td>1</td><td>배치당 최대 작업 수</td></tr>
+    <tr><td><code>step_size</code></td><td>1</td><td>윈도우 이동 간격 (배치 단위)</td></tr>
+    <tr><td><code>unfixed_batch_count</code></td><td>1</td><td>unfixed 영역의 배치 수 (윈도우 폭)</td></tr>
+    <tr><td><code>left_profile_fixed_batch_count</code></td><td>0</td><td>왼쪽 profile-fixed 버퍼 배치 수</td></tr>
+    <tr><td><code>right_profile_fixed_batch_count</code></td><td>0</td><td>오른쪽 profile-fixed 버퍼 배치 수</td></tr>
+    <tr><td><code>enable_promotion_profile_fixed</code></td><td>False</td><td>unfixed 잡의 profile-fixed 작업을 unfixed로 승격</td></tr>
+  </tbody>
+</table>
+
+<h3>제약 강도</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>profile_fix_by_machine</code></td><td>False</td><td>True면 기계 시퀀스 기반 선행 제약, False면 스테이지 시간 기반</td></tr>
+    <tr><td><code>machine_precedence_stride</code></td><td>1</td><td>기계 선행 제약의 stride 간격</td></tr>
+    <tr><td><code>stage_precedence_min_processing_time_diff</code></td><td>None</td><td>스테이지 선행 제약의 최소 가공 시간 차이 (≥0)</td></tr>
+    <tr><td><code>stage_precedence_min_processing_time_diff_ratio</code></td><td>None</td><td>스테이지 선행 제약의 최소 가공 시간 차이 비율 (≥0)</td></tr>
+  </tbody>
+</table>
+
+<h3>시간 예산</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>non_time_fixed_op_time_limit_multiplier</code></td><td>None</td><td>non_time_fixed 작업 수 × 이 배율로 배치당 시간 제한 산정. <code>max_time_per_batch</code>보다 우선</td></tr>
+    <tr><td><code>max_time_per_batch</code></td><td>None</td><td>배치당 최대 CP 풀이 시간 (초). multiplier 미설정 시 사용</td></tr>
+  </tbody>
+</table>
+
+<h3>CP-SAT 제어</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>solver_thread_cnt</code></td><td>None</td><td>CP-SAT 스레드 수 (None → 1)</td></tr>
+    <tr><td><code>use_lns_only</code></td><td>False</td><td>True면 CP-SAT에서 LNS 탐색만 사용</td></tr>
+    <tr><td><code>tighten_ranges</code></td><td>False</td><td>True면 head/tail 기반으로 CP 변수 도메인 압축</td></tr>
+  </tbody>
+</table>
+
+<h3>디버깅/검증</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>debug_export</code></td><td>False</td><td>True면 각 반복의 Gantt 차트·solution YAML 저장</td></tr>
+    <tr><td><code>error_if_infeasible</code></td><td>False</td><td>True면 최종 해에 대해 feasibility 검증 수행, 실패 시 예외 발생</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ===== 9. 주의사항 및 응용 고려사항 ===== -->
+<h2 id="sec-caveats">주의사항 및 응용 고려사항</h2>
+
+<h3>전제 조건</h3>
+<ul>
+  <li>반드시 실행 가능한 초기 스케줄(<code>ref_schedule</code>)이 필요하다. SW-CP는 개선 알고리즘이므로 초기해 없이 동작할 수 없다.</li>
+  <li>모든 스테이지의 배치 수가 동일해야 한다. 스테이지별 작업 수 차이가 크면 빈 배치가 발생하거나 배치 수 불일치로 오류가 발생할 수 있다.</li>
+</ul>
+
+<h3>두 가지 시간 제한 방식의 관계</h3>
+<div class="decisions">
+  <div class="decision">
+    <div class="key">multiplier 사용 시</div>
+    <div class="val"><code>max_time_per_batch</code>는 <code>SwCpRunState.max_time_per_batch</code>로만 전달될 뿐 실제 시간 제한 계산에는 사용되지 않는다. 즉, <strong>두 방식은 상호 배타적</strong>이다.</div>
+  </div>
+  <div class="decision">
+    <div class="key">클리핑</div>
+    <div class="val">시간 제한은 <code>ctx.get_remaining_time_limit(...)</code>을 통해 전체 남은 시간 예산 내로 클리핑된다.</div>
+  </div>
+</div>
+
+<h3>확장 포인트</h3>
+<ul>
+  <li><strong>목적함수 교체</strong>: common_spacing 최대화 대신 다른 국소 목적(예: 지연 최소화)으로 교체하려면 <code>_prepare_sw_cp_model</code>과 <code>_prepare_makespan_batch_model</code>의 objective 부분을 수정한다.</li>
+  <li><strong>파티션 정책 변경</strong>: <code>_build_operation_partition</code>의 인덱스 기반 분할 대신, 다른 기준(우선순위, 클러스터 등)으로 교체 가능하다.</li>
+  <li><strong>수락 기준</strong>: 현재는 순수 개선 시에만 수락하는 그리디 방식. Simulated Annealing이나 Tabu Search 방식으로 교체 가능하다.</li>
+</ul>
+
+<h3>함정</h3>
+<div class="risks">
+  <div class="risk sev-med">
+    <div class="hd">
+      <h4>1. unfixed_batch_count 크기</h4>
+      <span class="badge warn">medium</span>
+    </div>
+    <div class="body"><code>unfixed_batch_count</code>가 너무 크면 CP 서브문제가 커져 시간 제한 내에 풀리지 않을 수 있다. 너무 작으면 국소적 개선에 그쳐 전역 탐색 효과가 떨어진다.</div>
+  </div>
+  <div class="risk sev-med">
+    <div class="hd">
+      <h4>2. 윈도우 연속성</h4>
+      <span class="badge warn">medium</span>
+    </div>
+    <div class="body"><code>step_size &gt;= unfixed_batch_count</code>이면 윈도우가 겹치지 않아 연속성이 사라진다. 일반적으로 <code>step_size &lt; unfixed_batch_count</code>로 설정한다.</div>
+  </div>
+  <div class="risk sev-low">
+    <div class="hd">
+      <h4>3. Promotion으로 인한 서브문제 증가</h4>
+      <span class="badge ok">low</span>
+    </div>
+    <div class="body"><code>promote_job_contained_ops</code>는 같은 잡의 profile-fixed 작업을 unfixed로 승격하지만, 그로 인해 서브문제 크기가 증가할 수 있다.</div>
+  </div>
+</div>
+
+<hr>
+<p style="font-size: 12px; color: var(--faint);">Source: <code>requirement_docs/algorithm/sw_cp_constructor_run.md</code> (markdown remains authoritative; this HTML is a spatial view).</p>
+
+</main>
+</div>
+</body>
+</html>

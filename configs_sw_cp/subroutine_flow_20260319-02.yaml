@@ -1,0 +1,15 @@
+- method: set_random_seed
+  seed: 42
+- method: apply_shdlb
+- method: initialize_by_dj_palmer
+- method: sw_cp
+  batch_size: 3
+  left_profile_fixed_batch_count: 1
+  right_profile_fixed_batch_count: 1
+  enable_promotion_profile_fixed: true
+  profile_fix_by_machine: true
+  machine_precedence_stride: 1
+  max_time_per_batch: 50
+  debug_export: true
+  error_if_infeasible: true
+  solver_thread_cnt: 8

@@ -19,47 +19,47 @@
   method_list:
     - bn2d_all_stages
     - best_of_mixed_dispatches
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.10
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.15
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.20
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.25
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.30
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.35
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.40
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.45
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8
   use_lns_only: true
-- method: pw_cp
+- method: sw_cp
   batch_size_ratio: 0.50
   cp_tl_c_multiplier: 0.1
   solver_thread_cnt: 8

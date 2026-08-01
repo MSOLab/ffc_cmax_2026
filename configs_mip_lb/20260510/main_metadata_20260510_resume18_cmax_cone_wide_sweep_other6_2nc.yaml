@@ -1,0 +1,34 @@
+pra_common_params_rel_path: resources/ff2020_common_params.yaml
+baseline_csv_path: resources/ff2020big_ref/fan2023.csv
+input_dir: resources/ff2020big
+benchmark_idx_list:
+- 35
+- 54
+- 40
+- 84
+- 14
+- 82
+first: 1
+last: 240
+benchmark_filename_format: '{}.txt'
+dicts_of_i_o_data_path:
+- stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
+  subroutine_flow_rel_path: configs_mip_lb/20260510/subroutine_flow_20260510-resume18-finalcp-only-other6-2nc.yaml
+  output_dir: ff2020/20260510-resume18-finalcp-only-other6-2nc
+  description: Resume from PW-CP checkpoint 18 on six mixed instances and run short
+    final CP only.
+- stopping_criteria_rel_path: configs_mip_lb/stopping_criteria_2nc.yaml
+  subroutine_flow_rel_path: configs_mip_lb/20260510/subroutine_flow_20260510-resume18-cmax-cone-wide-sweep-other6-2nc.yaml
+  output_dir: ff2020/20260510-resume18-cmax-cone-wide-sweep-other6-2nc
+  description: Resume from PW-CP checkpoint 18 on six mixed instances and run wide
+    repeated Cmax-cone sweep plus short final CP.
+output_dir_scenarios: Outputs_scenarios
+scenario_log_filename: hfs_multi_scenario_runner.log
+result_dir_name: results
+instance_worker_cnt: 6
+draw_gantt: false
+result_gantt_filename_format: '{}_result_gantt.png'
+draw_progress_plot: false
+progress_plot_filename_format: '{}_progress_plot.png'
+drop_first_values_percent: 0.0
+resume_dir_path: Outputs_scenarios/20260508T214750_473411/ff2020/20260508-full240-0504-backbone-neh-adaptive-cp-2nc/checkpoints/18-incremental_pw_cp

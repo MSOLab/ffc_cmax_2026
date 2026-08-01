@@ -3,6 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.ticker import MaxNLocator
+
 from analysis_metadata import AnalysisMetadata
 
 METADATA = AnalysisMetadata(

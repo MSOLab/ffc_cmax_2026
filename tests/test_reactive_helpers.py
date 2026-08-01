@@ -15,13 +15,21 @@ from hybridflowshop.controller.reactive.reactive_param_tuner import (
     ReactiveParamTuner,
     TunerParams,
 )
+from hybridflowshop.report import HfsCpsatSolverReport
 
 
 def test_report_entry_row_and_header():
     entry = ReactiveLoopReportEntry(
         iter_count=1,
         subroutine_name="op",
-        kwargs={"rho": 0.2, "job_count": 3, "computational_time": 5},
+        kwargs={
+            "rho": 0.2,
+            "job_count": 3,
+            "radius": 1,
+            "bottleneck_band_radius": 2,
+            "computational_time": 5,
+            "tl_nc_multiplier": 0.01,
+        },
         time_start=0.0,
         time_elapsed=0.1,
         prev_obj_value=999.0,
@@ -33,9 +41,14 @@ def test_report_entry_row_and_header():
     row = entry.get_row_dict()
     assert row["rho"] == 0.2
     assert row["job_count"] == 3
+    assert row["radius"] == 1
+    assert row["bottleneck_band_radius"] == 2
     assert row["timelimit"] == 5
+    assert row["tl_nc_multiplier"] == 0.01
     hdr = ReactiveLoopReportEntry.get_header()
     assert "rho" in hdr and "job_count" in hdr and "timelimit" in hdr
+    assert "radius" in hdr and "bottleneck_band_radius" in hdr
+    assert "tl_nc_multiplier" in hdr
 
 
 def test_tuner_basic_behavior():
@@ -129,6 +142,148 @@ def test_reactive_looper_supports_job_count_subroutines():
         )
         == 2
     )
+
+
+def test_reactive_looper_supports_radius_and_tl_nc_multiplier():
+    class FakeCtrl:
+        def __init__(self):
+            self.instance = SimpleNamespace(job_count=10, stage_count=4)
+            self.solution_manager = SimpleNamespace(
+                _a_is_better_obj_value=lambda a, b: a < b
+            )
+            self.timer = SimpleNamespace(
+                get_elapsed_sec=lambda: 0.0,
+                get_remaining_sec=lambda _t: 100.0,
+            )
+            self.stopping_criteria = SimpleNamespace(timelimit=1000)
+            self.obj_store = SimpleNamespace(get_last_gap=lambda: None)
+
+        def is_stopping_condition(self):
+            return False
+
+        def random_stage_band_stage_ns(
+            self,
+            radius: int = 0,
+            tl_nc_multiplier: float = 0.01,
+        ):
+            return {"obj_value": radius + tl_nc_multiplier}
+
+    ctrl = FakeCtrl()
+    looper = ReactiveLooper(
+        cast(HybridFlowShopCpLnsControllerCore, ctrl),
+        [
+            {
+                "method": "random_stage_band_stage_ns",
+                "radius": 0,
+                "tl_nc_multiplier": 0.01,
+            },
+        ],
+        {
+            "radius": {"step_size": 1, "min": 0, "max": 2},
+            "tl_nc_multiplier": {"step_size": 0.005, "min": 0.005, "max": 0.03},
+        },
+        {"max_loop_count": 1},
+    )
+
+    assert looper._get_size_param_name("random_stage_band_stage_ns") == "radius"
+    assert (
+        looper._get_time_param_name("random_stage_band_stage_ns") == "tl_nc_multiplier"
+    )
+
+    looper.obj_value_before_step = 1.0
+    looper.no_improvement_step_series_lth = 0
+    looper._update_reactive_params(
+        "random_stage_band_stage_ns",
+        SimpleNamespace(
+            status=CpsatStatus.FEASIBLE,
+            obj_value=1.0,
+            is_feasible=True,
+        ),
+    )
+    tuner = looper.reactive_param_tuner_dict["random_stage_band_stage_ns"]
+    assert tuner.get_current_value("tl_nc_multiplier") == 0.015
+
+    tuner.current_kwargs["tl_nc_multiplier"] = 0.03
+    looper._update_reactive_params(
+        "random_stage_band_stage_ns",
+        SimpleNamespace(
+            status=CpsatStatus.FEASIBLE,
+            obj_value=1.0,
+            is_feasible=True,
+        ),
+    )
+    assert tuner.get_current_value("radius") == 1
+
+
+def test_reactive_looper_call_subroutine_uses_controller_timer_interface():
+    class FakeSolutionManager:
+        def __init__(self):
+            self.best_obj_value = 1300.0
+            self._last_report = None
+
+        def _a_is_better_obj_value(self, a, b):
+            return a < b
+
+        def get_last_report(self):
+            return self._last_report
+
+    class FakeCtrl:
+        def __init__(self):
+            self.instance = SimpleNamespace(job_count=10, stage_count=4)
+            self.solution_manager = FakeSolutionManager()
+            self.timer = SimpleNamespace(elapsed_sec=5.0)
+            self.stopping_criteria = SimpleNamespace(timelimit=100.0)
+            self.obj_store = SimpleNamespace(get_last_gap=lambda: None)
+            self.called_kwargs = None
+
+        def get_remaining_sec(self):
+            return 95.0
+
+        def is_stopping_condition(self):
+            return False
+
+        def random_stage_band_stage_ns(
+            self,
+            radius: int = 0,
+            tl_nc_multiplier: float = 0.01,
+        ):
+            self.called_kwargs = {
+                "radius": radius,
+                "tl_nc_multiplier": tl_nc_multiplier,
+            }
+            self.solution_manager._last_report = HfsCpsatSolverReport(
+                elapsed_time=0.25,
+                obj_value=1290.0,
+                obj_bound=1280.0,
+                status=CpsatStatus.FEASIBLE,
+                is_init=False,
+                subroutine_name="random_stage_band_stage_ns",
+            )
+
+    ctrl = FakeCtrl()
+    looper = ReactiveLooper(
+        cast(HybridFlowShopCpLnsControllerCore, ctrl),
+        [
+            {
+                "method": "random_stage_band_stage_ns",
+                "radius": 0,
+                "tl_nc_multiplier": 0.01,
+            },
+        ],
+        {
+            "radius": {"step_size": 1, "min": 0, "max": 2},
+            "tl_nc_multiplier": {"step_size": 0.005, "min": 0.005, "max": 0.03},
+        },
+        {"max_loop_count": 1},
+    )
+
+    looper.initialize_states()
+    looper._call_subroutine("random_stage_band_stage_ns")
+
+    assert ctrl.called_kwargs == {"radius": 0, "tl_nc_multiplier": 0.01}
+    assert len(looper.report_entries) == 1
+    assert looper.report_entries[0].time_start == 5.0
+    assert looper.report_entries[0].time_elapsed == 0.25
 
 
 def test_reactive_looper_writes_reports(tmp_path):
@@ -262,15 +417,15 @@ def test_repeat_while_improvement_repeats_until_first_non_improvement():
     ctrl._run_flow = fake_run_flow
 
     ctrl.repeat_while_improvement(
-        routine_data=DynamicDataObject.from_obj({"method": "pw_cp", "batch_size": 3}),
+        routine_data=DynamicDataObject.from_obj({"method": "sw_cp", "batch_size": 3}),
         n_repeats=None,
         max_no_improve=0,
     )
 
     assert recorded_contexts == ["reps_001", "reps_002"]
     assert seen_routines == [
-        {"method": "pw_cp", "batch_size": 3},
-        {"method": "pw_cp", "batch_size": 3},
+        {"method": "sw_cp", "batch_size": 3},
+        {"method": "sw_cp", "batch_size": 3},
     ]
 
 
@@ -293,7 +448,7 @@ def test_repeat_while_improvement_stops_at_repeat_limit():
     ctrl._run_flow = fake_run_flow
 
     ctrl.repeat_while_improvement(
-        routine_data=DynamicDataObject.from_obj({"method": "pw_cp", "batch_size": 2}),
+        routine_data=DynamicDataObject.from_obj({"method": "sw_cp", "batch_size": 2}),
         n_repeats=2,
         max_no_improve=0,
     )

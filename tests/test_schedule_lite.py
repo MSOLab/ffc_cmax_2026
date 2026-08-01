@@ -102,6 +102,36 @@ def test_append_operation_2_stage_uses_machine_ready_time_if_larger_than_precede
     assert end_map[("j2", "s2", "m2")] == 12
 
 
+def test_dispatch_stage_by_jobs_keeps_legacy_priority_queue_behavior(monkeypatch):
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["j1", "j2"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1"]},
+    )
+
+    observed = {}
+    original = HybridFlowshopLiteSchedule.get_job_priority_queue_for_stage_dispatch
+
+    def spy(self, stage_id, job_id_seq, job_2_release=None):
+        observed["job_2_release"] = job_2_release
+        return original(self, stage_id, job_id_seq, job_2_release=job_2_release)
+
+    monkeypatch.setattr(
+        HybridFlowshopLiteSchedule,
+        "get_job_priority_queue_for_stage_dispatch",
+        spy,
+    )
+
+    sched.dispatch_stage_by_jobs(
+        "s1",
+        ["j1", "j2"],
+        {"j1": 2, "j2": 3},
+        job_2_release={"j1": 10, "j2": 0},
+    )
+
+    assert observed["job_2_release"] is None
+
+
 def test_duplicate_job_in_same_stage_raises_value_error():
     sched = HybridFlowshopLiteSchedule(
         jobs=["j1"],
@@ -342,6 +372,62 @@ def test_dispatch_stage_by_jobs_uses_precedence_priority():
     # 'a' should be scheduled first at its earliest feasible time (1), not pushed to 10.
     assert start_map[("a", "i1", "m1")] == 1
     assert start_map[("b", "i1", "m1")] == 10
+
+
+def test_dispatch_stage_by_jobs_strict_sequence_preserves_input_dispatch_order():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "b", "x1", "x2"],
+        stages=["i0", "i1"],
+        machines_per_stage={"i0": ["m0"], "i1": ["m1"]},
+    )
+
+    # Stage i0 sets readiness times: a ends at 1, b ends at 2.
+    sched.add_operation_2_mc("i0", "m0", "a", duration=1, release_t=0)  # [0,1)
+    sched.add_operation_2_mc("i0", "m0", "b", duration=1, release_t=1)  # [1,2)
+
+    # Pre-fill stage i1 machine timeline to create gaps: [0,8), [10,17)
+    sched.add_ops_times_2_mc("i1", "m1", "x1", start_time=8, end_time=10)
+    sched.add_ops_times_2_mc("i1", "m1", "x2", start_time=17, end_time=20)
+
+    # Strict-sequence dispatch must respect the given input order ["b", "a"].
+    sched.dispatch_stage_by_jobs_strict_sequence(
+        "i1",
+        job_id_seq=["b", "a"],
+        job_2_duration={"a": 7, "b": 5},
+    )
+
+    start_map = sched.get_jik_2_start_time_map()
+    assert start_map[("b", "i1", "m1")] == 2
+    assert start_map[("a", "i1", "m1")] == 10
+
+
+def test_dispatch_stage_by_jobs_strict_start_order_preserves_final_start_order():
+    sched = HybridFlowshopLiteSchedule(
+        jobs=["a", "b"],
+        stages=["s1"],
+        machines_per_stage={"s1": ["m1", "m2"]},
+    )
+
+    sched.dispatch_stage_by_jobs_strict_start_order(
+        "s1",
+        job_id_seq=["a", "b"],
+        job_2_duration={"a": 5, "b": 5},
+    )
+
+    start_map = sched.get_jik_2_start_time_map()
+    a_start = min(
+        start
+        for (job_id, _stage_id, _mc_id), start in start_map.items()
+        if job_id == "a"
+    )
+    b_start = min(
+        start
+        for (job_id, _stage_id, _mc_id), start in start_map.items()
+        if job_id == "b"
+    )
+    assert a_start == 0
+    assert b_start >= 1
+    assert a_start < b_start
 
 
 def test_dispatch_stage_reversed_by_jobs_uses_latest_feasible_slot_before_lct():

@@ -496,6 +496,9 @@ class BaseModelBuilder:
         current_schedule: HybridFlowshopLiteSchedule,
         profile_fix_by_machine: bool = False,
         machine_precedence_stride: int = 1,
+        profile_fix_job_ids: set[JobIdType] | None = None,
+        stage_precedence_min_processing_time_diff: int | None = None,
+        stage_precedence_min_processing_time_diff_ratio: float | None = None,
     ) -> None:
         """
         Add precedence constraints from a reference dispatch schedule.
@@ -524,9 +527,32 @@ class BaseModelBuilder:
                 - 2: every-other precedence, e.g. 1->3->5 and 2->4
                 Ignored when ``profile_fix_by_machine=False``.
                 Defaults to 1.
+            profile_fix_job_ids (set[JobIdType] | None, optional): If provided,
+                add precedence arcs only when both jobs are in this set. Defaults
+                to None, which keeps all jobs in the reference profile eligible.
+            stage_precedence_min_processing_time_diff (int | None, optional): When
+                using stage-level time-based selection, add an arc only if the two
+                jobs' processing times on the stage differ by at least this amount.
+                Defaults to None, which keeps the current behavior.
+            stage_precedence_min_processing_time_diff_ratio (float | None, optional):
+                When using stage-level time-based selection, add an arc only if
+                ``abs(p1 - p2) / max(p1, p2)`` is at least this value. Defaults to
+                None, which keeps the current behavior.
         """
         if machine_precedence_stride < 1:
             raise ValueError("machine_precedence_stride must be >= 1")
+        if (
+            stage_precedence_min_processing_time_diff is not None
+            and stage_precedence_min_processing_time_diff < 0
+        ):
+            raise ValueError("stage_precedence_min_processing_time_diff must be >= 0")
+        if (
+            stage_precedence_min_processing_time_diff_ratio is not None
+            and stage_precedence_min_processing_time_diff_ratio < 0
+        ):
+            raise ValueError(
+                "stage_precedence_min_processing_time_diff_ratio must be >= 0"
+            )
 
         start_time_map = current_schedule.get_jik_2_start_time_map()
         end_time_map = current_schedule.get_jik_2_end_time_map()
@@ -540,11 +566,18 @@ class BaseModelBuilder:
                     for idx in range(seq_len - machine_precedence_stride):
                         j1 = job_tuple_seq[idx][2]
                         j2 = job_tuple_seq[idx + machine_precedence_stride][2]
+                        if profile_fix_job_ids is not None and (
+                            j1 not in profile_fix_job_ids
+                            or j2 not in profile_fix_job_ids
+                        ):
+                            continue
                         BaseModelBuilder.add_fixed_operation_precedence_constraint(
                             mdl, params, variables, j1, j2, i
                         )
             else:
                 current_j_set = {j for j, ip, _ in start_time_map if ip == i}
+                if profile_fix_job_ids is not None:
+                    current_j_set &= profile_fix_job_ids
                 current_j_list = [j for j in params.j_list if j in current_j_set]
                 stage_job_2_index_map = {j: idx for idx, j in enumerate(current_j_list)}
                 # Extract start and end times for jobs at stage i
@@ -605,6 +638,20 @@ class BaseModelBuilder:
                         start_idx : start_idx + max_candidates
                     ]
                     for j2 in j2_list:
+                        p_diff = abs(params.p[j1, i] - params.p[j2, i])
+                        if (
+                            stage_precedence_min_processing_time_diff is not None
+                            and p_diff < stage_precedence_min_processing_time_diff
+                        ):
+                            continue
+                        p_max = max(params.p[j1, i], params.p[j2, i])
+                        p_diff_ratio = p_diff / p_max if p_max > 0 else 0.0
+                        if (
+                            stage_precedence_min_processing_time_diff_ratio is not None
+                            and p_diff_ratio
+                            < stage_precedence_min_processing_time_diff_ratio
+                        ):
+                            continue
                         BaseModelBuilder.add_fixed_operation_precedence_constraint(
                             mdl, params, variables, j1, j2, i
                         )

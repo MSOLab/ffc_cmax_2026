@@ -60,15 +60,20 @@ class ReactiveParamTuner:
         tuner = self._tuner_param_dict[param_name]
         return float_a_stl_b(tuner.max, self.current_kwargs[param_name])
 
-    def call_method(self, timelimit_by_global: float | None = None) -> Any:
-        if timelimit_by_global is not None:
-            if "computational_time" in self.current_kwargs:
-                self.current_kwargs["computational_time"] = min(
-                    self.current_kwargs["computational_time"],
-                    timelimit_by_global,
+    def call_method(
+        self,
+        *,
+        capped_time_param_name: str | None = None,
+        capped_time_param_value: float | None = None,
+    ) -> Any:
+        if capped_time_param_name is not None and capped_time_param_value is not None:
+            if capped_time_param_name in self.current_kwargs:
+                self.current_kwargs[capped_time_param_name] = min(
+                    self.current_kwargs[capped_time_param_name],
+                    capped_time_param_value,
                 )
             else:
-                self.current_kwargs["computational_time"] = timelimit_by_global
+                self.current_kwargs[capped_time_param_name] = capped_time_param_value
         return self._method(**self.current_kwargs)
 
     def decrement(self, param_name: str) -> None:

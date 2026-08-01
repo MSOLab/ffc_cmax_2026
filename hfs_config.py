@@ -90,6 +90,9 @@ class TimepointSummaryConfig(BaseModel):
         return self
 
 
+BenchmarkOrderStrategy = Literal["input", "reverse", "random", "mixed_stratified"]
+
+
 class MainMetadata(BaseModel):
     """
     A Pydantic model to validate and manage the structure of main_metadata.yaml.
@@ -112,6 +115,24 @@ class MainMetadata(BaseModel):
     last: int | None = Field(default=None, description="Last instance ID to run.")
     benchmark_filename_format: str = Field(
         ..., description="Format string for instance filenames, e.g., '{}.txt'."
+    )
+    benchmark_order_strategy: BenchmarkOrderStrategy = Field(
+        default="reverse",
+        description=(
+            "Execution order for benchmark instances. 'reverse' preserves the "
+            "legacy default, 'random' shuffles with benchmark_order_seed, and "
+            "'mixed_stratified' interleaves instance-size bands to reduce "
+            "concurrent memory pressure."
+        ),
+    )
+    benchmark_order_seed: int = Field(
+        default=42, description="Seed used by random and mixed_stratified ordering."
+    )
+    benchmark_order_wave_size: int | None = Field(
+        default=None,
+        description=(
+            "Band count for mixed_stratified ordering. Defaults to instance_worker_cnt."
+        ),
     )
 
     # Column mapping for baseline data
@@ -208,6 +229,14 @@ class MainMetadata(BaseModel):
             labels = [cfg.label for cfg in self.timepoint_summaries]
             if len(labels) != len(set(labels)):
                 raise ValueError("timepoint_summaries labels must be unique.")
+
+        if (
+            self.benchmark_order_wave_size is not None
+            and self.benchmark_order_wave_size <= 0
+        ):
+            raise ValueError(
+                "benchmark_order_wave_size must be positive when provided."
+            )
         return self
 
     def to_dict(self) -> dict[str, Any]:

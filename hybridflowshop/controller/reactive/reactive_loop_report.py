@@ -32,8 +32,14 @@ class ReactiveLoopReportEntry:
             row["rho"] = self.kwargs["rho"]
         if "job_count" in self.kwargs:
             row["job_count"] = self.kwargs["job_count"]
+        if "radius" in self.kwargs:
+            row["radius"] = self.kwargs["radius"]
+        if "bottleneck_band_radius" in self.kwargs:
+            row["bottleneck_band_radius"] = self.kwargs["bottleneck_band_radius"]
         if "computational_time" in self.kwargs:
             row["timelimit"] = self.kwargs["computational_time"]
+        if "tl_nc_multiplier" in self.kwargs:
+            row["tl_nc_multiplier"] = self.kwargs["tl_nc_multiplier"]
         return row
 
     @staticmethod
@@ -43,7 +49,10 @@ class ReactiveLoopReportEntry:
             "subroutineName",
             "rho",
             "job_count",
+            "radius",
+            "bottleneck_band_radius",
             "timelimit",
+            "tl_nc_multiplier",
             "timeStart",
             "timeElapsed",
             "prevObjValue",

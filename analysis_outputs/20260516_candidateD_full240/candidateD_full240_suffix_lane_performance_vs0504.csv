@@ -1,0 +1,7 @@
+selected_lane,count,mean_delta_obj,sum_delta_obj,worse,better,equal
+no_suffix_guard_or_skip,103,-0.1262135922330097,-13.0,3,9,91
+delayed_profile_first_neh,34,-7.882352941176471,-268.0,12,21,1
+cp_seeded_first_neh,31,2.5483870967741935,79.0,16,15,0
+retained_cp_sequence_first_neh,28,-4.214285714285714,-118.0,11,16,1
+safe_0504_first_neh,28,-12.392857142857142,-347.0,11,15,2
+interleaved_pw_neh_basin,16,-8.5,-136.0,5,9,2
