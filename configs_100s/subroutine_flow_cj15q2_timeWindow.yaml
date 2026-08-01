@@ -1,3 +1,5 @@
+# LEGACY: References removed controller methods; retained for reproducibility only.
+# Migrate the method names before using this flow in a new run.
 - method: set_random_seed
   seed: 42
 - method: initialize_by_cjq2

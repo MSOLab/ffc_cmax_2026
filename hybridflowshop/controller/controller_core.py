@@ -603,7 +603,7 @@ class HybridFlowShopCpLnsControllerCore(
             logging.error(str(log_entry))
             self._record_method_context_end(call_context)
             self._method_context_mgr.pop()
-            raise e
+            raise
 
         end_sec = self.timer.elapsed_sec
         elapsed_sec = end_sec - start_sec

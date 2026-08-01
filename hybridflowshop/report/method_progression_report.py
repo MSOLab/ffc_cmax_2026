@@ -9,19 +9,7 @@ import pandas as pd
 
 from exp_compare.metrics import compute_rpdf
 
-from .log_processor import get_methods_from_flow
-
-
-def _find_progression_json_path(instance_dir: Path) -> Path | None:
-    json_path = instance_dir / "results" / "subroutine_progression.json"
-    if json_path.exists():
-        return json_path
-
-    json_path = instance_dir / "subroutine_progression.json"
-    if json_path.exists():
-        return json_path
-
-    return None
+from .log_processor import _find_progression_json_path, get_methods_from_flow
 
 
 def _iter_instance_progression_json_paths(

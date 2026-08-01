@@ -91,6 +91,13 @@ from lb_bucket.mip.warm_start import from_start_end_time_maps_create_ub_schedule
 from .controller_core import HybridFlowShopCpLnsControllerCore
 from .reactive.reactive_looper import ReactiveLooper
 
+_MISSING_DISTANCE = 10**9
+_CRITICAL_CONE_STAGE_DISTANCE_WEIGHT = 10
+_MAX_CRITICAL_BLOCK_SWAP_TRIALS = 1000
+_DEFAULT_MIP_DISPLAY_INTERVAL_SEC = 10
+_JOB_SEQUENCE_LOG_PREVIEW_COUNT = 10
+_DEFAULT_ADDED_BATCH_SIZE = 10
+
 
 def _schedule_sequence_signature(
     schedule: HybridFlowshopLiteSchedule,
@@ -949,7 +956,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             return int(self.stage_2_job_2_p_dict[op[1]][op[0]])
 
         def op_slack(op: OperationType) -> int:
-            return int(slack_map.get(op[1], {}).get(op[0], 10**9))
+            return int(slack_map.get(op[1], {}).get(op[0], _MISSING_DISTANCE))
 
         tail_cutoff = int(
             max(0, math.floor(analysis_schedule.makespan * (1.0 - tail_time_ratio)))
@@ -1134,17 +1141,18 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             return selected_ops
 
         def op_slack(op: OperationType) -> int:
-            return int(slack_map.get(op[1], {}).get(op[0], 10**9))
+            return int(slack_map.get(op[1], {}).get(op[0], _MISSING_DISTANCE))
 
         def distance_to_seed(op: OperationType) -> int:
             op_mid = (start_map[op] + end_map[op]) // 2
             op_stage_idx = self.instance.stage_id_list.index(op[1])
-            best_distance = 10**9
+            best_distance = _MISSING_DISTANCE
             for seed in seeds:
                 seed_mid = (start_map[seed] + end_map[seed]) // 2
                 seed_stage_idx = self.instance.stage_id_list.index(seed[1])
-                distance = abs(op_mid - seed_mid) + 10 * abs(
-                    op_stage_idx - seed_stage_idx
+                distance = abs(op_mid - seed_mid) + (
+                    _CRITICAL_CONE_STAGE_DISTANCE_WEIGHT
+                    * abs(op_stage_idx - seed_stage_idx)
                 )
                 if distance < best_distance:
                     best_distance = distance
@@ -2439,7 +2447,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             ref_schedule.make_semi_active(self.stage_2_job_2_p_dict)
 
             # Repeat until swapped schedule has the same or better objective
-            max_trial_cnt = 1000
+            max_trial_cnt = _MAX_CRITICAL_BLOCK_SWAP_TRIALS
             swap_success = False
             for trial in range(1, max_trial_cnt + 1):
                 # 1st operation: choose from critical blocks(prefer non-singletons) at random
@@ -3282,7 +3290,11 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             if surrogate_sw_cp_batch_size is not None:
                 resolved_batch_size = max(1, int(surrogate_sw_cp_batch_size))
             else:
-                assert surrogate_sw_cp_batch_size_ratio is not None
+                if surrogate_sw_cp_batch_size_ratio is None:
+                    raise ValueError(
+                        "surrogate SW-CP requires batch_size_ratio when "
+                        "batch_size is not set."
+                    )
                 resolved_batch_size = max(
                     1,
                     int(
@@ -11357,7 +11369,9 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             threads=threads,
             time_limit_sec=_time_limit_sec,
             log_to_console=log_to_console,
-            display_interval_sec=display_interval_sec or 10,
+            display_interval_sec=(
+                display_interval_sec or _DEFAULT_MIP_DISPLAY_INTERVAL_SEC
+            ),
             log_dir=None,
             search_upper_t=None,
             strengthening=strengthening,
@@ -14332,7 +14346,7 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
             "bottleneck_stages=%s head=%s",
             retained_stage_ids,
             sorted(bottleneck_stage_ids),
-            job_sequence[: min(10, len(job_sequence))],
+            job_sequence[: min(_JOB_SEQUENCE_LOG_PREVIEW_COUNT, len(job_sequence))],
         )
         return job_sequence
 
@@ -14722,8 +14736,8 @@ class HybridFlowShopCpLnsController(HybridFlowShopCpLnsControllerCore):
         solver_thread_cnt: int,
         medium_workload_threshold: int = 1200,
         large_workload_threshold: int = 3000,
-        small_added_batch_size: int = 10,
-        medium_added_batch_size: int = 10,
+        small_added_batch_size: int = _DEFAULT_ADDED_BATCH_SIZE,
+        medium_added_batch_size: int = _DEFAULT_ADDED_BATCH_SIZE,
         large_added_batch_size: int = 20,
         small_cp_tl_nc_multiplier: float | None = 0.015,
         medium_cp_tl_nc_multiplier: float | None = 0.030,

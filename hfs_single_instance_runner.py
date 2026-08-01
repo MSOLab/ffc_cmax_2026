@@ -1,7 +1,6 @@
 import datetime
 import json
 import logging
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +75,31 @@ class HfsSingleInstanceRunner(
         "retainedCpDispatchUpdatedIncumbent",
         "retainedCpDispatchKeptIncumbent",
     )
+    SUMMARY_ERROR_COLUMN = "error"
+    SUMMARY_COLUMNS = (
+        SubroutineReportStatisticsKeys.INSTANCE_NAME,
+        INPUT_JOBCOUNT_COLUMN,
+        INPUT_STAGECOUNT_COLUMN,
+        INPUT_MACHINESPERSTAGE_COLUMN,
+        INPUT_TIMELIMIT_COLUMN,
+        SubroutineReportStatisticsKeys.FOUND_FEASIBLE_SOL,
+        SubroutineReportStatisticsKeys.TOTAL_ELAPSED_TIME,
+        SubroutineReportStatisticsKeys.FIRST_OBJ,
+        SubroutineReportStatisticsKeys.FIRST_BOUND,
+        SubroutineReportStatisticsKeys.BEST_OBJ,
+        SubroutineReportStatisticsKeys.BEST_BOUND,
+        SubroutineReportStatisticsKeys.IMPROVEMENT_RATIO,
+        SubroutineReportStatisticsKeys.METHOD_CALL_COUNTS,
+        SubroutineReportStatisticsKeys.REPORT_COUNT,
+        *MIP_LB_SUMMARY_COLUMNS,
+        *RETAINED_CP_LB_SUMMARY_COLUMNS,
+        SUMMARY_ERROR_COLUMN,
+    )
+
+    @classmethod
+    def normalize_summary_row(cls, row: dict[str, Any]) -> dict[str, Any]:
+        """Return a summary row that follows the aggregate CSV contract."""
+        return {column: row.get(column) for column in cls.SUMMARY_COLUMNS}
 
     # Optional member variables for RunMode.RESUME
     resume_start_time_map: dict | None = None
@@ -250,12 +274,11 @@ class HfsSingleInstanceRunner(
                 self.ctrlr = self.get_controller()
                 self.ctrlr.set_working_dir(self.working_dir)
                 self.ctrlr.run()
-        except:
-            exc_str = traceback.format_exc()
-            logging.error(f"An error occurred during the run - {exc_str}")
+        except Exception:
+            logging.error("An error occurred during the run", exc_info=True)
             raise
-        finally:
-            return self.post_run_process()
+
+        return self.post_run_process()
 
     def post_run_process(self) -> dict[str, Any] | None:
         """Process results after running the instance.
@@ -337,7 +360,7 @@ class HfsSingleInstanceRunner(
             ):
                 summary_row[column_name] = last_row.get(column_name)
 
-            return summary_row
+            return self.normalize_summary_row(summary_row)
         except Exception as e:
             logging.error(f"Error creating summary row for instance '{self.name}': {e}")
             return None

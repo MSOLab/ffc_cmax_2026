@@ -106,4 +106,4 @@ Pytest is configured in `pyproject.toml` to discover `tests/test_*.py` files and
 
 ## Commit & Pull Request Guidelines
 
-Recent history mixes short imperative subjects with scoped Conventional Commit prefixes such as `fix(pw-cp): ...` and `refactor(pw-cp): ...`. Prefer that style for code changes, and reserve timestamped "run setting" commits for experiment/config snapshots. PRs should state the behavior change, list the verification commands you ran, link related issues, and include a sample output or screenshot when Gantt or progress-plot rendering changes. Do not commit `Outputs*/`, caches, or `.venv/`.
+Recent history mixes short imperative subjects with scoped Conventional Commit prefixes such as `fix(sw-cp): ...` and `refactor(sw-cp): ...`. Prefer that style for code changes, and reserve timestamped "run setting" commits for experiment/config snapshots. PRs should state the behavior change, list the verification commands you ran, link related issues, and include a sample output or screenshot when Gantt or progress-plot rendering changes. Do not commit `Outputs*/`, caches, or `.venv/`.

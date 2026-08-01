@@ -1,6 +1,6 @@
 # 알고리즘 문서 형식 규칙
 
-`requirement_docs/algorithm/` 의 기존 문서(`pw_cp_constructor_run.md`,
+`requirement_docs/algorithm/` 의 기존 문서(`sw_cp_constructor_run.md`,
 `initialize_by_tau_coarsened_cp.md`)와 일관된 문서를 만들기 위한 형식 규칙이다.
 새 문서는 이 둘 옆에 두었을 때 이질감이 없어야 한다.
 

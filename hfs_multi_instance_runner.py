@@ -46,18 +46,19 @@ class HfsMultiInstanceRunner(
 
     def _run_sequential(self) -> Any:
         """Run instances sequentially, appending results to CSV after each completion."""
-        import traceback
-
-        for idx, runner in enumerate(self.runners):
+        for runner in self.runners:
             try:
                 result = runner.run()
                 if result is not None and isinstance(result, dict):
                     self.append_result(result)
             except Exception as e:
-                logging.error(f"Error in instance {runner.ins_name}: {e}")
-                traceback.print_exc()
-                result = None
-                self.results.append(result)
+                logging.error(
+                    "Error in instance %s: %s",
+                    runner.ins_name,
+                    e,
+                    exc_info=True,
+                )
+                self.append_result(self._create_failure_result(runner.ins_name, e))
 
         return self.post_run_process()
 
@@ -76,8 +77,14 @@ class HfsMultiInstanceRunner(
                     if result is not None and isinstance(result, dict):
                         self.append_result(result)
                 except Exception as e:
-                    logging.error(f"Error in concurrent instance: {e}")
-                    self.results.append(None)
+                    runner = futures[future]
+                    logging.error(
+                        "Error in concurrent instance %s: %s",
+                        runner.ins_name,
+                        e,
+                        exc_info=True,
+                    )
+                    self.append_result(self._create_failure_result(runner.ins_name, e))
 
         return self.post_run_process()
 
@@ -439,31 +446,36 @@ class HfsMultiInstanceRunner(
         """Get the path to multi_instance_summary.csv."""
         return self.working_dir / "multi_instance_summary.csv"
 
+    @staticmethod
+    def _create_failure_result(instance_name: str, error: Exception) -> dict:
+        return HfsSingleInstanceRunner.normalize_summary_row(
+            {
+                SubroutineReportStatisticsKeys.INSTANCE_NAME: instance_name,
+                SubroutineReportStatisticsKeys.FOUND_FEASIBLE_SOL: False,
+                HfsSingleInstanceRunner.SUMMARY_ERROR_COLUMN: str(error),
+            }
+        )
+
     def append_result(self, result: dict) -> None:
         """Append a result to self.results and write to multi_instance_summary.csv.
 
         Args:
             result: Summary dict from a completed instance run.
         """
-        # Add to results list
-        self.results.append(result)
+        normalized_result = HfsSingleInstanceRunner.normalize_summary_row(result)
+        self.results.append(normalized_result)
 
-        # Write to CSV file (append mode)
         csv_path = self._get_summary_csv_path()
-
-        # Convert result to DataFrame and append
-        df = pd.DataFrame([result])
-
-        if not csv_path.exists():
-            # First result - write with header
-            df.to_csv(csv_path, index=False)
-            logging.info(f"Created multi-instance summary at {csv_path}")
-        else:
-            # Append without header
-            df.to_csv(csv_path, mode="a", index=False, header=False)
+        csv_exists = csv_path.exists()
+        pd.DataFrame([normalized_result]).to_csv(
+            csv_path,
+            mode="a" if csv_exists else "w",
+            index=False,
+            header=not csv_exists,
+        )
 
         logging.info(
-            f"Appended result for instance '{result.get(SubroutineReportStatisticsKeys.INSTANCE_NAME, 'unknown')}' "
+            f"Appended result for instance '{normalized_result.get(SubroutineReportStatisticsKeys.INSTANCE_NAME, 'unknown')}' "
             f"to multi_instance_summary.csv ({len(self.results)} total)"
         )
 

@@ -120,7 +120,7 @@ mechanism 5가지가 핵심이다. 독자가 문서를 읽으며 "이건 변수�
 읽는다.
 
 가장 좋은 참고 자료는 **이미 존재하는 문서**다. 작성 전
-`requirement_docs/algorithm/pw_cp_constructor_run.md` 와
+`requirement_docs/algorithm/sw_cp_constructor_run.md` 와
 `initialize_by_tau_coarsened_cp.md` 를 읽고 그 구조·밀도·톤을 본보기로 삼는다.
 새 문서가 그 옆에 자연스럽게 놓이도록 일관성을 맞춘다.
 

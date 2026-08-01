@@ -25,7 +25,7 @@ from hfs_single_instance_runner import HfsSingleInstanceRunner
 from hybridflowshop.controller import HybridFlowShopCpLnsController
 from output_filenames import OutputFilenames
 
-MAIN_METADATA_FILENAME = "main_metadata_p1_improv_ablation_full.yaml"
+MAIN_METADATA_FILENAME = "main_metadata.yaml"
 
 
 def order_instances_for_execution(
@@ -432,10 +432,11 @@ def _setup_logging(log_path: Path, quiet: bool) -> None:
         logger.addHandler(console_handler)
 
 
-def _parse_cli() -> argparse.Namespace:
+def _parse_cli(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for the experiment runner.
 
-    Currently only ``--quiet`` is added; existing arguments can be appended here.
+    Args:
+        argv: Optional argument sequence. Uses ``sys.argv`` when omitted.
     """
     parser = argparse.ArgumentParser(description="Hybrid Flowshop experiment runner")
     parser.add_argument(
@@ -444,18 +445,22 @@ def _parse_cli() -> argparse.Namespace:
         action="store_true",
         help="Suppress console output (log is still written to file)",
     )
-    # Add other arguments here if the project already defines them elsewhere.
-    return parser.parse_args()
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path(MAIN_METADATA_FILENAME),
+        help=f"Main metadata YAML path (default: {MAIN_METADATA_FILENAME})",
+    )
+    return parser.parse_args(argv)
 
 
 def main():
-    from pathlib import Path
 
     e_timer = ElapsedTimer()
     args = _parse_cli()
 
     # --- Load and validate metadata ---
-    raw_metadata = read_yaml(Path(MAIN_METADATA_FILENAME))
+    raw_metadata = read_yaml(args.config)
     config = MainMetadata.model_validate(raw_metadata)
     run_mode, base_output_dir_path, prev_flow, resume_dir = (
         determine_run_mode_and_base_dir(config, e_timer)
